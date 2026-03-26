@@ -1,0 +1,393 @@
+"""The main agent runner that ties everything together.
+
+This module contains AgentRunner, which takes input data, builds a prompt,
+calls the AI model, validates the output, handles tool calls, manages
+retries, and saves thread state. It is the entry point for running an agent.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import Mapping
+from typing import Any
+
+from governai.integrations.tool_calls import build_tool_message
+from pydantic import BaseModel, ValidationError
+
+from zeroth.agent_runtime.errors import (
+    AgentInputValidationError,
+    AgentOutputValidationError,
+    AgentProviderError,
+    AgentRetryExhaustedError,
+    AgentTimeoutError,
+)
+from zeroth.agent_runtime.models import (
+    AgentConfig,
+    AgentRunResult,
+    InMemoryThreadStateStore,
+    ThreadStateStore,
+)
+from zeroth.agent_runtime.prompt import AgentAuditSerializer, PromptAssembler
+from zeroth.agent_runtime.provider import (
+    ProviderAdapter,
+    ProviderRequest,
+    run_provider_with_timeout,
+)
+from zeroth.agent_runtime.tools import ToolAttachmentBridge
+from zeroth.agent_runtime.validation import OutputValidator
+from zeroth.audit import MemoryAccessRecord
+from zeroth.memory import MemoryConnectorResolver
+
+
+class AgentRunner:
+    """Runs an agent end-to-end: prompt assembly, model call, output validation.
+
+    This is the main class you use to execute an agent. Give it a config
+    and a provider, then call ``run()`` with your input data. It handles
+    retries, tool calls, thread state, memory, and audit logging.
+    """
+
+    def __init__(
+        self,
+        config: AgentConfig,
+        provider: ProviderAdapter,
+        *,
+        prompt_assembler: PromptAssembler | None = None,
+        output_validator: OutputValidator | None = None,
+        audit_serializer: AgentAuditSerializer | None = None,
+        thread_state_store: ThreadStateStore | None = None,
+        tool_bridge: ToolAttachmentBridge | None = None,
+        tool_executor: Any | None = None,
+        granted_tool_permissions: list[str] | None = None,
+        memory_resolver: MemoryConnectorResolver | None = None,
+    ) -> None:
+        self.config = config
+        self.provider = provider
+        self.prompt_assembler = prompt_assembler or PromptAssembler()
+        self.output_validator = output_validator or OutputValidator()
+        self.audit_serializer = audit_serializer or AgentAuditSerializer(
+            redact_keys=set(config.prompt_config.redact_keys)
+        )
+        self.thread_state_store = thread_state_store or InMemoryThreadStateStore()
+        attachments = config.tool_attachments
+        self.tool_bridge = tool_bridge or ToolAttachmentBridge.from_config(attachments)
+        self.tool_executor = tool_executor
+        self.granted_tool_permissions = granted_tool_permissions or []
+        self.memory_resolver = memory_resolver
+
+    async def run(
+        self,
+        input_payload: BaseModel | Mapping[str, Any],
+        *,
+        thread_id: str | None = None,
+        runtime_context: Mapping[str, Any] | None = None,
+    ) -> AgentRunResult:
+        """Execute the agent with the given input and return the result.
+
+        Validates input, assembles the prompt, calls the provider (with
+        retries if configured), resolves any tool calls, validates the
+        output, saves thread state, and returns the full result with
+        audit information.
+        """
+        validated_input = self._validate_input(input_payload)
+        thread_state = await self._load_thread_state(thread_id)
+        resolved_runtime_context = dict(runtime_context or {})
+        memory_context, memory_interactions = self._load_memory(
+            thread_id=thread_id,
+            runtime_context=resolved_runtime_context,
+        )
+        if memory_context:
+            # Memory is added to the prompt context as normal input.
+            resolved_runtime_context["memory"] = memory_context
+        retry_policy = self.config.retry_policy
+        max_attempts = retry_policy.max_attempts
+        prompt = self.prompt_assembler.assemble(
+            self.config,
+            validated_input,
+            thread_state=thread_state,
+            runtime_context=resolved_runtime_context,
+        )
+        messages: list[Any] = list(prompt.messages)
+        last_error: Exception | None = None
+        attempts = 0
+        for attempt in range(1, max_attempts + 1):
+            attempts = attempt
+            try:
+                # Each retry rebuilds the provider request from the current message history.
+                request = ProviderRequest(
+                    model_name=self.config.model_name,
+                    messages=messages,
+                    metadata=prompt.metadata,
+                )
+                response = await run_provider_with_timeout(
+                    self.provider,
+                    request,
+                    timeout_seconds=self.config.timeout_seconds,
+                )
+                response, messages, tool_audits = await self._resolve_tool_calls(
+                    response=response,
+                    messages=messages,
+                )
+                # Validation turns the provider response into the typed Zeroth output.
+                output = self.output_validator.validate(self.config.output_model, response)
+                record = self.audit_serializer.serialize_record(
+                    prompt=prompt,
+                    response=response,
+                    extra={
+                        "attempts": attempts,
+                        "thread_id": thread_id,
+                        "thread_state": thread_state,
+                        "tool_calls": tool_audits,
+                        "memory_interactions": [
+                            item.model_dump(mode="json") for item in memory_interactions
+                        ],
+                    },
+                )
+                memory_interactions.extend(
+                    self._store_memory(
+                        output.model_dump(mode="json"),
+                        thread_id=thread_id,
+                        runtime_context=resolved_runtime_context,
+                    )
+                )
+                # Keep both memory reads and writes in the final audit record.
+                record["extra"]["memory_interactions"] = [
+                    item.model_dump(mode="json") for item in memory_interactions
+                ]
+                await self._checkpoint_thread_state(thread_id, validated_input, output, record)
+                return AgentRunResult(
+                    input_data=validated_input.model_dump(mode="json"),
+                    output_data=output.model_dump(mode="json"),
+                    attempts=attempts,
+                    prompt=prompt,
+                    provider_response=response,
+                    thread_state_snapshot=thread_state,
+                    tool_call_records=tool_audits,
+                    audit_record=record,
+                )
+            except TimeoutError as exc:
+                last_error = AgentTimeoutError(
+                    f"provider timed out after {self.config.timeout_seconds} second(s)"
+                )
+                if not retry_policy.retry_on_timeout or attempt == max_attempts:
+                    raise last_error from exc
+            except AgentOutputValidationError as exc:
+                last_error = exc
+                if not retry_policy.retry_on_validation_error or attempt == max_attempts:
+                    raise
+            except Exception as exc:
+                last_error = exc
+                if not retry_policy.retry_on_provider_error or attempt == max_attempts:
+                    if isinstance(last_error, AgentProviderError):
+                        raise last_error from exc
+                    raise AgentProviderError(str(last_error)) from last_error
+            if retry_policy.backoff_seconds:
+                await asyncio.sleep(retry_policy.backoff_seconds)
+        if last_error is None:
+            last_error = AgentProviderError("provider call failed without a specific error")
+        raise AgentRetryExhaustedError(attempts=attempts, last_error=last_error)
+
+    async def _resolve_tool_calls(
+        self,
+        *,
+        response: Any,
+        messages: list[Any],
+    ) -> tuple[Any, list[Any], list[dict[str, Any]]]:
+        """Execute any tool calls the model requested and re-call the model.
+
+        Loops until the model stops requesting tool calls or the max
+        tool call limit is reached. Returns the final response, the
+        updated message list, and audit records for each tool call.
+        """
+        tool_audits: list[dict[str, Any]] = []
+        tool_calls_used = 0
+        current_response = response
+        current_messages = list(messages)
+        while getattr(current_response, "tool_calls", None):
+            if self.tool_executor is None:
+                raise AgentProviderError(
+                    "provider requested tool calls but no tool executor is configured"
+                )
+            tool_calls = list(current_response.tool_calls)
+            if tool_calls_used + len(tool_calls) > self.config.max_tool_calls:
+                raise AgentProviderError(
+                    f"provider exceeded max_tool_calls={self.config.max_tool_calls}"
+                )
+            current_messages.append(self._assistant_message_for(current_response))
+            for call in tool_calls:
+                tool_calls_used += 1
+                # Tool calls are checked against the declared manifest before anything executes.
+                bindings = self.tool_bridge.ensure_declared_tools(
+                    requested_tool_refs=[call["name"]],
+                    declared_tool_refs=self.config.declared_tool_refs,
+                )
+                binding = bindings[0]
+                self.tool_bridge.validate_permissions(binding, self.granted_tool_permissions)
+                try:
+                    result = self.tool_executor(binding, call["args"])
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    audit = self.tool_bridge.build_call_audit(
+                        binding=binding,
+                        arguments=call["args"],
+                        granted_permissions=self.granted_tool_permissions,
+                        outcome=result if isinstance(result, Mapping) else {"value": result},
+                    )
+                    content = json.dumps(result, ensure_ascii=False, sort_keys=True)
+                    current_messages.append(
+                        build_tool_message(
+                            tool_call_id=call["id"],
+                            name=call["name"],
+                            content=content,
+                        )
+                    )
+                except Exception as exc:
+                    # Feed tool failures back as tool results so the model can react.
+                    audit = self.tool_bridge.build_call_audit(
+                        binding=binding,
+                        arguments=call["args"],
+                        granted_permissions=self.granted_tool_permissions,
+                        error=str(exc),
+                    )
+                    current_messages.append(
+                        build_tool_message(
+                            tool_call_id=call["id"],
+                            name=call["name"],
+                            content=str(exc),
+                            is_error=True,
+                        )
+                    )
+                tool_audits.append(audit)
+            current_response = await run_provider_with_timeout(
+                self.provider,
+                ProviderRequest(
+                    model_name=self.config.model_name,
+                    messages=current_messages,
+                    metadata={},
+                ),
+                timeout_seconds=self.config.timeout_seconds,
+            )
+        return current_response, current_messages, tool_audits
+
+    def _assistant_message_for(self, response: Any) -> Any:
+        """Build an assistant message from a provider response for the message history."""
+        raw = getattr(response, "raw", None)
+        if raw is not None:
+            return raw
+        return {
+            "role": "assistant",
+            "content": getattr(response, "content", None),
+            "tool_calls": list(getattr(response, "tool_calls", [])),
+        }
+
+    def _validate_input(self, input_payload: BaseModel | Mapping[str, Any]) -> BaseModel:
+        """Validate and convert the input data to the agent's expected input model."""
+        try:
+            if isinstance(input_payload, BaseModel):
+                return self.config.input_model.model_validate(input_payload.model_dump(mode="json"))
+            return self.config.input_model.model_validate(input_payload)
+        except ValidationError as exc:
+            raise AgentInputValidationError(str(exc)) from exc
+
+    async def _load_thread_state(self, thread_id: str | None) -> dict[str, Any] | None:
+        """Load the saved thread state if a thread ID is provided."""
+        if thread_id is None:
+            return None
+        store = self.thread_state_store
+        if store is None:
+            return None
+        return await store.load(thread_id)
+
+    async def _checkpoint_thread_state(
+        self,
+        thread_id: str | None,
+        input_payload: BaseModel,
+        output_payload: BaseModel,
+        record: dict[str, Any],
+    ) -> None:
+        """Save the current input, output, and audit record as thread state."""
+        if thread_id is None or self.thread_state_store is None:
+            return
+        await self.thread_state_store.checkpoint(
+            thread_id,
+            {
+                "input": input_payload.model_dump(mode="json"),
+                "output": output_payload.model_dump(mode="json"),
+                "audit": record,
+            },
+        )
+
+    def _load_memory(
+        self,
+        *,
+        thread_id: str | None,
+        runtime_context: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], list[MemoryAccessRecord]]:
+        """Read data from all configured memory connectors for this agent.
+
+        Returns the memory payload to include in the prompt and a list
+        of audit records describing each memory read.
+        """
+        resolver = self.memory_resolver
+        if resolver is None or not self.config.memory_refs:
+            return {}, []
+        bindings = resolver.resolve(
+            self.config.memory_refs,
+            thread_id=thread_id,
+            runtime_context=runtime_context,
+            node_id=self.config.name,
+        )
+        memory_payload: dict[str, Any] = {}
+        interactions: list[MemoryAccessRecord] = []
+        for binding in bindings:
+            value = binding.connector.read(binding.context, "latest")
+            # Expose each memory source under its own ref in the prompt payload.
+            memory_payload[binding.memory_ref] = {"latest": value} if value is not None else {}
+            interactions.append(
+                MemoryAccessRecord(
+                    memory_ref=binding.memory_ref,
+                    connector_type=binding.manifest.connector_type,
+                    scope=binding.context.scope.value,
+                    operation="read",
+                    key="latest",
+                    value=value,
+                )
+            )
+        return memory_payload, interactions
+
+    def _store_memory(
+        self,
+        output_payload: Mapping[str, Any],
+        *,
+        thread_id: str | None,
+        runtime_context: Mapping[str, Any],
+    ) -> list[MemoryAccessRecord]:
+        """Write the agent's output to all configured memory connectors.
+
+        Returns a list of audit records describing each memory write.
+        """
+        resolver = self.memory_resolver
+        if resolver is None or not self.config.memory_refs:
+            return []
+        bindings = resolver.resolve(
+            self.config.memory_refs,
+            thread_id=thread_id,
+            runtime_context=runtime_context,
+            node_id=self.config.name,
+        )
+        interactions: list[MemoryAccessRecord] = []
+        for binding in bindings:
+            # The MVP stores the latest structured output for each memory binding.
+            binding.connector.write(binding.context, "latest", dict(output_payload))
+            interactions.append(
+                MemoryAccessRecord(
+                    memory_ref=binding.memory_ref,
+                    connector_type=binding.manifest.connector_type,
+                    scope=binding.context.scope.value,
+                    operation="write",
+                    key="latest",
+                    value=dict(output_payload),
+                )
+            )
+        return interactions
