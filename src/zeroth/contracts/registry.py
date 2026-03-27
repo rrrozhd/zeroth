@@ -273,8 +273,10 @@ class ContractRegistry:
     ) -> StepContractBinding:
         """Bind a GovernAI step spec to registered contracts."""
         payload = dict(metadata or {})
-        tool_name = getattr(step.tool, "name", None) if step.tool is not None else None
-        agent_name = getattr(step.agent, "name", None) if step.agent is not None else None
+        step_tool = getattr(step, "tool", None)
+        step_agent = getattr(step, "agent", None)
+        tool_name = getattr(step_tool, "name", None) if step_tool is not None else None
+        agent_name = getattr(step_agent, "name", None) if step_agent is not None else None
         return StepContractBinding(
             flow_name=flow_name,
             step_name=step.name,

@@ -134,13 +134,33 @@ def register_approval_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
 
         if was_pending and _run_is_waiting_for_approval(run):
-            # Only the first successful resolution should resume the paused workflow.
+            # When the durable worker is active, hand off to it via schedule_continuation,
+            # then wait for it to complete (up to 5 s) so callers get a terminal status.
+            # Otherwise fall back to the synchronous inline path.
+            has_worker = getattr(bootstrap, "worker", None) is not None
             try:
-                run = await bootstrap.approval_service.continue_run(
-                    approval_id,
-                    graph=bootstrap.graph,
-                    orchestrator=bootstrap.orchestrator,
-                )
+                if has_worker:
+                    run = bootstrap.approval_service.schedule_continuation(approval_id)
+                    # Yield to the event loop so the worker can claim and drive the run.
+                    import asyncio as _asyncio
+                    for _ in range(100):  # up to ~5 s
+                        await _asyncio.sleep(0.05)
+                        current = bootstrap.run_repository.get(run.run_id)
+                        if current is not None and current.status not in {
+                            RunStatus.PENDING, RunStatus.RUNNING
+                        }:
+                            run = current
+                            break
+                    else:
+                        current = bootstrap.run_repository.get(run.run_id)
+                        if current is not None:
+                            run = current
+                else:
+                    run = await bootstrap.approval_service.continue_run(
+                        approval_id,
+                        graph=bootstrap.graph,
+                        orchestrator=bootstrap.orchestrator,
+                    )
             except KeyError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,

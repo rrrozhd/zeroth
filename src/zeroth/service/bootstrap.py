@@ -12,10 +12,16 @@ from zeroth.approvals import ApprovalRepository, ApprovalService
 from zeroth.audit import AuditRepository
 from zeroth.contracts import ContractRegistry
 from zeroth.deployments import Deployment, DeploymentService, SQLiteDeploymentRepository
+from zeroth.dispatch import LeaseManager, RunWorker
 from zeroth.execution_units import ExecutableUnitRunner
 from zeroth.graph import Graph, GraphRepository
 from zeroth.graph.serialization import deserialize_graph
 from zeroth.graph.versioning import graph_version_ref
+from zeroth.guardrails.config import GuardrailConfig
+from zeroth.guardrails.dead_letter import DeadLetterManager
+from zeroth.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.observability.metrics import MetricsCollector
+from zeroth.observability.queue_gauge import QueueDepthGauge
 from zeroth.orchestrator import RuntimeOrchestrator
 from zeroth.runs import RunRepository, ThreadRepository
 from zeroth.service.app import create_app
@@ -42,6 +48,15 @@ class ServiceBootstrap:
     orchestrator: RuntimeOrchestrator
     auth_config: ServiceAuthConfig
     authenticator: ServiceAuthenticator
+    # Phase 9 additions (optional so existing tests don't break).
+    worker: RunWorker | None = None
+    lease_manager: LeaseManager | None = None
+    guardrail_config: GuardrailConfig | None = None
+    rate_limiter: TokenBucketRateLimiter | None = None
+    quota_enforcer: QuotaEnforcer | None = None
+    dead_letter_manager: DeadLetterManager | None = None
+    metrics_collector: MetricsCollector | None = None
+    queue_gauge: QueueDepthGauge | None = None
 
 
 def bootstrap_service(
@@ -52,6 +67,8 @@ def bootstrap_service(
     executable_unit_runner: ExecutableUnitRunner | None = None,
     auth_config: ServiceAuthConfig | None = None,
     bearer_token_verifier: JWTBearerTokenVerifier | None = None,
+    guardrail_config: GuardrailConfig | None = None,
+    enable_durable_worker: bool = True,
 ) -> ServiceBootstrap:
     """Build the service wrapper wiring for a specific deployment."""
     graph_repository = GraphRepository(database)
@@ -107,6 +124,36 @@ def bootstrap_service(
         resolved_auth_config,
         bearer_verifier=bearer_token_verifier,
     )
+
+    # Phase 9: durable dispatch, guardrails, observability.
+    resolved_guardrail_config = guardrail_config or GuardrailConfig()
+    lease_manager = LeaseManager(database)
+    dead_letter_manager = DeadLetterManager(
+        run_repository=run_repository,
+        max_failure_count=resolved_guardrail_config.max_failure_count,
+    )
+    rate_limiter = TokenBucketRateLimiter(database)
+    quota_enforcer = QuotaEnforcer(database)
+    metrics_collector = MetricsCollector()
+    queue_gauge = QueueDepthGauge(
+        run_repository=run_repository,
+        deployment_ref=deployment.deployment_ref,
+        metrics_collector=metrics_collector,
+    )
+
+    worker: RunWorker | None = None
+    if enable_durable_worker:
+        worker = RunWorker(
+            deployment_ref=deployment.deployment_ref,
+            run_repository=run_repository,
+            orchestrator=orchestrator,
+            graph=graph,
+            lease_manager=lease_manager,
+            max_concurrency=resolved_guardrail_config.max_concurrency,
+            dead_letter_manager=dead_letter_manager,
+            metrics_collector=metrics_collector,
+        )
+
     # Return one small container so the HTTP layer can stay thin and avoid global state.
     return ServiceBootstrap(
         deployment_service=deployment_service,
@@ -120,6 +167,14 @@ def bootstrap_service(
         orchestrator=orchestrator,
         auth_config=resolved_auth_config,
         authenticator=authenticator,
+        worker=worker,
+        lease_manager=lease_manager,
+        guardrail_config=resolved_guardrail_config,
+        rate_limiter=rate_limiter,
+        quota_enforcer=quota_enforcer,
+        dead_letter_manager=dead_letter_manager,
+        metrics_collector=metrics_collector,
+        queue_gauge=queue_gauge,
     )
 
 

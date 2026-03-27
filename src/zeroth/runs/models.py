@@ -141,6 +141,8 @@ class Run(RunState):
         This keeps the two layers in sync automatically: for example, if you
         set current_node_ids, the GovernAI current_step field gets updated too.
         """
+        if not self.thread_id:
+            self.thread_id = self.run_id
         if not self.workflow_name:
             self.workflow_name = self.deployment_ref or self.graph_version_ref
         if self.current_step is None and self.current_node_ids:
