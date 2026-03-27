@@ -12,6 +12,7 @@ from zeroth.contracts import ContractReference
 from zeroth.contracts.errors import ContractNotFoundError
 from zeroth.deployments import DeploymentStatus
 from zeroth.runs import RunFailureState
+from zeroth.service.authorization import Permission, require_deployment_scope, require_permission
 from zeroth.service.run_api import RunStatusResponse
 
 
@@ -40,6 +41,10 @@ class DeploymentVersionMetadataResponse(BaseModel):
     status: DeploymentStatus
     created_at: datetime
     updated_at: datetime
+    audit_ref: str | None = None
+    timeline_ref: str | None = None
+    evidence_ref: str | None = None
+    attestation_ref: str | None = None
 
 
 class PublicContractSchemaResponse(BaseModel):
@@ -77,6 +82,7 @@ def register_contract_routes(app: FastAPI) -> None:
         deployment_ref: str,
     ) -> PublicContractSchemaResponse:
         bootstrap, deployment = _deployment_context(request, deployment_ref)
+        require_permission(request, Permission.DEPLOYMENT_READ)
         return _serialize_contract(
             _resolve_contract_version(
                 bootstrap,
@@ -95,6 +101,7 @@ def register_contract_routes(app: FastAPI) -> None:
         deployment_ref: str,
     ) -> PublicContractSchemaResponse:
         bootstrap, deployment = _deployment_context(request, deployment_ref)
+        require_permission(request, Permission.DEPLOYMENT_READ)
         return _serialize_contract(
             _resolve_contract_version(
                 bootstrap,
@@ -113,6 +120,7 @@ def register_contract_routes(app: FastAPI) -> None:
         deployment_ref: str,
     ) -> DeploymentResultErrorStateSchemaResponse:
         bootstrap, deployment = _deployment_context(request, deployment_ref)
+        require_permission(request, Permission.DEPLOYMENT_READ)
         # Reuse the same pinned output contract endpoint logic so schema views stay consistent.
         result_contract = _serialize_contract(
             _resolve_contract_version(
@@ -140,21 +148,8 @@ def register_contract_routes(app: FastAPI) -> None:
         deployment_ref: str,
     ) -> DeploymentVersionMetadataResponse:
         _, deployment = _deployment_context(request, deployment_ref)
-        return DeploymentVersionMetadataResponse(
-            deployment_ref=deployment.deployment_ref,
-            deployment_version=deployment.version,
-            graph_id=deployment.graph_id,
-            graph_version=deployment.graph_version,
-            graph_version_ref=deployment.graph_version_ref,
-            entry_input_contract_ref=deployment.entry_input_contract_ref,
-            entry_input_contract_version=deployment.entry_input_contract_version,
-            entry_output_contract_ref=deployment.entry_output_contract_ref,
-            entry_output_contract_version=deployment.entry_output_contract_version,
-            deployment_settings_snapshot=dict(deployment.deployment_settings_snapshot),
-            status=deployment.status,
-            created_at=deployment.created_at,
-            updated_at=deployment.updated_at,
-        )
+        require_permission(request, Permission.DEPLOYMENT_READ)
+        return serialize_deployment_metadata(deployment)
 
 
 def _bootstrap(request: Request) -> ContractApiBootstrapLike:
@@ -170,6 +165,7 @@ def _deployment_context(
 ) -> tuple[ContractApiBootstrapLike, object]:
     bootstrap = _bootstrap(request)
     deployment = bootstrap.deployment
+    require_deployment_scope(request, deployment)
     if getattr(deployment, "deployment_ref", None) != deployment_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")
     return bootstrap, deployment
@@ -216,4 +212,27 @@ def _serialize_contract(contract: object) -> PublicContractSchemaResponse:
         name=contract.name,
         version=contract.version,
         json_schema=dict(contract.json_schema),
+    )
+
+
+def serialize_deployment_metadata(deployment: object) -> DeploymentVersionMetadataResponse:
+    """Build the public deployment metadata payload used across service routes."""
+    return DeploymentVersionMetadataResponse(
+        deployment_ref=deployment.deployment_ref,
+        deployment_version=deployment.version,
+        graph_id=deployment.graph_id,
+        graph_version=deployment.graph_version,
+        graph_version_ref=deployment.graph_version_ref,
+        entry_input_contract_ref=deployment.entry_input_contract_ref,
+        entry_input_contract_version=deployment.entry_input_contract_version,
+        entry_output_contract_ref=deployment.entry_output_contract_ref,
+        entry_output_contract_version=deployment.entry_output_contract_version,
+        deployment_settings_snapshot=dict(deployment.deployment_settings_snapshot),
+        status=deployment.status,
+        created_at=deployment.created_at,
+        updated_at=deployment.updated_at,
+        audit_ref=f"/deployments/{deployment.deployment_ref}/audits",
+        timeline_ref=f"/deployments/{deployment.deployment_ref}/timeline",
+        evidence_ref=f"/deployments/{deployment.deployment_ref}/evidence",
+        attestation_ref=f"/deployments/{deployment.deployment_ref}/attestation",
     )

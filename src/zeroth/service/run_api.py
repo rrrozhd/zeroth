@@ -12,7 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from zeroth.contracts import ContractReference
 from zeroth.contracts.errors import ContractNotFoundError
+from zeroth.identity import ActorIdentity
 from zeroth.runs import Run, RunFailureState, RunRepository, RunStatus
+from zeroth.service.authorization import (
+    Permission,
+    require_deployment_scope,
+    require_permission,
+    require_resource_scope,
+)
 
 
 class RunApiBootstrapLike(Protocol):
@@ -67,11 +74,16 @@ class RunStatusResponse(BaseModel):
     deployment_ref: str
     graph_version_ref: str
     thread_id: str
+    tenant_id: str = "default"
+    workspace_id: str | None = None
+    submitted_by: ActorIdentity | None = None
     current_step: str | None = None
     terminal_output: Any | None = None
     failure_state: RunFailureState | None = None
     approval_paused_state: ApprovalPausedState | None = None
     audit_refs: list[str] = Field(default_factory=list)
+    timeline_ref: str | None = None
+    evidence_ref: str | None = None
 
 
 class RunInvocationResponse(RunStatusResponse):
@@ -86,12 +98,17 @@ def register_run_routes(app: FastAPI) -> None:
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
         graph = bootstrap.graph
+        principal = require_permission(request, Permission.RUN_CREATE)
+        require_deployment_scope(request, deployment, hide_as_not_found=False)
         # Validate against the pinned deployment contract version.
         validated_input = _validate_input_payload(bootstrap, payload.input_payload)
         thread_id = _validate_thread_id(bootstrap, payload.thread_id)
         run = Run(
             graph_version_ref=deployment.graph_version_ref,
             deployment_ref=deployment.deployment_ref,
+            tenant_id=getattr(deployment, "tenant_id", "default"),
+            workspace_id=getattr(deployment, "workspace_id", None),
+            submitted_by=principal.to_actor(),
             thread_id=thread_id,
             current_node_ids=[],
             pending_node_ids=[_entry_step(graph)],
@@ -110,6 +127,7 @@ def register_run_routes(app: FastAPI) -> None:
     @app.get("/runs/{run_id}", response_model=RunStatusResponse)
     async def get_run(request: Request, run_id: str) -> RunStatusResponse:
         bootstrap = _bootstrap(request)
+        require_permission(request, Permission.RUN_READ)
         run = bootstrap.run_repository.get(run_id)
         if (
             run is None
@@ -117,6 +135,12 @@ def register_run_routes(app: FastAPI) -> None:
             or run.graph_version_ref != bootstrap.deployment.graph_version_ref
         ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+        require_resource_scope(
+            request,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+            not_found_detail="run not found",
+        )
         return _serialize_run(run)
 
 
@@ -224,9 +248,13 @@ def _validate_thread_id(bootstrap: RunApiBootstrapLike, thread_id: str | None) -
     if thread is None:
         # A brand-new explicit thread ID is allowed and will become the new conversation key.
         return thread_id
+    deployment_tenant_id = getattr(bootstrap.deployment, "tenant_id", "default")
+    deployment_workspace_id = getattr(bootstrap.deployment, "workspace_id", None)
     if (
         thread.deployment_ref != bootstrap.deployment.deployment_ref
         or thread.graph_version_ref != bootstrap.deployment.graph_version_ref
+        or getattr(thread, "tenant_id", "default") != deployment_tenant_id
+        or getattr(thread, "workspace_id", None) != deployment_workspace_id
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -267,11 +295,16 @@ def _serialize_run(run: Run) -> RunStatusResponse:
         deployment_ref=run.deployment_ref,
         graph_version_ref=run.graph_version_ref,
         thread_id=run.thread_id,
+        tenant_id=run.tenant_id,
+        workspace_id=run.workspace_id,
+        submitted_by=run.submitted_by,
         current_step=run.current_step,
         terminal_output=run.final_output,
         failure_state=run.failure_state,
         approval_paused_state=approval_paused_state,
         audit_refs=list(run.audit_refs),
+        timeline_ref=f"/runs/{run.run_id}/timeline",
+        evidence_ref=f"/runs/{run.run_id}/evidence",
     )
 
 

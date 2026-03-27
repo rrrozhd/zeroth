@@ -85,6 +85,7 @@ from zeroth.policy import (
     PolicyRegistry,
 )
 from zeroth.service.app import create_app
+from zeroth.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig
 from zeroth.service.bootstrap import ServiceBootstrap, bootstrap_service
 from zeroth.storage import SQLiteDatabase
 
@@ -172,6 +173,8 @@ def bootstrap_research_audit_service(
     deployment_ref: str = _DEPLOYMENT_REF,
     repo_root: Path | None = None,
     strict_policy: bool = False,
+    auth_config: ServiceAuthConfig | None = None,
+    bearer_token_verifier: JWTBearerTokenVerifier | None = None,
 ) -> ServiceBootstrap:
     """Create or load the research-audit deployment and wire live scenario runtime pieces."""
 
@@ -184,6 +187,8 @@ def bootstrap_research_audit_service(
         deployment_ref=deployment_ref,
         agent_runners={},
         executable_unit_runner=eu_runner,
+        auth_config=auth_config,
+        bearer_token_verifier=bearer_token_verifier,
     )
     thread_store = RepositoryThreadStateStore(
         run_repository=service.run_repository,
@@ -209,6 +214,8 @@ def bootstrap_research_audit_app(
     deployment_ref: str = _DEPLOYMENT_REF,
     repo_root: Path | None = None,
     strict_policy: bool = False,
+    auth_config: ServiceAuthConfig | None = None,
+    bearer_token_verifier: JWTBearerTokenVerifier | None = None,
 ):
     """Create the FastAPI app for the research-audit deployment."""
 
@@ -218,6 +225,8 @@ def bootstrap_research_audit_app(
         deployment_ref=deployment_ref,
         repo_root=repo_root,
         strict_policy=strict_policy,
+        auth_config=auth_config,
+        bearer_token_verifier=bearer_token_verifier,
     )
     return create_app(service)
 

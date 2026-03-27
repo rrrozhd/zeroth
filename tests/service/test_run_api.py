@@ -11,6 +11,7 @@ from tests.service.helpers import (
     agent_graph,
     approval_graph,
     deploy_service,
+    operator_headers,
     wait_for,
 )
 from zeroth.graph import GraphRepository
@@ -35,6 +36,7 @@ def test_run_creation_accepts_input_and_supplied_thread_id(sqlite_db) -> None:
         response = client.post(
             "/runs",
             json={"input_payload": {"value": 3}, "thread_id": "thread-continue"},
+            headers=operator_headers(),
         )
         payload = response.json()
         run_id = payload["run_id"]
@@ -62,7 +64,11 @@ def test_run_creation_without_thread_id_returns_new_thread_linkage(sqlite_db) ->
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        response = client.post("/runs", json={"input_payload": {"value": 3}})
+        response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         payload = response.json()
 
         assert response.status_code == 202
@@ -79,7 +85,11 @@ def test_run_creation_rejects_invalid_input(sqlite_db) -> None:
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        response = client.post("/runs", json={"input_payload": {"value": "not-an-int"}})
+        response = client.post(
+            "/runs",
+            json={"input_payload": {"value": "not-an-int"}},
+            headers=operator_headers(),
+        )
 
     assert response.status_code == 422
     assert "value" in response.text
@@ -103,7 +113,11 @@ def test_run_creation_validates_against_deployed_input_contract_version(sqlite_d
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        response = client.post("/runs", json={"input_payload": {"value": 3}})
+        response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
 
         assert response.status_code == 202
         wait_for(started.is_set)
@@ -127,6 +141,7 @@ def test_run_creation_rejects_foreign_thread_id(sqlite_db) -> None:
         response = client.post(
             "/runs",
             json={"input_payload": {"value": 7}, "thread_id": "shared-thread"},
+            headers=operator_headers(),
         )
 
     assert response.status_code == 409
@@ -146,12 +161,16 @@ def test_run_status_reports_running_and_completed_state(sqlite_db) -> None:
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 7}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 7}},
+            headers=operator_headers(),
+        )
         run_id = create_response.json()["run_id"]
 
         wait_for(started.is_set)
 
-        running_response = client.get(f"/runs/{run_id}")
+        running_response = client.get(f"/runs/{run_id}", headers=operator_headers())
         running_payload = running_response.json()
 
         assert running_response.status_code == 200
@@ -160,12 +179,18 @@ def test_run_status_reports_running_and_completed_state(sqlite_db) -> None:
         assert running_payload["thread_id"] == run_id
 
         release.set()
-        wait_for(lambda: client.get(f"/runs/{run_id}").json()["status"] == "succeeded")
-        completed_payload = client.get(f"/runs/{run_id}").json()
+        wait_for(
+            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+            == "succeeded"
+        )
+        completed_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
     assert completed_payload["status"] == "succeeded"
     assert completed_payload["terminal_output"] == {"value": 42}
     assert completed_payload["failure_state"] is None
+    assert completed_payload["submitted_by"]["subject"] == "operator-1"
+    assert completed_payload["tenant_id"] == "default"
+    assert completed_payload["workspace_id"] is None
 
 
 def test_run_status_returns_404_for_unknown_run(sqlite_db) -> None:
@@ -174,7 +199,7 @@ def test_run_status_returns_404_for_unknown_run(sqlite_db) -> None:
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        response = client.get("/runs/missing-run")
+        response = client.get("/runs/missing-run", headers=operator_headers())
 
     assert response.status_code == 404
     assert response.json() == {"detail": "run not found"}
@@ -193,11 +218,15 @@ def test_run_status_does_not_expose_runs_from_other_deployments(sqlite_db) -> No
             deployment_ref=second_service.deployment.deployment_ref,
         )
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=first_service.deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=first_service.deployment.deployment_ref,
+        auth_config=first_service.auth_config,
+    )
     app.state.bootstrap = first_service
 
     with TestClient(app) as client:
-        response = client.get(f"/runs/{foreign_run.run_id}")
+        response = client.get(f"/runs/{foreign_run.run_id}", headers=operator_headers())
 
     assert response.status_code == 404
     assert response.json() == {"detail": "run not found"}
@@ -222,10 +251,14 @@ def test_run_status_does_not_expose_runs_from_other_deployment_versions(sqlite_d
         published_v2.version,
     )
 
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
 
     with TestClient(app) as client:
-        response = client.get(f"/runs/{original_run.run_id}")
+        response = client.get(f"/runs/{original_run.run_id}", headers=operator_headers())
 
     assert response.status_code == 404
     assert response.json() == {"detail": "run not found"}
@@ -239,12 +272,19 @@ def test_run_status_reports_failed_state(sqlite_db) -> None:
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 7}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 7}},
+            headers=operator_headers(),
+        )
         run_id = create_response.json()["run_id"]
 
         wait_for(started.is_set)
-        wait_for(lambda: client.get(f"/runs/{run_id}").json()["status"] == "failed")
-        failed_payload = client.get(f"/runs/{run_id}").json()
+        wait_for(
+            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+            == "failed"
+        )
+        failed_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
     assert failed_payload["status"] == "failed"
     assert failed_payload["terminal_output"] is None
@@ -263,10 +303,18 @@ def test_run_creation_returns_404_when_pinned_input_contract_is_missing(sqlite_d
             """,
             (service.deployment.deployment_id,),
         )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
 
     with TestClient(app) as client:
-        response = client.post("/runs", json={"input_payload": {"value": 7}})
+        response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 7}},
+            headers=operator_headers(),
+        )
 
     assert response.status_code == 404
     assert response.json() == {
@@ -280,11 +328,18 @@ def test_run_status_reports_approval_paused_state(sqlite_db) -> None:
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 7}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 7}},
+            headers=operator_headers(),
+        )
         run_id = create_response.json()["run_id"]
 
-        wait_for(lambda: client.get(f"/runs/{run_id}").json()["status"] == "paused_for_approval")
-        paused_payload = client.get(f"/runs/{run_id}").json()
+        wait_for(
+            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+            == "paused_for_approval"
+        )
+        paused_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
     assert paused_payload["status"] == "paused_for_approval"
     assert paused_payload["approval_paused_state"]["node_id"] == "approval-step"
@@ -313,8 +368,11 @@ def test_run_status_reports_policy_and_loop_guard_termination(sqlite_db) -> None
     )
 
     with TestClient(app) as client:
-        policy_payload = client.get(f"/runs/{policy_run.run_id}").json()
-        loop_guard_payload = client.get(f"/runs/{loop_guard_run.run_id}").json()
+        policy_payload = client.get(f"/runs/{policy_run.run_id}", headers=operator_headers()).json()
+        loop_guard_payload = client.get(
+            f"/runs/{loop_guard_run.run_id}",
+            headers=operator_headers(),
+        ).json()
 
     assert policy_payload["status"] == "terminated_by_policy"
     assert loop_guard_payload["status"] == "terminated_by_loop_guard"

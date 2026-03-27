@@ -14,6 +14,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from zeroth.identity import ActorIdentity
+
 
 def _utc_now() -> datetime:
     """Return the current time in UTC. Used as a default factory for timestamp fields."""
@@ -70,7 +72,7 @@ class ApprovalResolution(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decision: ApprovalDecision
-    approver: str
+    actor: ActorIdentity
     edited_payload: dict[str, Any] | None = None
     resolved_at: datetime = Field(default_factory=_utc_now)
 
@@ -91,6 +93,9 @@ class ApprovalRecord(BaseModel):
     node_id: str
     graph_version_ref: str
     deployment_ref: str
+    tenant_id: str = "default"
+    workspace_id: str | None = None
+    requested_by: ActorIdentity | None = None
     interaction_type: HumanInteractionType = HumanInteractionType.APPROVAL
     status: ApprovalStatus = ApprovalStatus.PENDING
     requested_decision: ApprovalDecision = ApprovalDecision.APPROVE

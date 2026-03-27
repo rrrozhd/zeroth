@@ -7,9 +7,11 @@ set up automatically via migrations when the repository is created.
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Sequence
 
 from zeroth.audit.models import AuditQuery, NodeAuditRecord
+from zeroth.audit.verifier import compute_chained_record
 from zeroth.storage import Migration, SQLiteDatabase
 from zeroth.storage.json import load_typed_value, to_json_value
 
@@ -43,6 +45,25 @@ MIGRATIONS = [
             ON node_audits(deployment_ref, created_at, audit_id);
         """,
     )
+    ,
+    Migration(
+        version=2,
+        name="add_audit_scope_columns",
+        sql="""
+        ALTER TABLE node_audits
+        ADD COLUMN tenant_id TEXT DEFAULT 'default';
+
+        ALTER TABLE node_audits
+        ADD COLUMN workspace_id TEXT;
+
+        UPDATE node_audits
+        SET tenant_id = 'default'
+        WHERE tenant_id IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_node_audits_scope
+            ON node_audits(tenant_id, workspace_id, deployment_ref, created_at, audit_id);
+        """,
+    )
 ]
 
 
@@ -60,42 +81,46 @@ class AuditRepository:
     def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         """Save an audit record to the database.
 
-        If a record with the same audit_id already exists, it gets updated
-        with the new data. Returns the saved record as read back from the database.
+        Writes are append-only. Duplicate audit IDs are rejected so history
+        cannot be silently rewritten.
         """
         with self._database.transaction() as connection:
-            connection.execute(
-                """
-                INSERT INTO node_audits (
-                    audit_id,
-                    run_id,
-                    thread_id,
-                    node_id,
-                    graph_version_ref,
-                    deployment_ref,
-                    created_at,
-                    record_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(audit_id) DO UPDATE SET
-                    run_id = excluded.run_id,
-                    thread_id = excluded.thread_id,
-                    node_id = excluded.node_id,
-                    graph_version_ref = excluded.graph_version_ref,
-                    deployment_ref = excluded.deployment_ref,
-                    created_at = excluded.created_at,
-                    record_json = excluded.record_json
-                """,
-                (
-                    record.audit_id,
-                    record.run_id,
-                    record.thread_id,
-                    record.node_id,
-                    record.graph_version_ref,
-                    record.deployment_ref,
-                    record.started_at.isoformat(),
-                    to_json_value(record.model_dump(mode="json")),
-                ),
+            previous = self._latest_for_run(connection, record.run_id)
+            chained = compute_chained_record(
+                record,
+                previous.record_digest if previous is not None else None,
             )
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO node_audits (
+                        audit_id,
+                        run_id,
+                        thread_id,
+                        node_id,
+                        graph_version_ref,
+                        deployment_ref,
+                        tenant_id,
+                        workspace_id,
+                        created_at,
+                        record_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        chained.audit_id,
+                        chained.run_id,
+                        chained.thread_id,
+                        chained.node_id,
+                        chained.graph_version_ref,
+                        chained.deployment_ref,
+                        chained.tenant_id,
+                        chained.workspace_id,
+                        chained.started_at.isoformat(),
+                        to_json_value(chained.model_dump(mode="json")),
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"audit_id {record.audit_id!r} already exists") from exc
         return self.get(record.audit_id)
 
     def get(self, audit_id: str) -> NodeAuditRecord | None:
@@ -158,3 +183,18 @@ class AuditRepository:
     def write_many(self, records: Sequence[NodeAuditRecord]) -> list[NodeAuditRecord]:
         """Save multiple audit records at once. Returns all saved records."""
         return [self.write(record) for record in records]
+
+    def _latest_for_run(self, connection, run_id: str) -> NodeAuditRecord | None:  # noqa: ANN001
+        row = connection.execute(
+            """
+            SELECT record_json
+            FROM node_audits
+            WHERE run_id = ?
+            ORDER BY created_at DESC, audit_id DESC
+            LIMIT 1
+            """,
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))

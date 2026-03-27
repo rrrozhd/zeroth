@@ -5,11 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 
 from zeroth.deployments.models import Deployment, DeploymentStatus
+from zeroth.deployments.provenance import (
+    build_attestation_payload,
+    compute_contract_snapshot_digest,
+    compute_graph_snapshot_digest,
+    compute_settings_snapshot_digest,
+)
 from zeroth.storage import Migration, SQLiteDatabase
 from zeroth.storage.json import load_typed_value, to_json_value
 
 SCHEMA_SCOPE = "deployments"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 MIGRATIONS = (
     Migration(
@@ -48,6 +54,41 @@ MIGRATIONS = (
 
         ALTER TABLE deployment_versions
         ADD COLUMN entry_output_contract_version INTEGER;
+        """,
+    ),
+    Migration(
+        version=3,
+        name="add_deployment_scope_columns",
+        sql="""
+        ALTER TABLE deployment_versions
+        ADD COLUMN tenant_id TEXT DEFAULT 'default';
+
+        ALTER TABLE deployment_versions
+        ADD COLUMN workspace_id TEXT;
+
+        UPDATE deployment_versions
+        SET tenant_id = 'default'
+        WHERE tenant_id IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_deployment_versions_scope
+            ON deployment_versions(tenant_id, workspace_id, deployment_ref, version DESC);
+        """,
+    ),
+    Migration(
+        version=4,
+        name="add_provenance_digest_columns",
+        sql="""
+        ALTER TABLE deployment_versions
+        ADD COLUMN graph_snapshot_digest TEXT;
+
+        ALTER TABLE deployment_versions
+        ADD COLUMN contract_snapshot_digest TEXT;
+
+        ALTER TABLE deployment_versions
+        ADD COLUMN settings_snapshot_digest TEXT;
+
+        ALTER TABLE deployment_versions
+        ADD COLUMN attestation_digest TEXT;
         """,
     ),
 )
@@ -91,10 +132,16 @@ class SQLiteDeploymentRepository:
                     entry_output_contract_ref,
                     entry_output_contract_version,
                     deployment_settings_snapshot,
+                    graph_snapshot_digest,
+                    contract_snapshot_digest,
+                    settings_snapshot_digest,
+                    attestation_digest,
+                    tenant_id,
+                    workspace_id,
                     status,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     deployment.deployment_id,
@@ -109,6 +156,12 @@ class SQLiteDeploymentRepository:
                     deployment.entry_output_contract_ref,
                     deployment.entry_output_contract_version,
                     to_json_value(deployment.deployment_settings_snapshot),
+                    deployment.graph_snapshot_digest,
+                    deployment.contract_snapshot_digest,
+                    deployment.settings_snapshot_digest,
+                    deployment.attestation_digest,
+                    deployment.tenant_id,
+                    deployment.workspace_id,
                     deployment.status.value,
                     deployment.created_at.isoformat(),
                     deployment.updated_at.isoformat(),
@@ -164,7 +217,25 @@ class SQLiteDeploymentRepository:
 
     def _row_to_deployment(self, row) -> Deployment:
         """Convert a SQLite row to a Deployment model."""
-        return Deployment(
+        settings_snapshot = load_typed_value(
+            row["deployment_settings_snapshot"],
+            dict,
+        )
+        graph_snapshot_digest = row["graph_snapshot_digest"] or compute_graph_snapshot_digest(
+            row["serialized_graph"]
+        )
+        contract_snapshot_digest = row["contract_snapshot_digest"] or (
+            compute_contract_snapshot_digest(
+                entry_input_contract_ref=row["entry_input_contract_ref"],
+                entry_input_contract_version=row["entry_input_contract_version"],
+                entry_output_contract_ref=row["entry_output_contract_ref"],
+                entry_output_contract_version=row["entry_output_contract_version"],
+            )
+        )
+        settings_snapshot_digest = row["settings_snapshot_digest"] or (
+            compute_settings_snapshot_digest(settings_snapshot)
+        )
+        deployment = Deployment(
             deployment_id=row["deployment_id"],
             deployment_ref=row["deployment_ref"],
             version=row["version"],
@@ -176,11 +247,19 @@ class SQLiteDeploymentRepository:
             entry_input_contract_version=row["entry_input_contract_version"],
             entry_output_contract_ref=row["entry_output_contract_ref"],
             entry_output_contract_version=row["entry_output_contract_version"],
-            deployment_settings_snapshot=load_typed_value(
-                row["deployment_settings_snapshot"],
-                dict,
-            ),
+            deployment_settings_snapshot=settings_snapshot,
+            graph_snapshot_digest=graph_snapshot_digest,
+            contract_snapshot_digest=contract_snapshot_digest,
+            settings_snapshot_digest=settings_snapshot_digest,
+            attestation_digest=row["attestation_digest"] or "",
+            tenant_id=row["tenant_id"] or "default",
+            workspace_id=row["workspace_id"],
             status=DeploymentStatus(row["status"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
+        if not deployment.attestation_digest:
+            deployment.attestation_digest = str(
+                build_attestation_payload(deployment)["attestation_digest"]
+            )
+        return deployment

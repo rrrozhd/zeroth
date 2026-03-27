@@ -16,6 +16,8 @@ from governai import RunState
 from governai import RunStatus as GovernAIRunStatus
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.identity import ActorIdentity
+
 
 def _utc_now() -> datetime:
     """Return the current time in UTC."""
@@ -120,6 +122,9 @@ class Run(RunState):
     workflow_name: str = ""
     graph_version_ref: str
     deployment_ref: str
+    tenant_id: str = "default"
+    workspace_id: str | None = None
+    submitted_by: ActorIdentity | None = None
     current_node_ids: list[str] = Field(default_factory=list)
     pending_node_ids: list[str] = Field(default_factory=list)
     execution_history: list[RunHistoryEntry] = Field(default_factory=list)
@@ -160,6 +165,8 @@ class Thread(BaseModel):
     thread_id: str = Field(default_factory=_new_id)
     graph_version_ref: str
     deployment_ref: str
+    tenant_id: str = "default"
+    workspace_id: str | None = None
     status: ThreadStatus = ThreadStatus.ACTIVE
     participating_agent_refs: list[str] = Field(default_factory=list)
     state_snapshot_refs: list[str] = Field(default_factory=list)

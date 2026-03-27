@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from zeroth.identity import ActorIdentity
+
 
 def _utc_now() -> datetime:
     """Return the current time in UTC. Used as a default timestamp factory."""
@@ -75,7 +77,7 @@ class ApprovalActionRecord(BaseModel):
 
     approval_id: str
     action: str
-    actor: str | None = None
+    actor: ActorIdentity | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     occurred_at: datetime = Field(default_factory=_utc_now)
 
@@ -97,8 +99,11 @@ class NodeAuditRecord(BaseModel):
     node_version: int = 1
     graph_version_ref: str
     deployment_ref: str
+    tenant_id: str = "default"
+    workspace_id: str | None = None
     attempt: int = 1
     status: str
+    actor: ActorIdentity | None = None
     input_snapshot: dict[str, Any] = Field(default_factory=dict)
     output_snapshot: dict[str, Any] = Field(default_factory=dict)
     validation_results: dict[str, Any] = Field(default_factory=dict)
@@ -110,6 +115,9 @@ class NodeAuditRecord(BaseModel):
     approval_actions: list[ApprovalActionRecord] = Field(default_factory=list)
     stdout: str | None = None
     stderr: str | None = None
+    supersedes_audit_id: str | None = None
+    previous_record_digest: str | None = None
+    record_digest: str | None = None
     started_at: datetime = Field(default_factory=_utc_now)
     completed_at: datetime | None = None
 
@@ -142,3 +150,15 @@ class AuditTimeline(BaseModel):
 
     run_id: str | None = None
     entries: list[NodeAuditRecord] = Field(default_factory=list)
+
+
+class AuditContinuityReport(BaseModel):
+    """Verification result for a run or deployment audit chain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str
+    verified: bool
+    record_count: int = 0
+    failed_audit_id: str | None = None
+    error: str | None = None

@@ -35,6 +35,59 @@ class RunInputPayloadV2(BaseModel):
     request_id: str
 
 
+TEST_API_KEYS = {
+    "operator": "test-operator-key",
+    "reviewer": "test-reviewer-key",
+    "admin": "test-admin-key",
+}
+
+
+def default_service_auth_config():
+    from zeroth.identity import ServiceRole
+    from zeroth.service.auth import ServiceAuthConfig, StaticApiKeyCredential
+
+    return ServiceAuthConfig(
+        api_keys=[
+            StaticApiKeyCredential(
+                credential_id="operator-key",
+                secret=TEST_API_KEYS["operator"],
+                subject="operator-1",
+                roles=[ServiceRole.OPERATOR],
+                tenant_id="default",
+                workspace_id=None,
+            ),
+            StaticApiKeyCredential(
+                credential_id="reviewer-key",
+                secret=TEST_API_KEYS["reviewer"],
+                subject="reviewer-1",
+                roles=[ServiceRole.REVIEWER],
+                tenant_id="default",
+                workspace_id=None,
+            ),
+            StaticApiKeyCredential(
+                credential_id="admin-key",
+                secret=TEST_API_KEYS["admin"],
+                subject="admin-1",
+                roles=[ServiceRole.ADMIN],
+                tenant_id="default",
+                workspace_id=None,
+            ),
+        ]
+    )
+
+
+def operator_headers() -> dict[str, str]:
+    return {"X-API-Key": TEST_API_KEYS["operator"]}
+
+
+def reviewer_headers() -> dict[str, str]:
+    return {"X-API-Key": TEST_API_KEYS["reviewer"]}
+
+
+def admin_headers() -> dict[str, str]:
+    return {"X-API-Key": TEST_API_KEYS["admin"]}
+
+
 @dataclass(slots=True)
 class BlockingAgentRunner:
     started: threading.Event
@@ -105,6 +158,9 @@ def deploy_service(
     *,
     deployment_ref: str = "service-run-api",
     extra_contract_models: dict[str, type[BaseModel]] | None = None,
+    auth_config=None,
+    tenant_id: str = "default",
+    workspace_id: str | None = None,
 ):
     graph_repository = GraphRepository(sqlite_db)
     contract_registry = ContractRegistry(sqlite_db)
@@ -112,6 +168,10 @@ def deploy_service(
     contract_registry.register(RunInputPayload, name="contract://output")
     for contract_ref, model in (extra_contract_models or {}).items():
         contract_registry.register(model, name=contract_ref)
+    deployment_settings = dict(graph.deployment_settings)
+    deployment_settings["tenant_id"] = tenant_id
+    deployment_settings["workspace_id"] = workspace_id
+    graph = graph.model_copy(update={"deployment_settings": deployment_settings})
     graph = graph_repository.create(graph)
     graph_repository.publish(graph.graph_id, graph.version)
     deployment_service = DeploymentService(
@@ -120,18 +180,30 @@ def deploy_service(
         contract_registry=contract_registry,
     )
     deployment = deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
-    service = bootstrap_service(sqlite_db, deployment_ref=deployment.deployment_ref)
+    service = bootstrap_service(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=auth_config or default_service_auth_config(),
+    )
     return service, deployment
 
 
-def service_app(sqlite_db, deployment_ref: str, service):
-    app = bootstrap_app(sqlite_db, deployment_ref=deployment_ref)
+def service_app(sqlite_db, deployment_ref: str, service, *, auth_config=None):
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment_ref,
+        auth_config=auth_config or default_service_auth_config(),
+    )
     app.state.bootstrap = service
     return app
 
 
-def bootstrap_only_app(sqlite_db, deployment_ref: str):
-    return bootstrap_app(sqlite_db, deployment_ref=deployment_ref)
+def bootstrap_only_app(sqlite_db, deployment_ref: str, *, auth_config=None):
+    return bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment_ref,
+        auth_config=auth_config or default_service_auth_config(),
+    )
 
 
 def agent_graph(*, graph_id: str, node_id: str = "agent-step") -> Graph:
@@ -227,6 +299,8 @@ def build_run_for_service(service) -> Run:
     return Run(
         graph_version_ref=service.deployment.graph_version_ref,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
     )
 
 

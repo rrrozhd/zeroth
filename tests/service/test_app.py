@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
+from tests.service.helpers import default_service_auth_config, operator_headers
 from zeroth.contracts import ContractRegistry
 from zeroth.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.execution_units import ExecutableUnitRunner
@@ -79,6 +80,7 @@ def test_bootstrap_app_forwards_injected_runners(sqlite_db) -> None:
         deployment_ref=deployment.deployment_ref,
         agent_runners={"agent-step": agent_runner},
         executable_unit_runner=executable_unit_runner,
+        auth_config=default_service_auth_config(),
     )
 
     assert app.state.bootstrap.orchestrator.agent_runners["agent-step"] is agent_runner
@@ -107,12 +109,16 @@ def test_bootstrap_service_rejects_mismatched_graph_snapshot(sqlite_db, monkeypa
 
 def test_health_endpoint_returns_success(sqlite_db) -> None:
     deployment = _deploy_test_graph(sqlite_db)
-    app = bootstrap_app(sqlite_db, deployment_ref=deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
 
     assert app.state.bootstrap.deployment == deployment
 
     with TestClient(app) as client:
-        response = client.get("/health")
+        response = client.get("/health", headers=operator_headers())
 
     assert response.status_code == 200
     assert response.json() == {

@@ -38,6 +38,12 @@ class Deployment(BaseModel):
     entry_output_contract_ref: str | None = None
     entry_output_contract_version: int | None = Field(default=None, ge=1)
     deployment_settings_snapshot: dict[str, Any] = Field(default_factory=dict)
+    graph_snapshot_digest: str = ""
+    contract_snapshot_digest: str = ""
+    settings_snapshot_digest: str = ""
+    attestation_digest: str = ""
+    tenant_id: str = "default"
+    workspace_id: str | None = None
     status: DeploymentStatus = DeploymentStatus.ACTIVE
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)

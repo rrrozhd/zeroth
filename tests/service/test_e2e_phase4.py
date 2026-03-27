@@ -5,7 +5,10 @@ from fastapi.testclient import TestClient
 from tests.service.helpers import (
     CountingFinishRunner,
     approval_resume_graph,
+    default_service_auth_config,
     deploy_service,
+    operator_headers,
+    reviewer_headers,
     wait_for,
 )
 from zeroth.graph import GraphRepository
@@ -20,47 +23,71 @@ def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite_db) -
     )
     finish_runner = CountingFinishRunner()
     service.orchestrator.agent_runners["finish-step"] = finish_runner
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        first_run = client.post("/runs", json={"input_payload": {"value": 3}})
+        first_run = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         first_run_id = first_run.json()["run_id"]
         thread_id = first_run.json()["thread_id"]
         wait_for(
-            lambda: client.get(f"/runs/{first_run_id}").json()["status"] == "paused_for_approval"
+            lambda: client.get(
+                f"/runs/{first_run_id}",
+                headers=operator_headers(),
+            ).json()["status"]
+            == "paused_for_approval"
         )
-        approval_id = client.get(f"/runs/{first_run_id}").json()["approval_paused_state"][
-            "approval_id"
-        ]
+        approval_id = client.get(
+            f"/runs/{first_run_id}",
+            headers=operator_headers(),
+        ).json()["approval_paused_state"]["approval_id"]
 
         input_contract = client.get(
-            f"/deployments/{service.deployment.deployment_ref}/input-contract"
+            f"/deployments/{service.deployment.deployment_ref}/input-contract",
+            headers=operator_headers(),
         )
-        metadata = client.get(f"/deployments/{service.deployment.deployment_ref}/metadata")
+        metadata = client.get(
+            f"/deployments/{service.deployment.deployment_ref}/metadata",
+            headers=operator_headers(),
+        )
         first_resolution = client.post(
             f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}/resolve",
-            json={"decision": "approve", "approver": "reviewer-1"},
+            json={"decision": "approve"},
+            headers=reviewer_headers(),
         )
 
         second_run = client.post(
             "/runs",
             json={"input_payload": {"value": 5}, "thread_id": thread_id},
+            headers=operator_headers(),
         )
         second_run_id = second_run.json()["run_id"]
         wait_for(
-            lambda: client.get(f"/runs/{second_run_id}").json()["status"] == "paused_for_approval"
+            lambda: client.get(
+                f"/runs/{second_run_id}",
+                headers=operator_headers(),
+            ).json()["status"]
+            == "paused_for_approval"
         )
-        second_approval_id = client.get(f"/runs/{second_run_id}").json()["approval_paused_state"][
-            "approval_id"
-        ]
+        second_approval_id = client.get(
+            f"/runs/{second_run_id}",
+            headers=operator_headers(),
+        ).json()["approval_paused_state"]["approval_id"]
         second_resolution = client.post(
             f"/deployments/{service.deployment.deployment_ref}/approvals/{second_approval_id}/resolve",
             json={
                 "decision": "edit_and_approve",
-                "approver": "reviewer-1",
                 "edited_payload": {"value": 9},
             },
+            headers=reviewer_headers(),
         )
 
     assert input_contract.status_code == 200
@@ -85,13 +112,21 @@ def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite_db) -
         published_v2.version,
     )
 
-    v2_app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    v2_app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
     v2_app.state.bootstrap.orchestrator.agent_runners["finish-step"] = finish_runner
     with TestClient(v2_app) as client:
-        v2_metadata = client.get(f"/deployments/{service.deployment.deployment_ref}/metadata")
+        v2_metadata = client.get(
+            f"/deployments/{service.deployment.deployment_ref}/metadata",
+            headers=operator_headers(),
+        )
         stale_thread = client.post(
             "/runs",
             json={"input_payload": {"value": 7}, "thread_id": thread_id},
+            headers=operator_headers(),
         )
 
     assert v2_metadata.status_code == 200
@@ -102,25 +137,39 @@ def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite_db) -
         service.deployment.deployment_ref,
         target_graph_version=1,
     )
-    rollback_app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    rollback_app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
     rollback_app.state.bootstrap.orchestrator.agent_runners["finish-step"] = finish_runner
 
     with TestClient(rollback_app) as client:
         rollback_metadata = client.get(
-            f"/deployments/{service.deployment.deployment_ref}/metadata"
+            f"/deployments/{service.deployment.deployment_ref}/metadata",
+            headers=operator_headers(),
         )
-        rollback_run = client.post("/runs", json={"input_payload": {"value": 2}})
+        rollback_run = client.post(
+            "/runs",
+            json={"input_payload": {"value": 2}},
+            headers=operator_headers(),
+        )
         rollback_run_id = rollback_run.json()["run_id"]
         wait_for(
-            lambda: client.get(f"/runs/{rollback_run_id}").json()["status"]
+            lambda: client.get(
+                f"/runs/{rollback_run_id}",
+                headers=operator_headers(),
+            ).json()["status"]
             == "paused_for_approval"
         )
-        rollback_approval_id = client.get(f"/runs/{rollback_run_id}").json()[
-            "approval_paused_state"
-        ]["approval_id"]
+        rollback_approval_id = client.get(
+            f"/runs/{rollback_run_id}",
+            headers=operator_headers(),
+        ).json()["approval_paused_state"]["approval_id"]
         rollback_resolution = client.post(
             f"/deployments/{service.deployment.deployment_ref}/approvals/{rollback_approval_id}/resolve",
-            json={"decision": "approve", "approver": "reviewer-1"},
+            json={"decision": "approve"},
+            headers=reviewer_headers(),
         )
 
     assert rolled_back.graph_version == 1

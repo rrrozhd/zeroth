@@ -226,6 +226,8 @@ class RuntimeOrchestrator:
                 run.thread_id,
                 graph_version_ref=run.graph_version_ref,
                 deployment_ref=run.deployment_ref,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
                 participating_agent_refs=[node.node_id],
                 run_id=run.run_id,
             )
@@ -320,7 +322,7 @@ class RuntimeOrchestrator:
         if self.audit_repository is not None:
             self.audit_repository.write(
                 NodeAuditRecord(
-                    audit_id=audit_ref,
+                    audit_id=self._stored_audit_id(run.run_id, audit_ref),
                     run_id=run.run_id,
                     thread_id=run.thread_id,
                     node_id=node_id,
@@ -410,7 +412,7 @@ class RuntimeOrchestrator:
         if self.audit_repository is not None:
             self.audit_repository.write(
                 NodeAuditRecord(
-                    audit_id=audit_ref,
+                    audit_id=self._stored_audit_id(run.run_id, audit_ref),
                     run_id=run.run_id,
                     thread_id=run.thread_id,
                     node_id=node.node_id,
@@ -460,7 +462,11 @@ class RuntimeOrchestrator:
         audit_record = {
             "approval_id": approval_record.approval_id,
             "decision": action,
-            "approver": approval_record.resolution.approver if approval_record.resolution else None,
+            "actor": (
+                approval_record.resolution.actor.model_dump(mode="json")
+                if approval_record.resolution
+                else None
+            ),
         }
         self._record_history(
             run,
@@ -503,6 +509,10 @@ class RuntimeOrchestrator:
     def _graph_version_ref(self, graph: Graph) -> str:
         """Build a version reference string like 'my-graph:v2'."""
         return f"{graph.graph_id}:v{graph.version}"
+
+    def _stored_audit_id(self, run_id: str, audit_ref: str) -> str:
+        """Namespace persisted audit IDs by run so append-only storage stays globally unique."""
+        return f"{run_id}:{audit_ref}"
 
     def _initial_metadata(self, graph: Graph, initial_input: Mapping[str, Any]) -> dict[str, Any]:
         """Build the starting metadata dict for a new run."""
