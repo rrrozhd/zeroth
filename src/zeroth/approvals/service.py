@@ -25,6 +25,7 @@ from zeroth.audit import (
     PayloadSanitizer,
 )
 from zeroth.graph import Graph, HumanApprovalNode
+from zeroth.identity import ActorIdentity
 from zeroth.runs import Run, RunFailureState, RunRepository, RunStatus
 
 if TYPE_CHECKING:
@@ -78,6 +79,9 @@ class ApprovalService:
             node_id=node.node_id,
             graph_version_ref=run.graph_version_ref,
             deployment_ref=run.deployment_ref,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+            requested_by=run.submitted_by,
             allowed_actions=allowed_actions,
             summary=f"Approval required for node {node.node_id}",
             rationale="Human review is required before execution can continue.",
@@ -109,12 +113,26 @@ class ApprovalService:
             deployment_ref=deployment_ref,
         )
 
+    def list(
+        self,
+        *,
+        run_id: str | None = None,
+        thread_id: str | None = None,
+        deployment_ref: str | None = None,
+    ) -> list[ApprovalRecord]:
+        """Return approval records for a run, thread, or deployment."""
+        return self.repository.list(
+            run_id=run_id,
+            thread_id=thread_id,
+            deployment_ref=deployment_ref,
+        )
+
     def resolve(
         self,
         approval_id: str,
         *,
         decision: ApprovalDecision,
-        approver: str,
+        actor: ActorIdentity,
         edited_payload: dict[str, Any] | None = None,
     ) -> ApprovalRecord:
         """Record a human's decision on a pending approval.
@@ -133,7 +151,7 @@ class ApprovalService:
                 raise ValueError("approval is resolved without resolution payload")
             if (
                 current.decision is decision
-                and current.approver == approver
+                and current.actor == actor
                 and current.edited_payload == edited_payload
             ):
                 # Repeating the same decision is treated as safe retry behavior for API clients.
@@ -147,7 +165,7 @@ class ApprovalService:
         record.status = ApprovalStatus.RESOLVED
         record.resolution = ApprovalResolution(
             decision=decision,
-            approver=approver,
+            actor=actor,
             edited_payload=edited_payload,
         )
         record.updated_at = datetime.now(UTC)
@@ -233,14 +251,17 @@ class ApprovalService:
                 node_version=1,
                 graph_version_ref=record.graph_version_ref,
                 deployment_ref=record.deployment_ref,
+                tenant_id=record.tenant_id,
+                workspace_id=record.workspace_id,
                 attempt=1,
                 status="approval_api",
+                actor=record.resolution.actor,
                 execution_metadata={"resolution": record.resolution.model_dump(mode="json")},
                 approval_actions=[
                     ApprovalActionRecord(
                         approval_id=record.approval_id,
                         action=record.resolution.decision.value,
-                        actor=record.resolution.approver,
+                        actor=record.resolution.actor,
                     )
                 ],
             )
@@ -259,22 +280,25 @@ class ApprovalService:
             return
         self.audit_repository.write(
             NodeAuditRecord(
-                audit_id=f"audit:{len(run.audit_refs) + 1}",
+                audit_id=f"{run.run_id}:audit:{len(run.audit_refs) + 1}",
                 run_id=run.run_id,
                 thread_id=run.thread_id,
                 node_id=record.node_id,
                 node_version=1,
                 graph_version_ref=record.graph_version_ref,
                 deployment_ref=record.deployment_ref,
+                tenant_id=record.tenant_id,
+                workspace_id=record.workspace_id,
                 attempt=1,
                 status=status,
+                actor=record.resolution.actor,
                 input_snapshot=record.proposed_payload or {},
                 output_snapshot=output_payload,
                 approval_actions=[
                     ApprovalActionRecord(
                         approval_id=record.approval_id,
                         action=record.resolution.decision.value,
-                        actor=record.resolution.approver,
+                        actor=record.resolution.actor,
                     )
                 ],
             )

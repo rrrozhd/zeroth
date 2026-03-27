@@ -19,6 +19,7 @@ from zeroth.graph.versioning import graph_version_ref
 from zeroth.orchestrator import RuntimeOrchestrator
 from zeroth.runs import RunRepository, ThreadRepository
 from zeroth.service.app import create_app
+from zeroth.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, ServiceAuthenticator
 from zeroth.storage import SQLiteDatabase
 
 
@@ -39,6 +40,8 @@ class ServiceBootstrap:
     audit_repository: AuditRepository
     contract_registry: ContractRegistry
     orchestrator: RuntimeOrchestrator
+    auth_config: ServiceAuthConfig
+    authenticator: ServiceAuthenticator
 
 
 def bootstrap_service(
@@ -47,6 +50,8 @@ def bootstrap_service(
     deployment_ref: str,
     agent_runners: Mapping[str, AgentRunner] | None = None,
     executable_unit_runner: ExecutableUnitRunner | None = None,
+    auth_config: ServiceAuthConfig | None = None,
+    bearer_token_verifier: JWTBearerTokenVerifier | None = None,
 ) -> ServiceBootstrap:
     """Build the service wrapper wiring for a specific deployment."""
     graph_repository = GraphRepository(database)
@@ -97,6 +102,11 @@ def bootstrap_service(
         audit_repository=audit_repository,
         approval_service=approval_service,
     )
+    resolved_auth_config = auth_config or ServiceAuthConfig.from_env()
+    authenticator = ServiceAuthenticator(
+        resolved_auth_config,
+        bearer_verifier=bearer_token_verifier,
+    )
     # Return one small container so the HTTP layer can stay thin and avoid global state.
     return ServiceBootstrap(
         deployment_service=deployment_service,
@@ -108,6 +118,8 @@ def bootstrap_service(
         audit_repository=audit_repository,
         contract_registry=contract_registry,
         orchestrator=orchestrator,
+        auth_config=resolved_auth_config,
+        authenticator=authenticator,
     )
 
 
@@ -117,6 +129,8 @@ def bootstrap_app(
     deployment_ref: str,
     agent_runners: Mapping[str, AgentRunner] | None = None,
     executable_unit_runner: ExecutableUnitRunner | None = None,
+    auth_config: ServiceAuthConfig | None = None,
+    bearer_token_verifier: JWTBearerTokenVerifier | None = None,
 ) -> FastAPI:
     """Build the FastAPI app for a specific deployment."""
     return create_app(
@@ -125,5 +139,7 @@ def bootstrap_app(
             deployment_ref=deployment_ref,
             agent_runners=agent_runners,
             executable_unit_runner=executable_unit_runner,
+            auth_config=auth_config,
+            bearer_token_verifier=bearer_token_verifier,
         )
     )

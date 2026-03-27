@@ -14,6 +14,8 @@ from tests.service.helpers import (
     CountingFinishRunner,
     approval_resume_graph,
     deploy_service,
+    operator_headers,
+    reviewer_headers,
     service_app,
     wait_for,
 )
@@ -138,15 +140,26 @@ def _register_command_unit(
     )
 
 
-def _run_status_payload(client: TestClient, run_id: str) -> dict[str, Any]:
-    response = client.get(f"/runs/{run_id}")
+def _run_status_payload(
+    client: TestClient,
+    run_id: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    response = client.get(f"/runs/{run_id}", headers=headers)
     assert response.status_code == 200
     return response.json()
 
 
-def _wait_for_status(client: TestClient, run_id: str, status: str) -> dict[str, Any]:
-    wait_for(lambda: _run_status_payload(client, run_id)["status"] == status)
-    return _run_status_payload(client, run_id)
+def _wait_for_status(
+    client: TestClient,
+    run_id: str,
+    status: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    wait_for(lambda: _run_status_payload(client, run_id, headers=headers)["status"] == status)
+    return _run_status_payload(client, run_id, headers=headers)
 
 
 def _linear_graph(*, graph_id: str) -> Graph:
@@ -445,10 +458,14 @@ print(json.dumps({"value": payload["value"] * 2}))
     app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 3}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         assert create_response.status_code == 202
         run_id = create_response.json()["run_id"]
-        completed = _wait_for_status(client, run_id, "succeeded")
+        completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
     persisted = service.run_repository.get(run_id)
     audits = service.audit_repository.list_by_run(run_id)
@@ -469,10 +486,19 @@ def test_phase5_cyclic_graph_stops_at_loop_guard_via_api(sqlite_db) -> None:
     app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 1}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 1}},
+            headers=operator_headers(),
+        )
         assert create_response.status_code == 202
         run_id = create_response.json()["run_id"]
-        failed = _wait_for_status(client, run_id, "terminated_by_loop_guard")
+        failed = _wait_for_status(
+            client,
+            run_id,
+            "terminated_by_loop_guard",
+            headers=operator_headers(),
+        )
 
     persisted = service.run_repository.get(run_id)
 
@@ -537,10 +563,14 @@ print(json.dumps({"branch": "right", "value": payload["value"] + 20}))
     app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 5}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 5}},
+            headers=operator_headers(),
+        )
         assert create_response.status_code == 202
         run_id = create_response.json()["run_id"]
-        completed = _wait_for_status(client, run_id, "succeeded")
+        completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
     persisted = service.run_repository.get(run_id)
     audits = service.audit_repository.list_by_run(run_id)
@@ -564,21 +594,30 @@ def test_phase5_approval_pause_and_resume_via_api(sqlite_db) -> None:
     app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 3}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         assert create_response.status_code == 202
         run_id = create_response.json()["run_id"]
-        paused = _wait_for_status(client, run_id, "paused_for_approval")
+        paused = _wait_for_status(
+            client,
+            run_id,
+            "paused_for_approval",
+            headers=operator_headers(),
+        )
         approval_id = paused["approval_paused_state"]["approval_id"]
 
         resolve_response = client.post(
             f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}/resolve",
             json={
                 "decision": "edit_and_approve",
-                "approver": "reviewer-1",
                 "edited_payload": {"value": 8},
             },
+            headers=reviewer_headers(),
         )
-        completed = _wait_for_status(client, run_id, "succeeded")
+        completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
     persisted = service.run_repository.get(run_id)
     audits = service.audit_repository.list_by_run(run_id)
@@ -626,19 +665,34 @@ def test_phase5_thread_continuity_across_runs_via_api(sqlite_db) -> None:
     app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
-        first_create = client.post("/runs", json={"input_payload": {"value": 3}})
+        first_create = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         assert first_create.status_code == 202
         first_run_id = first_create.json()["run_id"]
         thread_id = first_create.json()["thread_id"]
-        first_completed = _wait_for_status(client, first_run_id, "succeeded")
+        first_completed = _wait_for_status(
+            client,
+            first_run_id,
+            "succeeded",
+            headers=operator_headers(),
+        )
 
         second_create = client.post(
             "/runs",
             json={"input_payload": {"value": 5}, "thread_id": thread_id},
+            headers=operator_headers(),
         )
         assert second_create.status_code == 202
         second_run_id = second_create.json()["run_id"]
-        second_completed = _wait_for_status(client, second_run_id, "succeeded")
+        second_completed = _wait_for_status(
+            client,
+            second_run_id,
+            "succeeded",
+            headers=operator_headers(),
+        )
 
     thread = service.thread_repository.get(thread_id)
     assert first_completed["thread_id"] == thread_id
@@ -699,10 +753,14 @@ def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) -> Non
     app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 4}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 4}},
+            headers=operator_headers(),
+        )
         assert create_response.status_code == 202
         run_id = create_response.json()["run_id"]
-        completed = _wait_for_status(client, run_id, "succeeded")
+        completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
     persisted = service.run_repository.get(run_id)
     audits = service.audit_repository.list_by_run(run_id)
@@ -726,12 +784,19 @@ def test_phase5_deploy_and_invoke_via_service_wrapper_api(sqlite_db) -> None:
     app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
-        health_response = client.get("/health")
-        metadata_response = client.get(f"/deployments/{deployment.deployment_ref}/metadata")
-        create_response = client.post("/runs", json={"input_payload": {"value": 4}})
+        health_response = client.get("/health", headers=operator_headers())
+        metadata_response = client.get(
+            f"/deployments/{deployment.deployment_ref}/metadata",
+            headers=operator_headers(),
+        )
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 4}},
+            headers=operator_headers(),
+        )
         assert create_response.status_code == 202
         run_id = create_response.json()["run_id"]
-        completed = _wait_for_status(client, run_id, "succeeded")
+        completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
     assert health_response.status_code == 200
     assert health_response.json()["deployment_ref"] == deployment.deployment_ref
@@ -769,10 +834,19 @@ def test_phase5_policy_violation_fails_execution_and_records_audit(sqlite_db) ->
     app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 2}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 2}},
+            headers=operator_headers(),
+        )
         assert create_response.status_code == 202
         run_id = create_response.json()["run_id"]
-        failed = _wait_for_status(client, run_id, "terminated_by_policy")
+        failed = _wait_for_status(
+            client,
+            run_id,
+            "terminated_by_policy",
+            headers=operator_headers(),
+        )
 
     audits = service.audit_repository.list_by_run(run_id)
 

@@ -8,6 +8,8 @@ from tests.service.helpers import (
     approval_graph,
     approval_resume_graph,
     deploy_service,
+    operator_headers,
+    reviewer_headers,
     wait_for,
 )
 from zeroth.graph import GraphRepository
@@ -20,29 +22,43 @@ def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope(sqlit
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 7}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 7}},
+            headers=operator_headers(),
+        )
         run_id = create_response.json()["run_id"]
-        wait_for(lambda: client.get(f"/runs/{run_id}").json()["status"] == "paused_for_approval")
+        wait_for(
+            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+            == "paused_for_approval"
+        )
 
-        paused_payload = client.get(f"/runs/{run_id}").json()
+        paused_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
         approval_id = paused_payload["approval_paused_state"]["approval_id"]
         thread_id = paused_payload["thread_id"]
 
-        all_response = client.get(f"/deployments/{service.deployment.deployment_ref}/approvals")
+        all_response = client.get(
+            f"/deployments/{service.deployment.deployment_ref}/approvals",
+            headers=operator_headers(),
+        )
         by_run_response = client.get(
             f"/deployments/{service.deployment.deployment_ref}/approvals",
             params={"run_id": run_id},
+            headers=operator_headers(),
         )
         by_thread_response = client.get(
             f"/deployments/{service.deployment.deployment_ref}/approvals",
             params={"thread_id": thread_id},
+            headers=operator_headers(),
         )
         by_id_response = client.get(
-            f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}"
+            f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}",
+            headers=operator_headers(),
         )
         query_by_id_response = client.get(
             f"/deployments/{service.deployment.deployment_ref}/approvals",
             params={"approval_id": approval_id},
+            headers=operator_headers(),
         )
 
     assert all_response.status_code == 200
@@ -65,11 +81,16 @@ def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope(sqlit
         published_v2.graph_id,
         published_v2.version,
     )
-    fresh_app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    fresh_app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
 
     with TestClient(fresh_app) as client:
         missing_response = client.get(
-            f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}"
+            f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}",
+            headers=operator_headers(),
         )
 
     assert missing_response.status_code == 404
@@ -101,20 +122,31 @@ def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 3}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         run_id = create_response.json()["run_id"]
-        wait_for(lambda: client.get(f"/runs/{run_id}").json()["status"] == "paused_for_approval")
-        approval_id = client.get(f"/runs/{run_id}").json()["approval_paused_state"]["approval_id"]
+        wait_for(
+            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+            == "paused_for_approval"
+        )
+        approval_id = client.get(
+            f"/runs/{run_id}",
+            headers=operator_headers(),
+        ).json()["approval_paused_state"]["approval_id"]
 
-        payload = {"decision": decision, "approver": "reviewer-1"}
+        payload = {"decision": decision}
         if edited_payload is not None:
             payload["edited_payload"] = edited_payload
 
         response = client.post(
             f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}/resolve",
             json=payload,
+            headers=reviewer_headers(),
         )
-        run_payload = client.get(f"/runs/{run_id}").json()
+        run_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
     assert response.status_code == 200
     assert response.json()["approval"]["resolution"]["decision"] == decision
@@ -141,23 +173,34 @@ def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> None:
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 3}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         run_id = create_response.json()["run_id"]
-        wait_for(lambda: client.get(f"/runs/{run_id}").json()["status"] == "paused_for_approval")
-        approval_id = client.get(f"/runs/{run_id}").json()["approval_paused_state"]["approval_id"]
+        wait_for(
+            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+            == "paused_for_approval"
+        )
+        approval_id = client.get(
+            f"/runs/{run_id}",
+            headers=operator_headers(),
+        ).json()["approval_paused_state"]["approval_id"]
 
         payload = {
             "decision": "edit_and_approve",
-            "approver": "reviewer-1",
             "edited_payload": {"value": 8},
         }
         first_response = client.post(
             f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}/resolve",
             json=payload,
+            headers=reviewer_headers(),
         )
         second_response = client.post(
             f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}/resolve",
             json=payload,
+            headers=reviewer_headers(),
         )
 
     assert first_response.status_code == 200

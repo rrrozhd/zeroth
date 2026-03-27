@@ -10,6 +10,7 @@ from tests.service.helpers import (
     bootstrap_only_app,
     build_run_for_service,
     deploy_service,
+    operator_headers,
     service_app,
     wait_for,
 )
@@ -28,7 +29,11 @@ def test_thread_api_creates_new_thread_when_thread_id_is_omitted(sqlite_db) -> N
     web_app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(web_app) as client:
-        response = client.post("/runs", json={"input_payload": {"value": 3}})
+        response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         payload = response.json()
 
         assert response.status_code == 202
@@ -49,16 +54,24 @@ def test_thread_api_continues_existing_thread_for_same_deployment_snapshot(sqlit
     web_app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(web_app) as client:
-        first = client.post("/runs", json={"input_payload": {"value": 3}})
+        first = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         thread_id = first.json()["thread_id"]
         run_id = first.json()["run_id"]
         wait_for(started.is_set)
         release.set()
-        wait_for(lambda: client.get(f"/runs/{run_id}").json()["status"] == "succeeded")
+        wait_for(
+            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+            == "succeeded"
+        )
 
         second = client.post(
             "/runs",
             json={"input_payload": {"value": 4}, "thread_id": thread_id},
+            headers=operator_headers(),
         )
 
     assert second.status_code == 202
@@ -73,6 +86,7 @@ def test_thread_api_accepts_new_explicit_thread_id_as_fresh_context(sqlite_db) -
         response = client.post(
             "/runs",
             json={"input_payload": {"value": 3}, "thread_id": "missing-thread"},
+            headers=operator_headers(),
         )
 
     assert response.status_code == 202
@@ -93,6 +107,7 @@ def test_thread_api_rejects_thread_from_other_deployment(sqlite_db) -> None:
         response = client.post(
             "/runs",
             json={"input_payload": {"value": 3}, "thread_id": second_run.thread_id},
+            headers=operator_headers(),
         )
 
     assert response.status_code == 409
@@ -118,6 +133,7 @@ def test_thread_api_rejects_thread_from_other_deployment_version(sqlite_db) -> N
         response = client.post(
             "/runs",
             json={"input_payload": {"value": 3}, "thread_id": first_run.thread_id},
+            headers=operator_headers(),
         )
 
     assert response.status_code == 409
@@ -136,13 +152,20 @@ def test_thread_api_keeps_thread_linkage_visible_in_run_state_and_audits(sqlite_
     web_app = service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(web_app) as client:
-        create_response = client.post("/runs", json={"input_payload": {"value": 3}})
+        create_response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
         run_id = create_response.json()["run_id"]
         thread_id = create_response.json()["thread_id"]
         wait_for(started.is_set)
         release.set()
-        wait_for(lambda: client.get(f"/runs/{run_id}").json()["status"] == "succeeded")
-        run_payload = client.get(f"/runs/{run_id}").json()
+        wait_for(
+            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+            == "succeeded"
+        )
+        run_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
     audits = service.audit_repository.list_by_thread(thread_id)
 

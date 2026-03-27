@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict
 
 from zeroth.approvals import ApprovalDecision, ApprovalRecord, ApprovalStatus
 from zeroth.runs import RunStatus
+from zeroth.service.authorization import (
+    Permission,
+    require_deployment_scope,
+    require_permission,
+    require_resource_scope,
+)
 from zeroth.service.run_api import RunStatusResponse, _serialize_run
 
 
@@ -28,7 +34,6 @@ class ApprovalResolutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decision: ApprovalDecision
-    approver: str
     edited_payload: dict[str, Any] | None = None
 
 
@@ -56,9 +61,10 @@ def register_approval_routes(app: FastAPI) -> None:
         thread_id: str | None = None,
     ) -> list[ApprovalRecord]:
         bootstrap, deployment = _deployment_context(request, deployment_ref)
+        require_permission(request, Permission.APPROVAL_READ)
         if approval_id is not None:
             # The list route also supports direct lookup so clients can stay on one endpoint shape.
-            record = _require_pending_visible_approval(bootstrap, deployment, approval_id)
+            record = _require_pending_visible_approval(request, bootstrap, deployment, approval_id)
             if not _approval_matches_filters(record, run_id=run_id, thread_id=thread_id):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -87,7 +93,8 @@ def register_approval_routes(app: FastAPI) -> None:
         approval_id: str,
     ) -> ApprovalRecord:
         bootstrap, deployment = _deployment_context(request, deployment_ref)
-        record = _require_visible_approval(bootstrap, deployment, approval_id)
+        require_permission(request, Permission.APPROVAL_READ)
+        record = _require_visible_approval(request, bootstrap, deployment, approval_id)
         if record.status is not ApprovalStatus.PENDING:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
         return record
@@ -103,14 +110,15 @@ def register_approval_routes(app: FastAPI) -> None:
         payload: ApprovalResolutionRequest,
     ) -> ApprovalResolutionResponse:
         bootstrap, deployment = _deployment_context(request, deployment_ref)
-        existing = _require_visible_approval(bootstrap, deployment, approval_id)
+        principal = require_permission(request, Permission.APPROVAL_RESOLVE)
+        existing = _require_visible_approval(request, bootstrap, deployment, approval_id)
         was_pending = existing.status is ApprovalStatus.PENDING
 
         try:
             resolved = bootstrap.approval_service.resolve(
                 approval_id,
                 decision=payload.decision,
-                approver=payload.approver,
+                actor=principal.to_actor(),
                 edited_payload=payload.edited_payload,
             )
         except KeyError as exc:
@@ -160,12 +168,14 @@ def _deployment_context(
 ) -> tuple[ApprovalApiBootstrapLike, object]:
     bootstrap = _bootstrap(request)
     deployment = bootstrap.deployment
+    require_deployment_scope(request, deployment)
     if getattr(deployment, "deployment_ref", None) != deployment_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")
     return bootstrap, deployment
 
 
 def _require_visible_approval(
+    request: Request,
     bootstrap: ApprovalApiBootstrapLike,
     deployment: object,
     approval_id: str,
@@ -173,15 +183,22 @@ def _require_visible_approval(
     record = bootstrap.approval_service.get(approval_id)
     if record is None or not _approval_visible_to_deployment(record, deployment):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
+    require_resource_scope(
+        request=request,
+        tenant_id=record.tenant_id,
+        workspace_id=record.workspace_id,
+        not_found_detail="approval not found",
+    )
     return record
 
 
 def _require_pending_visible_approval(
+    request: Request,
     bootstrap: ApprovalApiBootstrapLike,
     deployment: object,
     approval_id: str,
 ) -> ApprovalRecord:
-    record = _require_visible_approval(bootstrap, deployment, approval_id)
+    record = _require_visible_approval(request, bootstrap, deployment, approval_id)
     if record.status is not ApprovalStatus.PENDING:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
     return record

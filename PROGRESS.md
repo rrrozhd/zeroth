@@ -395,7 +395,336 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 
 ---
 
+## Post-MVP Roadmap
+
+> Phases 6–9 close the remaining gap between the current MVP and Zeroth's intended governed, security-first, transparency-first production platform.
+
+## Phase 6 — Identity & Tenant Governance
+
+> 6A → 6B → 6C is the critical path. 6D can overlap once 6A/6B contracts stabilize.
+
+### 6A. Service Authentication & Principal Context `phases/phase-6-identity-governance/PLAN.md`
+
+- [x] Introduce an authenticated principal model for public and internal service calls
+- [x] Support API key and bearer-token auth adapters behind one auth interface
+- [x] Remove caller-supplied approval identity from the public resolution API
+- [x] Propagate principal context into runs, approvals, and audits
+- [x] **Artifact:** authentication middleware tests pass
+- [x] **Artifact:** approval attribution tests pass
+
+### 6B. Authorization & Role Model
+
+- [x] Define roles and permission vocabulary for deployment, run, approval, and audit access
+- [x] Enforce authorization checks on all service routes and sensitive repository queries
+- [x] Support least-privilege operator, reviewer, and admin flows
+- [x] **Artifact:** RBAC matrix tests pass
+- [x] **Artifact:** unauthorized access tests pass
+
+### 6C. Tenant / Workspace Isolation
+
+- [x] Add tenant/workspace scope to deployments, runs, threads, approvals, and audits
+- [x] Enforce tenant-scoped lookup, list, and continuation behavior
+- [x] Reject and audit cross-tenant access attempts
+- [x] **Artifact:** tenant isolation integration tests pass
+- [x] **Artifact:** cross-tenant rejection tests pass
+
+### 6D. Governance Identity Surfaces
+
+- [x] Expose submitter, approver, and tenant lineage in external run and approval metadata
+- [x] Record actor lineage for approval and policy decisions in audits
+- [x] Document the identity and access model
+- [x] **Artifact:** public contract tests pass
+- [x] **Artifact:** governance attribution end-to-end test passes
+
+### Phase 6 Gate
+
+- [x] Every external request is authenticated
+- [x] Approval actions are attributed to authenticated principals only
+- [x] Cross-tenant access is blocked and auditable
+- [x] All identity and access tests pass
+
+---
+
+## Phase 7 — Transparent Governance & Verifiable Provenance
+
+> 7A and 7B can run in parallel. 7C and 7D depend on the audit and deployment payload shape settling.
+
+### 7A. Public Audit & Timeline API `phases/phase-7-transparent-governance/PLAN.md`
+
+- [x] Implement public audit query endpoints scoped by run, thread, deployment, and graph version
+- [x] Implement audit timeline exposure for run-level and deployment-level review
+- [x] Apply authorization and redaction rules to audit reads
+- [x] **Artifact:** audit API tests pass
+- [x] **Artifact:** timeline query tests pass
+
+### 7B. Governance Evidence Bundles
+
+- [x] Expose stable run-to-evidence and deployment-to-evidence bundle references
+- [x] Export review-friendly evidence packages for runs and deployments
+- [x] Include policy, tool, approval, and memory lineage in exported evidence
+- [x] **Artifact:** evidence bundle tests pass
+- [x] **Artifact:** export contract tests pass
+
+### 7C. Tamper-Evident Audit Trail
+
+- [x] Replace mutable audit upserts with append-only or tamper-evident persistence
+- [x] Add audit continuity verification for run and deployment history
+- [x] Define correction/supersession semantics without rewriting history
+- [x] **Artifact:** tamper-detection tests pass
+- [x] **Artifact:** append-only audit tests pass
+
+### 7D. Deployment Provenance & Attestations
+
+- [x] Add deployment snapshot digests for graph and pinned contract state
+- [x] Produce deployment attestation payloads for external verification
+- [x] Expose verification helpers or APIs for attested deployments
+- [x] **Artifact:** attestation generation tests pass
+- [x] **Artifact:** deployment verification tests pass
+
+### Phase 7 Gate
+
+- [x] Audits are externally queryable through the service surface
+- [x] Run and deployment evidence can be exported and reviewed independently
+- [x] Audit mutation is detectable or prevented by design
+- [x] Deployment provenance is verifiable
+
+---
+
+## Phase 8 — Runtime Security Hardening
+
+> 8A and 8B are the critical path. 8C overlaps once the secret/provider abstraction is chosen. 8D can follow the hardened execution path.
+
+### 8A. Hardened Sandbox Backend `phases/phase-8-runtime-security/PLAN.md`
+
+- [ ] Make a hardened sandbox backend the default for untrusted executable units
+- [ ] Remove silent fallback to permissive host-local execution for isolated workloads
+- [ ] Enforce resource ceilings and filesystem boundaries
+- [ ] **Artifact:** hardened sandbox tests pass
+- [ ] **Artifact:** isolation regression tests pass
+
+### 8B. Policy-Derived Runtime Enforcement
+
+- [ ] Enforce network, timeout, secret, and side-effect constraints from policy results
+- [ ] Gate policy-required side effects behind approval when configured
+- [ ] Ensure retries, resumes, and background execution preserve policy constraints
+- [ ] **Artifact:** runtime policy enforcement tests pass
+- [ ] **Artifact:** side-effect approval tests pass
+
+### 8C. Secret Management & Data Protection
+
+- [ ] Replace raw runtime secrets with secret references and a provider abstraction
+- [ ] Protect sensitive data at rest for local persistence layers
+- [ ] Verify that checkpoints, approvals, and audits do not retain secret material
+- [ ] **Artifact:** secret provider tests pass
+- [ ] **Artifact:** secret-leak regression tests pass
+
+### 8D. Executable-Unit Integrity & Admission Control
+
+- [ ] Add digests or signed metadata for executable-unit manifests and artifacts
+- [ ] Validate allowed runtimes, images, or commands before execution
+- [ ] Reject untrusted executable-unit definitions and audit the reason
+- [ ] **Artifact:** executable-unit integrity tests pass
+- [ ] **Artifact:** admission-control tests pass
+
+### Phase 8 Gate
+
+- [ ] Untrusted executable units no longer rely on permissive local execution by default
+- [ ] Policy constraints are enforced in runtime behavior, not only logged
+- [ ] Secrets are reference-based and protected across runtime and persistence
+- [ ] Executable-unit integrity is checked before execution
+
+---
+
+## Phase 9 — Durable Control Plane & Production Operations
+
+> 9A is foundational. 9B depends on 9A. 9C and 9D can overlap once durable dispatch exists.
+
+### 9A. Durable Run Dispatch & Worker Supervision `phases/phase-9-durable-control-plane/PLAN.md`
+
+- [ ] Replace in-process background dispatch with durable queue or lease-based execution ownership
+- [ ] Separate API request handling from worker execution lifecycle
+- [ ] Preserve idempotency across retries and duplicate submissions
+- [ ] **Artifact:** durable dispatch tests pass
+- [ ] **Artifact:** worker retry/idempotency tests pass
+
+### 9B. Resume & Recovery Semantics
+
+- [ ] Make approvals, retries, and thread continuation restart-safe
+- [ ] Recover safely from worker crashes and partial completion
+- [ ] Avoid duplicated side effects during recovery
+- [ ] **Artifact:** restart recovery tests pass
+- [ ] **Artifact:** approval recovery tests pass
+
+### 9C. Operational Guardrails
+
+- [ ] Add rate limiting, quotas, and bounded concurrency per tenant or deployment
+- [ ] Surface backpressure instead of accepting unbounded work
+- [ ] Add dead-letter or operator-review handling for repeated failures
+- [ ] **Artifact:** rate limit and quota tests pass
+- [ ] **Artifact:** backpressure tests pass
+
+### 9D. Observability & Admin Controls
+
+- [ ] Add metrics for queue depth, run latency, approval wait time, and worker failures
+- [ ] Add tracing or correlation metadata across API, orchestrator, approvals, and audits
+- [ ] Add administrative controls for interruption, cancellation, and replay-safe inspection
+- [ ] **Artifact:** observability contract tests pass
+- [ ] **Artifact:** admin control integration tests pass
+
+### Phase 9 Gate
+
+- [ ] Run execution survives service restarts without losing work
+- [ ] Recovery paths preserve approval and thread correctness
+- [ ] Capacity guardrails protect the platform under load
+- [ ] Operators can observe and control the runtime safely
+
+---
+
 ## Log
+### 2026-03-27 12:05 — Added post-MVP roadmap phases 6 through 9
+**Phase/Tasks:** 6A-9D roadmap
+**Status:** completed
+**What:** Extended the root roadmap with post-MVP phases covering identity and tenant governance, transparent governance and provenance, runtime security hardening, and a durable control plane. Added phase plan documents under `phases/phase-6-identity-governance/PLAN.md`, `phases/phase-7-transparent-governance/PLAN.md`, `phases/phase-8-runtime-security/PLAN.md`, and `phases/phase-9-durable-control-plane/PLAN.md`, plus placeholder `artifacts/` directories for each phase.
+**Tests:** not run
+**Artifacts:** none
+**Blockers:** none
+**Next:** Choose Phase 6 as the first execution target, then break its streams into implementation tasks and verification artifacts.
+
+### 2026-03-27 12:05 — Phase 6 auth red baseline
+**Phase/Tasks:** 6A
+**Status:** in-progress
+**What:** added the first Phase 6 auth test slice in `tests/service/test_auth_api.py` and extended `tests/service/helpers.py` with service-auth test helpers so the new service authentication boundary can be implemented test-first.
+**Tests:** `uv run pytest -v tests/service/test_auth_api.py` failed with `ModuleNotFoundError: No module named 'zeroth.service.auth'`
+**Artifacts:** `phases/phase-6-identity-governance/artifacts/test-6a-auth-red-2026-03-27.txt`
+**Blockers:** service auth/principal modules and bootstrap wiring do not exist yet
+**Next:** implement the shared identity models, auth config, bootstrap wiring, and auth middleware to make the new auth tests pass
+
+### 2026-03-27 12:09 — Phase 6 API-key auth foundation
+**Phase/Tasks:** 6A
+**Status:** in-progress
+**What:** added shared identity models under `src/zeroth/identity/`, implemented API-key authentication and bearer-config scaffolding in `src/zeroth/service/auth.py`, added request auth middleware and bootstrap wiring, removed request-body approver trust from `src/zeroth/service/approval_api.py`, and switched approval resolution storage to structured actor identity in the approvals and audit models.
+**Tests:** `uv run pytest -v tests/service/test_auth_api.py` passed
+**Artifacts:** `phases/phase-6-identity-governance/artifacts/test-6a-auth-green-2026-03-27.txt`
+**Blockers:** bearer/JWT verification, route-wide RBAC enforcement, and tenant/workspace persistence are still pending
+**Next:** add the bearer/JWT red tests, finish route authorization, and then add tenant/workspace storage and isolation enforcement
+
+### 2026-03-27 12:11 — Phase 6 RBAC service gates
+**Phase/Tasks:** 6B
+**Status:** in-progress
+**What:** added route-level permission enforcement in the run, contract, and approval APIs, defined the Phase 6 permission vocabulary and role matrix in `src/zeroth/service/authorization.py`, and started denial auditing through the existing audit repository using synthetic service node IDs.
+**Tests:** `uv run pytest -v tests/service/test_rbac_api.py` passed
+**Artifacts:** `phases/phase-6-identity-governance/artifacts/test-6b-rbac-green-2026-03-27.txt`
+**Blockers:** remaining service routes, tenant/workspace persistence, and JWT bearer verification are still pending
+**Next:** add tenant/workspace isolation tests and storage migrations, then finish the bearer-token verifier and route-wide auth updates
+
+### 2026-03-27 12:13 — Phase 6 tenant isolation red baseline
+**Phase/Tasks:** 6C
+**Status:** in-progress
+**What:** added the first cross-tenant isolation tests in `tests/service/test_tenant_isolation.py`, covering foreign-tenant run reads, approval-resolution hiding, and denial audit emission against a tenant-scoped service auth config.
+**Tests:** `uv run pytest -v tests/service/test_tenant_isolation.py` failed because tenant-scoped operators still hit the legacy default deployment scope during run creation
+**Artifacts:** `phases/phase-6-identity-governance/artifacts/test-6c-tenant-red-2026-03-27.txt`
+**Blockers:** deployment, run/thread, approval, and audit persistence do not store tenant/workspace scope yet
+**Next:** add storage migrations and scope propagation so deployment-scoped requests and persisted runtime objects carry tenant/workspace identity end to end
+
+### 2026-03-27 12:18 — Phase 6 tenant scope persistence
+**Phase/Tasks:** 6C
+**Status:** in-progress
+**What:** stamped deployment scope from graph deployment settings, added tenant/workspace persistence columns and migrations across deployments, runs/threads, approvals, and audits, and threaded tenant/workspace identity through runtime thread resolution and service-level scope checks.
+**Tests:** `uv run pytest -v tests/service/test_tenant_isolation.py` passed
+**Artifacts:** `phases/phase-6-identity-governance/artifacts/test-6c-tenant-green-2026-03-27.txt`
+**Blockers:** bearer/JWT verification and full service-suite auth contract updates are still pending
+**Next:** add JWT bearer verification tests and dependency wiring, then update the existing service, approval, and audit suites to the authenticated Phase 6 API contract
+
+### 2026-03-27 12:19 — Phase 6 bearer auth red baseline
+**Phase/Tasks:** 6A
+**Status:** in-progress
+**What:** added `tests/service/test_bearer_auth.py` to verify RS256 bearer tokens against issuer, audience, and inline JWKS metadata, including rejection paths for invalid bearer credentials.
+**Tests:** `uv run pytest -v tests/service/test_bearer_auth.py` failed during collection with `ModuleNotFoundError: No module named 'jwt'`
+**Artifacts:** `phases/phase-6-identity-governance/artifacts/test-6a-bearer-red-2026-03-27.txt`
+**Blockers:** JWT and crypto dependencies are not installed yet
+**Next:** add the JWT verification dependency, complete the bearer verifier path, and rerun the bearer auth suite
+
+### 2026-03-27 12:21 — Phase 6 bearer verifier complete
+**Phase/Tasks:** 6A
+**Status:** completed
+**What:** added `PyJWT[crypto]` to the runtime dependencies, completed the JWKS-backed bearer verifier path in `src/zeroth/service/auth.py`, and validated RS256 bearer auth for health requests including issuer, audience, and signature rejection paths.
+**Tests:** `uv run pytest -v tests/service/test_bearer_auth.py` passed
+**Artifacts:** `phases/phase-6-identity-governance/artifacts/test-6a-bearer-green-2026-03-27.txt`
+**Blockers:** full-suite contract updates for the older service, approval, and audit tests are still pending
+**Next:** update the legacy service and repository tests to the authenticated Phase 6 contract, then run the focused verification batches and phase-wide lint
+
+### 2026-03-27 12:35 — Phase 6 identity governance complete
+**Phase/Tasks:** 6A, 6B, 6C, 6D
+**Status:** completed
+**What:** completed the authenticated-contract migration for the remaining service end-to-end and live research-audit scenario tests, updated the live research-audit bootstrap so it can accept Phase 6 auth wiring, finished the public run and approval identity lineage surfaces, and recorded the final verification evidence for the full Phase 6 service/live/approval/audit slice.
+**Tests:** `uv run pytest -v tests/service tests/live_scenarios tests/approvals tests/audit` passed; `uv run ruff check src/ tests/` passed
+**Artifacts:** `phases/phase-6-identity-governance/artifacts/test-6-service-live-suite-2026-03-27.txt`, `phases/phase-6-identity-governance/artifacts/lint-6-service-live-suite-2026-03-27.txt`
+**Blockers:** none
+**Next:** Phase 6 is closed; start Phase 7 when ready to expose audit timelines and provenance APIs
+
+### 2026-03-27 12:48 — Phase 7 isolated worktree kickoff
+**Phase/Tasks:** 7A
+**Status:** in-progress
+**What:** created an isolated worktree at `/Users/dondoe/coding/zeroth/.worktrees/codex-phase-7-transparent-governance`, synced the current repository state into it so Phase 6 uncommitted work remained available, and re-validated the focused baseline before starting the Phase 7 audit/timeline TDD slices.
+**Tests:** `uv run pytest -q tests/audit/test_audit_repository.py tests/service/test_auth_api.py tests/service/test_rbac_api.py tests/service/test_contract_api.py` passed
+**Artifacts:** none yet
+**Blockers:** none
+**Next:** add the first failing tests for public audit and timeline routes, then implement the minimum service surface to satisfy them
+
+### 2026-03-27 12:49 — Phase 7 audit API red baseline
+**Phase/Tasks:** 7A
+**Status:** in-progress
+**What:** added the first public audit/timeline API tests in `tests/service/test_audit_api.py` covering discoverability refs on run/deployment responses, deployment-scoped audit listing with response redaction, and run/deployment timeline routes.
+**Tests:** `uv run pytest -q tests/service/test_audit_api.py` failed with missing `timeline_ref` in run responses and `404 Not Found` for the new audit/timeline routes
+**Artifacts:** `phases/phase-7-transparent-governance/artifacts/test-7a-audit-api-red-2026-03-27.txt`
+**Blockers:** none
+**Next:** implement the audit API module, wire route registration, and extend run/deployment metadata responses with Phase 7 discoverability refs
+
+### 2026-03-27 12:51 — Phase 7 audit and timeline surface complete
+**Phase/Tasks:** 7A
+**Status:** completed
+**What:** added `src/zeroth/service/audit_api.py` with deployment-scoped audit query and timeline routes, wired route registration in `src/zeroth/service/app.py`, introduced response-layer redaction for sensitive audit payload fields, and extended public run/deployment metadata responses with Phase 7 discoverability refs for timelines and evidence bundles.
+**Tests:** `uv run pytest -q tests/service/test_audit_api.py` passed
+**Artifacts:** `phases/phase-7-transparent-governance/artifacts/test-7a-audit-api-green-2026-03-27.txt`
+**Blockers:** none
+**Next:** add failing tests for run and deployment evidence bundles, then implement the evidence builder layer and public export routes
+
+### 2026-03-27 12:53 — Phase 7 evidence and attestation red baseline
+**Phase/Tasks:** 7B, 7C, 7D
+**Status:** in-progress
+**What:** added failing tests for run/deployment evidence bundles, deployment attestation verification, and append-only audit continuity verification in `tests/service/test_evidence_api.py` and `tests/audit/test_audit_repository.py`.
+**Tests:** `uv run pytest -q tests/audit/test_audit_repository.py tests/service/test_evidence_api.py` failed during collection because `AuditContinuityVerifier` does not exist yet
+**Artifacts:** `phases/phase-7-transparent-governance/artifacts/test-7b-7d-red-2026-03-27.txt`
+**Blockers:** none
+**Next:** implement the audit digest/verifier layer, evidence builders and routes, then add deployment provenance digests and attestation verification
+
+### 2026-03-27 12:58 — Phase 7 evidence, tamper detection, and attestation slice complete
+**Phase/Tasks:** 7B, 7C, 7D
+**Status:** completed
+**What:** added append-only audit digest chaining and `AuditContinuityVerifier`, introduced review-friendly evidence bundle assembly for runs and deployments, extended approval querying for evidence exports, added deployment provenance digest fields plus attestation helpers, and wired public evidence/attestation routes into the service API.
+**Tests:** `uv run pytest -q tests/audit/test_audit_repository.py tests/service/test_evidence_api.py tests/service/test_audit_api.py` passed
+**Artifacts:** `phases/phase-7-transparent-governance/artifacts/test-7b-7d-green-2026-03-27.txt`
+**Blockers:** none
+**Next:** add the Phase 7 operator-facing documentation, then run the broader service/audit/deployment verification suite and lint
+
+### 2026-03-27 12:59 — Phase 7 operator guide added
+**Phase/Tasks:** 7B, 7D
+**Status:** completed
+**What:** added `docs/specs/phase-7-governance-evidence.md` documenting the public audit, timeline, evidence, and attestation endpoints plus the verification behavior for append-only audit chains and deployment snapshot digests.
+**Tests:** not run
+**Artifacts:** none
+**Blockers:** none
+**Next:** run the broader Phase 7 verification suite and lint, then close the phase gate if everything stays green
+
+### 2026-03-27 13:02 — Phase 7 broader verification and gate close
+**Phase/Tasks:** 7A, 7B, 7C, 7D
+**Status:** completed
+**What:** fixed the append-only audit regression by namespacing persisted runtime audit IDs with `run_id`, reran the failing phase-4, phase-5, and live research-audit continuity tests, and then completed the broader Phase 7 verification sweep across audit, service, deployments, approvals, and the live scenario.
+**Tests:** `uv run pytest -q tests/service/test_e2e_phase4.py::test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback tests/service/test_e2e_phase5.py::test_phase5_thread_continuity_across_runs_via_api tests/live_scenarios/test_research_audit.py::test_research_audit_thread_continuity_across_runs` passed; `uv run pytest -q tests/audit tests/service tests/deployments tests/approvals tests/live_scenarios/test_research_audit.py` passed (`84 passed`); `uv run ruff check src tests` passed
+**Artifacts:** `phases/phase-7-transparent-governance/artifacts/test-7-phase-broader-2026-03-27.txt`, `phases/phase-7-transparent-governance/artifacts/lint-7-phase-broader-2026-03-27.txt`
+**Blockers:** none
+**Next:** Phase 7 is closed; start Phase 8 when ready to harden the runtime sandbox and policy-derived execution controls
+
 ### 2026-03-27 11:35 — Preserve and publish live research-audit scenario
 **Phase/Tasks:** 5A
 **Status:** in-progress

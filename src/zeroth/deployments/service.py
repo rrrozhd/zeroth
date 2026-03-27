@@ -9,6 +9,12 @@ from uuid import uuid4
 from zeroth.contracts import ContractReference, ContractRegistry
 from zeroth.contracts.errors import ContractNotFoundError
 from zeroth.deployments.models import Deployment
+from zeroth.deployments.provenance import (
+    build_attestation_payload,
+    compute_contract_snapshot_digest,
+    compute_graph_snapshot_digest,
+    compute_settings_snapshot_digest,
+)
 from zeroth.deployments.repository import SQLiteDeploymentRepository
 from zeroth.graph import Graph, GraphRepository, GraphStatus
 from zeroth.graph.serialization import serialize_graph
@@ -47,6 +53,9 @@ class DeploymentService:
         last_error: sqlite3.IntegrityError | None = None
         for _ in range(3):
             # Version allocation can race, so retry a few times on conflicts.
+            tenant_id = str(graph.deployment_settings.get("tenant_id", "default"))
+            workspace_id = graph.deployment_settings.get("workspace_id")
+            serialized_graph = serialize_graph(graph)
             deployment = Deployment(
                 deployment_id=uuid4().hex,
                 deployment_ref=deployment_ref,
@@ -54,12 +63,27 @@ class DeploymentService:
                 graph_id=graph.graph_id,
                 graph_version=graph.version,
                 graph_version_ref=graph_version_ref(graph.graph_id, graph.version),
-                serialized_graph=serialize_graph(graph),
+                serialized_graph=serialized_graph,
                 entry_input_contract_ref=entry_node.input_contract_ref if entry_node else None,
                 entry_input_contract_version=input_contract_version,
                 entry_output_contract_ref=entry_node.output_contract_ref if entry_node else None,
                 entry_output_contract_version=output_contract_version,
                 deployment_settings_snapshot=dict(graph.deployment_settings),
+                graph_snapshot_digest=compute_graph_snapshot_digest(serialized_graph),
+                contract_snapshot_digest=compute_contract_snapshot_digest(
+                    entry_input_contract_ref=entry_node.input_contract_ref if entry_node else None,
+                    entry_input_contract_version=input_contract_version,
+                    entry_output_contract_ref=(
+                        entry_node.output_contract_ref if entry_node else None
+                    ),
+                    entry_output_contract_version=output_contract_version,
+                ),
+                settings_snapshot_digest=compute_settings_snapshot_digest(dict(graph.deployment_settings)),
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
+            deployment.attestation_digest = str(
+                build_attestation_payload(deployment)["attestation_digest"]
             )
             try:
                 return self.deployment_repository.create(deployment)

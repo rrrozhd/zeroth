@@ -5,6 +5,11 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from tests.service.helpers import (
+    default_service_auth_config,
+    operator_headers,
+    reviewer_headers,
+)
 from zeroth.agent_runtime import ProviderResponse
 from zeroth.agent_runtime.provider import CallableProviderAdapter
 from zeroth.service.bootstrap import bootstrap_app
@@ -17,13 +22,14 @@ def _wait_for(
     run_id: str,
     status: str,
     *,
+    headers: dict[str, str] | None = None,
     timeout_seconds: float = 5.0,
 ) -> dict[str, Any]:
     import time
 
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        payload = client.get(f"/runs/{run_id}").json()
+        payload = client.get(f"/runs/{run_id}", headers=headers).json()
         if payload["status"] == status:
             return payload
         time.sleep(0.05)
@@ -179,19 +185,25 @@ def test_research_audit_bootstrap_and_api_flow(sqlite_db) -> None:
             "review": _review_provider(),
             "finalize": _final_provider(),
         },
+        auth_config=default_service_auth_config(),
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        health = client.get("/health")
+        health = client.get("/health", headers=operator_headers())
         create = client.post(
             "/runs",
             json={"input_payload": {"question": "Find likely bootstrap bugs", "use_web": False}},
+            headers=operator_headers(),
         )
         assert create.status_code == 202
         run_id = create.json()["run_id"]
-        completed = _wait_for(client, run_id, "succeeded")
+        completed = _wait_for(client, run_id, "succeeded", headers=operator_headers())
 
     audits = service.audit_repository.list_by_run(run_id)
 
@@ -227,8 +239,13 @@ def test_research_audit_approval_pause_and_resume(sqlite_db) -> None:
             "review": _review_provider(),
             "finalize": _final_provider(),
         },
+        auth_config=default_service_auth_config(),
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -241,17 +258,19 @@ def test_research_audit_approval_pause_and_resume(sqlite_db) -> None:
                     "force_approval": True,
                 }
             },
+            headers=operator_headers(),
         )
         assert create.status_code == 202
         run_id = create.json()["run_id"]
-        paused = _wait_for(client, run_id, "paused_for_approval")
+        paused = _wait_for(client, run_id, "paused_for_approval", headers=operator_headers())
         approval_id = paused["approval_paused_state"]["approval_id"]
 
         resolved = client.post(
             f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}/resolve",
-            json={"decision": "approve", "approver": "tester"},
+            json={"decision": "approve"},
+            headers=reviewer_headers(),
         )
-        completed = _wait_for(client, run_id, "succeeded")
+        completed = _wait_for(client, run_id, "succeeded", headers=operator_headers())
 
     assert resolved.status_code == 200
     assert completed["terminal_output"]["approval_used"] is True
@@ -267,24 +286,34 @@ def test_research_audit_thread_continuity_across_runs(sqlite_db) -> None:
             "plan": _planner_provider(requires_research=False),
             "finalize": _final_provider(),
         },
+        auth_config=default_service_auth_config(),
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        first = client.post("/runs", json={"input_payload": {"question": "First pass"}})
+        first = client.post(
+            "/runs",
+            json={"input_payload": {"question": "First pass"}},
+            headers=operator_headers(),
+        )
         assert first.status_code == 202
         first_run_id = first.json()["run_id"]
         thread_id = first.json()["thread_id"]
-        first_done = _wait_for(client, first_run_id, "succeeded")
+        first_done = _wait_for(client, first_run_id, "succeeded", headers=operator_headers())
 
         second = client.post(
             "/runs",
             json={"input_payload": {"question": "Second pass"}, "thread_id": thread_id},
+            headers=operator_headers(),
         )
         assert second.status_code == 202
         second_run_id = second.json()["run_id"]
-        second_done = _wait_for(client, second_run_id, "succeeded")
+        second_done = _wait_for(client, second_run_id, "succeeded", headers=operator_headers())
 
     thread = service.thread_repository.get(thread_id)
 
@@ -310,18 +339,29 @@ def test_research_audit_strict_policy_mode_terminates_run(sqlite_db) -> None:
             "finalize": _final_provider(),
         },
         strict_policy=True,
+        auth_config=default_service_auth_config(),
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
     app.state.bootstrap = service
 
     with TestClient(app) as client:
         create = client.post(
             "/runs",
             json={"input_payload": {"question": "Find likely bootstrap bugs"}},
+            headers=operator_headers(),
         )
         assert create.status_code == 202
         run_id = create.json()["run_id"]
-        failed = _wait_for(client, run_id, "terminated_by_policy")
+        failed = _wait_for(
+            client,
+            run_id,
+            "terminated_by_policy",
+            headers=operator_headers(),
+        )
 
     audits = service.audit_repository.list_by_run(run_id)
 

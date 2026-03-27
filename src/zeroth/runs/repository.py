@@ -90,7 +90,41 @@ MIGRATIONS = [
             updated_at TEXT NOT NULL
         );
         """,
-    )
+    ),
+    Migration(
+        version=2,
+        name="add_run_thread_scope_columns",
+        sql="""
+        ALTER TABLE runs
+        ADD COLUMN tenant_id TEXT DEFAULT 'default';
+
+        ALTER TABLE runs
+        ADD COLUMN workspace_id TEXT;
+
+        ALTER TABLE runs
+        ADD COLUMN submitted_by TEXT;
+
+        ALTER TABLE threads
+        ADD COLUMN tenant_id TEXT DEFAULT 'default';
+
+        ALTER TABLE threads
+        ADD COLUMN workspace_id TEXT;
+
+        UPDATE runs
+        SET tenant_id = 'default'
+        WHERE tenant_id IS NULL;
+
+        UPDATE threads
+        SET tenant_id = 'default'
+        WHERE tenant_id IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_runs_scope
+            ON runs(tenant_id, workspace_id, deployment_ref, thread_id, run_id);
+
+        CREATE INDEX IF NOT EXISTS idx_threads_scope
+            ON threads(tenant_id, workspace_id, deployment_ref, thread_id);
+        """,
+    ),
 ]
 
 ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
@@ -196,12 +230,14 @@ class _RunThreadStore:
                     run_id, checkpoint_id, parent_checkpoint_id, epoch, workflow_name,
                     status, current_step, completed_steps, artifacts, channels,
                     pending_approval, pending_interrupt_id, started_at, updated_at,
-                    error, metadata, graph_version_ref, deployment_ref, thread_id,
+                    error, metadata, graph_version_ref, deployment_ref, tenant_id,
+                    workspace_id, submitted_by, thread_id,
                     current_node_ids, pending_node_ids, execution_history,
                     node_visit_counts, condition_results, audit_refs, final_output,
                     failure_state
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(run_id) DO UPDATE SET
                     checkpoint_id = excluded.checkpoint_id,
@@ -221,6 +257,9 @@ class _RunThreadStore:
                     metadata = excluded.metadata,
                     graph_version_ref = excluded.graph_version_ref,
                     deployment_ref = excluded.deployment_ref,
+                    tenant_id = excluded.tenant_id,
+                    workspace_id = excluded.workspace_id,
+                    submitted_by = excluded.submitted_by,
                     thread_id = excluded.thread_id,
                     current_node_ids = excluded.current_node_ids,
                     pending_node_ids = excluded.pending_node_ids,
@@ -250,6 +289,9 @@ class _RunThreadStore:
                     to_json_value(run.metadata),
                     run.graph_version_ref,
                     run.deployment_ref,
+                    run.tenant_id,
+                    run.workspace_id,
+                    _dump_model(run.submitted_by),
                     run.thread_id,
                     to_json_value(run.current_node_ids),
                     to_json_value(run.pending_node_ids),
@@ -268,14 +310,16 @@ class _RunThreadStore:
             connection.execute(
                 """
                 INSERT INTO threads (
-                    thread_id, graph_version_ref, deployment_ref, status,
+                    thread_id, graph_version_ref, deployment_ref, tenant_id, workspace_id, status,
                     participating_agent_refs, state_snapshot_refs, checkpoint_refs,
                     memory_bindings, run_ids, active_run_id, last_run_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(thread_id) DO UPDATE SET
                     graph_version_ref = excluded.graph_version_ref,
                     deployment_ref = excluded.deployment_ref,
+                    tenant_id = excluded.tenant_id,
+                    workspace_id = excluded.workspace_id,
                     status = excluded.status,
                     participating_agent_refs = excluded.participating_agent_refs,
                     state_snapshot_refs = excluded.state_snapshot_refs,
@@ -290,6 +334,8 @@ class _RunThreadStore:
                     thread.thread_id,
                     thread.graph_version_ref,
                     thread.deployment_ref,
+                    thread.tenant_id,
+                    thread.workspace_id,
                     thread.status.value,
                     to_json_value(thread.participating_agent_refs),
                     to_json_value(thread.state_snapshot_refs),
@@ -358,6 +404,8 @@ class _RunThreadStore:
                 run.run_id,
                 run.graph_version_ref,
                 run.deployment_ref,
+                run.tenant_id,
+                run.workspace_id,
             )
         run.touch()
         snapshot = run.model_dump(mode="json")
@@ -454,6 +502,8 @@ class _RunThreadStore:
             run.run_id,
             run.graph_version_ref,
             run.deployment_ref,
+            run.tenant_id,
+            run.workspace_id,
         )
         self.write_checkpoint(run)
         run.touch()
@@ -474,6 +524,8 @@ class _RunThreadStore:
                 thread_id=run.thread_id,
                 graph_version_ref=run.graph_version_ref,
                 deployment_ref=run.deployment_ref,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
                 status=ThreadStatus.ACTIVE,
                 run_ids=[run.run_id],
                 last_run_id=run.run_id,
@@ -482,6 +534,8 @@ class _RunThreadStore:
             if (
                 thread.graph_version_ref != run.graph_version_ref
                 or thread.deployment_ref != run.deployment_ref
+                or thread.tenant_id != run.tenant_id
+                or thread.workspace_id != run.workspace_id
             ):
                 raise ValueError("thread identity mismatch")
             if run.run_id not in thread.run_ids:
@@ -496,6 +550,8 @@ class _RunThreadStore:
         run_id: str,
         graph_version_ref: str,
         deployment_ref: str,
+        tenant_id: str,
+        workspace_id: str | None,
     ) -> None:
         """Register a run with its thread, creating the thread if needed."""
         thread = self.get_thread(thread_id)
@@ -504,6 +560,8 @@ class _RunThreadStore:
                 thread_id=thread_id,
                 graph_version_ref=graph_version_ref,
                 deployment_ref=deployment_ref,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 status=ThreadStatus.ACTIVE,
                 run_ids=[run_id],
                 last_run_id=run_id,
@@ -512,6 +570,8 @@ class _RunThreadStore:
             if (
                 thread.graph_version_ref != graph_version_ref
                 or thread.deployment_ref != deployment_ref
+                or thread.tenant_id != tenant_id
+                or thread.workspace_id != workspace_id
             ):
                 raise ValueError("thread identity mismatch")
             thread.run_ids = _merge(thread.run_ids, [run_id])
@@ -560,6 +620,9 @@ class _RunThreadStore:
             metadata=load_typed_value(row["metadata"], dict[str, Any]) or {},
             graph_version_ref=row["graph_version_ref"],
             deployment_ref=row["deployment_ref"],
+            tenant_id=row["tenant_id"] or "default",
+            workspace_id=row["workspace_id"],
+            submitted_by=load_typed_value(row["submitted_by"], dict[str, Any]),
             thread_id=row["thread_id"],
             current_node_ids=load_typed_value(row["current_node_ids"], list[str]) or [],
             pending_node_ids=load_typed_value(row["pending_node_ids"], list[str]) or [],
@@ -581,6 +644,8 @@ class _RunThreadStore:
             thread_id=row["thread_id"],
             graph_version_ref=row["graph_version_ref"],
             deployment_ref=row["deployment_ref"],
+            tenant_id=row["tenant_id"] or "default",
+            workspace_id=row["workspace_id"],
             status=ThreadStatus(row["status"]),
             participating_agent_refs=(
                 load_typed_value(row["participating_agent_refs"], list[str]) or []
@@ -767,6 +832,8 @@ class ThreadRepository:
         *,
         graph_version_ref: str,
         deployment_ref: str,
+        tenant_id: str = "default",
+        workspace_id: str | None = None,
         participating_agent_refs: Sequence[str] | None = None,
         state_snapshot_refs: Sequence[str] | None = None,
         checkpoint_refs: Sequence[str] | None = None,
@@ -790,6 +857,8 @@ class ThreadRepository:
                     thread_id=thread_id,
                     graph_version_ref=graph_version_ref,
                     deployment_ref=deployment_ref,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
                     participating_agent_refs=list(participating_agent_refs or []),
                     state_snapshot_refs=list(state_snapshot_refs or []),
                     checkpoint_refs=list(checkpoint_refs or []),
@@ -804,6 +873,8 @@ class ThreadRepository:
         if (
             existing.graph_version_ref != graph_version_ref
             or existing.deployment_ref != deployment_ref
+            or existing.tenant_id != tenant_id
+            or existing.workspace_id != workspace_id
         ):
             raise ValueError("thread identity mismatch")
 

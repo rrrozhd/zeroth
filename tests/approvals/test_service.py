@@ -10,6 +10,7 @@ from zeroth.approvals import (
 )
 from zeroth.audit import AuditRepository
 from zeroth.graph import HumanApprovalNode, HumanApprovalNodeData
+from zeroth.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.runs import Run, RunRepository
 
 
@@ -79,13 +80,23 @@ def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
     resolved = service.resolve(
         record.approval_id,
         decision=ApprovalDecision.EDIT_AND_APPROVE,
-        approver="user-1",
+        actor=ActorIdentity(
+            subject="user-1",
+            auth_method=AuthMethod.API_KEY,
+            roles=[ServiceRole.REVIEWER],
+            tenant_id="default",
+        ),
         edited_payload={"value": 9},
     )
     repeat = service.resolve(
         record.approval_id,
         decision=ApprovalDecision.EDIT_AND_APPROVE,
-        approver="user-1",
+        actor=ActorIdentity(
+            subject="user-1",
+            auth_method=AuthMethod.API_KEY,
+            roles=[ServiceRole.REVIEWER],
+            tenant_id="default",
+        ),
         edited_payload={"value": 9},
     )
 
@@ -98,5 +109,10 @@ def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
         service.resolve(
             record.approval_id,
             decision=ApprovalDecision.REJECT,
-            approver="user-2",
+            actor=ActorIdentity(
+                subject="user-2",
+                auth_method=AuthMethod.API_KEY,
+                roles=[ServiceRole.REVIEWER],
+                tenant_id="default",
+            ),
         )

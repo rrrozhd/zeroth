@@ -38,6 +38,25 @@ MIGRATIONS = [
             ON approvals(deployment_ref, created_at, approval_id);
         """,
     )
+    ,
+    Migration(
+        version=2,
+        name="add_approval_scope_columns",
+        sql="""
+        ALTER TABLE approvals
+        ADD COLUMN tenant_id TEXT DEFAULT 'default';
+
+        ALTER TABLE approvals
+        ADD COLUMN workspace_id TEXT;
+
+        UPDATE approvals
+        SET tenant_id = 'default'
+        WHERE tenant_id IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_approvals_scope
+            ON approvals(tenant_id, workspace_id, deployment_ref, approval_id);
+        """,
+    )
 ]
 
 
@@ -69,17 +88,21 @@ class ApprovalRepository:
                     node_id,
                     graph_version_ref,
                     deployment_ref,
+                    tenant_id,
+                    workspace_id,
                     status,
                     created_at,
                     updated_at,
                     record_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(approval_id) DO UPDATE SET
                     run_id = excluded.run_id,
                     thread_id = excluded.thread_id,
                     node_id = excluded.node_id,
                     graph_version_ref = excluded.graph_version_ref,
                     deployment_ref = excluded.deployment_ref,
+                    tenant_id = excluded.tenant_id,
+                    workspace_id = excluded.workspace_id,
                     status = excluded.status,
                     created_at = excluded.created_at,
                     updated_at = excluded.updated_at,
@@ -92,6 +115,8 @@ class ApprovalRepository:
                     record.node_id,
                     record.graph_version_ref,
                     record.deployment_ref,
+                    record.tenant_id,
+                    record.workspace_id,
                     record.status.value,
                     record.created_at.isoformat(),
                     record.updated_at.isoformat(),
@@ -135,6 +160,36 @@ class ApprovalRepository:
             clauses.append(f"{key} = ?")
             params.append(value)
         sql = "SELECT record_json FROM approvals WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at, approval_id"
+        with self._database.transaction() as connection:
+            rows = connection.execute(sql, params).fetchall()
+        return [
+            ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
+            for row in rows
+        ]
+
+    def list(
+        self,
+        *,
+        run_id: str | None = None,
+        thread_id: str | None = None,
+        deployment_ref: str | None = None,
+    ) -> list[ApprovalRecord]:
+        """Return approval records, optionally filtered by run, thread, or deployment."""
+        clauses: list[str] = []
+        params: list[str] = []
+        for key, value in (
+            ("run_id", run_id),
+            ("thread_id", thread_id),
+            ("deployment_ref", deployment_ref),
+        ):
+            if value is None:
+                continue
+            clauses.append(f"{key} = ?")
+            params.append(value)
+        sql = "SELECT record_json FROM approvals"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY created_at, approval_id"
         with self._database.transaction() as connection:
             rows = connection.execute(sql, params).fetchall()
