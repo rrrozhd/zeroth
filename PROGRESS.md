@@ -432,6 +432,15 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Blockers:** none
 **Next:** Commit the fresh verification evidence, fast-forward `main`, verify the merged branch, and push `origin/main`.
 
+### 2026-03-27 11:52 — Merge live research-audit into main
+**Phase/Tasks:** 5A
+**Status:** completed
+**What:** Fast-forward merged `codex/live-research-audit` into `main`, re-verified the full repository on merged `main`, and prepared the final mainline push with post-merge evidence.
+**Tests:** pass (`uv run pytest -v`, `uv run ruff check src tests live_scenarios`)
+**Artifacts:** `phases/phase-5-integration/artifacts/test-full-after-merge-main-2026-03-27.txt`, `phases/phase-5-integration/artifacts/lint-after-merge-main-2026-03-27.txt`
+**Blockers:** none
+**Next:** Commit the post-merge verification evidence, push `origin/main`, and delete the local feature branch.
+
 <!-- Append iteration logs here. Format:
 ### YYYY-MM-DD HH:MM — [title]
 **Phase/Tasks:** 1A, 2E, etc.
