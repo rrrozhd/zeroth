@@ -74,5 +74,6 @@ class EnforcementResult(BaseModel):
     effective_capabilities: set[Capability] = Field(default_factory=set)
     allowed_secrets: list[str] = Field(default_factory=list)
     network_mode: str | None = None
+    approval_required_for_side_effects: bool = False
     timeout_override_seconds: float | None = None
     sandbox_strictness_mode: str | None = None

@@ -12,9 +12,10 @@ from zeroth.storage.redis import (
     build_governai_redis_runtime,
     docker_container_running,
 )
-from zeroth.storage.sqlite import Migration, SQLiteDatabase
+from zeroth.storage.sqlite import EncryptedField, Migration, SQLiteDatabase
 
 __all__ = [
+    "EncryptedField",
     "GovernAIRedisRuntimeStores",
     "Migration",
     "RedisConfig",

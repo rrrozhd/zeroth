@@ -134,7 +134,9 @@ def test_sandbox_manager_auto_selects_provisioned_docker_backend() -> None:
 
     def fake_runner(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
         calls.append(list(command))
-        if command[:2] == ["docker", "exec"] and "mkdir" not in command and "rm" not in command:
+        if command[:4] == ["docker", "inspect", "-f", "{{.Config.Image}}"]:
+            return subprocess.CompletedProcess(command, 0, stdout="python:3.12\n", stderr="")
+        if command[:2] == ["docker", "run"]:
             return subprocess.CompletedProcess(command, 0, stdout="docker-ok", stderr="")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
@@ -157,18 +159,13 @@ def test_sandbox_manager_auto_selects_provisioned_docker_backend() -> None:
 
     assert result.backend == "docker"
     assert result.container_name == "zeroth-sandbox"
-    assert any(command[:2] == ["docker", "cp"] for command in calls)
-    exec_calls = [
-        command
-        for command in calls
-        if command[:2] == ["docker", "exec"] and "mkdir" not in command and "rm" not in command
-    ]
-    assert len(exec_calls) == 1
-    exec_command = exec_calls[0]
-    assert "-w" in exec_command
-    assert "zeroth-sandbox" in exec_command
-    assert "python" in exec_command
-    assert "-e" in exec_command
+    run_calls = [command for command in calls if command[:2] == ["docker", "run"]]
+    assert len(run_calls) == 1
+    run_command = run_calls[0]
+    assert "-w" in run_command
+    assert "python:3.12" in run_command
+    assert "python" in run_command
+    assert "-e" in run_command
 
 
 def test_sandbox_manager_raises_when_docker_backend_is_requested_but_missing() -> None:

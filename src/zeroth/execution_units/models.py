@@ -13,6 +13,8 @@ from typing import Annotated, Any, Literal
 from governai.tools.base import ExecutionPlacement
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.execution_units.integrity import ManifestIntegrityRecord
+
 
 class ExecutionMode(StrEnum):
     """How the executable unit was onboarded into the system.
@@ -222,6 +224,7 @@ class ExecutableUnitManifestBase(BaseModel):
     audit_settings: AuditSettings = Field(default_factory=AuditSettings)
     execution_placement: ExecutionPlacement = "local_only"
     side_effect: bool = False
+    integrity: ManifestIntegrityRecord | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")

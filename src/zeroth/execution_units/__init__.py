@@ -10,7 +10,14 @@ from zeroth.execution_units.adapters import (
     PythonRuntimeAdapter,
     RuntimeAdapter,
 )
+from zeroth.execution_units.constraints import ResourceConstraints, build_docker_resource_flags
 from zeroth.execution_units.errors import ManifestValidationError
+from zeroth.execution_units.integrity import (
+    AdmissionController,
+    AdmissionResult,
+    ManifestIntegrityRecord,
+    compute_manifest_digest,
+)
 from zeroth.execution_units.io import (
     ExecutionIOError,
     ExtractedOutput,
@@ -44,6 +51,7 @@ from zeroth.execution_units.models import (
     WrappedCommandUnitManifest,
 )
 from zeroth.execution_units.runner import (
+    ExecutableUnitAdmissionError,
     ExecutableUnitBinding,
     ExecutableUnitError,
     ExecutableUnitExecutionError,
@@ -61,6 +69,8 @@ from zeroth.execution_units.sandbox import (
     SandboxEnvironment,
     SandboxExecutionResult,
     SandboxManager,
+    SandboxPolicyViolationError,
+    SandboxStrictnessMode,
     SandboxTimeoutError,
     build_sandbox_environment,
     compute_environment_cache_key,
@@ -69,6 +79,8 @@ from zeroth.execution_units.sandbox import (
 from zeroth.execution_units.validator import ExecutableUnitValidator, ValidationCode
 
 __all__ = [
+    "AdmissionController",
+    "AdmissionResult",
     "ArtifactSource",
     "AuditSettings",
     "BuildConfig",
@@ -79,6 +91,7 @@ __all__ = [
     "EnvironmentCacheManager",
     "ExecutableUnitManifest",
     "ExecutableUnitBinding",
+    "ExecutableUnitAdmissionError",
     "ExecutableUnitError",
     "ExecutableUnitExecutionError",
     "ExecutableUnitNotFoundError",
@@ -94,6 +107,7 @@ __all__ = [
     "InputMode",
     "InjectedInput",
     "InputInjectionError",
+    "ManifestIntegrityRecord",
     "ManifestValidationError",
     "NativeUnitManifest",
     "OutputMode",
@@ -103,6 +117,7 @@ __all__ = [
     "ProjectArchiveArtifactSource",
     "PythonRuntimeAdapter",
     "PythonModuleArtifactSource",
+    "ResourceConstraints",
     "ResourceLimits",
     "RunConfig",
     "RuntimeLanguage",
@@ -113,11 +128,15 @@ __all__ = [
     "SandboxEnvironment",
     "SandboxExecutionResult",
     "SandboxManager",
+    "SandboxPolicyViolationError",
+    "SandboxStrictnessMode",
     "SandboxTimeoutError",
     "ValidationCode",
     "WrappedCommandUnitManifest",
     "build_sandbox_environment",
+    "build_docker_resource_flags",
     "compute_environment_cache_key",
+    "compute_manifest_digest",
     "convert_output",
     "docker_container_running",
     "extract_output",

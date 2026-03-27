@@ -71,6 +71,9 @@ class PolicyGuard:
                 effective_capabilities=required_capabilities - set(rejected),
                 allowed_secrets=self._allowed_secrets(policies),
                 network_mode=self._network_mode(policies),
+                approval_required_for_side_effects=self._approval_required_for_side_effects(
+                    policies
+                ),
                 timeout_override_seconds=self._timeout_override(policies),
                 sandbox_strictness_mode=self._strictness_mode(policies),
             )
@@ -89,6 +92,9 @@ class PolicyGuard:
                     effective_capabilities=required_capabilities - set(missing),
                     allowed_secrets=self._allowed_secrets(policies),
                     network_mode=self._network_mode(policies),
+                    approval_required_for_side_effects=self._approval_required_for_side_effects(
+                        policies
+                    ),
                     timeout_override_seconds=self._timeout_override(policies),
                     sandbox_strictness_mode=self._strictness_mode(policies),
                 )
@@ -98,6 +104,7 @@ class PolicyGuard:
             effective_capabilities=required_capabilities,
             allowed_secrets=self._allowed_secrets(policies),
             network_mode=self._network_mode(policies),
+            approval_required_for_side_effects=self._approval_required_for_side_effects(policies),
             timeout_override_seconds=self._timeout_override(policies),
             sandbox_strictness_mode=self._strictness_mode(policies),
         )
@@ -150,6 +157,10 @@ class PolicyGuard:
             if policy.timeout_override_seconds is not None
         ]
         return overrides[-1] if overrides else None
+
+    def _approval_required_for_side_effects(self, policies: list[PolicyDefinition]) -> bool:
+        """Return True if any active policy requires explicit approval for side effects."""
+        return any(policy.approval_required_for_side_effects for policy in policies)
 
     def _strictness_mode(self, policies: list[PolicyDefinition]) -> str | None:
         """Return the last policy's sandbox strictness mode, or None if unset."""

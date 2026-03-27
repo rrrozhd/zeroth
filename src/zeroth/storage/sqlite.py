@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from cryptography.fernet import Fernet
+
 
 @dataclass(frozen=True, slots=True)
 class Migration:
@@ -27,6 +29,23 @@ class Migration:
     sql: str
 
 
+class EncryptedField:
+    """Symmetric field encryption helper for sensitive JSON columns."""
+
+    def __init__(self, key: str | bytes) -> None:
+        self._fernet = Fernet(key.encode("utf-8") if isinstance(key, str) else key)
+
+    @classmethod
+    def generate_key(cls) -> str:
+        return Fernet.generate_key().decode("utf-8")
+
+    def encrypt(self, value: str) -> str:
+        return self._fernet.encrypt(value.encode("utf-8")).decode("utf-8")
+
+    def decrypt(self, value: str) -> str:
+        return self._fernet.decrypt(value.encode("utf-8")).decode("utf-8")
+
+
 class SQLiteDatabase:
     """A lightweight SQLite wrapper that manages connections and schema versions.
 
@@ -34,8 +53,11 @@ class SQLiteDatabase:
     and applying migrations so your database schema stays up to date.
     """
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, encryption_key: str | bytes | None = None):
         self.path = str(path)
+        self.encrypted_field = (
+            EncryptedField(encryption_key) if encryption_key is not None else None
+        )
 
     def connect(self) -> sqlite3.Connection:
         """Open a new database connection with recommended settings.

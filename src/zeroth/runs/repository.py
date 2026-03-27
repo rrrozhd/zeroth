@@ -427,7 +427,7 @@ class _RunThreadStore:
                     run.run_id,
                     run.thread_id,
                     checkpoint_order,
-                    to_json_value(snapshot),
+                    self._encode_checkpoint_json(to_json_value(snapshot)),
                     run.updated_at.isoformat(),
                 ),
             )
@@ -443,7 +443,9 @@ class _RunThreadStore:
             ).fetchone()
         if row is None:
             return None
-        return Run.model_validate(load_typed_value(row["state_json"], dict[str, Any]))
+        return Run.model_validate(
+            load_typed_value(self._decode_checkpoint_json(row["state_json"]), dict[str, Any])
+        )
 
     def get_latest_checkpoint(self, thread_id: str) -> Run | None:
         """Load the most recent checkpoint for a given thread."""
@@ -598,6 +600,18 @@ class _RunThreadStore:
     def _next_checkpoint_order(self, thread_id: str) -> int:
         """Return the next checkpoint order number for a thread."""
         return len(self._checkpoint_ids(thread_id))
+
+    def _encode_checkpoint_json(self, payload: str) -> str:
+        encrypted_field = self.database.encrypted_field
+        if encrypted_field is None:
+            return payload
+        return encrypted_field.encrypt(payload)
+
+    def _decode_checkpoint_json(self, payload: str) -> str:
+        encrypted_field = self.database.encrypted_field
+        if encrypted_field is None:
+            return payload
+        return encrypted_field.decrypt(payload)
 
     def _row_to_run(self, row: sqlite3.Row) -> Run:
         """Convert a raw SQLite row into a Run model."""

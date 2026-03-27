@@ -82,6 +82,7 @@ class AgentRunner:
         *,
         thread_id: str | None = None,
         runtime_context: Mapping[str, Any] | None = None,
+        enforcement_context: Mapping[str, Any] | None = None,
     ) -> AgentRunResult:
         """Execute the agent with the given input and return the result.
 
@@ -102,6 +103,15 @@ class AgentRunner:
             resolved_runtime_context["memory"] = memory_context
         retry_policy = self.config.retry_policy
         max_attempts = retry_policy.max_attempts
+        provider_timeout_seconds = self._effective_timeout(
+            self.config.timeout_seconds,
+            enforcement_context.get("timeout_override_seconds")
+            if enforcement_context is not None
+            else None,
+        )
+        approval_required_for_side_effects = bool(
+            (enforcement_context or {}).get("approval_required_for_side_effects")
+        )
         prompt = self.prompt_assembler.assemble(
             self.config,
             validated_input,
@@ -123,11 +133,13 @@ class AgentRunner:
                 response = await run_provider_with_timeout(
                     self.provider,
                     request,
-                    timeout_seconds=self.config.timeout_seconds,
+                    timeout_seconds=provider_timeout_seconds,
                 )
                 response, messages, tool_audits = await self._resolve_tool_calls(
                     response=response,
                     messages=messages,
+                    provider_timeout_seconds=provider_timeout_seconds,
+                    approval_required_for_side_effects=approval_required_for_side_effects,
                 )
                 # Validation turns the provider response into the typed Zeroth output.
                 output = self.output_validator.validate(self.config.output_model, response)
@@ -168,7 +180,7 @@ class AgentRunner:
                 )
             except TimeoutError as exc:
                 last_error = AgentTimeoutError(
-                    f"provider timed out after {self.config.timeout_seconds} second(s)"
+                    f"provider timed out after {provider_timeout_seconds} second(s)"
                 )
                 if not retry_policy.retry_on_timeout or attempt == max_attempts:
                     raise last_error from exc
@@ -193,6 +205,8 @@ class AgentRunner:
         *,
         response: Any,
         messages: list[Any],
+        provider_timeout_seconds: float | None,
+        approval_required_for_side_effects: bool,
     ) -> tuple[Any, list[Any], list[dict[str, Any]]]:
         """Execute any tool calls the model requested and re-call the model.
 
@@ -223,6 +237,10 @@ class AgentRunner:
                     declared_tool_refs=self.config.declared_tool_refs,
                 )
                 binding = bindings[0]
+                if approval_required_for_side_effects and binding.side_effect_allowed:
+                    raise AgentProviderError(
+                        f"approval required for side-effecting tool call: {binding.alias}"
+                    )
                 self.tool_bridge.validate_permissions(binding, self.granted_tool_permissions)
                 try:
                     result = self.tool_executor(binding, call["args"])
@@ -266,9 +284,21 @@ class AgentRunner:
                     messages=current_messages,
                     metadata={},
                 ),
-                timeout_seconds=self.config.timeout_seconds,
+                timeout_seconds=provider_timeout_seconds,
             )
         return current_response, current_messages, tool_audits
+
+    def _effective_timeout(
+        self,
+        configured_timeout: float | None,
+        policy_timeout: float | None,
+    ) -> float | None:
+        """Choose the tighter timeout when policy and config both specify one."""
+        if configured_timeout is None:
+            return policy_timeout
+        if policy_timeout is None:
+            return configured_timeout
+        return min(configured_timeout, policy_timeout)
 
     def _assistant_message_for(self, response: Any) -> Any:
         """Build an assistant message from a provider response for the message history."""

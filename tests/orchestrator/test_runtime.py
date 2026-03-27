@@ -39,6 +39,7 @@ from zeroth.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
+from zeroth.identity import ActorIdentity, AuthMethod
 from zeroth.mappings.models import EdgeMapping, PassthroughMappingOperation
 from zeroth.orchestrator import RuntimeOrchestrator
 from zeroth.policy import (
@@ -451,7 +452,7 @@ async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_d
     approval_service.resolve(
         approval_id,
         decision=ApprovalDecision.EDIT_AND_APPROVE,
-        approver="user-1",
+        actor=ActorIdentity(subject="user-1", auth_method=AuthMethod.API_KEY),
         edited_payload={"value": 4},
     )
 

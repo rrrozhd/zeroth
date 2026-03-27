@@ -1,0 +1,68 @@
+uv run pytest -q tests/execution_units/test_sandbox.py tests/policy/test_guard.py tests/orchestrator/test_runtime.py
+.............F..                                                         [100%]
+=================================== FAILURES ===================================
+________ test_runtime_orchestrator_continues_after_approval_resolution _________
+
+sqlite_db = <zeroth.storage.sqlite.SQLiteDatabase object at 0x108574a10>
+
+    @pytest.mark.asyncio
+    async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_db) -> None:
+        approval_service = ApprovalService(
+            repository=ApprovalRepository(sqlite_db),
+            run_repository=RunRepository(sqlite_db),
+            audit_repository=AuditRepository(sqlite_db),
+        )
+        graph = Graph(
+            graph_id="graph-approval",
+            name="approval",
+            entry_step="approval",
+            nodes=[
+                HumanApprovalNode(
+                    node_id="approval",
+                    graph_version_ref="graph-approval:v1",
+                    output_contract_ref="contract://number",
+                    human_approval=HumanApprovalNodeData(
+                        approval_policy_config={"allow_edits": True},
+                    ),
+                ),
+                AgentNode(
+                    node_id="finish",
+                    graph_version_ref="graph-approval:v1",
+                    input_contract_ref="contract://number",
+                    output_contract_ref="contract://number",
+                    agent=AgentNodeData(instruction="finish", model_provider="provider://finish"),
+                ),
+            ],
+            edges=[Edge(edge_id="edge-1", source_node_id="approval", target_node_id="finish")],
+        )
+        orchestrator = RuntimeOrchestrator(
+            approval_service=approval_service,
+            audit_repository=AuditRepository(sqlite_db),
+            run_repository=RunRepository(sqlite_db),
+            agent_runners={
+                "finish": _agent_runner(
+                    output_model=NumberOutput,
+                    provider=CallableProviderAdapter(
+                        lambda request: ProviderResponse(
+                            content={"value": request.metadata["input_payload"]["value"] + 1}
+                        )
+                    ),
+                )
+            },
+            executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+        )
+    
+        paused = await orchestrator.run_graph(graph, {"value": 2})
+        approval_id = paused.metadata["pending_approval"]["approval_id"]
+>       approval_service.resolve(
+            approval_id,
+            decision=ApprovalDecision.EDIT_AND_APPROVE,
+            approver="user-1",
+            edited_payload={"value": 4},
+        )
+E       TypeError: ApprovalService.resolve() got an unexpected keyword argument 'approver'
+
+tests/orchestrator/test_runtime.py:451: TypeError
+=========================== short test summary info ============================
+FAILED tests/orchestrator/test_runtime.py::test_runtime_orchestrator_continues_after_approval_resolution
+1 failed, 15 passed in 0.53s

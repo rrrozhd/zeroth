@@ -8,21 +8,30 @@ so that executions can be resumed if interrupted.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
 from zeroth.agent_runtime import AgentRunner, RepositoryThreadResolver
-from zeroth.approvals import ApprovalRecord, ApprovalService
+from zeroth.approvals import ApprovalDecision, ApprovalRecord, ApprovalService
 from zeroth.audit import AuditRepository, NodeAuditRecord
 from zeroth.conditions import NextStepPlanner
 from zeroth.conditions.models import ConditionContext, TraversalState
 from zeroth.execution_units import ExecutableUnitRunner
-from zeroth.graph import AgentNode, ExecutableUnitNode, Graph, HumanApprovalNode, Node
+from zeroth.graph import (
+    AgentNode,
+    ExecutableUnitNode,
+    Graph,
+    HumanApprovalNode,
+    HumanApprovalNodeData,
+    Node,
+)
 from zeroth.mappings import MappingExecutor
 from zeroth.policy import PolicyDecision, PolicyGuard
 from zeroth.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
+from zeroth.secrets import SecretResolver
 
 
 class OrchestratorError(RuntimeError):
@@ -58,6 +67,7 @@ class RuntimeOrchestrator:
     audit_repository: AuditRepository | None = None
     policy_guard: PolicyGuard | None = None
     approval_service: ApprovalService | None = None
+    secret_resolver: SecretResolver | None = None
     thread_resolver: RepositoryThreadResolver | None = None
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
@@ -136,9 +146,17 @@ class RuntimeOrchestrator:
             run.touch()
             run = self.run_repository.put(run)
 
+            pending_approval = self._consume_side_effect_approval(run, node, input_payload)
+            if pending_approval is not None:
+                return pending_approval
+
             denial = self._enforce_policy(graph, run, node, input_payload)
             if denial is not None:
                 return denial
+
+            side_effect_gate = self._gate_policy_required_side_effects(run, node, input_payload)
+            if side_effect_gate is not None:
+                return side_effect_gate
 
             if isinstance(node, HumanApprovalNode):
                 service = self.approval_service
@@ -167,6 +185,7 @@ class RuntimeOrchestrator:
             try:
                 output_data, audit_record = await self._dispatch_node(node, run, input_payload)
             except Exception as exc:
+                self._record_failed_execution_audit(run, node, node_id, input_payload, exc)
                 return self._fail_run(run, "node_execution_failed", str(exc))
             self._record_history(run, node, node_id, input_payload, output_data, audit_record)
             self._increment_node_visit(run, node_id)
@@ -196,18 +215,37 @@ class RuntimeOrchestrator:
             if runner is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
             thread_id = self._resolve_thread(node, run)
-            result = await runner.run(
+            enforcement_context = self._enforcement_context_for(run, node.node_id)
+            result = await self._run_agent_with_optional_enforcement(
+                runner,
                 input_payload,
                 thread_id=thread_id,
                 runtime_context={"node_id": node.node_id, "run_id": run.run_id},
+                enforcement_context=enforcement_context,
             )
-            return result.output_data, result.audit_record
+            audit_record = dict(result.audit_record)
+            if enforcement_context:
+                audit_record["enforcement"] = enforcement_context
+                audit_record["enforcement_applied"] = True
+            return result.output_data, audit_record
         if isinstance(node, ExecutableUnitNode):
-            result = await self.executable_unit_runner.run(
+            enforcement_context = self._enforcement_context_for(run, node.node_id)
+            if self.secret_resolver is not None and getattr(
+                self.executable_unit_runner,
+                "secret_resolver",
+                None,
+            ) is None:
+                self.executable_unit_runner.secret_resolver = self.secret_resolver
+            result = await self._run_executable_unit_with_optional_enforcement(
                 node.executable_unit.manifest_ref,
                 input_payload,
+                enforcement_context=enforcement_context,
             )
-            return result.output_data, result.audit_record
+            audit_record = dict(result.audit_record)
+            if enforcement_context:
+                audit_record["enforcement"] = enforcement_context
+                audit_record["enforcement_applied"] = True
+            return result.output_data, audit_record
         raise NodeDispatcherError(f"unsupported node type: {type(node)!r}")
 
     def _resolve_thread(self, node: AgentNode, run: Run) -> str | None:
@@ -315,6 +353,9 @@ class RuntimeOrchestrator:
         appends a history entry to the run so you can see what happened
         at each step.
         """
+        redacted_input = self._redact_for_audit(dict(input_payload))
+        redacted_output = self._redact_for_audit(dict(output_payload))
+        redacted_audit_record = self._redact_for_audit(dict(audit_record))
         audit_refs = list(run.audit_refs)
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
@@ -331,17 +372,17 @@ class RuntimeOrchestrator:
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="completed",
-                    input_snapshot=dict(input_payload),
-                    output_snapshot=dict(output_payload),
-                    execution_metadata=dict(audit_record),
+                    input_snapshot=redacted_input,
+                    output_snapshot=redacted_output,
+                    execution_metadata=redacted_audit_record,
                 )
             )
         run.execution_history.append(
             RunHistoryEntry(
                 node_id=node_id,
                 status="completed",
-                input_snapshot=dict(input_payload),
-                output_snapshot=dict(output_payload),
+                input_snapshot=redacted_input,
+                output_snapshot=redacted_output,
                 audit_ref=audit_ref,
             )
         )
@@ -350,6 +391,40 @@ class RuntimeOrchestrator:
     def _increment_node_visit(self, run: Run, node_id: str) -> None:
         """Bump the visit counter for this node by one."""
         run.node_visit_counts[node_id] = run.node_visit_counts.get(node_id, 0) + 1
+
+    def _record_failed_execution_audit(
+        self,
+        run: Run,
+        node: Node,
+        node_id: str,
+        input_payload: Mapping[str, Any],
+        error: Exception,
+    ) -> None:
+        """Persist an audit record for execution failures that happen before completion."""
+        audit_record = getattr(error, "audit_record", None)
+        if self.audit_repository is None or not isinstance(audit_record, Mapping):
+            return
+        audit_refs = list(run.audit_refs)
+        audit_ref = f"audit:{len(audit_refs) + 1}"
+        audit_refs.append(audit_ref)
+        run.audit_refs = audit_refs
+        self.audit_repository.write(
+            NodeAuditRecord(
+                audit_id=self._stored_audit_id(run.run_id, audit_ref),
+                run_id=run.run_id,
+                thread_id=run.thread_id,
+                node_id=node_id,
+                node_version=node.node_version,
+                graph_version_ref=run.graph_version_ref,
+                deployment_ref=run.deployment_ref,
+                attempt=1,
+                status="rejected",
+                input_snapshot=self._redact_for_audit(dict(input_payload)),
+                output_snapshot={},
+                execution_metadata=self._redact_for_audit(dict(audit_record)),
+                error=str(error),
+            )
+        )
 
     def _payload_for(self, run: Run, node_id: str) -> dict[str, Any]:
         """Get and remove the queued input payload for a node.
@@ -402,6 +477,9 @@ class RuntimeOrchestrator:
             return None
         result = guard.evaluate(graph, node, run, input_payload)
         if result.decision is PolicyDecision.ALLOW:
+            enforcement = dict(run.metadata.get("enforcement", {}))
+            enforcement[node.node_id] = result.model_dump(mode="json")
+            run.metadata["enforcement"] = enforcement
             return None
 
         # Policy failures are recorded like a node attempt so operators can diagnose why it stopped.
@@ -421,22 +499,178 @@ class RuntimeOrchestrator:
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="rejected",
-                    input_snapshot=dict(input_payload),
+                    input_snapshot=self._redact_for_audit(dict(input_payload)),
                     output_snapshot={},
-                    execution_metadata={
-                        "effective_capabilities": sorted(
-                            capability.value for capability in result.effective_capabilities
-                        ),
-                        "allowed_secrets": list(result.allowed_secrets),
-                        "network_mode": result.network_mode,
-                        "sandbox_strictness_mode": result.sandbox_strictness_mode,
-                    },
+                    execution_metadata=self._redact_for_audit(
+                        {
+                            "enforcement": result.model_dump(mode="json"),
+                            "enforcement_applied": False,
+                        }
+                    ),
                     error=result.reason,
                 )
             )
         run.touch()
         run = self.run_repository.put(run)
         return self._fail_run(run, "policy_violation", result.reason or "policy denied execution")
+
+    def _enforcement_context_for(self, run: Run, node_id: str) -> dict[str, Any]:
+        """Return the stored policy enforcement context for a node, if any."""
+        enforcement = run.metadata.get("enforcement", {})
+        if not isinstance(enforcement, Mapping):
+            return {}
+        context = enforcement.get(node_id, {})
+        if not isinstance(context, Mapping):
+            return {}
+        return dict(context)
+
+    def _gate_policy_required_side_effects(
+        self,
+        run: Run,
+        node: Node,
+        input_payload: Mapping[str, Any],
+    ) -> Run | None:
+        """Pause execution when policy requires approval before side effects."""
+        enforcement = self._enforcement_context_for(run, node.node_id)
+        if not enforcement.get("approval_required_for_side_effects"):
+            return None
+        approved_nodes = set(run.metadata.get("approved_side_effect_nodes", []))
+        if node.node_id in approved_nodes:
+            return None
+        if not self._node_has_side_effects(node):
+            return None
+        service = self.approval_service
+        approval_id = None
+        if service is not None:
+            approval = service.create_pending(
+                run=run,
+                node=HumanApprovalNode(
+                    node_id=node.node_id,
+                    graph_version_ref=node.graph_version_ref,
+                    human_approval=HumanApprovalNodeData(),
+                ),
+                input_payload=dict(input_payload),
+            )
+            approval_id = approval.approval_id
+        run.status = RunStatus.WAITING_APPROVAL
+        payloads = dict(run.metadata.get("node_payloads", {}))
+        payloads[node.node_id] = dict(input_payload)
+        run.metadata["node_payloads"] = payloads
+        run.metadata["pending_approval"] = {
+            "node_id": node.node_id,
+            "input": dict(input_payload),
+            "approval_id": approval_id,
+            "kind": "side_effect_policy",
+        }
+        run.pending_node_ids.insert(0, node.node_id)
+        run.touch()
+        persisted = self.run_repository.put(run)
+        self.run_repository.write_checkpoint(persisted)
+        return persisted
+
+    def _consume_side_effect_approval(
+        self,
+        run: Run,
+        node: Node,
+        input_payload: Mapping[str, Any],
+    ) -> Run | None:
+        """Resolve pending side-effect approval state before re-executing a node."""
+        pending = run.metadata.get("pending_approval")
+        if not isinstance(pending, Mapping):
+            return None
+        if pending.get("kind") != "side_effect_policy" or pending.get("node_id") != node.node_id:
+            return None
+        approval_id = pending.get("approval_id")
+        if approval_id is None or self.approval_service is None:
+            run.status = RunStatus.WAITING_APPROVAL
+            run.pending_node_ids.insert(0, node.node_id)
+            persisted = self.run_repository.put(run)
+            self.run_repository.write_checkpoint(persisted)
+            return persisted
+        record = self.approval_service.get(approval_id)
+        if record is None or record.resolution is None:
+            run.status = RunStatus.WAITING_APPROVAL
+            run.pending_node_ids.insert(0, node.node_id)
+            persisted = self.run_repository.put(run)
+            self.run_repository.write_checkpoint(persisted)
+            return persisted
+        run.metadata.pop("pending_approval", None)
+        if record.resolution.decision is ApprovalDecision.REJECT:
+            return self._fail_run(run, "approval_rejected", "approval rejected")
+        approved_nodes = set(run.metadata.get("approved_side_effect_nodes", []))
+        approved_nodes.add(node.node_id)
+        run.metadata["approved_side_effect_nodes"] = sorted(approved_nodes)
+        if record.resolution.edited_payload is not None:
+            payloads = dict(run.metadata.get("node_payloads", {}))
+            payloads[node.node_id] = dict(record.resolution.edited_payload)
+            run.metadata["node_payloads"] = payloads
+        return None
+
+    def _node_has_side_effects(self, node: Node) -> bool:
+        """Detect whether a node can cause side effects that require approval."""
+        if isinstance(node, ExecutableUnitNode):
+            if bool(node.execution_config.get("side_effect")):
+                return True
+            registry = getattr(self.executable_unit_runner, "registry", None)
+            if registry is not None and registry.has(node.executable_unit.manifest_ref):
+                return bool(registry.get(node.executable_unit.manifest_ref).manifest.side_effect)
+            return False
+        if isinstance(node, AgentNode):
+            runner = self.agent_runners.get(node.node_id)
+            if runner is None:
+                return False
+            config = getattr(runner, "config", None)
+            attachments = getattr(config, "tool_attachments", []) if config is not None else []
+            return any(attachment.side_effect_allowed for attachment in attachments)
+        return False
+
+    async def _run_agent_with_optional_enforcement(
+        self,
+        runner: AgentRunner,
+        input_payload: Mapping[str, Any],
+        *,
+        thread_id: str | None,
+        runtime_context: Mapping[str, Any],
+        enforcement_context: Mapping[str, Any],
+    ) -> Any:
+        """Call agent runners with enforcement context when their signature supports it."""
+        parameters = inspect.signature(runner.run).parameters
+        if "enforcement_context" in parameters:
+            return await runner.run(
+                input_payload,
+                thread_id=thread_id,
+                runtime_context=runtime_context,
+                enforcement_context=enforcement_context,
+            )
+        return await runner.run(
+            input_payload,
+            thread_id=thread_id,
+            runtime_context=runtime_context,
+        )
+
+    async def _run_executable_unit_with_optional_enforcement(
+        self,
+        manifest_ref: str,
+        input_payload: Mapping[str, Any],
+        *,
+        enforcement_context: Mapping[str, Any],
+    ) -> Any:
+        """Call executable-unit runners with enforcement context when supported."""
+        parameters = inspect.signature(self.executable_unit_runner.run).parameters
+        if "enforcement_context" in parameters:
+            return await self.executable_unit_runner.run(
+                manifest_ref,
+                input_payload,
+                enforcement_context=enforcement_context,
+            )
+        return await self.executable_unit_runner.run(manifest_ref, input_payload)
+
+    def _redact_for_audit(self, value: Any) -> Any:
+        """Redact any resolved secret values before persisting audit material."""
+        resolver = self.secret_resolver
+        if resolver is None:
+            return value
+        return resolver.redactor().redact(value)
 
     def record_approval_resolution(
         self,
