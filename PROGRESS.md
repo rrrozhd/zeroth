@@ -423,6 +423,15 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Blockers:** none
 **Next:** Open a PR or merge the feature branch when ready.
 
+### 2026-03-27 11:48 — Verify feature branch before merge to main
+**Phase/Tasks:** 5A
+**Status:** in-progress
+**What:** Re-ran the full repository test suite and lint checks on `codex/live-research-audit` immediately before merging it into `main`.
+**Tests:** pass (`uv run pytest -v`, `uv run ruff check src tests live_scenarios`)
+**Artifacts:** `phases/phase-5-integration/artifacts/test-full-before-merge-main-2026-03-27.txt`, `phases/phase-5-integration/artifacts/lint-before-merge-main-2026-03-27.txt`
+**Blockers:** none
+**Next:** Commit the fresh verification evidence, fast-forward `main`, verify the merged branch, and push `origin/main`.
+
 <!-- Append iteration logs here. Format:
 ### YYYY-MM-DD HH:MM — [title]
 **Phase/Tasks:** 1A, 2E, etc.
