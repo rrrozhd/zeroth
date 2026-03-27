@@ -396,6 +396,23 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 ---
 
 ## Log
+### 2026-03-27 11:35 — Preserve and publish live research-audit scenario
+**Phase/Tasks:** 5A
+**Status:** in-progress
+**What:** Preserved the local live research-audit scenario after remote history rewrite, prepared it for branch-based publication, and queued fresh verification before commit/push.
+**Tests:** not run
+**Artifacts:** none
+**Blockers:** none
+**Next:** Re-run targeted verification, commit the scenario on a feature branch, and push it to origin.
+
+### 2026-03-27 11:38 — Verify live research-audit scenario for publication
+**Phase/Tasks:** 5A
+**Status:** in-progress
+**What:** Re-ran the targeted live scenario test suite and lint checks on the preserved `live_scenarios/research_audit` implementation before staging it on a feature branch for push.
+**Tests:** pass (`uv run pytest tests/live_scenarios/test_research_audit.py -v`, `uv run ruff check live_scenarios tests/live_scenarios`)
+**Artifacts:** `phases/phase-5-integration/artifacts/test-live-scenario-push-2026-03-27.txt`, `phases/phase-5-integration/artifacts/lint-live-scenario-push-2026-03-27.txt`
+**Blockers:** none
+**Next:** Stage the live scenario deliverables, create the commit, and push the feature branch to origin.
 
 <!-- Append iteration logs here. Format:
 ### YYYY-MM-DD HH:MM — [title]
