@@ -125,6 +125,49 @@ MIGRATIONS = [
             ON threads(tenant_id, workspace_id, deployment_ref, thread_id);
         """,
     ),
+    Migration(
+        version=3,
+        name="add_durable_dispatch_columns",
+        sql="""
+        ALTER TABLE runs
+        ADD COLUMN lease_worker_id TEXT;
+
+        ALTER TABLE runs
+        ADD COLUMN lease_acquired_at TEXT;
+
+        ALTER TABLE runs
+        ADD COLUMN lease_expires_at TEXT;
+
+        ALTER TABLE runs
+        ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE runs
+        ADD COLUMN recovery_checkpoint_id TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_runs_dispatch
+            ON runs(deployment_ref, status, lease_expires_at);
+        """,
+    ),
+    Migration(
+        version=4,
+        name="add_guardrail_tables",
+        sql="""
+        CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+            bucket_key TEXT PRIMARY KEY,
+            token_count REAL NOT NULL,
+            last_refill_at TEXT NOT NULL,
+            capacity REAL NOT NULL DEFAULT 10.0,
+            refill_rate REAL NOT NULL DEFAULT 1.0
+        );
+
+        CREATE TABLE IF NOT EXISTS quota_counters (
+            counter_key TEXT PRIMARY KEY,
+            value INTEGER NOT NULL DEFAULT 0,
+            window_start TEXT NOT NULL,
+            window_seconds INTEGER NOT NULL DEFAULT 86400
+        );
+        """,
+    ),
 ]
 
 ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
@@ -136,6 +179,7 @@ ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
         RunStatus.FAILED,
     },
     RunStatus.WAITING_APPROVAL: {
+        RunStatus.PENDING,  # durable worker re-queue after approval resolution
         RunStatus.RUNNING,
         RunStatus.COMPLETED,
         RunStatus.FAILED,
@@ -146,8 +190,11 @@ ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
         RunStatus.FAILED,
     },
     RunStatus.COMPLETED: set(),
-    RunStatus.FAILED: set(),
+    RunStatus.FAILED: {RunStatus.PENDING},  # operator replay from dead-letter
 }
+
+# Sentinel stored in failure_state.reason to mark dead-letter runs.
+DEAD_LETTER_REASON = "dead_letter"
 
 
 def _utc_now() -> datetime:
@@ -613,6 +660,92 @@ class _RunThreadStore:
             return payload
         return encrypted_field.decrypt(payload)
 
+    def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
+        """Return the checkpoint_id for the most recent checkpoint of a run."""
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT checkpoint_id FROM run_checkpoints
+                WHERE run_id = ?
+                ORDER BY checkpoint_order DESC
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        return row["checkpoint_id"] if row else None
+
+    def count_pending(self, deployment_ref: str) -> int:
+        """Count runs with PENDING status for a deployment."""
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS cnt FROM runs WHERE status = ? AND deployment_ref = ?",
+                (RunStatus.PENDING.value, deployment_ref),
+            ).fetchone()
+        return row["cnt"] if row else 0
+
+    def increment_failure_count(self, run_id: str) -> int:
+        """Atomically increment failure_count for a run; returns the new count."""
+        with self.database.transaction() as connection:
+            connection.execute(
+                "UPDATE runs SET failure_count = failure_count + 1 WHERE run_id = ?",
+                (run_id,),
+            )
+            row = connection.execute(
+                "SELECT failure_count FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return row["failure_count"] if row else 0
+
+    def list_runs(
+        self,
+        deployment_ref: str,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Run]:
+        """Return runs for a deployment, optionally filtered by status."""
+        if status is not None:
+            with self.database.transaction() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM runs
+                    WHERE deployment_ref = ? AND status = ?
+                    ORDER BY started_at DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (deployment_ref, status, limit, offset),
+                ).fetchall()
+        else:
+            with self.database.transaction() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM runs
+                    WHERE deployment_ref = ?
+                    ORDER BY started_at DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (deployment_ref, limit, offset),
+                ).fetchall()
+        return [self._row_to_run(row) for row in rows]
+
+    def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
+        """Return runs that have been dead-lettered (failed with dead_letter reason)."""
+        with self.database.transaction() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM runs
+                WHERE deployment_ref = ? AND status = ?
+                ORDER BY updated_at DESC
+                """,
+                (deployment_ref, RunStatus.FAILED.value),
+            ).fetchall()
+        return [
+            r
+            for r in (self._row_to_run(row) for row in rows)
+            if r.failure_state is not None and r.failure_state.reason == DEAD_LETTER_REASON
+        ]
+
     def _row_to_run(self, row: sqlite3.Row) -> Run:
         """Convert a raw SQLite row into a Run model."""
         return Run(
@@ -805,6 +938,33 @@ class RunRepository:
         run.condition_results.append(result)
         run.touch()
         return self.put(run)
+
+    def count_pending(self, deployment_ref: str) -> int:
+        """Count PENDING runs for a deployment (for backpressure checks)."""
+        return self._store.count_pending(deployment_ref)
+
+    def increment_failure_count(self, run_id: str) -> int:
+        """Increment and return the failure_count for a run."""
+        return self._store.increment_failure_count(run_id)
+
+    def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
+        """Return the most recent checkpoint ID for a run."""
+        return self._store.get_latest_checkpoint_id_for_run(run_id)
+
+    def list_runs(
+        self,
+        deployment_ref: str,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Run]:
+        """Return runs for a deployment, optionally filtered by status."""
+        return self._store.list_runs(deployment_ref, status=status, limit=limit, offset=offset)
+
+    def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
+        """Return dead-lettered runs for a deployment."""
+        return self._store.list_dead_letter_runs(deployment_ref)
 
 
 class ThreadRepository:

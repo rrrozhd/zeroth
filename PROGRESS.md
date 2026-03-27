@@ -541,46 +541,110 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 
 ### 9A. Durable Run Dispatch & Worker Supervision `phases/phase-9-durable-control-plane/PLAN.md`
 
-- [ ] Replace in-process background dispatch with durable queue or lease-based execution ownership
-- [ ] Separate API request handling from worker execution lifecycle
-- [ ] Preserve idempotency across retries and duplicate submissions
-- [ ] **Artifact:** durable dispatch tests pass
-- [ ] **Artifact:** worker retry/idempotency tests pass
+- [x] Replace in-process background dispatch with durable queue or lease-based execution ownership
+- [x] Separate API request handling from worker execution lifecycle
+- [x] Preserve idempotency across retries and duplicate submissions
+- [x] **Artifact:** durable dispatch tests pass (`tests/dispatch/test_lease.py`, `test_worker.py`)
+- [x] **Artifact:** worker retry/idempotency tests pass (`tests/service/test_durable_dispatch.py`)
 
 ### 9B. Resume & Recovery Semantics
 
-- [ ] Make approvals, retries, and thread continuation restart-safe
-- [ ] Recover safely from worker crashes and partial completion
-- [ ] Avoid duplicated side effects during recovery
-- [ ] **Artifact:** restart recovery tests pass
-- [ ] **Artifact:** approval recovery tests pass
+- [x] Make approvals, retries, and thread continuation restart-safe
+- [x] Recover safely from worker crashes and partial completion
+- [x] Avoid duplicated side effects during recovery
+- [x] **Artifact:** restart recovery tests pass (`tests/dispatch/test_recovery.py`)
+- [x] **Artifact:** approval recovery tests pass (`tests/dispatch/test_recovery.py`)
 
 ### 9C. Operational Guardrails
 
-- [ ] Add rate limiting, quotas, and bounded concurrency per tenant or deployment
-- [ ] Surface backpressure instead of accepting unbounded work
-- [ ] Add dead-letter or operator-review handling for repeated failures
-- [ ] **Artifact:** rate limit and quota tests pass
-- [ ] **Artifact:** backpressure tests pass
+- [x] Add rate limiting, quotas, and bounded concurrency per tenant or deployment
+- [x] Surface backpressure instead of accepting unbounded work
+- [x] Add dead-letter or operator-review handling for repeated failures
+- [x] **Artifact:** rate limit and quota tests pass (`tests/guardrails/test_rate_limit.py`)
+- [x] **Artifact:** backpressure tests pass (`tests/service/test_guardrails_api.py`)
 
 ### 9D. Observability & Admin Controls
 
-- [ ] Add metrics for queue depth, run latency, approval wait time, and worker failures
-- [ ] Add tracing or correlation metadata across API, orchestrator, approvals, and audits
-- [ ] Add administrative controls for interruption, cancellation, and replay-safe inspection
-- [ ] **Artifact:** observability contract tests pass
-- [ ] **Artifact:** admin control integration tests pass
+- [x] Add metrics for queue depth, run latency, approval wait time, and worker failures
+- [x] Add tracing or correlation metadata across API, orchestrator, approvals, and audits
+- [x] Add administrative controls for interruption, cancellation, and replay-safe inspection
+- [x] **Artifact:** observability contract tests pass (`tests/observability/`)
+- [x] **Artifact:** admin control integration tests pass (`tests/service/test_admin_api.py`)
 
 ### Phase 9 Gate
 
-- [ ] Run execution survives service restarts without losing work
-- [ ] Recovery paths preserve approval and thread correctness
-- [ ] Capacity guardrails protect the platform under load
-- [ ] Operators can observe and control the runtime safely
+- [x] Run execution survives service restarts without losing work
+- [x] Recovery paths preserve approval and thread correctness
+- [x] Capacity guardrails protect the platform under load
+- [x] Operators can observe and control the runtime safely
 
 ---
 
 ## Log
+
+### 2026-03-28 15:07 — Phase 9 review follow-up: defects found in branch tip
+**Phase/Tasks:** 9A, 9C, 9D
+**Status:** in-progress
+**What:** Reviewed branch `claude/plan-phase-9-t5IMd` and found durable-dispatch ownership bugs, admin/metrics authorization gaps, and a broken local `governai` dependency path in `pyproject.toml` that prevents local `uv` verification in this environment.
+**Tests:** `uv run pytest -q tests/dispatch tests/guardrails tests/observability tests/service/test_admin_api.py tests/service/test_durable_dispatch.py tests/service/test_guardrails_api.py tests/service/test_metrics_endpoint.py` failed with `Distribution not found at: file:///home/user/governai`; `uv run ruff check src tests` failed with the same dependency resolution error
+**Artifacts:** none
+**Blockers:** branch tip references a nonexistent `governai` path and phase 9 regressions need fixes before the completion claim is trustworthy
+**Next:** add regression tests for the reviewed defects, patch the branch, and rerun the smallest viable verification set
+
+### 2026-03-28 15:12 — Phase 9 review follow-up: verification environment restored
+**Phase/Tasks:** 9A, 9C, 9D
+**Status:** in-progress
+**What:** Restored the workspace-local `governai` dependency path in `pyproject.toml` and reran `uv sync` so phase 9 regression tests can run in the intended environment.
+**Tests:** `uv sync` passed
+**Artifacts:** none
+**Blockers:** branch correctness issues still need regression tests and fixes
+**Next:** write failing tests for the reviewed defects, then patch the implementation
+
+### 2026-03-28 15:18 — Phase 9 review follow-up: targeted regression tests added
+**Phase/Tasks:** 9A, 9D
+**Status:** in-progress
+**What:** Added red tests covering worker over-claiming beyond available concurrency, Prometheus counter rendering, admin lease clearing, admin/metrics scope enforcement, metrics permission checks, and interrupt status serialization.
+**Tests:** `uv run pytest -q tests/dispatch/test_worker.py tests/observability/test_metrics.py tests/service/test_admin_api.py tests/service/test_metrics_endpoint.py` failed with 10 expected regressions across worker leasing, admin scope, metrics naming, metrics access, and interrupt status
+**Artifacts:** none
+**Blockers:** implementation still allows the reviewed regressions
+**Next:** patch the worker, admin API, metrics rendering, and public run-status mapping until the new tests turn green
+
+### 2026-03-28 15:24 — Phase 9 review follow-up: targeted regressions fixed
+**Phase/Tasks:** 9A, 9D
+**Status:** in-progress
+**What:** Patched the durable worker to reserve concurrency before claiming new work, added unconditional lease clearing for admin cancel, enforced deployment scope and metrics permission checks on admin/metrics routes, fixed public serialization for `WAITING_INTERRUPT`, and corrected Prometheus counter rendering so existing metric names are not suffixed twice.
+**Tests:** `uv run pytest -q tests/dispatch/test_worker.py tests/observability/test_metrics.py tests/service/test_admin_api.py tests/service/test_metrics_endpoint.py` passed (27 passed)
+**Artifacts:** none
+**Blockers:** broader phase 9 verification and lint still need to run before the branch can be rewritten confidently
+**Next:** run the wider phase 9 test slice and lint, then assess whether any reviewed issues remain
+
+### 2026-03-28 15:33 — Phase 9 review follow-up: wider verification passed, full suite found one contract drift
+**Phase/Tasks:** 9A, 9D
+**Status:** in-progress
+**What:** Cleaned up the branch test style debt flagged by `ruff`, reran the broader phase 9 slice successfully, then ran the full suite and found one remaining contract test expectation that needed to include the new public `waiting_interrupt` status.
+**Tests:** `uv run ruff check src tests` passed; `uv run pytest -q tests/dispatch tests/guardrails tests/observability tests/service/test_admin_api.py tests/service/test_durable_dispatch.py tests/service/test_guardrails_api.py tests/service/test_metrics_endpoint.py` passed (59 passed); `uv run pytest -q` failed with 1 contract schema assertion in `tests/service/test_contract_api.py`
+**Artifacts:** none
+**Blockers:** full-suite verification still needs one rerun after updating the contract schema expectation
+**Next:** rerun the full suite and, if green, rewrite the phase 9 branch commit and push
+
+### 2026-03-28 15:40 — Phase 9 review follow-up: branch corrected and fully reverified
+**Phase/Tasks:** 9A, 9D
+**Status:** completed
+**What:** Completed a review-driven correction pass on the phase 9 branch. Fixed worker over-claiming against bounded concurrency, restored lease clearing on admin cancel, enforced scope and metrics permission checks on admin/metrics routes, exposed `waiting_interrupt` as a first-class public run status, corrected Prometheus counter rendering, repaired the local `governai` dependency path, and updated the affected regression and contract tests.
+**Tests:** `uv run ruff check src tests` passed; `uv run pytest -q tests/dispatch tests/guardrails tests/observability tests/service/test_admin_api.py tests/service/test_durable_dispatch.py tests/service/test_guardrails_api.py tests/service/test_metrics_endpoint.py` passed (59 passed); `uv run pytest -q` passed (280 passed)
+**Artifacts:** none
+**Blockers:** none
+**Next:** rewrite the branch tip commit with the reviewed fixes and push the updated branch
+
+### 2026-03-27 21:10 — Phase 9 complete: durable control plane and production operations
+**Phase/Tasks:** 9A, 9B, 9C, 9D
+**Status:** completed
+**What:** Replaced fragile asyncio background dispatch with a SQLite-backed lease queue. Added 54 new tests across `tests/dispatch/`, `tests/guardrails/`, `tests/observability/`, and 4 new `tests/service/` files. Fixed 15+ GovernAI stub incompatibilities, uppercase `RunStatus` values, approval continuation scheduling, and correlation ID propagation. All 275 tests pass, lint clean.
+**Tests:** `uv run pytest` → 275 passed, 0 failed
+**Artifacts:** `tests/dispatch/test_lease.py`, `test_worker.py`, `test_recovery.py`; `tests/guardrails/test_rate_limit.py`, `test_dead_letter.py`; `tests/observability/test_metrics.py`, `test_correlation.py`; `tests/service/test_guardrails_api.py`, `test_metrics_endpoint.py`, `test_admin_api.py`, `test_durable_dispatch.py`
+**Blockers:** none
+**Next:** Phase 10 or deployment packaging
+
 ### 2026-03-27 12:05 — Added post-MVP roadmap phases 6 through 9
 **Phase/Tasks:** 6A-9D roadmap
 **Status:** completed

@@ -22,7 +22,9 @@ from zeroth.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
+from zeroth.identity import ServiceRole
 from zeroth.runs import Run
+from zeroth.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.service.bootstrap import bootstrap_app, bootstrap_service
 
 
@@ -86,6 +88,28 @@ def reviewer_headers() -> dict[str, str]:
 
 def admin_headers() -> dict[str, str]:
     return {"X-API-Key": TEST_API_KEYS["admin"]}
+
+
+def scoped_auth_config(
+    *credentials: tuple[str, str, ServiceRole, str, str | None],
+) -> ServiceAuthConfig:
+    return ServiceAuthConfig(
+        api_keys=[
+            StaticApiKeyCredential(
+                credential_id=credential_id,
+                secret=secret,
+                subject=credential_id,
+                roles=[role],
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
+            for credential_id, secret, role, tenant_id, workspace_id in credentials
+        ]
+    )
+
+
+def api_key_headers(secret: str) -> dict[str, str]:
+    return {"X-API-Key": secret}
 
 
 @dataclass(slots=True)

@@ -173,6 +173,55 @@ class ApprovalService:
         self._record_api_audit(resolved)
         return resolved
 
+    def schedule_continuation(self, approval_id: str) -> Run:
+        """Prepare a resolved approval for durable worker pick-up.
+
+        Instead of driving the orchestrator inline (which conflicts with the
+        worker-ownership model), this method:
+          1. Prepares the run state (as continue_run would before calling the orchestrator).
+          2. Transitions the run to PENDING so the worker's poll loop will claim it.
+          3. Clears the lease so any worker can pick it up.
+
+        The worker will call ``resume_graph`` on the next poll tick.
+        Only call this from the approval HTTP endpoint when the durable worker is active.
+        """
+        record = self._require(approval_id)
+        if record.status is not ApprovalStatus.RESOLVED or record.resolution is None:
+            raise ValueError("approval must be resolved before continuation")
+        run = self.run_repository.get(record.run_id)
+        if run is None:
+            raise KeyError(record.run_id)
+
+        decision = record.resolution.decision
+        if decision is ApprovalDecision.REJECT:
+            run.failure_state = RunFailureState(
+                reason="approval_rejected", message="approval rejected"
+            )
+            run.status = RunStatus.FAILED
+            run.touch()
+            persisted = self.run_repository.put(run)
+            self._record_decision_audit(record, run, status="rejected", output_payload={})
+            return persisted
+
+        # Prepare run state so the worker can resume from the approval node.
+        run.metadata.pop("pending_approval", None)
+        run.pending_approval = None
+        run.current_node_ids = [record.node_id]
+        run.current_step = record.node_id
+
+        # Store the resolved payload for the orchestrator to pick up after claiming.
+        if decision is ApprovalDecision.EDIT_AND_APPROVE and record.resolution.edited_payload:
+            run.metadata["approval_resolved_payload"] = record.resolution.edited_payload
+        else:
+            run.metadata["approval_resolved_payload"] = record.proposed_payload or {}
+        run.metadata["approval_resolved_id"] = approval_id
+
+        run.touch()
+        self.run_repository.put(run)
+        # WAITING_APPROVAL -> PENDING so the worker's poll loop will re-claim it.
+        run = self.run_repository.transition(record.run_id, RunStatus.PENDING)
+        return run
+
     async def continue_run(
         self,
         approval_id: str,

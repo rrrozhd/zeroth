@@ -89,7 +89,7 @@ class RuntimeOrchestrator:
         run = Run(
             graph_version_ref=self._graph_version_ref(graph),
             deployment_ref=deployment_ref or graph.graph_id,
-            thread_id=thread_id,
+            thread_id=thread_id or "",
             current_node_ids=[],
             pending_node_ids=[self._entry_step(graph)],
             metadata=self._initial_metadata(graph, initial_input),
