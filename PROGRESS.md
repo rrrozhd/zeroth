@@ -414,6 +414,15 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Blockers:** none
 **Next:** Stage the live scenario deliverables, create the commit, and push the feature branch to origin.
 
+### 2026-03-27 11:42 — Push live research-audit scenario branch
+**Phase/Tasks:** 5A
+**Status:** completed
+**What:** Committed the preserved live research-audit scenario, documentation, tests, and verification artifacts on `codex/live-research-audit` and pushed the branch to `origin`.
+**Tests:** pass (`uv run pytest tests/live_scenarios/test_research_audit.py -v`, `uv run ruff check live_scenarios tests/live_scenarios`)
+**Artifacts:** `phases/phase-5-integration/artifacts/test-live-scenario-push-2026-03-27.txt`, `phases/phase-5-integration/artifacts/lint-live-scenario-push-2026-03-27.txt`
+**Blockers:** none
+**Next:** Open a PR or merge the feature branch when ready.
+
 <!-- Append iteration logs here. Format:
 ### YYYY-MM-DD HH:MM — [title]
 **Phase/Tasks:** 1A, 2E, etc.
