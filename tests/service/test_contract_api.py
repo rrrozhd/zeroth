@@ -137,10 +137,12 @@ def test_result_error_state_schema_endpoint_exposes_output_contract_and_error_sc
         "queued",
         "running",
         "paused_for_approval",
+        "waiting_interrupt",
         "succeeded",
         "failed",
         "terminated_by_policy",
         "terminated_by_loop_guard",
+        "dead_letter",
     ]
     assert "approval_paused_state" in parsed.result_state_schema["properties"]
     assert "thread_id" in parsed.result_state_schema["properties"]
