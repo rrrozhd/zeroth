@@ -339,11 +339,11 @@ class Graph(BaseModel):
             compiled_steps.append(
                 GovernedStepSpec(
                     name=step.name,
-                    tool=step.tool,
-                    agent=step.agent,
-                    required_artifacts=list(step.required_artifacts),
-                    emitted_artifact=step.emitted_artifact,
-                    approval_override=step.approval_override,
+                    tool=getattr(step, "tool", None),
+                    agent=getattr(step, "agent", None),
+                    required_artifacts=list(getattr(step, "required_artifacts", [])),
+                    emitted_artifact=getattr(step, "emitted_artifact", None),
+                    approval_override=getattr(step, "approval_override", None),
                     transition=transition,
                 )
             )

@@ -19,6 +19,8 @@ class Permission(StrEnum):
     APPROVAL_READ = "approval:read"
     APPROVAL_RESOLVE = "approval:resolve"
     AUDIT_READ = "audit:read"
+    RUN_ADMIN = "run:admin"
+    METRICS_READ = "metrics:read"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {

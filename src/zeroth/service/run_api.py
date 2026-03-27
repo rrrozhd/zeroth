@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any, Protocol
@@ -39,10 +38,12 @@ class RunPublicStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     PAUSED_FOR_APPROVAL = "paused_for_approval"
+    WAITING_INTERRUPT = "waiting_interrupt"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     TERMINATED_BY_POLICY = "terminated_by_policy"
     TERMINATED_BY_LOOP_GUARD = "terminated_by_loop_guard"
+    DEAD_LETTER = "dead_letter"
 
 
 class RunInvocationRequest(BaseModel):
@@ -102,7 +103,7 @@ def register_run_routes(app: FastAPI) -> None:
         require_deployment_scope(request, deployment, hide_as_not_found=False)
         # Validate against the pinned deployment contract version.
         validated_input = _validate_input_payload(bootstrap, payload.input_payload)
-        thread_id = _validate_thread_id(bootstrap, payload.thread_id)
+        thread_id = _validate_thread_id(bootstrap, payload.thread_id) or ""
         run = Run(
             graph_version_ref=deployment.graph_version_ref,
             deployment_ref=deployment.deployment_ref,
@@ -114,6 +115,8 @@ def register_run_routes(app: FastAPI) -> None:
             pending_node_ids=[_entry_step(graph)],
             metadata=_initial_metadata(graph, validated_input),
         )
+        # Guardrail checks before persisting.
+        _check_guardrails(bootstrap, run)
         try:
             persisted = bootstrap.run_repository.create(run)
         except ValueError as exc:
@@ -121,7 +124,7 @@ def register_run_routes(app: FastAPI) -> None:
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),
             ) from exc
-        _schedule_background_dispatch(app, bootstrap, persisted.run_id)
+        # The durable worker polls for PENDING runs and dispatches them.
         return _serialize_run(bootstrap.run_repository.get(persisted.run_id) or persisted)
 
     @app.get("/runs/{run_id}", response_model=RunStatusResponse)
@@ -149,50 +152,6 @@ def _bootstrap(request: Request) -> RunApiBootstrapLike:
     if bootstrap is None:
         raise RuntimeError("service bootstrap is not configured")
     return bootstrap
-
-
-def _schedule_background_dispatch(
-    app: FastAPI,
-    bootstrap: RunApiBootstrapLike,
-    run_id: str,
-) -> None:
-    task = asyncio.create_task(
-        _dispatch_run(
-            bootstrap,
-            run_id,
-            semaphore=app.state.run_dispatch_semaphore,
-        )
-    )
-    tasks = app.state.run_tasks
-    # Track tasks on app state so shutdown can cancel them cleanly.
-    tasks.add(task)
-    task.add_done_callback(tasks.discard)
-
-
-async def _dispatch_run(
-    bootstrap: RunApiBootstrapLike,
-    run_id: str,
-    *,
-    semaphore: asyncio.Semaphore,
-) -> None:
-    try:
-        async with semaphore:
-            # The public API creates the run first, then the worker flips it into active execution.
-            run = bootstrap.run_repository.transition(run_id, RunStatus.RUNNING)
-            await bootstrap.orchestrator._drive(bootstrap.graph, run)
-    except Exception as exc:  # pragma: no cover - defensive guard
-        current = bootstrap.run_repository.get(run_id)
-        if current is None:
-            return
-        if current.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.WAITING_APPROVAL}:
-            return
-        current.status = RunStatus.FAILED
-        current.failure_state = RunFailureState(
-            reason="dispatch_failed",
-            message=str(exc),
-        )
-        current.touch()
-        bootstrap.run_repository.put(current)
 
 
 def _validate_input_payload(
@@ -320,13 +279,14 @@ def _public_status(run: Run) -> RunPublicStatus:
     if run.status is RunStatus.FAILED:
         return _failed_status(run.failure_state)
     if run.status is RunStatus.WAITING_INTERRUPT:
-        return _failed_status(run.failure_state)
+        return RunPublicStatus.WAITING_INTERRUPT
     return RunPublicStatus.FAILED
-
 
 def _failed_status(failure_state: RunFailureState | None) -> RunPublicStatus:
     if failure_state is None:
         return RunPublicStatus.FAILED
+    if failure_state.reason == "dead_letter":
+        return RunPublicStatus.DEAD_LETTER
     if failure_state.reason == "policy_violation":
         return RunPublicStatus.TERMINATED_BY_POLICY
     if failure_state.reason.startswith("max_total_"):
@@ -343,6 +303,59 @@ def _pending_approval_payload(run: Run) -> dict[str, Any] | None:
     if isinstance(pending, Mapping):
         return dict(pending)
     return None
+
+
+def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
+    """Enforce rate limits, quotas, and backpressure before accepting a run."""
+    guardrail_config = getattr(bootstrap, "guardrail_config", None)
+    if guardrail_config is None:
+        return
+
+    deployment_ref = run.deployment_ref
+    tenant_id = run.tenant_id
+
+    # Backpressure: reject if the queue is too deep.
+    backpressure_limit = guardrail_config.backpressure_queue_depth
+    pending_count = bootstrap.run_repository.count_pending(deployment_ref)
+    if pending_count >= backpressure_limit:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="service busy: too many pending runs",
+            headers={"Retry-After": "5"},
+        )
+
+    # Rate limiting.
+    rate_limiter = getattr(bootstrap, "rate_limiter", None)
+    if rate_limiter is not None:
+        bucket_key = f"tenant:{tenant_id}:deployment:{deployment_ref}"
+        allowed = rate_limiter.check_and_consume(
+            bucket_key,
+            capacity=guardrail_config.rate_limit_capacity,
+            refill_rate=guardrail_config.rate_limit_refill_rate,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="rate limit exceeded",
+                headers={"Retry-After": "1"},
+            )
+
+    # Daily quota.
+    quota_limit = guardrail_config.quota_daily_limit
+    if quota_limit is not None:
+        quota_enforcer = getattr(bootstrap, "quota_enforcer", None)
+        if quota_enforcer is not None:
+            counter_key = f"tenant:{tenant_id}:deployment:{deployment_ref}:daily"
+            within_quota = quota_enforcer.check_and_increment(
+                counter_key,
+                limit=quota_limit,
+                window_seconds=86400,
+            )
+            if not within_quota:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="daily quota exceeded",
+                )
 
 
 def _entry_step(graph: object) -> str:
