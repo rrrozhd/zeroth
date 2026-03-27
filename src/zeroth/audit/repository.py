@@ -116,7 +116,7 @@ class AuditRepository:
                         chained.tenant_id,
                         chained.workspace_id,
                         chained.started_at.isoformat(),
-                        to_json_value(chained.model_dump(mode="json")),
+                        self._encode_record_json(to_json_value(chained.model_dump(mode="json"))),
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -132,7 +132,9 @@ class AuditRepository:
             ).fetchone()
         if row is None:
             return None
-        return NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
+        return NodeAuditRecord.model_validate(
+            load_typed_value(self._decode_record_json(row["record_json"]), dict)
+        )
 
     def list(self, query: AuditQuery | None = None) -> list[NodeAuditRecord]:
         """Return audit records matching the given filters, ordered by time.
@@ -156,7 +158,9 @@ class AuditRepository:
         with self._database.transaction() as connection:
             rows = connection.execute(sql, params).fetchall()
         return [
-            NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
+            NodeAuditRecord.model_validate(
+                load_typed_value(self._decode_record_json(row["record_json"]), dict)
+            )
             for row in rows
         ]
 
@@ -197,4 +201,18 @@ class AuditRepository:
         ).fetchone()
         if row is None:
             return None
-        return NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
+        return NodeAuditRecord.model_validate(
+            load_typed_value(self._decode_record_json(row["record_json"]), dict)
+        )
+
+    def _encode_record_json(self, payload: str) -> str:
+        encrypted_field = self._database.encrypted_field
+        if encrypted_field is None:
+            return payload
+        return encrypted_field.encrypt(payload)
+
+    def _decode_record_json(self, payload: str) -> str:
+        encrypted_field = self._database.encrypted_field
+        if encrypted_field is None:
+            return payload
+        return encrypted_field.decrypt(payload)

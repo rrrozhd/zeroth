@@ -11,16 +11,22 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from time import perf_counter
 from typing import Any
 
 from governai.tools.python_tool import PythonHandler
 from pydantic import BaseModel, ValidationError
 
 from zeroth.execution_units.adapters import PythonRuntimeAdapter
-from zeroth.execution_units.io import ExtractedOutput, convert_output, extract_output, inject_input
+from zeroth.execution_units.constraints import ResourceConstraints
+from zeroth.execution_units.integrity import AdmissionController
+from zeroth.execution_units.io import (
+    ExtractedOutput,
+    convert_output,
+    extract_output,
+    inject_input,
+)
 from zeroth.execution_units.models import (
     ExecutableUnitManifest,
     NativeUnitManifest,
@@ -28,10 +34,13 @@ from zeroth.execution_units.models import (
     WrappedCommandUnitManifest,
 )
 from zeroth.execution_units.sandbox import (
+    SandboxEnvironment,
     SandboxExecutionResult,
     SandboxManager,
-    SandboxTimeoutError,
+    SandboxStrictnessMode,
 )
+from zeroth.policy import Capability, apply_secret_policy
+from zeroth.secrets import SecretResolver
 
 _DEFAULT_ALLOWED_ENV_KEYS = ("PATH", "PYTHONPATH", "HOME", "TMPDIR", "TMP", "TEMP")
 
@@ -50,6 +59,14 @@ class ExecutableUnitExecutionError(ExecutableUnitError):
 
 class ExecutableUnitInputError(ExecutableUnitExecutionError):
     """Raised when the input data does not match the expected schema."""
+
+
+class ExecutableUnitAdmissionError(ExecutableUnitExecutionError):
+    """Raised when an executable unit fails admission control before execution."""
+
+    def __init__(self, message: str, *, audit_record: Mapping[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.audit_record = dict(audit_record or {})
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,32 +175,50 @@ class ExecutableUnitRunner:
         *,
         sandbox_manager: SandboxManager | None = None,
         python_adapter: PythonRuntimeAdapter | None = None,
+        secret_resolver: SecretResolver | None = None,
+        admission_controller: AdmissionController | None = None,
     ) -> None:
         self.registry = registry or ExecutableUnitRegistry()
         self.sandbox_manager = sandbox_manager or SandboxManager()
         self.python_adapter = python_adapter or PythonRuntimeAdapter()
+        self.secret_resolver = secret_resolver
+        self.admission_controller = admission_controller
         self._built_cache_keys: set[str] = set()
 
     async def run_manifest_ref(
         self,
         manifest_ref: str,
         payload: BaseModel | Mapping[str, Any],
+        *,
+        enforcement_context: Mapping[str, Any] | None = None,
     ) -> ExecutableUnitRunResult:
         """Run an executable unit by looking it up in the registry by ref string."""
-        return await self.run_binding(self.registry.get(manifest_ref), payload)
+        return await self.run_binding(
+            self.registry.get(manifest_ref),
+            payload,
+            enforcement_context=enforcement_context,
+        )
 
     async def run(
         self,
         manifest_ref: str,
         payload: BaseModel | Mapping[str, Any],
+        *,
+        enforcement_context: Mapping[str, Any] | None = None,
     ) -> ExecutableUnitRunResult:
         """Shortcut for run_manifest_ref. Run a unit by its ref string."""
-        return await self.run_manifest_ref(manifest_ref, payload)
+        return await self.run_manifest_ref(
+            manifest_ref,
+            payload,
+            enforcement_context=enforcement_context,
+        )
 
     async def run_binding(
         self,
         binding: ExecutableUnitBinding,
         payload: BaseModel | Mapping[str, Any],
+        *,
+        enforcement_context: Mapping[str, Any] | None = None,
     ) -> ExecutableUnitRunResult:
         """Run an executable unit from a binding directly.
 
@@ -193,6 +228,7 @@ class ExecutableUnitRunner:
         validated_input = self._validate_input(binding.input_model, payload)
         input_data = validated_input.model_dump(mode="json")
         manifest = binding.manifest
+        self._admit_manifest(binding)
 
         if isinstance(manifest, NativeUnitManifest):
             output_model = await self._run_native(binding, validated_input)
@@ -208,7 +244,30 @@ class ExecutableUnitRunner:
                 },
             )
 
-        return await self._run_subprocess_unit(binding, validated_input)
+        return await self._run_subprocess_unit(
+            binding,
+            validated_input,
+            enforcement_context=enforcement_context,
+        )
+
+    def _admit_manifest(self, binding: ExecutableUnitBinding) -> None:
+        """Reject untrusted manifests before any execution begins."""
+        controller = self.admission_controller
+        if controller is None:
+            return
+        result = controller.admit(binding.manifest)
+        if result.admitted:
+            return
+        raise ExecutableUnitAdmissionError(
+            f"admission denied for {binding.manifest_ref}: {result.reason}",
+            audit_record={
+                "admission": {
+                    "admitted": result.admitted,
+                    "reason": result.reason,
+                    "digest": result.digest,
+                }
+            },
+        )
 
     def _validate_input(
         self,
@@ -245,6 +304,8 @@ class ExecutableUnitRunner:
         self,
         binding: ExecutableUnitBinding,
         validated_input: BaseModel,
+        *,
+        enforcement_context: Mapping[str, Any] | None = None,
     ) -> ExecutableUnitRunResult:
         """Run a command or project unit as a sandboxed subprocess.
 
@@ -252,22 +313,31 @@ class ExecutableUnitRunner:
         extracts and validates the output, and returns the result.
         """
         manifest = binding.manifest
-        environment = self.sandbox_manager.prepare_environment(
-            allowed_env_keys=binding.allowed_env_keys,
-            overlay=manifest.run_config.environment,
-            cache_identity=manifest.cache_identity_fields,
-            runtime=manifest.runtime.value,
-            runtime_version=str(manifest.version),
-            dependency_manifest=[
-                dependency.model_dump(mode="json") for dependency in manifest.dependencies
-            ],
-            build_config=(
-                manifest.build_config.model_dump(mode="json")
-                if manifest.build_config is not None
-                else None
-            ),
-            sandbox_policy=manifest.resource_limits.model_dump(mode="json"),
+        enforcement = dict(enforcement_context or {})
+        manifest_env, secret_env_keys = self._manifest_environment(manifest)
+        secret_filtered_env = self._apply_allowed_secrets(
+            manifest_env,
+            enforcement,
+            secret_env_keys=secret_env_keys,
         )
+        environment = None
+        if hasattr(self.sandbox_manager, "prepare_environment"):
+            environment = self.sandbox_manager.prepare_environment(
+                allowed_env_keys=binding.allowed_env_keys,
+                overlay=secret_filtered_env,
+                cache_identity=manifest.cache_identity_fields,
+                runtime=manifest.runtime.value,
+                runtime_version=str(manifest.version),
+                dependency_manifest=[
+                    dependency.model_dump(mode="json") for dependency in manifest.dependencies
+                ],
+                build_config=(
+                    manifest.build_config.model_dump(mode="json")
+                    if manifest.build_config is not None
+                    else None
+                ),
+                sandbox_policy=manifest.resource_limits.model_dump(mode="json"),
+            )
 
         with tempfile.TemporaryDirectory(prefix="zeroth-eu-") as tempdir:
             sandbox_root = Path(tempdir)
@@ -279,26 +349,42 @@ class ExecutableUnitRunner:
                 validated_input,
                 input_file_path=input_file,
             )
-            overlay_env = dict(environment.variables)
+            overlay_env = dict(secret_filtered_env)
             overlay_env.update(injected.env)
             if manifest.output_mode.value == "output_file_json":
                 overlay_env["ZEROTH_OUTPUT_FILE"] = str(output_file)
+            timeout_seconds = self._effective_timeout(
+                manifest.timeout_seconds,
+                enforcement.get("timeout_override_seconds"),
+            )
+            resource_constraints = self._resource_constraints_for(manifest, enforcement)
+            sandbox_strictness_mode = self._sandbox_strictness_mode_for(enforcement)
 
-            build_cache_key = environment.cache_key
+            build_cache_key = environment.cache_key if environment is not None else None
             if isinstance(manifest, ProjectUnitManifest):
                 await self._maybe_build_project(
                     manifest,
                     cwd=cwd,
+                    sandbox_root=sandbox_root,
+                    relative_cwd=cwd.relative_to(sandbox_root),
                     base_env=overlay_env,
                     build_cache_key=build_cache_key,
+                    timeout_seconds=timeout_seconds,
+                    resource_constraints=resource_constraints,
+                    sandbox_strictness_mode=sandbox_strictness_mode,
                 )
 
             sandbox_result = await self._execute_command(
                 self._command_for(manifest, injected.argv),
                 cwd=cwd,
-                env=overlay_env,
+                sandbox_root=sandbox_root,
+                relative_cwd=cwd.relative_to(sandbox_root),
+                allowed_env_keys=binding.allowed_env_keys,
+                overlay_env=overlay_env,
                 input_text=injected.stdin,
-                timeout_seconds=manifest.timeout_seconds,
+                timeout_seconds=timeout_seconds,
+                resource_constraints=resource_constraints,
+                sandbox_strictness_mode=sandbox_strictness_mode,
             )
             if sandbox_result.returncode != 0 and manifest.output_mode.value != "exit_code_only":
                 raise ExecutableUnitExecutionError(
@@ -329,6 +415,7 @@ class ExecutableUnitRunner:
                     "cache_key": build_cache_key,
                     "sandboxed": True,
                     "backend": sandbox_result.backend,
+                    "enforcement": dict(enforcement),
                 },
             )
 
@@ -351,8 +438,13 @@ class ExecutableUnitRunner:
         manifest: ProjectUnitManifest,
         *,
         cwd: Path,
+        sandbox_root: Path,
+        relative_cwd: Path,
         base_env: dict[str, str],
         build_cache_key: str,
+        timeout_seconds: float | None,
+        resource_constraints: ResourceConstraints | None,
+        sandbox_strictness_mode: SandboxStrictnessMode | None,
     ) -> None:
         """Run the project's build command if it has not been built yet."""
         if not manifest.build_config.command or build_cache_key in self._built_cache_keys:
@@ -362,8 +454,13 @@ class ExecutableUnitRunner:
         result = await self._execute_command(
             manifest.build_config.command,
             cwd=cwd,
-            env=build_env,
-            timeout_seconds=manifest.timeout_seconds,
+            sandbox_root=sandbox_root,
+            relative_cwd=relative_cwd,
+            allowed_env_keys=None,
+            overlay_env=build_env,
+            timeout_seconds=timeout_seconds,
+            resource_constraints=resource_constraints,
+            sandbox_strictness_mode=sandbox_strictness_mode,
         )
         if result.returncode != 0:
             raise ExecutableUnitExecutionError(
@@ -377,45 +474,196 @@ class ExecutableUnitRunner:
         command: Sequence[str],
         *,
         cwd: Path,
-        env: Mapping[str, str],
+        sandbox_root: Path,
+        relative_cwd: Path | None,
+        allowed_env_keys: Sequence[str] | None,
+        overlay_env: Mapping[str, str],
         input_text: str | None = None,
         timeout_seconds: float | None = None,
+        resource_constraints: ResourceConstraints | None = None,
+        sandbox_strictness_mode: SandboxStrictnessMode | None = None,
     ) -> SandboxExecutionResult:
-        """Run a command as an async subprocess with optional stdin and timeout."""
-        started_at = perf_counter()
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.PIPE if input_text is not None else None,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(cwd),
-            env=dict(env),
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(None if input_text is None else input_text.encode("utf-8")),
-                timeout=timeout_seconds,
+        """Run a command through the sandbox manager with optional policy overrides."""
+        sandbox_manager = self._sandbox_manager_with_strictness(sandbox_strictness_mode)
+        if hasattr(sandbox_manager, "_resolve_backend") and hasattr(
+            sandbox_manager,
+            "_run_locally",
+        ):
+            environment = sandbox_manager.prepare_environment(
+                allowed_env_keys=allowed_env_keys,
+                overlay=overlay_env,
             )
-        except TimeoutError as exc:
-            process.kill()
-            stdout, stderr = await process.communicate()
-            raise SandboxTimeoutError(
-                command=command,
-                timeout_seconds=timeout_seconds,
-                stdout=stdout.decode("utf-8", errors="replace"),
-                stderr=stderr.decode("utf-8", errors="replace"),
-            ) from exc
-
-        return SandboxExecutionResult(
-            command=tuple(command),
-            returncode=process.returncode,
-            stdout=stdout.decode("utf-8", errors="replace"),
-            stderr=stderr.decode("utf-8", errors="replace"),
-            workdir=str(cwd),
-            environment=dict(env),
-            duration_seconds=perf_counter() - started_at,
-            cache_key=None,
+            return await asyncio.to_thread(
+                self._run_with_prepared_environment,
+                sandbox_manager,
+                command,
+                cwd,
+                sandbox_root,
+                relative_cwd,
+                environment,
+                input_text,
+                timeout_seconds,
+                resource_constraints,
+            )
+        return await asyncio.to_thread(
+            sandbox_manager.run,
+            command,
+            input_text=input_text,
+            timeout_seconds=timeout_seconds,
+            allowed_env_keys=allowed_env_keys,
+            overlay_env=overlay_env,
+            resource_constraints=resource_constraints,
         )
+
+    def _sandbox_manager_with_strictness(
+        self,
+        sandbox_strictness_mode: SandboxStrictnessMode | None,
+    ) -> SandboxManager:
+        """Return a sandbox manager instance with the requested strictness override."""
+        if sandbox_strictness_mode is None or not hasattr(self.sandbox_manager, "_config"):
+            return self.sandbox_manager
+        config = self.sandbox_manager._config  # noqa: SLF001
+        if config.strictness_mode is sandbox_strictness_mode:
+            return self.sandbox_manager
+        return SandboxManager(
+            base_env=getattr(self.sandbox_manager, "_base_env", None),
+            cache_manager=self.sandbox_manager.cache_manager,
+            config=replace(config, strictness_mode=sandbox_strictness_mode),
+            command_runner=getattr(self.sandbox_manager, "_command_runner", None),
+            container_inspector=getattr(self.sandbox_manager, "_container_inspector", None),
+        )
+
+    def _run_with_prepared_environment(
+        self,
+        sandbox_manager: SandboxManager,
+        command: Sequence[str],
+        cwd: Path,
+        sandbox_root: Path,
+        relative_cwd: Path | None,
+        environment: SandboxEnvironment,
+        input_text: str | None,
+        timeout_seconds: float | None,
+        resource_constraints: ResourceConstraints | None,
+    ) -> SandboxExecutionResult:
+        """Dispatch execution through SandboxManager internals using a prepared sandbox root."""
+        backend = sandbox_manager._resolve_backend(resource_constraints)  # noqa: SLF001
+        if backend.value == "docker":
+            return sandbox_manager._run_in_docker(  # noqa: SLF001
+                command=command,
+                input_text=input_text,
+                timeout_seconds=timeout_seconds,
+                sandbox_root=sandbox_root,
+                relative_cwd=relative_cwd,
+                environment=environment,
+                resource_constraints=resource_constraints,
+            )
+        return sandbox_manager._run_locally(  # noqa: SLF001
+            command=command,
+            input_text=input_text,
+            timeout_seconds=timeout_seconds,
+            cwd=cwd,
+            environment=environment,
+            resource_constraints=resource_constraints,
+        )
+
+    def _apply_allowed_secrets(
+        self,
+        environment: Mapping[str, str],
+        enforcement_context: Mapping[str, Any],
+        *,
+        secret_env_keys: set[str],
+    ) -> dict[str, str]:
+        """Filter environment variables using the policy-derived secret allowlist."""
+        if not secret_env_keys:
+            return dict(environment)
+        capabilities = enforcement_context.get("effective_capabilities") or set()
+        normalized_capabilities = {
+            capability.value if isinstance(capability, Capability) else str(capability)
+            for capability in capabilities
+        }
+        preserved_environment = {
+            key: value for key, value in environment.items() if key not in secret_env_keys
+        }
+        filtered_secret_env = apply_secret_policy(
+            {key: value for key, value in environment.items() if key in secret_env_keys},
+            allowed_secrets=list(enforcement_context.get("allowed_secrets") or []),
+            secret_access_enabled=Capability.SECRET_ACCESS.value in normalized_capabilities,
+        )
+        preserved_environment.update(filtered_secret_env)
+        return preserved_environment
+
+    def _manifest_environment(
+        self,
+        manifest: ExecutableUnitManifest,
+    ) -> tuple[dict[str, str], set[str]]:
+        """Build the manifest-defined environment, resolving secret refs when needed."""
+        environment = dict(manifest.run_config.environment)
+        secret_env_keys: set[str] = set()
+        if not manifest.environment_variables:
+            return environment, secret_env_keys
+        resolver = self.secret_resolver
+        if resolver is None:
+            missing = [
+                item.secret_ref for item in manifest.environment_variables if item.secret_ref
+            ]
+            if missing:
+                raise ExecutableUnitExecutionError(
+                    f"secret resolver required for refs: {', '.join(sorted(set(missing)))}"
+                )
+            environment.update(
+                {
+                    item.name: item.value
+                    for item in manifest.environment_variables
+                    if item.value is not None
+                }
+            )
+            return environment, secret_env_keys
+        secret_env_keys = {
+            item.name for item in manifest.environment_variables if item.secret_ref is not None
+        }
+        environment.update(resolver.resolve_environment_variables(manifest.environment_variables))
+        return environment, secret_env_keys
+
+    def _effective_timeout(
+        self,
+        configured_timeout: float | None,
+        policy_timeout: float | None,
+    ) -> float | None:
+        """Choose the tighter timeout when both manifest and policy specify one."""
+        if configured_timeout is None:
+            return policy_timeout
+        if policy_timeout is None:
+            return configured_timeout
+        return min(configured_timeout, policy_timeout)
+
+    def _resource_constraints_for(
+        self,
+        manifest: WrappedCommandUnitManifest | ProjectUnitManifest,
+        enforcement_context: Mapping[str, Any],
+    ) -> ResourceConstraints | None:
+        """Translate manifest limits plus policy network mode into sandbox constraints."""
+        network_mode = enforcement_context.get("network_mode")
+        network_access = manifest.resource_limits.network_access
+        if network_mode is not None:
+            network_access = str(network_mode).lower() not in {"disabled", "deny", "none", "off"}
+        constraints = ResourceConstraints(
+            cpu_cores=manifest.resource_limits.cpu_cores,
+            memory_mb=manifest.resource_limits.memory_mb,
+            disk_mb=None,
+            max_processes=manifest.resource_limits.max_processes,
+            network_access=network_access,
+        )
+        return constraints if constraints.requires_hard_isolation() else None
+
+    def _sandbox_strictness_mode_for(
+        self,
+        enforcement_context: Mapping[str, Any],
+    ) -> SandboxStrictnessMode | None:
+        """Parse the policy sandbox strictness override if one was provided."""
+        raw = enforcement_context.get("sandbox_strictness_mode")
+        if raw is None:
+            return None
+        return SandboxStrictnessMode(str(raw))
 
     def _command_for(
         self,
@@ -432,6 +680,7 @@ class ExecutableUnitRunner:
 
 
 __all__ = [
+    "ExecutableUnitAdmissionError",
     "ExecutableUnitBinding",
     "ExecutableUnitExecutionError",
     "ExecutableUnitInputError",

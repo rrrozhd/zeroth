@@ -16,12 +16,18 @@ import os
 import subprocess
 import tempfile
 import time
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from zeroth.execution_units.constraints import (
+    ResourceConstraints,
+    build_docker_resource_flags,
+)
 
 
 def _normalize(value: Any) -> Any:
@@ -128,12 +134,21 @@ class DockerSandboxConfig:
     workspace_root: str = "/tmp/zeroth-sandbox"
 
 
+class SandboxStrictnessMode(StrEnum):
+    """How strongly the sandbox should insist on hardened isolation."""
+
+    PERMISSIVE = "permissive"
+    STANDARD = "standard"
+    STRICT = "strict"
+
+
 @dataclass(frozen=True, slots=True)
 class SandboxConfig:
     """Top-level config that picks which backend to use and Docker settings."""
 
     backend: SandboxBackendMode = SandboxBackendMode.LOCAL
     docker: DockerSandboxConfig = field(default_factory=DockerSandboxConfig)
+    strictness_mode: SandboxStrictnessMode = SandboxStrictnessMode.STANDARD
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +210,10 @@ class SandboxTimeoutError(TimeoutError):
 
 class SandboxBackendUnavailableError(RuntimeError):
     """Raised when the requested backend (e.g., Docker) is not running or accessible."""
+
+
+class SandboxPolicyViolationError(SandboxBackendUnavailableError):
+    """Raised when a required isolation or enforcement level cannot be satisfied."""
 
 
 class EnvironmentCacheManager:
@@ -343,6 +362,7 @@ class SandboxManager:
         build_config: Mapping[str, Any] | Sequence[Any] | None = None,
         sandbox_policy: Mapping[str, Any] | Sequence[Any] | None = None,
         cache_identity: Mapping[str, Any] | Sequence[Any] | None = None,
+        resource_constraints: ResourceConstraints | None = None,
     ) -> SandboxExecutionResult:
         """Run a command in a sandboxed environment.
 
@@ -364,7 +384,7 @@ class SandboxManager:
             relative_cwd = self._resolve_relative_workdir(working_directory)
             host_cwd = sandbox_root if relative_cwd is None else sandbox_root / relative_cwd
             host_cwd.mkdir(parents=True, exist_ok=True)
-            backend = self._resolve_backend()
+            backend = self._resolve_backend(resource_constraints)
             if backend is SandboxBackendMode.DOCKER:
                 return self._run_in_docker(
                     command=command,
@@ -373,6 +393,7 @@ class SandboxManager:
                     sandbox_root=sandbox_root,
                     relative_cwd=relative_cwd,
                     environment=env_snapshot,
+                    resource_constraints=resource_constraints,
                 )
             return self._run_locally(
                 command=command,
@@ -380,19 +401,43 @@ class SandboxManager:
                 timeout_seconds=timeout_seconds,
                 cwd=host_cwd,
                 environment=env_snapshot,
+                resource_constraints=resource_constraints,
             )
 
-    def _resolve_backend(self) -> SandboxBackendMode:
+    def _resolve_backend(
+        self,
+        resource_constraints: ResourceConstraints | None = None,
+    ) -> SandboxBackendMode:
         """Decide which backend to use based on config and Docker availability."""
         configured = self._config.backend
+        strictness = self._config.strictness_mode
         if configured is SandboxBackendMode.LOCAL:
+            if (
+                strictness is not SandboxStrictnessMode.PERMISSIVE
+                and resource_constraints is not None
+                and resource_constraints.requires_hard_isolation()
+            ):
+                raise SandboxPolicyViolationError(
+                    "local sandbox backend cannot satisfy the requested isolation constraints"
+                )
             return SandboxBackendMode.LOCAL
         docker = self._config.docker
         available = self._docker_container_available(docker.container_name)
         if configured is SandboxBackendMode.AUTO:
-            return SandboxBackendMode.DOCKER if available else SandboxBackendMode.LOCAL
+            if available:
+                return SandboxBackendMode.DOCKER
+            if strictness is SandboxStrictnessMode.PERMISSIVE:
+                return SandboxBackendMode.LOCAL
+            raise SandboxPolicyViolationError(
+                f"docker sandbox container {docker.container_name!r} is not available"
+            )
         if not available:
-            raise SandboxBackendUnavailableError(
+            error_type = (
+                SandboxPolicyViolationError
+                if strictness is not SandboxStrictnessMode.PERMISSIVE
+                else SandboxBackendUnavailableError
+            )
+            raise error_type(
                 f"docker sandbox container {docker.container_name!r} is not available"
             )
         return SandboxBackendMode.DOCKER
@@ -425,8 +470,10 @@ class SandboxManager:
         timeout_seconds: float | None,
         cwd: Path,
         environment: SandboxEnvironment,
+        resource_constraints: ResourceConstraints | None = None,
     ) -> SandboxExecutionResult:
         """Run a command as a local subprocess with the prepared environment."""
+        self._warn_about_unenforced_local_constraints(resource_constraints)
         started_at = time.perf_counter()
         try:
             started = self._command_runner(
@@ -467,11 +514,12 @@ class SandboxManager:
         sandbox_root: Path,
         relative_cwd: Path | None,
         environment: SandboxEnvironment,
+        resource_constraints: ResourceConstraints | None = None,
     ) -> SandboxExecutionResult:
         """Run a command inside a Docker container.
 
-        Copies files into the container, runs the command, copies results
-        back out, and cleans up the container workspace.
+        Starts an ephemeral container from the provisioned sandbox image,
+        bind-mounts the sandbox root, and applies per-run resource flags.
         """
         docker = self._config.docker
         container_name = docker.container_name
@@ -495,33 +543,22 @@ class SandboxManager:
             )
             for item in command
         ]
-
-        self._docker_control(
-            container_name,
-            "exec",
-            container_name,
-            "mkdir",
-            "-p",
-            str(container_root),
-        )
-        if any(sandbox_root.iterdir()):
-            self._docker_control(
-                container_name,
-                "cp",
-                f"{sandbox_root}/.",
-                f"{container_name}:{container_root}",
-            )
+        image_ref = self._docker_image_for(container_name)
 
         started_at = time.perf_counter()
         try:
             started = self._command_runner(
                 [
                     docker.docker_binary,
-                    "exec",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{sandbox_root}:{container_root}",
+                    *build_docker_resource_flags(resource_constraints),
                     *self._docker_env_flags(translated_env),
                     "-w",
                     str(container_cwd),
-                    container_name,
+                    image_ref,
                     *translated_command,
                 ],
                 input=input_text,
@@ -537,23 +574,6 @@ class SandboxManager:
                 stdout=exc.stdout or "",
                 stderr=exc.stderr or "",
             ) from exc
-        finally:
-            self._docker_control(
-                container_name,
-                "cp",
-                f"{container_name}:{container_root}/.",
-                str(sandbox_root),
-                allow_failure=True,
-            )
-            self._docker_control(
-                container_name,
-                "exec",
-                container_name,
-                "rm",
-                "-rf",
-                str(container_root),
-                allow_failure=True,
-            )
         return SandboxExecutionResult(
             command=tuple(translated_command),
             returncode=started.returncode,
@@ -566,6 +586,22 @@ class SandboxManager:
             backend=SandboxBackendMode.DOCKER.value,
             container_name=container_name,
         )
+
+    def _docker_image_for(self, container_name: str) -> str:
+        """Resolve the image reference used by the provisioned sandbox container."""
+        docker_binary = self._config.docker.docker_binary
+        result = self._command_runner(
+            [docker_binary, "inspect", "-f", "{{.Config.Image}}", container_name],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            raise SandboxBackendUnavailableError(
+                "docker sandbox container "
+                f"{container_name!r} image lookup failed: {result.stderr or result.stdout}"
+            )
+        return result.stdout.strip()
 
     def _docker_control(
         self,
@@ -595,6 +631,30 @@ class SandboxManager:
         for key, value in environment.items():
             flags.extend(["-e", f"{key}={value}"])
         return flags
+
+    def _warn_about_unenforced_local_constraints(
+        self,
+        resource_constraints: ResourceConstraints | None,
+    ) -> None:
+        """Warn when local subprocess execution cannot fully honor requested limits."""
+        if resource_constraints is None:
+            return
+        if resource_constraints.cpu_cores is not None:
+            warnings.warn("local sandbox backend does not enforce CPU constraints", stacklevel=2)
+        if resource_constraints.memory_mb is not None:
+            warnings.warn("local sandbox backend does not enforce memory constraints", stacklevel=2)
+        if resource_constraints.disk_mb is not None:
+            warnings.warn("local sandbox backend does not enforce disk constraints", stacklevel=2)
+        if resource_constraints.max_processes is not None:
+            warnings.warn(
+                "local sandbox backend does not enforce process-count constraints",
+                stacklevel=2,
+            )
+        if resource_constraints.network_access is not None:
+            warnings.warn(
+                "local sandbox backend does not enforce network-access constraints",
+                stacklevel=2,
+            )
 
 
 def docker_container_running(
@@ -646,6 +706,8 @@ __all__ = [
     "SandboxEnvironment",
     "SandboxExecutionResult",
     "SandboxManager",
+    "SandboxPolicyViolationError",
+    "SandboxStrictnessMode",
     "SandboxTimeoutError",
     "build_sandbox_environment",
     "compute_environment_cache_key",

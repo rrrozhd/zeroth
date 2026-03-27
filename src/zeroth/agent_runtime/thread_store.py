@@ -221,7 +221,7 @@ class RepositoryThreadStateStore:
                     run.run_id,
                     run.thread_id,
                     checkpoint_order,
-                    to_json_value(snapshot),
+                    self._encode_checkpoint_json(to_json_value(snapshot)),
                     run.updated_at.isoformat(),
                 ),
             )
@@ -256,3 +256,9 @@ class RepositoryThreadStateStore:
         if isinstance(state, dict):
             return dict(state)
         return None
+
+    def _encode_checkpoint_json(self, payload: str) -> str:
+        encrypted_field = self._database.encrypted_field if self._database is not None else None
+        if encrypted_field is None:
+            return payload
+        return encrypted_field.encrypt(payload)
