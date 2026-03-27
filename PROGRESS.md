@@ -441,6 +441,15 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Blockers:** none
 **Next:** Commit the post-merge verification evidence, push `origin/main`, and delete the local feature branch.
 
+### 2026-03-27 11:54 — Publish live research-audit on main
+**Phase/Tasks:** 5A
+**Status:** completed
+**What:** Pushed the merged live research-audit scenario to `origin/main` and deleted the local `codex/live-research-audit` branch after merge.
+**Tests:** pass (`uv run pytest -v`, `uv run ruff check src tests live_scenarios`)
+**Artifacts:** `phases/phase-5-integration/artifacts/test-full-after-merge-main-2026-03-27.txt`, `phases/phase-5-integration/artifacts/lint-after-merge-main-2026-03-27.txt`
+**Blockers:** none
+**Next:** Remote feature-branch cleanup is optional if you want it deleted as well.
+
 <!-- Append iteration logs here. Format:
 ### YYYY-MM-DD HH:MM — [title]
 **Phase/Tasks:** 1A, 2E, etc.
