@@ -12,5 +12,8 @@ wheels/
 # Local git worktrees
 .worktrees/
 
+# Local brainstorming/visual companion state
+.superpowers/
+
 # Generated local state for live scenarios
 live_scenarios/*.sqlite3
