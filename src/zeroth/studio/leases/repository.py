@@ -34,7 +34,10 @@ class WorkflowLeaseRepository:
 
     def __init__(self, database: SQLiteDatabase):
         self._database = database
-        self._database.apply_migrations(STUDIO_WORKFLOW_LEASE_SCOPE, STUDIO_WORKFLOW_LEASE_MIGRATIONS)
+        self._database.apply_migrations(
+            STUDIO_WORKFLOW_LEASE_SCOPE,
+            STUDIO_WORKFLOW_LEASE_MIGRATIONS,
+        )
 
     def acquire_lease(
         self,
