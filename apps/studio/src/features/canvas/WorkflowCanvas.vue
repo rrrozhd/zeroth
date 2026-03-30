@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { VueFlow, type Edge, type Node } from "@vue-flow/core";
 import { Activity, FlaskConical, PlayCircle } from "lucide-vue-next";
 import { useQuery } from "@tanstack/vue-query";
 
-import { createStudioApiClient, type WorkflowDetail } from "@/lib/api/studio";
+import { createStudioApiClient, type WorkflowDetail, type WorkflowGraph } from "@/lib/api/studio";
 import { useStudioShellStore, type StudioRouteMode } from "@/stores/studioShell";
 
 const props = defineProps<{
@@ -26,9 +26,15 @@ const fallbackWorkflow: WorkflowDetail = {
     version: 7,
     entry_step: "capture-request",
     nodes: [
-      { id: "capture-request", type: "agent", name: "Capture request" },
-      { id: "risk-screen", type: "agent", name: "Risk screen" },
-      { id: "publish-brief", type: "executable_unit", name: "Publish brief" },
+      {
+        id: "capture-request",
+        type: "agent",
+        name: "Capture request",
+        input_contract_ref: "contract://input",
+        output_contract_ref: "contract://risk",
+      },
+      { id: "risk-screen", type: "agent", name: "Risk screen", output_contract_ref: "contract://risk" },
+      { id: "publish-brief", type: "executable_unit", name: "Publish brief", input_contract_ref: "contract://risk" },
     ],
     edges: [
       { source: "capture-request", target: "risk-screen" },
@@ -36,6 +42,9 @@ const fallbackWorkflow: WorkflowDetail = {
     ],
   },
 };
+
+const draftGraph = ref<WorkflowGraph>(structuredClone(fallbackWorkflow.graph));
+const lastSavedSignature = ref("");
 
 const workflowDetailQuery = useQuery({
   queryKey: computed(() => ["studio", "workflow", shellStore.selectedWorkflowId]),
@@ -59,8 +68,40 @@ const workflowDetailQuery = useQuery({
 
 const workflowDetail = computed(() => workflowDetailQuery.data.value ?? fallbackWorkflow);
 
+watch(
+  workflowDetail,
+  (detail) => {
+    draftGraph.value = structuredClone(detail.graph);
+    lastSavedSignature.value = JSON.stringify(detail.graph);
+    shellStore.setWorkflowDetail(detail);
+  },
+  { immediate: true },
+);
+
+watch(
+  draftGraph,
+  async (graph) => {
+    const nextSignature = JSON.stringify(graph);
+    if (nextSignature === lastSavedSignature.value) {
+      return;
+    }
+
+    shellStore.setSaveStatus("dirty");
+    if (props.mode !== "editor" || !shellStore.hasActiveLease) {
+      return;
+    }
+
+    const saved = await shellStore.saveWorkflowDraft(graph);
+    if (saved) {
+      lastSavedSignature.value = JSON.stringify(saved.graph);
+      draftGraph.value = structuredClone(saved.graph);
+    }
+  },
+  { deep: true },
+);
+
 const flowNodes = computed<Node[]>(() => {
-  const graphNodes = Array.isArray(workflowDetail.value.graph.nodes) ? workflowDetail.value.graph.nodes : [];
+  const graphNodes = Array.isArray(draftGraph.value.nodes) ? draftGraph.value.nodes : [];
 
   return graphNodes.map((graphNode, index) => {
     const record = graphNode as Record<string, unknown>;
@@ -84,7 +125,7 @@ const flowNodes = computed<Node[]>(() => {
 });
 
 const flowEdges = computed<Edge[]>(() => {
-  const graphEdges = Array.isArray(workflowDetail.value.graph.edges) ? workflowDetail.value.graph.edges : [];
+  const graphEdges = Array.isArray(draftGraph.value.edges) ? draftGraph.value.edges : [];
 
   return graphEdges.map((graphEdge, index) => {
     const record = graphEdge as Record<string, unknown>;
@@ -115,7 +156,9 @@ const modeCopy = computed(() => {
   return {
     icon: Activity,
     label: "Editor",
-    body: "Arrange nodes, connect branches, and keep runtime detail contextual.",
+    body: shellStore.hasActiveLease
+      ? "Structural workflow edits autosave while the current lease stays active."
+      : "Acquire a workflow lease before structural edits autosave.",
   };
 });
 

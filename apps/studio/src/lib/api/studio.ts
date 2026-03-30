@@ -36,6 +36,7 @@ const leasePayloadSchema = z.object({
 
 export type WorkflowSummary = z.infer<typeof workflowSummarySchema>;
 export type WorkflowDetail = z.infer<typeof workflowDetailSchema>;
+export type WorkflowGraph = z.infer<typeof workflowGraphSchema>;
 export type LeasePayload = z.infer<typeof leasePayloadSchema>;
 
 type FetchLike = typeof fetch;
@@ -102,6 +103,23 @@ export class StudioApiClient {
     await this.request(`/studio/workflows/${encodeURIComponent(workflowId)}/leases/${encodeURIComponent(leaseToken)}`, {
       method: "DELETE",
       expectJson: false,
+    });
+  }
+
+  async updateWorkflowDraft(
+    workflowId: string,
+    leaseToken: string,
+    revisionToken: string,
+    graph: WorkflowGraph,
+  ): Promise<WorkflowDetail> {
+    return this.request(`/studio/workflows/${encodeURIComponent(workflowId)}/draft`, {
+      method: "PUT",
+      schema: workflowDetailSchema,
+      body: JSON.stringify({
+        lease_token: leaseToken,
+        revision_token: revisionToken,
+        graph,
+      }),
     });
   }
 
