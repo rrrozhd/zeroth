@@ -144,6 +144,46 @@ class WorkflowRepository:
         """Return whether the workflow exists inside the requested scope."""
         return self.get_workflow(tenant_id, workspace_id, workflow_id) is not None
 
+    def update_draft(
+        self,
+        *,
+        workflow_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        draft_graph_version: int,
+        revision_token: str,
+        validation_status: str,
+        last_saved_at: datetime,
+        updated_at: datetime,
+    ) -> None:
+        """Update the mutable draft pointer and workflow timestamp inside one scope."""
+        with self._database.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE workflow_records
+                SET updated_at = ?
+                WHERE workflow_id = ? AND tenant_id = ? AND workspace_id = ?
+                """,
+                (updated_at.isoformat(), workflow_id, tenant_id, workspace_id),
+            )
+            connection.execute(
+                """
+                UPDATE workflow_draft_heads
+                SET draft_graph_version = ?, revision_token = ?, validation_status = ?,
+                    last_saved_at = ?
+                WHERE workflow_id = ? AND tenant_id = ? AND workspace_id = ?
+                """,
+                (
+                    draft_graph_version,
+                    revision_token,
+                    validation_status,
+                    last_saved_at.isoformat(),
+                    workflow_id,
+                    tenant_id,
+                    workspace_id,
+                ),
+            )
+
     def _build_summary(self, row) -> WorkflowSummary:
         return WorkflowSummary(
             workflow_id=row["workflow_id"],

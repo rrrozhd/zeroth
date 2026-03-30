@@ -68,6 +68,7 @@ def create_studio_app(bootstrap: StudioBootstrapLike) -> FastAPI:
     """Create the dedicated Studio authoring API."""
 
     from zeroth.studio.sessions_api import register_session_routes
+    from zeroth.studio.validation_api import register_validation_routes
     from zeroth.studio.workflows_api import register_workflow_routes
 
     app = FastAPI(title="Zeroth Studio Authoring API")
@@ -96,4 +97,5 @@ def create_studio_app(bootstrap: StudioBootstrapLike) -> FastAPI:
 
     register_workflow_routes(app)
     register_session_routes(app)
+    register_validation_routes(app)
     return app

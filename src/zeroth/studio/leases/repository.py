@@ -180,6 +180,40 @@ class WorkflowLeaseRepository:
             )
         return cursor.rowcount > 0
 
+    def get_lease(
+        self,
+        *,
+        workflow_id: str,
+        tenant_id: str,
+        workspace_id: str,
+    ) -> WorkflowLease | None:
+        """Return the active lease for a scoped workflow, if one exists."""
+        now = _utc_now()
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT workflow_id, tenant_id, workspace_id, lease_token, subject,
+                       acquired_at, expires_at
+                FROM workflow_leases
+                WHERE workflow_id = ? AND tenant_id = ? AND workspace_id = ?
+                """,
+                (workflow_id, tenant_id, workspace_id),
+            ).fetchone()
+        if row is None:
+            return None
+        expires_at = _parse_dt(row["expires_at"])
+        if expires_at <= now:
+            return None
+        return WorkflowLease(
+            workflow_id=row["workflow_id"],
+            tenant_id=row["tenant_id"],
+            workspace_id=row["workspace_id"],
+            lease_token=row["lease_token"],
+            subject=row["subject"],
+            acquired_at=_parse_dt(row["acquired_at"]),
+            expires_at=expires_at,
+        )
+
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
