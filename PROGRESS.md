@@ -1262,3 +1262,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-8-runtime-security/artifacts/test-phase8-full-2026-03-27.txt`, `phases/phase-8-runtime-security/artifacts/lint-phase8-full-2026-03-27.txt`
 **Blockers:** the only remaining nuance is that the "hardened by default" gate is still marked partial until every untrusted executable-unit path is forced onto hardened isolation without relying on policy/resource hints
 **Next:** if you want to fully close Phase 8, make wrapped/project executable units opt into hardened isolation even when their manifests do not declare explicit resource constraints
+
+### 2026-03-30 17:26 — Phase 10 workflow persistence red baseline
+**Phase/Tasks:** 10-01
+**Status:** in-progress
+**What:** added `tests/studio/test_workflows_repository.py` covering Studio workflow metadata tables, draft-head lookup, workspace-scoped reads, and lease conflict behavior for the new `zeroth.studio` package.
+**Tests:** `uv run pytest tests/studio/test_workflows_repository.py -q` failed during collection with `ModuleNotFoundError: No module named 'zeroth.studio'`
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-01-red-2026-03-30.txt`
+**Blockers:** the Studio package, repositories, and lease services under `src/zeroth/studio/` do not exist yet
+**Next:** implement the Studio models, workflow repository/service, and lease repository/service to satisfy the new scoped persistence tests
