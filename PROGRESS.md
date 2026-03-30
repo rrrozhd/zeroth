@@ -1280,3 +1280,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-01-green-2026-03-30.txt`
 **Blockers:** none
 **Next:** generate the phase summary, update planning state, and advance to the next Phase 10 plan
+
+### 2026-03-30 17:00 — Phase 10 Studio API red baseline
+**Phase/Tasks:** 10-02
+**Status:** in-progress
+**What:** added `tests/studio/test_studio_app.py` to pin the dedicated Studio authoring bootstrap/app surface, including workflow list/create/detail routes, workspace-scoped lease routes, and explicit 401/403/404/409 behavior for anonymous, reviewer, unscoped, and foreign-scope callers.
+**Tests:** `uv run pytest tests/studio/test_studio_app.py -q` failed during collection with `ModuleNotFoundError: No module named 'zeroth.studio.bootstrap'`
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-02-red-2026-03-30.txt`
+**Blockers:** the Studio FastAPI bootstrap and route modules do not exist yet
+**Next:** run the new Studio API suite to capture the failing baseline, then implement the authoring app/bootstrap/routes until the tests pass
