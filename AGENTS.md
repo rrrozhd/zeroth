@@ -18,14 +18,6 @@ When starting a task, read ONLY what you need:
 - `phases/phase-N-*/PLAN.md` — detailed requirements per phase
 - `phases/phase-N-*/artifacts/` — test output, evidence
 
-## Mandatory: Progress Logging
-
-**Every implementation session MUST use the `progress-logger` skill.**
-
-After every meaningful unit of work — finishing a task, passing/failing tests, creating deliverables, hitting blockers — invoke `progress-logger` to update `PROGRESS.md` and produce artifacts.
-
-Not optional. Do not report completion without logging first. Log as you go, not in batches.
-
 ## Build & Test
 
 ```bash
