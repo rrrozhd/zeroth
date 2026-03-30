@@ -1271,3 +1271,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-01-red-2026-03-30.txt`
 **Blockers:** the Studio package, repositories, and lease services under `src/zeroth/studio/` do not exist yet
 **Next:** implement the Studio models, workflow repository/service, and lease repository/service to satisfy the new scoped persistence tests
+
+### 2026-03-30 17:32 — Phase 10 Studio workflow persistence implemented
+**Phase/Tasks:** 10-01
+**Status:** completed
+**What:** added the `src/zeroth/studio/` package with strict workflow and lease models, SQLite repositories for workflow metadata/draft heads and workflow leases, and services that compose the new Studio scope boundary with the existing `GraphRepository` so draft graph content stays in `graph_versions`.
+**Tests:** `uv run pytest tests/studio/test_workflows_repository.py -q` passed
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-01-green-2026-03-30.txt`
+**Blockers:** none
+**Next:** generate the phase summary, update planning state, and advance to the next Phase 10 plan
