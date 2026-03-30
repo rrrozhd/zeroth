@@ -1,0 +1,26 @@
+"""Contracts package — provides tools for registering, versioning, and looking up
+data schemas (Pydantic models) used across the Zeroth platform.
+
+Think of contracts like shared agreements about what data looks like.
+This package lets you store, version, and retrieve those agreements so that
+different parts of the system can communicate with a well-defined data shape.
+"""
+
+from zeroth.contracts.errors import ContractNotFoundError, ContractRegistryError
+from zeroth.contracts.registry import (
+    ContractReference,
+    ContractRegistry,
+    ContractVersion,
+    StepContractBinding,
+    ToolContractBinding,
+)
+
+__all__ = [
+    "ContractNotFoundError",
+    "ContractReference",
+    "ContractRegistry",
+    "ContractRegistryError",
+    "ContractVersion",
+    "StepContractBinding",
+    "ToolContractBinding",
+]
