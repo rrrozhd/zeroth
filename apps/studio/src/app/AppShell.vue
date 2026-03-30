@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import StudioHeader from "@/features/header/StudioHeader.vue";
@@ -27,6 +27,10 @@ watch(
   },
   { immediate: true },
 );
+
+onBeforeUnmount(() => {
+  void shellStore.releaseWorkflowLease();
+});
 </script>
 
 <template>

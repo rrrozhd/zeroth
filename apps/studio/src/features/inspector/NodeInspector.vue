@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { Clock3, FileCode2, ShieldCheck } from "lucide-vue-next";
+import { useQuery } from "@tanstack/vue-query";
+import { Clock3, ShieldCheck } from "lucide-vue-next";
 
+import ContractPanel from "@/features/inspector/ContractPanel.vue";
+import ValidationSummary from "@/features/validation/ValidationSummary.vue";
+import { createValidationApiClient } from "@/lib/api/validation";
 import { useStudioShellStore, type StudioRouteMode } from "@/stores/studioShell";
 
 defineProps<{
@@ -9,23 +13,70 @@ defineProps<{
 }>();
 
 const shellStore = useStudioShellStore();
+const validationClient = createValidationApiClient();
+
+const selectedNode = computed(() => {
+  const nodes = shellStore.workflowGraph?.nodes ?? [];
+  return (
+    nodes.find((node) => String((node as Record<string, unknown>).id ?? "") === shellStore.selectedNodeId) ?? null
+  ) as Record<string, unknown> | null;
+});
 
 const selectedNodeTitle = computed(() => {
   if (!shellStore.selectedNodeId) {
     return "No node selected";
   }
 
-  return shellStore.selectedNodeId
-    .split("-")
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
+  const label = selectedNode.value?.name ?? selectedNode.value?.title ?? shellStore.selectedNodeId;
+  return String(label);
 });
 
-const activityRows = [
-  "Contract check passed for the latest draft snapshot.",
-  "Last execution surfaced a compact approval trace.",
-  "Mapped output remains aligned to the downstream schema.",
-];
+const activityRows = computed(() => {
+  if (!selectedNode.value) {
+    return [
+      "Select a node to inspect contract bindings and local validation issues.",
+      "Runtime detail stays compact here until Executions mode expands it.",
+    ];
+  }
+
+  return [
+    `Lease state is ${shellStore.hasActiveLease ? "active" : "idle"} for this workflow draft.`,
+    shellStore.conflictState === "conflict"
+      ? "Draft conflict detected. Refresh the workflow before retrying a save."
+      : "Draft writes remain scoped to the current revision token.",
+    `Node type: ${String(selectedNode.value.type ?? "unknown")}.`,
+  ];
+});
+
+const validationQuery = useQuery({
+  queryKey: computed(() => ["studio", "validation", shellStore.selectedWorkflowId]),
+  enabled: computed(() => Boolean(shellStore.selectedWorkflowId)),
+  queryFn: async () => {
+    if (!shellStore.selectedWorkflowId) {
+      return null;
+    }
+
+    try {
+      return await validationClient.validateWorkflow(shellStore.selectedWorkflowId);
+    } catch {
+      return null;
+    }
+  },
+});
+
+const inputContractRef = computed(() => {
+  if (!selectedNode.value) {
+    return null;
+  }
+  return String(selectedNode.value.input_contract_ref ?? "") || null;
+});
+
+const outputContractRef = computed(() => {
+  if (!selectedNode.value) {
+    return null;
+  }
+  return String(selectedNode.value.output_contract_ref ?? "") || null;
+});
 </script>
 
 <template>
@@ -39,18 +90,11 @@ const activityRows = [
     </div>
 
     <div class="node-inspector__section">
-      <div class="node-inspector__eyebrow">
-        <FileCode2 :size="16" aria-hidden="true" />
-        <span>Contract summary</span>
-      </div>
-      <div class="node-inspector__card">
-        <strong>Input</strong>
-        <p class="studio-body">Typed request payload with governance metadata placeholders.</p>
-      </div>
-      <div class="node-inspector__card">
-        <strong>Output</strong>
-        <p class="studio-body">Structured response and evidence handles return through this node boundary.</p>
-      </div>
+      <ContractPanel :input-contract-ref="inputContractRef" :output-contract-ref="outputContractRef" />
+    </div>
+
+    <div class="node-inspector__section">
+      <ValidationSummary :report="validationQuery.data.value ?? null" :node-id="shellStore.selectedNodeId" />
     </div>
 
     <div class="node-inspector__section">
@@ -66,12 +110,10 @@ const activityRows = [
     <div class="node-inspector__section">
       <div class="node-inspector__eyebrow">
         <ShieldCheck :size="16" aria-hidden="true" />
-        <span>{{ mode === "editor" ? "Context" : "Upcoming deeper view" }}</span>
+        <span>Context</span>
       </div>
       <p class="studio-body">
-        {{ mode === "editor"
-          ? "Validation, approvals, and evidence stay ambient until you move into Executions or Tests."
-          : "This shared inspector remains narrow while the center pane changes mode." }}
+        Validation, approvals, and evidence stay ambient until you move into Executions or Tests.
       </p>
     </div>
   </aside>

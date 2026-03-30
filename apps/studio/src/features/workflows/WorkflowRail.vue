@@ -78,16 +78,19 @@ watch(
     const selectedWorkflow = items.find((item) => item.workflow_id === shellStore.selectedWorkflowId);
     const nextWorkflow = selectedWorkflow ?? items[0];
 
-    shellStore.setSelectedWorkflowId(nextWorkflow.workflow_id);
-    shellStore.setSelectedWorkflowName(nextWorkflow.name);
+    void shellStore.openWorkflow({
+      workflowId: nextWorkflow.workflow_id,
+      workflowName: nextWorkflow.name,
+    });
   },
   { immediate: true },
 );
 
 function selectWorkflow(workflow: WorkflowSummary): void {
-  shellStore.setSelectedWorkflowId(workflow.workflow_id);
-  shellStore.setSelectedWorkflowName(workflow.name);
-  shellStore.setSelectedNodeId(null);
+  void shellStore.openWorkflow({
+    workflowId: workflow.workflow_id,
+    workflowName: workflow.name,
+  });
 }
 
 function workflowStatusLabel(status: WorkflowSummary["validation_status"]): string {
