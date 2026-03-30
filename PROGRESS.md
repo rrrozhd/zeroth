@@ -1289,3 +1289,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-02-red-2026-03-30.txt`
 **Blockers:** the Studio FastAPI bootstrap and route modules do not exist yet
 **Next:** run the new Studio API suite to capture the failing baseline, then implement the authoring app/bootstrap/routes until the tests pass
+
+### 2026-03-30 17:00 — Phase 10 Studio authoring API implemented
+**Phase/Tasks:** 10-02
+**Status:** in-progress
+**What:** added `src/zeroth/studio/bootstrap.py`, `src/zeroth/studio/app.py`, `src/zeroth/studio/workflows_api.py`, and `src/zeroth/studio/sessions_api.py` to expose a dedicated Studio FastAPI surface on top of the existing workflow and lease services, enforce operator/admin workspace-scoped access, and serialize the narrower workflow and lease contracts needed by downstream Studio plans.
+**Tests:** `uv run pytest tests/studio/test_studio_app.py -q` passed
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-02-green-2026-03-30.txt`
+**Blockers:** none
+**Next:** run a focused lint pass on the touched Studio modules, then commit the implementation and generate the phase summary/state updates
