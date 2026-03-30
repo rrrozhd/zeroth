@@ -23,6 +23,7 @@ const workflowDetailSchema = z.object({
   name: z.string(),
   folder_path: z.string(),
   revision_token: z.string(),
+  last_saved_at: z.string(),
   graph: workflowGraphSchema,
 });
 
