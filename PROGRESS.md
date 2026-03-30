@@ -1334,3 +1334,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/build-10-04-studio-shell-2026-03-30.txt`
 **Blockers:** none
 **Next:** generate the 10-04 summary, update planning state, and advance to the next Phase 10 plan
+
+### 2026-03-30 18:10 — Phase 10 lease-aware frontend red baseline
+**Phase/Tasks:** 10-06
+**Status:** in-progress
+**What:** added `apps/studio/src/stores/studioShell.test.ts` to pin lease-gated draft saves, lease acquisition and renewal, release-on-leave behavior, and slash-safe contract lookups before implementing the frontend orchestration layer.
+**Tests:** `npm --prefix apps/studio run test -- --run` failed immediately because the package script already includes `--run`, so Vitest rejected the duplicated flag before evaluating the new tests
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-06-red-2026-03-30.txt`
+**Blockers:** the current frontend is still missing the validation client module plus the store APIs that the new tests target
+**Next:** implement the lease-aware store, validation client, and node-local inspector flows, then rerun the frontend suite with `npm --prefix apps/studio run test`
