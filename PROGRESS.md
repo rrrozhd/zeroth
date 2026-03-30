@@ -1343,3 +1343,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-06-red-2026-03-30.txt`
 **Blockers:** the current frontend is still missing the validation client module plus the store APIs that the new tests target
 **Next:** implement the lease-aware store, validation client, and node-local inspector flows, then rerun the frontend suite with `npm --prefix apps/studio run test`
+
+### 2026-03-30 18:15 — Phase 10 lease-aware frontend authoring implemented
+**Phase/Tasks:** 10-06
+**Status:** completed
+**What:** added the Studio validation client plus slash-safe contract lookup, expanded the Pinia shell store with lease acquisition/renewal/release and lease-gated draft saves, wired workflow selection through explicit lease acquisition, and replaced inspector placeholders with node-local contract and validation panels backed by the persisted workflow graph.
+**Tests:** `npm --prefix apps/studio run test` passed; `npm --prefix apps/studio run build` passed
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-06-green-2026-03-30.txt`, `phases/phase-10-studio-shell-workflow-authoring/artifacts/build-10-06-studio-authoring-2026-03-30.txt`
+**Blockers:** none
+**Next:** generate the 10-06 summary, update planning state, and close Phase 10

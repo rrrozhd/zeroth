@@ -1,0 +1,15 @@
+
+> @zeroth/studio@0.0.0 test
+> vitest --run
+
+
+ RUN  v4.1.2 /Users/dondoe/coding/zeroth/apps/studio
+
+(node:62381) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  17:33:13
+   Duration  562ms (transform 31ms, setup 0ms, import 97ms, tests 8ms, environment 347ms)
+
