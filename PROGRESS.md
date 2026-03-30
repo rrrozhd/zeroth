@@ -1325,3 +1325,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/build-10-03-studio-workspace-2026-03-30.txt`
 **Blockers:** none
 **Next:** generate the 10-03 summary, update planning state, and advance to the next Phase 10 plan
+
+### 2026-03-30 17:23 — Phase 10 Studio shell layout implemented
+**Phase/Tasks:** 10-04
+**Status:** completed
+**What:** added the shared `AppShell` route root, implemented the workflow rail, header controls, compact mode switch, dominant Vue Flow canvas, and narrow inspector under `apps/studio/src/features/`, expanded the shell store for workflow/environment state, and updated the typed workflow-detail client contract to include `last_saved_at`.
+**Tests:** `npm --prefix apps/studio ci` passed to restore the missing frontend toolchain; `npm --prefix apps/studio run build` passed
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/build-10-04-studio-shell-2026-03-30.txt`
+**Blockers:** none
+**Next:** generate the 10-04 summary, update planning state, and advance to the next Phase 10 plan
