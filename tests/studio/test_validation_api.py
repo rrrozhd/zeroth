@@ -136,7 +136,17 @@ def test_validation_and_contract_lookup_use_persisted_draft_scope(sqlite_db) -> 
             "edge_id": None,
             "path": [],
             "details": {},
-        }
+        },
+        {
+            "severity": "error",
+            "code": "missing_entrypoint",
+            "message": "graph entrypoint is required",
+            "graph_id": owned.graph.graph_id,
+            "node_id": None,
+            "edge_id": None,
+            "path": ["entry_step"],
+            "details": {},
+        },
     ]
 
     assert contract.status_code == 200

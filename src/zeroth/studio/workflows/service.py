@@ -12,6 +12,18 @@ from zeroth.studio.models import WorkflowDetail, WorkflowDraftHead, WorkflowReco
 from zeroth.studio.workflows.repository import WorkflowRepository
 
 
+class WorkflowNotFoundError(LookupError):
+    """Raised when a workflow is missing from the caller's scope."""
+
+
+class WorkflowLeaseRequiredError(ValueError):
+    """Raised when a draft update is attempted without the active lease token."""
+
+
+class WorkflowRevisionConflictError(ValueError):
+    """Raised when a draft update uses a stale revision token."""
+
+
 class WorkflowService:
     """Create, list, and load workspace-scoped Studio workflows."""
 
@@ -86,6 +98,61 @@ class WorkflowService:
         if graph is None:
             return None
         return self._build_detail(record, draft_head, graph)
+
+    def update_draft(
+        self,
+        tenant_id: str,
+        workspace_id: str,
+        workflow_id: str,
+        lease_token: str,
+        revision_token: str,
+        graph: Graph,
+    ) -> WorkflowDetail:
+        """Persist a full draft graph update behind scope, lease, and revision checks."""
+        stored = self.workflow_repository.get_workflow(tenant_id, workspace_id, workflow_id)
+        if stored is None:
+            raise WorkflowNotFoundError(workflow_id)
+        record, draft_head = stored
+
+        lease = self.lease_repository.get_lease(
+            workflow_id=workflow_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        if lease is None or lease.lease_token != lease_token:
+            raise WorkflowLeaseRequiredError("lease token required")
+        if draft_head.revision_token != revision_token:
+            raise WorkflowRevisionConflictError("revision token mismatch")
+
+        saved_at = datetime.now(UTC)
+        saved_graph = self.graph_repository.save(
+            graph.model_copy(
+                update={
+                    "graph_id": record.graph_id,
+                    "version": draft_head.draft_graph_version,
+                    "updated_at": saved_at,
+                }
+            )
+        )
+        updated_record = record.model_copy(update={"updated_at": saved_at})
+        updated_draft_head = draft_head.model_copy(
+            update={
+                "revision_token": uuid4().hex,
+                "validation_status": "unknown",
+                "last_saved_at": saved_at,
+            }
+        )
+        self.workflow_repository.update_draft(
+            workflow_id=workflow_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            draft_graph_version=updated_draft_head.draft_graph_version,
+            revision_token=updated_draft_head.revision_token,
+            validation_status=updated_draft_head.validation_status,
+            last_saved_at=updated_draft_head.last_saved_at,
+            updated_at=updated_record.updated_at,
+        )
+        return self._build_detail(updated_record, updated_draft_head, saved_graph)
 
     def _build_detail(
         self,

@@ -1307,3 +1307,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-05-red-2026-03-30.txt`
 **Blockers:** the workflow service has no draft update flow yet, and the Studio app does not register validation or contract lookup routes
 **Next:** implement the scoped draft save path, register the validation API, and rerun the focused suite until it passes
+
+### 2026-03-30 18:00 — Phase 10 authoring validation implemented
+**Phase/Tasks:** 10-05
+**Status:** completed
+**What:** added scoped draft-save support in `src/zeroth/studio/workflows/service.py`, exposed `PUT /studio/workflows/{workflow_id}/draft` in `src/zeroth/studio/workflows_api.py`, registered `src/zeroth/studio/validation_api.py` from the Studio app for persisted draft validation and slash-safe contract lookup, and updated the Studio API tests for the expanded workflow detail payload.
+**Tests:** `uv run pytest tests/studio/test_validation_api.py -q` passed; `uv run pytest tests/studio/test_validation_api.py tests/studio/test_studio_app.py -q` passed
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/test-10-05-green-2026-03-30.txt`
+**Blockers:** none
+**Next:** generate the plan summary, update planning state, and advance to the next Phase 10 plan

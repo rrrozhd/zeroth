@@ -110,6 +110,7 @@ def test_studio_workflow_detail_enforces_auth_role_scope_and_shape(sqlite_db) ->
         "name": "Owned Workflow",
         "folder_path": "/owned",
         "revision_token": owned.revision_token,
+        "last_saved_at": owned.last_saved_at.isoformat(),
         "graph": owned.graph.model_dump(mode="json"),
     }
 
