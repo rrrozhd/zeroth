@@ -7,6 +7,11 @@ from pydantic import BaseModel, ConfigDict
 
 from zeroth.graph.models import Graph
 from zeroth.studio.app import require_studio_principal
+from zeroth.studio.workflows.service import (
+    WorkflowLeaseRequiredError,
+    WorkflowNotFoundError,
+    WorkflowRevisionConflictError,
+)
 
 
 class WorkflowSummaryResponse(BaseModel):
@@ -40,6 +45,17 @@ class WorkflowDetailResponse(BaseModel):
     workspace_id: str
     name: str
     folder_path: str
+    revision_token: str
+    last_saved_at: str
+    graph: Graph
+
+
+class WorkflowDraftUpdateRequest(BaseModel):
+    """Full-draft save payload for Studio authoring clients."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lease_token: str
     revision_token: str
     graph: Graph
 
@@ -112,6 +128,52 @@ def register_workflow_routes(app: FastAPI) -> None:
             name=workflow.name,
             folder_path=workflow.folder_path,
             revision_token=workflow.revision_token,
+            last_saved_at=workflow.last_saved_at.isoformat(),
+            graph=workflow.graph,
+        )
+
+    @router.put(
+        "/studio/workflows/{workflow_id}/draft",
+        response_model=WorkflowDetailResponse,
+    )
+    async def update_draft(
+        workflow_id: str,
+        payload: WorkflowDraftUpdateRequest,
+        request: Request,
+    ) -> WorkflowDetailResponse:
+        principal = require_studio_principal(request)
+        workflow_service = request.app.state.bootstrap.workflow_service
+        try:
+            workflow = workflow_service.update_draft(
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                workflow_id=workflow_id,
+                lease_token=payload.lease_token,
+                revision_token=payload.revision_token,
+                graph=payload.graph,
+            )
+        except WorkflowNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="workflow not found",
+            ) from exc
+        except WorkflowLeaseRequiredError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        except WorkflowRevisionConflictError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        return WorkflowDetailResponse(
+            workflow_id=workflow.workflow_id,
+            workspace_id=workflow.workspace_id,
+            name=workflow.name,
+            folder_path=workflow.folder_path,
+            revision_token=workflow.revision_token,
+            last_saved_at=workflow.last_saved_at.isoformat(),
             graph=workflow.graph,
         )
 
