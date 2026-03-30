@@ -1,13 +1,0 @@
-
-> @zeroth/studio@0.0.0 build
-> vue-tsc --noEmit && vite build
-
-vite v8.0.3 building client environment for production...
-[2Ktransforming...✓ 1895 modules transformed.
-rendering chunks...
-computing gzip size...
-dist/index.html                   0.39 kB │ gzip:   0.27 kB
-dist/assets/index-BN7cDGQU.css   13.72 kB │ gzip:   3.02 kB
-dist/assets/index-B3MixHB_.js   368.68 kB │ gzip: 120.25 kB
-
-✓ built in 242ms
