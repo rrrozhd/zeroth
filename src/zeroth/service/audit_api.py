@@ -307,7 +307,7 @@ def register_audit_routes(app: FastAPI) -> None:
     ) -> DeploymentAttestationResponse:
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.DEPLOYMENT_READ)
-        current = _load_bound_deployment(bootstrap)
+        current = await _load_bound_deployment(bootstrap)
         return DeploymentAttestationResponse.model_validate(build_attestation_payload(current))
 
     @app.post(
@@ -321,7 +321,7 @@ def register_audit_routes(app: FastAPI) -> None:
     ) -> AttestationVerificationResponse:
         bootstrap, _ = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.DEPLOYMENT_READ)
-        current = _load_bound_deployment(bootstrap)
+        current = await _load_bound_deployment(bootstrap)
         mismatches = verify_attestation(current, attestation.model_dump(mode="json"))
         return AttestationVerificationResponse(
             verified=not mismatches,
@@ -391,8 +391,8 @@ async def _visible_approvals(
     return visible
 
 
-def _load_bound_deployment(bootstrap: AuditApiBootstrapLike) -> object:
-    deployment = bootstrap.deployment_service.get(
+async def _load_bound_deployment(bootstrap: AuditApiBootstrapLike) -> object:
+    deployment = await bootstrap.deployment_service.get(
         bootstrap.deployment.deployment_ref,
         bootstrap.deployment.version,
     )
