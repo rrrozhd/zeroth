@@ -32,6 +32,10 @@ class RetryPolicy(BaseModel):
     retry_on_provider_error: bool = True
     retry_on_timeout: bool = True
     backoff_seconds: float = Field(default=0.0, ge=0.0)
+    # Exponential backoff settings (used when use_exponential_backoff=True)
+    base_delay: float = Field(default=1.0, ge=0.0)
+    max_delay: float = Field(default=60.0, ge=0.0)
+    use_exponential_backoff: bool = True
 
     @property
     def max_attempts(self) -> int:
