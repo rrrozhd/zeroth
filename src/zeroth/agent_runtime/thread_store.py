@@ -1,6 +1,6 @@
 """Database-backed thread resolution and state storage.
 
-This module provides thread management backed by a real database (SQLite).
+This module provides thread management backed by an async database.
 Use these classes when you need thread state to survive process restarts,
 unlike the in-memory store which loses data when the process stops.
 """
@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 
 from zeroth.runs.models import Run, Thread, ThreadMemoryBinding, ThreadStatus
 from zeroth.runs.repository import RunRepository, ThreadRepository
-from zeroth.storage import SQLiteDatabase
+from zeroth.storage import AsyncDatabase
 from zeroth.storage.json import to_json_value
 
 THREAD_STATE_CHECKPOINT_KIND = "thread_state"
@@ -59,7 +59,7 @@ class RepositoryThreadResolver:
 
     thread_repository: ThreadRepository
 
-    def resolve(
+    async def resolve(
         self,
         thread_id: str | None,
         *,
@@ -75,8 +75,8 @@ class RepositoryThreadResolver:
         status: ThreadStatus | None = None,
     ) -> ThreadResolution:
         """Look up a thread by ID, or create one if it does not exist yet."""
-        created = thread_id is None or self.thread_repository.get(thread_id) is None
-        thread = self.thread_repository.resolve(
+        created = thread_id is None or await self.thread_repository.get(thread_id) is None
+        thread = await self.thread_repository.resolve(
             thread_id,
             graph_version_ref=graph_version_ref,
             deployment_ref=deployment_ref,
@@ -91,11 +91,13 @@ class RepositoryThreadResolver:
         )
         return ThreadResolution(thread=thread, created=created)
 
-    def resolve_optional(self, thread_id: str | None, **kwargs: Any) -> ThreadResolution | None:
+    async def resolve_optional(
+        self, thread_id: str | None, **kwargs: Any
+    ) -> ThreadResolution | None:
         """Like resolve, but returns None if no thread ID is provided."""
         if thread_id is None:
             return None
-        return self.resolve(thread_id, **kwargs)
+        return await self.resolve(thread_id, **kwargs)
 
 
 class RepositoryThreadStateStore:
@@ -108,7 +110,7 @@ class RepositoryThreadStateStore:
 
     def __init__(
         self,
-        database: SQLiteDatabase | None = None,
+        database: AsyncDatabase | None = None,
         *,
         run_repository: RunRepository | None = None,
         thread_repository: ThreadRepository | None = None,
@@ -118,19 +120,17 @@ class RepositoryThreadStateStore:
                 raise ValueError("database or repository instances are required")
             run_repository = run_repository or RunRepository(database)
             thread_repository = thread_repository or ThreadRepository(database)
-        if database is None:
-            database = self._database_from_repositories(run_repository, thread_repository)
         self._run_repository = run_repository
         self._thread_repository = thread_repository
-        self._database = database
+        self._database: AsyncDatabase | None = database
 
     async def load(self, thread_id: str) -> dict[str, Any] | None:
         """Load the most recent state snapshot for a thread from the database."""
-        thread = self._thread_repository.get(thread_id)
+        thread = await self._thread_repository.get(thread_id)
         if thread is None:
             return None
         for checkpoint_id in reversed(thread.state_snapshot_refs or thread.checkpoint_refs):
-            checkpoint = self._run_repository.get_checkpoint(checkpoint_id)
+            checkpoint = await self._run_repository.get_checkpoint(checkpoint_id)
             if checkpoint is None:
                 continue
             if not self._is_thread_state_checkpoint(checkpoint):
@@ -146,14 +146,14 @@ class RepositoryThreadStateStore:
 
     async def checkpoint(self, thread_id: str, state: dict[str, Any]) -> str:
         """Save a state snapshot for the thread and return the checkpoint ID."""
-        thread = self._thread_repository.get(thread_id)
+        thread = await self._thread_repository.get(thread_id)
         if thread is None:
             raise KeyError(thread_id)
 
         checkpoint_id = _new_checkpoint_id()
         checkpoint = self._build_checkpoint(thread, state, checkpoint_id=checkpoint_id)
-        self._write_checkpoint(checkpoint, checkpoint_id=checkpoint_id)
-        self._thread_repository.resolve(
+        await self._write_checkpoint(checkpoint, checkpoint_id=checkpoint_id)
+        await self._thread_repository.resolve(
             thread_id,
             graph_version_ref=thread.graph_version_ref,
             deployment_ref=thread.deployment_ref,
@@ -197,14 +197,14 @@ class RepositoryThreadStateStore:
         run.touch()
         return run
 
-    def _write_checkpoint(self, run: Run, *, checkpoint_id: str) -> None:
+    async def _write_checkpoint(self, run: Run, *, checkpoint_id: str) -> None:
         """Write the checkpoint record to the database."""
-        snapshot = run.model_dump(mode="json")
-        checkpoint_order = self._checkpoint_order(run.thread_id)
         if self._database is None:
             raise ValueError("database is required to persist checkpoints")
-        with self._database.transaction() as connection:
-            connection.execute(
+        snapshot = run.model_dump(mode="json")
+        checkpoint_order = await self._checkpoint_order(run.thread_id)
+        async with self._database.transaction() as connection:
+            await connection.execute(
                 """
                 INSERT INTO run_checkpoints (
                     checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at
@@ -221,30 +221,17 @@ class RepositoryThreadStateStore:
                     run.run_id,
                     run.thread_id,
                     checkpoint_order,
-                    self._encode_checkpoint_json(to_json_value(snapshot)),
+                    to_json_value(snapshot),
                     run.updated_at.isoformat(),
                 ),
             )
 
-    def _checkpoint_order(self, thread_id: str) -> int:
+    async def _checkpoint_order(self, thread_id: str) -> int:
         """Return the next sequential order number for checkpoints on this thread."""
-        thread = self._thread_repository.get(thread_id)
+        thread = await self._thread_repository.get(thread_id)
         if thread is None:
             return 0
         return len(thread.checkpoint_refs)
-
-    def _database_from_repositories(
-        self,
-        run_repository: RunRepository,
-        thread_repository: ThreadRepository,
-    ) -> SQLiteDatabase | None:
-        """Try to find the database instance from the given repositories."""
-        for repository in (run_repository, thread_repository):
-            store = getattr(repository, "_store", None)
-            database = getattr(store, "database", None)
-            if database is not None:
-                return database
-        return None
 
     def _is_thread_state_checkpoint(self, checkpoint: Run) -> bool:
         """Check whether a checkpoint record is a thread state checkpoint."""
@@ -256,9 +243,3 @@ class RepositoryThreadStateStore:
         if isinstance(state, dict):
             return dict(state)
         return None
-
-    def _encode_checkpoint_json(self, payload: str) -> str:
-        encrypted_field = self._database.encrypted_field if self._database is not None else None
-        if encrypted_field is None:
-            return payload
-        return encrypted_field.encrypt(payload)

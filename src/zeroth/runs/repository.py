@@ -1,13 +1,12 @@
-"""SQLite-backed repositories for runs and threads.
+"""Async database-backed repositories for runs and threads.
 
 This module handles all the database work for saving, loading, and updating
-runs and threads.  It uses SQLite as the storage backend and manages schema
-migrations automatically.
+runs and threads.  It uses the async database protocol and manages schema
+via Alembic migrations at startup.
 """
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -25,150 +24,8 @@ from zeroth.runs.models import (
     ThreadMemoryBinding,
     ThreadStatus,
 )
-from zeroth.storage import Migration, SQLiteDatabase
+from zeroth.storage import AsyncDatabase
 from zeroth.storage.json import load_typed_value, to_json_value
-
-SCHEMA_SCOPE = "run_threads"
-
-MIGRATIONS = [
-    Migration(
-        version=1,
-        name="create_run_thread_and_checkpoint_tables",
-        sql="""
-        CREATE TABLE IF NOT EXISTS runs (
-            run_id TEXT PRIMARY KEY,
-            checkpoint_id TEXT,
-            parent_checkpoint_id TEXT,
-            epoch INTEGER NOT NULL,
-            workflow_name TEXT NOT NULL,
-            status TEXT NOT NULL,
-            current_step TEXT,
-            completed_steps TEXT NOT NULL,
-            artifacts TEXT NOT NULL,
-            channels TEXT NOT NULL,
-            pending_approval TEXT,
-            pending_interrupt_id TEXT,
-            started_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            error TEXT,
-            metadata TEXT NOT NULL,
-            graph_version_ref TEXT NOT NULL,
-            deployment_ref TEXT NOT NULL,
-            thread_id TEXT NOT NULL,
-            current_node_ids TEXT NOT NULL,
-            pending_node_ids TEXT NOT NULL,
-            execution_history TEXT NOT NULL,
-            node_visit_counts TEXT NOT NULL,
-            condition_results TEXT NOT NULL,
-            audit_refs TEXT NOT NULL,
-            final_output TEXT,
-            failure_state TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS run_checkpoints (
-            checkpoint_id TEXT PRIMARY KEY,
-            run_id TEXT NOT NULL,
-            thread_id TEXT NOT NULL,
-            checkpoint_order INTEGER NOT NULL,
-            state_json TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS threads (
-            thread_id TEXT PRIMARY KEY,
-            graph_version_ref TEXT NOT NULL,
-            deployment_ref TEXT NOT NULL,
-            status TEXT NOT NULL,
-            participating_agent_refs TEXT NOT NULL,
-            state_snapshot_refs TEXT NOT NULL,
-            checkpoint_refs TEXT NOT NULL,
-            memory_bindings TEXT NOT NULL,
-            run_ids TEXT NOT NULL,
-            active_run_id TEXT,
-            last_run_id TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        """,
-    ),
-    Migration(
-        version=2,
-        name="add_run_thread_scope_columns",
-        sql="""
-        ALTER TABLE runs
-        ADD COLUMN tenant_id TEXT DEFAULT 'default';
-
-        ALTER TABLE runs
-        ADD COLUMN workspace_id TEXT;
-
-        ALTER TABLE runs
-        ADD COLUMN submitted_by TEXT;
-
-        ALTER TABLE threads
-        ADD COLUMN tenant_id TEXT DEFAULT 'default';
-
-        ALTER TABLE threads
-        ADD COLUMN workspace_id TEXT;
-
-        UPDATE runs
-        SET tenant_id = 'default'
-        WHERE tenant_id IS NULL;
-
-        UPDATE threads
-        SET tenant_id = 'default'
-        WHERE tenant_id IS NULL;
-
-        CREATE INDEX IF NOT EXISTS idx_runs_scope
-            ON runs(tenant_id, workspace_id, deployment_ref, thread_id, run_id);
-
-        CREATE INDEX IF NOT EXISTS idx_threads_scope
-            ON threads(tenant_id, workspace_id, deployment_ref, thread_id);
-        """,
-    ),
-    Migration(
-        version=3,
-        name="add_durable_dispatch_columns",
-        sql="""
-        ALTER TABLE runs
-        ADD COLUMN lease_worker_id TEXT;
-
-        ALTER TABLE runs
-        ADD COLUMN lease_acquired_at TEXT;
-
-        ALTER TABLE runs
-        ADD COLUMN lease_expires_at TEXT;
-
-        ALTER TABLE runs
-        ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0;
-
-        ALTER TABLE runs
-        ADD COLUMN recovery_checkpoint_id TEXT;
-
-        CREATE INDEX IF NOT EXISTS idx_runs_dispatch
-            ON runs(deployment_ref, status, lease_expires_at);
-        """,
-    ),
-    Migration(
-        version=4,
-        name="add_guardrail_tables",
-        sql="""
-        CREATE TABLE IF NOT EXISTS rate_limit_buckets (
-            bucket_key TEXT PRIMARY KEY,
-            token_count REAL NOT NULL,
-            last_refill_at TEXT NOT NULL,
-            capacity REAL NOT NULL DEFAULT 10.0,
-            refill_rate REAL NOT NULL DEFAULT 1.0
-        );
-
-        CREATE TABLE IF NOT EXISTS quota_counters (
-            counter_key TEXT PRIMARY KEY,
-            value INTEGER NOT NULL DEFAULT 0,
-            window_start TEXT NOT NULL,
-            window_seconds INTEGER NOT NULL DEFAULT 86400
-        );
-        """,
-    ),
-]
 
 ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
     RunStatus.PENDING: {RunStatus.RUNNING, RunStatus.FAILED},
@@ -257,21 +114,18 @@ def _merge_models(
 
 @dataclass(slots=True)
 class _RunThreadStore:
-    """Low-level SQLite store that handles raw read/write operations for runs and threads.
+    """Low-level async store that handles raw read/write operations for runs and threads.
 
     This is an internal class used by RunRepository and ThreadRepository.
-    It owns the database connection and applies schema migrations on init.
+    It owns the database reference.
     """
 
-    database: SQLiteDatabase
+    database: AsyncDatabase
 
-    def __post_init__(self) -> None:
-        self.database.apply_migrations(SCHEMA_SCOPE, MIGRATIONS)
-
-    def save_run(self, run: Run) -> None:
+    async def save_run(self, run: Run) -> None:
         """Insert or update a run record in the database."""
-        with self.database.transaction() as connection:
-            connection.execute(
+        async with self.database.transaction() as connection:
+            await connection.execute(
                 """
                 INSERT INTO runs (
                     run_id, checkpoint_id, parent_checkpoint_id, epoch, workflow_name,
@@ -351,10 +205,10 @@ class _RunThreadStore:
                 ),
             )
 
-    def save_thread(self, thread: Thread) -> None:
+    async def save_thread(self, thread: Thread) -> None:
         """Insert or update a thread record in the database."""
-        with self.database.transaction() as connection:
-            connection.execute(
+        async with self.database.transaction() as connection:
+            await connection.execute(
                 """
                 INSERT INTO threads (
                     thread_id, graph_version_ref, deployment_ref, tenant_id, workspace_id, status,
@@ -396,36 +250,36 @@ class _RunThreadStore:
                 ),
             )
 
-    def get_run(self, run_id: str) -> Run | None:
+    async def get_run(self, run_id: str) -> Run | None:
         """Load a run from the database by its ID, or return None if not found."""
-        with self.database.transaction() as connection:
-            row = connection.execute(
+        async with self.database.transaction() as connection:
+            row = await connection.fetch_one(
                 "SELECT * FROM runs WHERE run_id = ?",
                 (run_id,),
-            ).fetchone()
+            )
         if row is None:
             return None
         return self._row_to_run(row)
 
-    def get_thread(self, thread_id: str) -> Thread | None:
+    async def get_thread(self, thread_id: str) -> Thread | None:
         """Load a thread from the database by its ID, or return None if not found."""
-        with self.database.transaction() as connection:
-            row = connection.execute(
+        async with self.database.transaction() as connection:
+            row = await connection.fetch_one(
                 "SELECT * FROM threads WHERE thread_id = ?",
                 (thread_id,),
-            ).fetchone()
+            )
         if row is None:
             return None
         return self._row_to_thread(row)
 
-    def delete_run(self, run_id: str) -> None:
+    async def delete_run(self, run_id: str) -> None:
         """Remove a run from the database and update its parent thread."""
-        run = self.get_run(run_id)
+        run = await self.get_run(run_id)
         if run is None:
             return
-        with self.database.transaction() as connection:
-            connection.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
-        thread = self.get_thread(run.thread_id)
+        async with self.database.transaction() as connection:
+            await connection.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
+        thread = await self.get_thread(run.thread_id)
         if thread is None:
             return
         thread.run_ids = [current for current in thread.run_ids if current != run_id]
@@ -434,9 +288,9 @@ class _RunThreadStore:
         if thread.last_run_id == run_id:
             thread.last_run_id = thread.run_ids[-1] if thread.run_ids else None
         thread.updated_at = _utc_now()
-        self.save_thread(thread)
+        await self.save_thread(thread)
 
-    def write_checkpoint(self, run: Run) -> str:
+    async def write_checkpoint(self, run: Run) -> str:
         """Save a snapshot of the run's current state as a checkpoint.
 
         Returns the checkpoint ID. Checkpoints let you restore a run
@@ -444,9 +298,9 @@ class _RunThreadStore:
         """
         checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
         run.checkpoint_id = checkpoint_id
-        thread = self.get_thread(run.thread_id)
+        thread = await self.get_thread(run.thread_id)
         if thread is None:
-            self._record_thread_run(
+            await self._record_thread_run(
                 run.thread_id,
                 run.run_id,
                 run.graph_version_ref,
@@ -456,9 +310,9 @@ class _RunThreadStore:
             )
         run.touch()
         snapshot = run.model_dump(mode="json")
-        checkpoint_order = self._next_checkpoint_order(run.thread_id)
-        with self.database.transaction() as connection:
-            connection.execute(
+        checkpoint_order = await self._next_checkpoint_order(run.thread_id)
+        async with self.database.transaction() as connection:
+            await connection.execute(
                 """
                 INSERT INTO run_checkpoints (
                     checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at
@@ -474,79 +328,81 @@ class _RunThreadStore:
                     run.run_id,
                     run.thread_id,
                     checkpoint_order,
-                    self._encode_checkpoint_json(to_json_value(snapshot)),
+                    to_json_value(snapshot),
                     run.updated_at.isoformat(),
                 ),
             )
-        self._record_thread_checkpoint(run.thread_id, checkpoint_id)
+        await self._record_thread_checkpoint(run.thread_id, checkpoint_id)
         return checkpoint_id
 
-    def get_checkpoint(self, checkpoint_id: str) -> Run | None:
+    async def get_checkpoint(self, checkpoint_id: str) -> Run | None:
         """Load a previously saved checkpoint by its ID."""
-        with self.database.transaction() as connection:
-            row = connection.execute(
+        async with self.database.transaction() as connection:
+            row = await connection.fetch_one(
                 "SELECT state_json FROM run_checkpoints WHERE checkpoint_id = ?",
                 (checkpoint_id,),
-            ).fetchone()
+            )
         if row is None:
             return None
         return Run.model_validate(
-            load_typed_value(self._decode_checkpoint_json(row["state_json"]), dict[str, Any])
+            load_typed_value(row["state_json"], dict[str, Any])
         )
 
-    def get_latest_checkpoint(self, thread_id: str) -> Run | None:
+    async def get_latest_checkpoint(self, thread_id: str) -> Run | None:
         """Load the most recent checkpoint for a given thread."""
-        checkpoint_ids = self._checkpoint_ids(thread_id)
+        checkpoint_ids = await self._checkpoint_ids(thread_id)
         if not checkpoint_ids:
             return None
-        return self.get_checkpoint(checkpoint_ids[-1])
+        return await self.get_checkpoint(checkpoint_ids[-1])
 
-    def list_checkpoints(self, thread_id: str) -> list[Run]:
+    async def list_checkpoints(self, thread_id: str) -> list[Run]:
         """Return all checkpoints for a thread, in order."""
-        checkpoints = (
-            self.get_checkpoint(checkpoint_id) for checkpoint_id in self._checkpoint_ids(thread_id)
-        )
-        return [checkpoint for checkpoint in checkpoints if checkpoint is not None]
+        results: list[Run] = []
+        for checkpoint_id in await self._checkpoint_ids(thread_id):
+            checkpoint = await self.get_checkpoint(checkpoint_id)
+            if checkpoint is not None:
+                results.append(checkpoint)
+        return results
 
-    def get_active_run_id(self, thread_id: str) -> str | None:
+    async def get_active_run_id(self, thread_id: str) -> str | None:
         """Return the currently active run ID for a thread, or None."""
-        thread = self.get_thread(thread_id)
+        thread = await self.get_thread(thread_id)
         return None if thread is None else thread.active_run_id
 
-    def get_latest_run_id(self, thread_id: str) -> str | None:
+    async def get_latest_run_id(self, thread_id: str) -> str | None:
         """Return the most recently added run ID for a thread, or None."""
-        run_ids = self.list_run_ids(thread_id)
+        run_ids = await self.list_run_ids(thread_id)
         return run_ids[-1] if run_ids else None
 
-    def list_run_ids(self, thread_id: str) -> list[str]:
+    async def list_run_ids(self, thread_id: str) -> list[str]:
         """Return all run IDs belonging to a thread."""
-        thread = self.get_thread(thread_id)
+        thread = await self.get_thread(thread_id)
         if thread is None:
             return []
         return list(thread.run_ids)
 
-    def set_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def set_active_run_id(self, thread_id: str, run_id: str) -> None:
         """Mark a run as the active run for its thread."""
-        thread = self._ensure_thread(thread_id)
+        thread = await self._ensure_thread(thread_id)
         thread.active_run_id = run_id
         if run_id not in thread.run_ids:
             thread.run_ids.append(run_id)
         thread.last_run_id = run_id
         thread.updated_at = _utc_now()
-        self.save_thread(thread)
+        await self.save_thread(thread)
 
-    def clear_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def clear_active_run_id(self, thread_id: str, run_id: str) -> None:
         """Clear the active run for a thread (only if it matches the given run_id)."""
-        thread = self.get_thread(thread_id)
+        thread = await self.get_thread(thread_id)
         if thread is None or thread.active_run_id != run_id:
             return
         thread.active_run_id = None
         thread.updated_at = _utc_now()
-        self.save_thread(thread)
+        await self.save_thread(thread)
 
-    def put_run(self, run: Run) -> None:
+    async def put_run(self, run: Run) -> None:
         """Save a run, creating its thread if needed, and write a checkpoint."""
-        self._record_thread_run(
+        await self._record_thread_run(
             run.thread_id,
             run.run_id,
             run.graph_version_ref,
@@ -554,20 +410,20 @@ class _RunThreadStore:
             run.tenant_id,
             run.workspace_id,
         )
-        self.write_checkpoint(run)
+        await self.write_checkpoint(run)
         run.touch()
-        self.save_run(run)
+        await self.save_run(run)
 
-    def _ensure_thread(self, thread_id: str) -> Thread:
+    async def _ensure_thread(self, thread_id: str) -> Thread:
         """Load a thread by ID, raising KeyError if it doesn't exist."""
-        thread = self.get_thread(thread_id)
+        thread = await self.get_thread(thread_id)
         if thread is None:
             raise KeyError(thread_id)
         return thread
 
-    def _ensure_thread_from_run(self, run: Run) -> Thread:
+    async def _ensure_thread_from_run(self, run: Run) -> Thread:
         """Get or create a thread for a run, validating identity fields match."""
-        thread = self.get_thread(run.thread_id)
+        thread = await self.get_thread(run.thread_id)
         if thread is None:
             thread = Thread(
                 thread_id=run.thread_id,
@@ -593,7 +449,7 @@ class _RunThreadStore:
             thread.updated_at = _utc_now()
         return thread
 
-    def _record_thread_run(
+    async def _record_thread_run(
         self,
         thread_id: str,
         run_id: str,
@@ -603,7 +459,7 @@ class _RunThreadStore:
         workspace_id: str | None,
     ) -> None:
         """Register a run with its thread, creating the thread if needed."""
-        thread = self.get_thread(thread_id)
+        thread = await self.get_thread(thread_id)
         if thread is None:
             thread = Thread(
                 thread_id=thread_id,
@@ -626,44 +482,32 @@ class _RunThreadStore:
             thread.run_ids = _merge(thread.run_ids, [run_id])
             thread.last_run_id = run_id
             thread.updated_at = _utc_now()
-        self.save_thread(thread)
+        await self.save_thread(thread)
 
-    def _record_thread_checkpoint(self, thread_id: str, checkpoint_id: str) -> None:
+    async def _record_thread_checkpoint(self, thread_id: str, checkpoint_id: str) -> None:
         """Add a checkpoint reference to a thread's list of checkpoints."""
-        thread = self.get_thread(thread_id)
+        thread = await self.get_thread(thread_id)
         if thread is None:
             return
         thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
         thread.updated_at = _utc_now()
-        self.save_thread(thread)
+        await self.save_thread(thread)
 
-    def _checkpoint_ids(self, thread_id: str) -> list[str]:
+    async def _checkpoint_ids(self, thread_id: str) -> list[str]:
         """Return all checkpoint IDs for a thread."""
-        thread = self.get_thread(thread_id)
+        thread = await self.get_thread(thread_id)
         if thread is None:
             return []
         return list(thread.checkpoint_refs)
 
-    def _next_checkpoint_order(self, thread_id: str) -> int:
+    async def _next_checkpoint_order(self, thread_id: str) -> int:
         """Return the next checkpoint order number for a thread."""
-        return len(self._checkpoint_ids(thread_id))
+        return len(await self._checkpoint_ids(thread_id))
 
-    def _encode_checkpoint_json(self, payload: str) -> str:
-        encrypted_field = self.database.encrypted_field
-        if encrypted_field is None:
-            return payload
-        return encrypted_field.encrypt(payload)
-
-    def _decode_checkpoint_json(self, payload: str) -> str:
-        encrypted_field = self.database.encrypted_field
-        if encrypted_field is None:
-            return payload
-        return encrypted_field.decrypt(payload)
-
-    def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
+    async def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
         """Return the checkpoint_id for the most recent checkpoint of a run."""
-        with self.database.transaction() as connection:
-            row = connection.execute(
+        async with self.database.transaction() as connection:
+            row = await connection.fetch_one(
                 """
                 SELECT checkpoint_id FROM run_checkpoints
                 WHERE run_id = ?
@@ -671,32 +515,32 @@ class _RunThreadStore:
                 LIMIT 1
                 """,
                 (run_id,),
-            ).fetchone()
+            )
         return row["checkpoint_id"] if row else None
 
-    def count_pending(self, deployment_ref: str) -> int:
+    async def count_pending(self, deployment_ref: str) -> int:
         """Count runs with PENDING status for a deployment."""
-        with self.database.transaction() as connection:
-            row = connection.execute(
+        async with self.database.transaction() as connection:
+            row = await connection.fetch_one(
                 "SELECT COUNT(*) AS cnt FROM runs WHERE status = ? AND deployment_ref = ?",
                 (RunStatus.PENDING.value, deployment_ref),
-            ).fetchone()
+            )
         return row["cnt"] if row else 0
 
-    def increment_failure_count(self, run_id: str) -> int:
+    async def increment_failure_count(self, run_id: str) -> int:
         """Atomically increment failure_count for a run; returns the new count."""
-        with self.database.transaction() as connection:
-            connection.execute(
+        async with self.database.transaction() as connection:
+            await connection.execute(
                 "UPDATE runs SET failure_count = failure_count + 1 WHERE run_id = ?",
                 (run_id,),
             )
-            row = connection.execute(
+            row = await connection.fetch_one(
                 "SELECT failure_count FROM runs WHERE run_id = ?",
                 (run_id,),
-            ).fetchone()
+            )
         return row["failure_count"] if row else 0
 
-    def list_runs(
+    async def list_runs(
         self,
         deployment_ref: str,
         *,
@@ -706,8 +550,8 @@ class _RunThreadStore:
     ) -> list[Run]:
         """Return runs for a deployment, optionally filtered by status."""
         if status is not None:
-            with self.database.transaction() as connection:
-                rows = connection.execute(
+            async with self.database.transaction() as connection:
+                rows = await connection.fetch_all(
                     """
                     SELECT * FROM runs
                     WHERE deployment_ref = ? AND status = ?
@@ -715,10 +559,10 @@ class _RunThreadStore:
                     LIMIT ? OFFSET ?
                     """,
                     (deployment_ref, status, limit, offset),
-                ).fetchall()
+                )
         else:
-            with self.database.transaction() as connection:
-                rows = connection.execute(
+            async with self.database.transaction() as connection:
+                rows = await connection.fetch_all(
                     """
                     SELECT * FROM runs
                     WHERE deployment_ref = ?
@@ -726,28 +570,28 @@ class _RunThreadStore:
                     LIMIT ? OFFSET ?
                     """,
                     (deployment_ref, limit, offset),
-                ).fetchall()
+                )
         return [self._row_to_run(row) for row in rows]
 
-    def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
+    async def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
         """Return runs that have been dead-lettered (failed with dead_letter reason)."""
-        with self.database.transaction() as connection:
-            rows = connection.execute(
+        async with self.database.transaction() as connection:
+            rows = await connection.fetch_all(
                 """
                 SELECT * FROM runs
                 WHERE deployment_ref = ? AND status = ?
                 ORDER BY updated_at DESC
                 """,
                 (deployment_ref, RunStatus.FAILED.value),
-            ).fetchall()
+            )
         return [
             r
             for r in (self._row_to_run(row) for row in rows)
             if r.failure_state is not None and r.failure_state.reason == DEAD_LETTER_REASON
         ]
 
-    def _row_to_run(self, row: sqlite3.Row) -> Run:
-        """Convert a raw SQLite row into a Run model."""
+    def _row_to_run(self, row: dict[str, Any]) -> Run:
+        """Convert a raw database row into a Run model."""
         return Run(
             run_id=row["run_id"],
             checkpoint_id=row["checkpoint_id"],
@@ -785,8 +629,8 @@ class _RunThreadStore:
             failure_state=load_typed_value(row["failure_state"], dict[str, Any]),
         )
 
-    def _row_to_thread(self, row: sqlite3.Row) -> Thread:
-        """Convert a raw SQLite row into a Thread model."""
+    def _row_to_thread(self, row: dict[str, Any]) -> Thread:
+        """Convert a raw database row into a Thread model."""
         return Thread(
             thread_id=row["thread_id"],
             graph_version_ref=row["graph_version_ref"],
@@ -811,70 +655,70 @@ class _RunThreadStore:
 
 
 class RunRepository:
-    """High-level interface for saving and loading runs.
+    """High-level async interface for saving and loading runs.
 
     Wraps the low-level store and adds business logic like status transitions,
     history recording, and checkpoint management.
     """
 
-    def __init__(self, database: SQLiteDatabase):
+    def __init__(self, database: AsyncDatabase):
         self._store = _RunThreadStore(database)
 
-    def create(self, run: Run) -> Run:
+    async def create(self, run: Run) -> Run:
         """Save a new run and return the persisted version."""
-        self.put(run)
-        return self.get(run.run_id)
+        await self.put(run)
+        return await self.get(run.run_id)
 
-    def put(self, run: Run) -> Run:
+    async def put(self, run: Run) -> Run:
         """Save (insert or update) a run, including its checkpoint and thread."""
-        self._store.put_run(run)
-        return self.get(run.run_id)
+        await self._store.put_run(run)
+        return await self.get(run.run_id)
 
-    def get(self, run_id: str) -> Run | None:
+    async def get(self, run_id: str) -> Run | None:
         """Load a run by its ID, or return None if not found."""
-        return self._store.get_run(run_id)
+        return await self._store.get_run(run_id)
 
-    def delete(self, run_id: str) -> None:
+    async def delete(self, run_id: str) -> None:
         """Remove a run from the database."""
-        self._store.delete_run(run_id)
+        await self._store.delete_run(run_id)
 
-    def write_checkpoint(self, run: Run) -> str:
+    async def write_checkpoint(self, run: Run) -> str:
         """Save a snapshot of the run and return the checkpoint ID."""
-        return self._store.write_checkpoint(run)
+        return await self._store.write_checkpoint(run)
 
-    def get_checkpoint(self, checkpoint_id: str) -> Run | None:
+    async def get_checkpoint(self, checkpoint_id: str) -> Run | None:
         """Load a checkpoint by its ID."""
-        return self._store.get_checkpoint(checkpoint_id)
+        return await self._store.get_checkpoint(checkpoint_id)
 
-    def get_latest_checkpoint(self, thread_id: str) -> Run | None:
+    async def get_latest_checkpoint(self, thread_id: str) -> Run | None:
         """Load the most recent checkpoint for a thread."""
-        return self._store.get_latest_checkpoint(thread_id)
+        return await self._store.get_latest_checkpoint(thread_id)
 
-    def list_checkpoints(self, thread_id: str) -> list[Run]:
+    async def list_checkpoints(self, thread_id: str) -> list[Run]:
         """Return all checkpoints for a thread, in order."""
-        return self._store.list_checkpoints(thread_id)
+        return await self._store.list_checkpoints(thread_id)
 
-    def get_active_run_id(self, thread_id: str) -> str | None:
+    async def get_active_run_id(self, thread_id: str) -> str | None:
         """Return the currently active run ID for a thread."""
-        return self._store.get_active_run_id(thread_id)
+        return await self._store.get_active_run_id(thread_id)
 
-    def get_latest_run_id(self, thread_id: str) -> str | None:
+    async def get_latest_run_id(self, thread_id: str) -> str | None:
         """Return the most recently added run ID for a thread."""
-        return self._store.get_latest_run_id(thread_id)
+        return await self._store.get_latest_run_id(thread_id)
 
-    def list_run_ids(self, thread_id: str) -> list[str]:
+    async def list_run_ids(self, thread_id: str) -> list[str]:
         """Return all run IDs belonging to a thread."""
-        return self._store.list_run_ids(thread_id)
+        return await self._store.list_run_ids(thread_id)
 
-    def set_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def set_active_run_id(self, thread_id: str, run_id: str) -> None:
         """Mark a run as the active run for its thread."""
-        self._store.set_active_run_id(thread_id, run_id)
+        await self._store.set_active_run_id(thread_id, run_id)
 
-    def clear_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def clear_active_run_id(self, thread_id: str, run_id: str) -> None:
         """Clear the active run for a thread if it matches the given run_id."""
-        self._store.clear_active_run_id(thread_id, run_id)
+        await self._store.clear_active_run_id(thread_id, run_id)
 
-    def transition(
+    async def transition(
         self,
         run_id: str,
         new_status: RunStatus,
@@ -894,7 +738,7 @@ class RunRepository:
         in the same operation. Raises KeyError if the run doesn't exist,
         or ValueError if the status transition is invalid.
         """
-        run = self.get(run_id)
+        run = await self.get(run_id)
         if run is None:
             raise KeyError(run_id)
         _validate_transition(run.status, new_status)
@@ -918,40 +762,40 @@ class RunRepository:
         if error is not None:
             run.error = error
         run.touch()
-        return self.put(run)
+        return await self.put(run)
 
-    def record_history(self, run_id: str, entry: RunHistoryEntry) -> Run:
+    async def record_history(self, run_id: str, entry: RunHistoryEntry) -> Run:
         """Append a node execution entry to a run's history."""
-        run = self.get(run_id)
+        run = await self.get(run_id)
         if run is None:
             raise KeyError(run_id)
         run.execution_history.append(entry)
         run.completed_steps = [item.node_id for item in run.execution_history]
         run.touch()
-        return self.put(run)
+        return await self.put(run)
 
-    def record_condition_result(self, run_id: str, result: RunConditionResult) -> Run:
+    async def record_condition_result(self, run_id: str, result: RunConditionResult) -> Run:
         """Append a condition evaluation result to a run's records."""
-        run = self.get(run_id)
+        run = await self.get(run_id)
         if run is None:
             raise KeyError(run_id)
         run.condition_results.append(result)
         run.touch()
-        return self.put(run)
+        return await self.put(run)
 
-    def count_pending(self, deployment_ref: str) -> int:
+    async def count_pending(self, deployment_ref: str) -> int:
         """Count PENDING runs for a deployment (for backpressure checks)."""
-        return self._store.count_pending(deployment_ref)
+        return await self._store.count_pending(deployment_ref)
 
-    def increment_failure_count(self, run_id: str) -> int:
+    async def increment_failure_count(self, run_id: str) -> int:
         """Increment and return the failure_count for a run."""
-        return self._store.increment_failure_count(run_id)
+        return await self._store.increment_failure_count(run_id)
 
-    def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
+    async def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
         """Return the most recent checkpoint ID for a run."""
-        return self._store.get_latest_checkpoint_id_for_run(run_id)
+        return await self._store.get_latest_checkpoint_id_for_run(run_id)
 
-    def list_runs(
+    async def list_runs(
         self,
         deployment_ref: str,
         *,
@@ -960,47 +804,49 @@ class RunRepository:
         offset: int = 0,
     ) -> list[Run]:
         """Return runs for a deployment, optionally filtered by status."""
-        return self._store.list_runs(deployment_ref, status=status, limit=limit, offset=offset)
+        return await self._store.list_runs(
+            deployment_ref, status=status, limit=limit, offset=offset
+        )
 
-    def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
+    async def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
         """Return dead-lettered runs for a deployment."""
-        return self._store.list_dead_letter_runs(deployment_ref)
+        return await self._store.list_dead_letter_runs(deployment_ref)
 
 
 class ThreadRepository:
-    """High-level interface for saving and loading threads.
+    """High-level async interface for saving and loading threads.
 
     Provides methods for creating, updating, and querying threads,
     as well as attaching runs and managing the active run.
     """
 
-    def __init__(self, database: SQLiteDatabase):
+    def __init__(self, database: AsyncDatabase):
         self._store = _RunThreadStore(database)
 
-    def create(self, thread: Thread) -> Thread:
+    async def create(self, thread: Thread) -> Thread:
         """Save a new thread and return the persisted version."""
-        self._store.save_thread(thread)
-        return self.get(thread.thread_id)
+        await self._store.save_thread(thread)
+        return await self.get(thread.thread_id)
 
-    def get(self, thread_id: str) -> Thread | None:
+    async def get(self, thread_id: str) -> Thread | None:
         """Load a thread by its ID, or return None if not found."""
-        return self._store.get_thread(thread_id)
+        return await self._store.get_thread(thread_id)
 
-    def list(self) -> list[Thread]:
+    async def list(self) -> list[Thread]:
         """Return all threads, ordered by creation time."""
-        with self._store.database.transaction() as connection:
-            rows = connection.execute(
+        async with self._store.database.transaction() as connection:
+            rows = await connection.fetch_all(
                 "SELECT * FROM threads ORDER BY created_at, thread_id"
-            ).fetchall()
+            )
         return [self._store._row_to_thread(row) for row in rows]
 
-    def update(self, thread: Thread) -> Thread:
+    async def update(self, thread: Thread) -> Thread:
         """Save changes to an existing thread."""
         thread.updated_at = _utc_now()
-        self._store.save_thread(thread)
-        return self.get(thread.thread_id)
+        await self._store.save_thread(thread)
+        return await self.get(thread.thread_id)
 
-    def resolve(
+    async def resolve(
         self,
         thread_id: str | None,
         *,
@@ -1024,9 +870,9 @@ class ThreadRepository:
         if thread_id is None:
             thread_id = run_id or uuid4().hex
 
-        existing = self.get(thread_id)
+        existing = await self.get(thread_id)
         if existing is None:
-            return self.create(
+            return await self.create(
                 Thread(
                     thread_id=thread_id,
                     graph_version_ref=graph_version_ref,
@@ -1065,12 +911,12 @@ class ThreadRepository:
         if status is not None:
             existing.status = status
         existing.updated_at = _utc_now()
-        self._store.save_thread(existing)
-        return self.get(thread_id)
+        await self._store.save_thread(existing)
+        return await self.get(thread_id)
 
-    def attach_run(self, thread_id: str, run_id: str) -> Thread:
+    async def attach_run(self, thread_id: str, run_id: str) -> Thread:
         """Add a run to a thread and make it the active run."""
-        thread = self.get(thread_id)
+        thread = await self.get(thread_id)
         if thread is None:
             raise KeyError(thread_id)
         if run_id not in thread.run_ids:
@@ -1078,25 +924,21 @@ class ThreadRepository:
         thread.active_run_id = run_id
         thread.last_run_id = run_id
         thread.updated_at = _utc_now()
-        self._store.save_thread(thread)
-        return self.get(thread_id)
+        await self._store.save_thread(thread)
+        return await self.get(thread_id)
 
-    def get_active_run_id(self, thread_id: str) -> str | None:
+    async def get_active_run_id(self, thread_id: str) -> str | None:
         """Return the currently active run ID for a thread."""
-        return self._store.get_active_run_id(thread_id)
+        return await self._store.get_active_run_id(thread_id)
 
-    def get_latest_run_id(self, thread_id: str) -> str | None:
+    async def get_latest_run_id(self, thread_id: str) -> str | None:
         """Return the most recently added run ID for a thread."""
-        return self._store.get_latest_run_id(thread_id)
+        return await self._store.get_latest_run_id(thread_id)
 
-    def list_run_ids(self, thread_id: str) -> list[str]:
+    async def list_run_ids(self, thread_id: str) -> list[str]:
         """Return all run IDs belonging to a thread."""
-        return self._store.list_run_ids(thread_id)
+        return await self._store.list_run_ids(thread_id)
 
-    def set_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def set_active_run_id(self, thread_id: str, run_id: str) -> None:
         """Mark a run as the active run for its thread."""
-        self._store.set_active_run_id(thread_id, run_id)
-
-    def clear_active_run_id(self, thread_id: str, run_id: str) -> None:
-        """Clear the active run for a thread if it matches the given run_id."""
-        self._store.clear_active_run_id(thread_id, run_id)
+        await self._store.set_active_run_id(thread_id, run_id)

@@ -11,64 +11,63 @@ from zeroth.graph.diff import GraphDiff, diff_graphs
 from zeroth.graph.errors import GraphLifecycleError
 from zeroth.graph.models import Graph, GraphStatus
 from zeroth.graph.serialization import deserialize_graph, serialize_graph
-from zeroth.graph.storage import GRAPH_MIGRATIONS, GRAPH_SCHEMA_SCOPE, GRAPH_SCHEMA_VERSION
+from zeroth.graph.storage import GRAPH_SCHEMA_VERSION
 from zeroth.graph.versioning import clone_graph_version
-from zeroth.storage import SQLiteDatabase
+from zeroth.storage import AsyncDatabase
 
 
 class GraphRepository:
     """Persistence layer for versioned graph documents."""
 
-    def __init__(self, database: SQLiteDatabase):
-        self._database = database
-        self._database.apply_migrations(GRAPH_SCHEMA_SCOPE, GRAPH_MIGRATIONS)
+    def __init__(self, database: AsyncDatabase):
+        self._database: AsyncDatabase = database
 
-    def save(self, graph: Graph) -> Graph:
+    async def save(self, graph: Graph) -> Graph:
         """Insert or update a draft graph version."""
-        with self._database.transaction() as connection:
-            existing = self._fetch_row(connection, graph.graph_id, graph.version)
+        async with self._database.transaction() as connection:
+            existing = await self._fetch_row(connection, graph.graph_id, graph.version)
             if existing is None:
-                self._insert_graph(connection, graph)
+                await self._insert_graph(connection, graph)
             else:
                 current = deserialize_graph(existing["payload"])
                 if not self._can_update(existing["status"], current, graph):
                     msg = f"graph version {graph.graph_id}@{graph.version} is immutable"
                     raise GraphLifecycleError(msg)
-                self._update_graph(connection, graph)
-        return self.get(graph.graph_id, graph.version)  # type: ignore[return-value]
+                await self._update_graph(connection, graph)
+        return await self.get(graph.graph_id, graph.version)  # type: ignore[return-value]
 
-    def create(self, graph: Graph) -> Graph:
+    async def create(self, graph: Graph) -> Graph:
         """Create a new graph (alias for save)."""
-        return self.save(graph)
+        return await self.save(graph)
 
-    def get(self, graph_id: str, version: int | None = None) -> Graph | None:
+    async def get(self, graph_id: str, version: int | None = None) -> Graph | None:
         """Load a graph by ID. Returns the latest version if no version is specified."""
-        with self._database.transaction() as connection:
-            row = self._fetch_latest_row(connection, graph_id, version)
+        async with self._database.transaction() as connection:
+            row = await self._fetch_latest_row(connection, graph_id, version)
         if row is None:
             return None
         return deserialize_graph(row["payload"])
 
-    def list(self) -> list[Graph]:
+    async def list(self) -> list[Graph]:
         """Return the latest version for each graph id."""
-        with self._database.transaction() as connection:
-            rows = connection.execute(
+        async with self._database.transaction() as connection:
+            rows = await connection.fetch_all(
                 """
                 SELECT payload
                 FROM graph_versions
                 ORDER BY graph_id, version
                 """
-            ).fetchall()
+            )
         latest: dict[str, Graph] = {}
         for row in rows:
             graph = deserialize_graph(row["payload"])
             latest[graph.graph_id] = graph
         return list(latest.values())
 
-    def list_versions(self, graph_id: str) -> list[Graph]:
+    async def list_versions(self, graph_id: str) -> list[Graph]:
         """Return all versions of a specific graph, ordered oldest to newest."""
-        with self._database.transaction() as connection:
-            rows = connection.execute(
+        async with self._database.transaction() as connection:
+            rows = await connection.fetch_all(
                 """
                 SELECT payload
                 FROM graph_versions
@@ -76,51 +75,51 @@ class GraphRepository:
                 ORDER BY version
                 """,
                 (graph_id,),
-            ).fetchall()
+            )
         return [deserialize_graph(row["payload"]) for row in rows]
 
-    def publish(self, graph_id: str, version: int | None = None) -> Graph:
+    async def publish(self, graph_id: str, version: int | None = None) -> Graph:
         """Move a draft graph to published status so it can be executed."""
-        graph = self._require(graph_id, version)
+        graph = await self._require(graph_id, version)
         if graph.status is not GraphStatus.DRAFT:
             msg = f"graph version {graph.graph_id}@{graph.version} is not draft"
             raise GraphLifecycleError(msg)
-        return self.save(graph.publish())
+        return await self.save(graph.publish())
 
-    def archive(self, graph_id: str, version: int | None = None) -> Graph:
+    async def archive(self, graph_id: str, version: int | None = None) -> Graph:
         """Archive a graph version so it is no longer active."""
-        graph = self._require(graph_id, version)
+        graph = await self._require(graph_id, version)
         if graph.status is GraphStatus.ARCHIVED:
             return graph
-        return self.save(graph.archive())
+        return await self.save(graph.archive())
 
-    def clone_published_to_draft(self, graph_id: str, version: int | None = None) -> Graph:
+    async def clone_published_to_draft(self, graph_id: str, version: int | None = None) -> Graph:
         """Create a new draft version by copying a published graph.
 
         This is how you edit a published graph: clone it, modify the draft,
         then publish the new version.
         """
-        graph = self._require(graph_id, version)
+        graph = await self._require(graph_id, version)
         if graph.status is not GraphStatus.PUBLISHED:
             msg = f"graph version {graph.graph_id}@{graph.version} is not published"
             raise GraphLifecycleError(msg)
-        next_version = self.get_latest_version(graph_id) + 1
-        return self.save(
+        next_version = await self.get_latest_version(graph_id) + 1
+        return await self.save(
             clone_graph_version(graph, version=next_version, status=GraphStatus.DRAFT)
         )
 
-    def update_status(
+    async def update_status(
         self,
         graph_id: str,
         status: GraphStatus,
         version: int | None = None,
     ) -> Graph:
         """Change a graph's lifecycle status (publish, archive, etc.)."""
-        graph = self._require(graph_id, version)
+        graph = await self._require(graph_id, version)
         if status is GraphStatus.PUBLISHED:
-            return self.publish(graph_id, graph.version)
+            return await self.publish(graph_id, graph.version)
         if status is GraphStatus.ARCHIVED:
-            return self.archive(graph_id, graph.version)
+            return await self.archive(graph_id, graph.version)
         if status is GraphStatus.DRAFT:
             if graph.status is GraphStatus.DRAFT:
                 return graph
@@ -132,44 +131,46 @@ class GraphRepository:
         msg = f"unsupported graph status: {status}"
         raise GraphLifecycleError(msg)
 
-    def get_latest_version(self, graph_id: str) -> int:
+    async def get_latest_version(self, graph_id: str) -> int:
         """Return the highest version number for a graph. Raises KeyError if not found."""
-        graph = self.get(graph_id)
+        graph = await self.get(graph_id)
         if graph is None:
             raise KeyError(graph_id)
         return graph.version
 
-    def diff(self, graph_id: str, left_version: int, right_version: int) -> GraphDiff:
+    async def diff(self, graph_id: str, left_version: int, right_version: int) -> GraphDiff:
         """Compare two versions of the same graph and return what changed."""
-        left = self._require(graph_id, left_version)
-        right = self._require(graph_id, right_version)
+        left = await self._require(graph_id, left_version)
+        right = await self._require(graph_id, right_version)
         return diff_graphs(left, right)
 
-    def _require(self, graph_id: str, version: int | None = None) -> Graph:
+    async def _require(self, graph_id: str, version: int | None = None) -> Graph:
         """Load a graph or raise KeyError if it does not exist."""
-        graph = self.get(graph_id, version)
+        graph = await self.get(graph_id, version)
         if graph is None:
             if version is None:
                 raise KeyError(graph_id)
             raise KeyError(f"{graph_id}@{version}")
         return graph
 
-    def _fetch_row(self, connection, graph_id: str, version: int) -> object | None:
+    async def _fetch_row(self, connection, graph_id: str, version: int) -> dict | None:
         """Fetch a single graph row by exact graph_id and version."""
-        return connection.execute(
+        return await connection.fetch_one(
             """
             SELECT status, payload
             FROM graph_versions
             WHERE graph_id = ? AND version = ?
             """,
             (graph_id, version),
-        ).fetchone()
+        )
 
-    def _fetch_latest_row(self, connection, graph_id: str, version: int | None) -> object | None:
+    async def _fetch_latest_row(
+        self, connection, graph_id: str, version: int | None
+    ) -> dict | None:
         """Fetch a graph row by ID, using the latest version if none is specified."""
         if version is not None:
-            return self._fetch_row(connection, graph_id, version)
-        return connection.execute(
+            return await self._fetch_row(connection, graph_id, version)
+        return await connection.fetch_one(
             """
             SELECT status, payload
             FROM graph_versions
@@ -178,11 +179,11 @@ class GraphRepository:
             LIMIT 1
             """,
             (graph_id,),
-        ).fetchone()
+        )
 
-    def _insert_graph(self, connection, graph: Graph) -> None:
+    async def _insert_graph(self, connection, graph: Graph) -> None:
         """Insert a new graph version row into the database."""
-        connection.execute(
+        await connection.execute(
             """
             INSERT INTO graph_versions (
                 graph_id, version, status, schema_version, payload, created_at, updated_at
@@ -199,9 +200,9 @@ class GraphRepository:
             ),
         )
 
-    def _update_graph(self, connection, graph: Graph) -> None:
+    async def _update_graph(self, connection, graph: Graph) -> None:
         """Update an existing graph version row in the database."""
-        connection.execute(
+        await connection.execute(
             """
             UPDATE graph_versions
             SET status = ?, schema_version = ?, payload = ?, updated_at = ?

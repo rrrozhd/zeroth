@@ -1,9 +1,11 @@
-"""SQLite-backed token-bucket rate limiter and quota enforcer."""
+"""Async database-backed token-bucket rate limiter and quota enforcer."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+
+from zeroth.storage import AsyncDatabase
 
 
 def _utc_now() -> datetime:
@@ -12,16 +14,16 @@ def _utc_now() -> datetime:
 
 @dataclass(slots=True)
 class TokenBucketRateLimiter:
-    """Per-key token bucket backed by SQLite.
+    """Per-key token bucket backed by an async database.
 
     Each bucket has a fixed capacity and refills at a configurable rate.
     ``check_and_consume`` atomically checks whether a token is available and,
     if so, deducts it.  Returns True on success, False when the bucket is empty.
     """
 
-    database: object  # SQLiteDatabase
+    database: AsyncDatabase
 
-    def check_and_consume(
+    async def check_and_consume(
         self,
         bucket_key: str,
         *,
@@ -40,15 +42,15 @@ class TokenBucketRateLimiter:
         """
         now = _utc_now()
         now_iso = now.isoformat()
-        with self.database.transaction() as conn:
-            row = conn.execute(
+        async with self.database.transaction() as conn:
+            row = await conn.fetch_one(
                 "SELECT token_count, last_refill_at FROM rate_limit_buckets WHERE bucket_key = ?",
                 (bucket_key,),
-            ).fetchone()
+            )
             if row is None:
                 # First request: start full minus one consumed token.
                 new_count = capacity - 1.0
-                conn.execute(
+                await conn.execute(
                     """
                     INSERT INTO rate_limit_buckets
                         (bucket_key, token_count, last_refill_at, capacity, refill_rate)
@@ -64,14 +66,14 @@ class TokenBucketRateLimiter:
 
             if refilled < 1.0:
                 # Update tokens without consuming (no bucket should go negative).
-                conn.execute(
+                await conn.execute(
                     "UPDATE rate_limit_buckets"
                     " SET token_count = ?, last_refill_at = ? WHERE bucket_key = ?",
                     (refilled, now_iso, bucket_key),
                 )
                 return False
 
-            conn.execute(
+            await conn.execute(
                 "UPDATE rate_limit_buckets"
                 " SET token_count = ?, last_refill_at = ? WHERE bucket_key = ?",
                 (refilled - 1.0, now_iso, bucket_key),
@@ -81,16 +83,16 @@ class TokenBucketRateLimiter:
 
 @dataclass(slots=True)
 class QuotaEnforcer:
-    """Per-key rolling-window quota enforcer backed by SQLite.
+    """Per-key rolling-window quota enforcer backed by an async database.
 
     ``check_and_increment`` checks whether the counter for a given key is
     below the configured limit within the current window, and if so atomically
     increments it.  Returns True when within quota, False when exceeded.
     """
 
-    database: object  # SQLiteDatabase
+    database: AsyncDatabase
 
-    def check_and_increment(
+    async def check_and_increment(
         self,
         counter_key: str,
         *,
@@ -109,14 +111,14 @@ class QuotaEnforcer:
         """
         now = _utc_now()
         now_iso = now.isoformat()
-        with self.database.transaction() as conn:
-            row = conn.execute(
+        async with self.database.transaction() as conn:
+            row = await conn.fetch_one(
                 "SELECT value, window_start, window_seconds"
                 " FROM quota_counters WHERE counter_key = ?",
                 (counter_key,),
-            ).fetchone()
+            )
             if row is None:
-                conn.execute(
+                await conn.execute(
                     "INSERT INTO quota_counters"
                     " (counter_key, value, window_start, window_seconds) VALUES (?, 1, ?, ?)",
                     (counter_key, now_iso, window_seconds),
@@ -126,7 +128,7 @@ class QuotaEnforcer:
             window_start = datetime.fromisoformat(row["window_start"])
             if (now - window_start).total_seconds() > row["window_seconds"]:
                 # Window expired: reset.
-                conn.execute(
+                await conn.execute(
                     "UPDATE quota_counters"
                     " SET value = 1, window_start = ?, window_seconds = ? WHERE counter_key = ?",
                     (now_iso, window_seconds, counter_key),
@@ -136,7 +138,7 @@ class QuotaEnforcer:
             if row["value"] >= limit:
                 return False
 
-            conn.execute(
+            await conn.execute(
                 "UPDATE quota_counters SET value = value + 1 WHERE counter_key = ?",
                 (counter_key,),
             )
