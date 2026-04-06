@@ -578,9 +578,38 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 - [x] Capacity guardrails protect the platform under load
 - [x] Operators can observe and control the runtime safely
 
+## Phase 10 — Studio Shell & Workflow Authoring
+
+> 10-01 provides backend authoring foundations. 10-02 establishes the first previewable Studio shell. 10-03 layers validation and autosave boundaries on top.
+
+### 10-02. Frontend Shell, Routing, And Canvas/Inspector Baseline `.planning/phases/10-studio-shell-workflow-authoring/10-CONTEXT.md`
+
+- [x] Create a previewable Studio Editor mockup surface using Vue 3 + Vite + TypeScript
+- [x] Render the default editor shell with visible workflow rail, central graph canvas, and hidden inspector state
+- [x] Match the light white/cyan translucent visual direction without pills, circles, or rounded component-library styling
+- [x] **Artifact:** static mockup build passes (`apps/studio-mockups`)
+
 ---
 
 ## Log
+
+### 2026-03-31 10:45 — Phase 10 editor mockup completed
+**Phase/Tasks:** 10-02
+**Status:** completed
+**What:** Added a standalone Vue 3 + Vite + TypeScript preview app under `apps/studio-mockups` and implemented the static `StudioEditorMockup` page with the phase 10 editor header, workflows rail, translucent graph canvas, manual node layout, hidden-by-default inspector state, and hardcoded mock data only.
+**Tests:** `npm run build` passed in `apps/studio-mockups`
+**Artifacts:** `phases/phase-10-studio-shell-workflow-authoring/artifacts/build-10-02-editor-mockup-2026-03-31.txt`
+**Blockers:** none
+**Next:** preview the mockup in the browser and iterate on spacing, typography, and any shell details that need refinement before moving on to the next Studio visual
+
+### 2026-03-31 10:42 — Phase 10 editor mockup kickoff
+**Phase/Tasks:** 10-02
+**Status:** in-progress
+**What:** Started the standalone Studio mockup work for phase 10. Confirmed the repo has no checked-in Vue frontend yet, selected `apps/` as the preview location, and began scaffolding a dedicated Vue 3 + Vite + TypeScript app for the static Editor shell mockup.
+**Tests:** not run
+**Artifacts:** none
+**Blockers:** none
+**Next:** implement the mockup UI, run a production build, and capture the build artifact
 
 ### 2026-03-28 15:07 — Phase 9 review follow-up: defects found in branch tip
 **Phase/Tasks:** 9A, 9C, 9D
