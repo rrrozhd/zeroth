@@ -1,0 +1,13 @@
+database:
+  backend: sqlite
+  sqlite_path: zeroth.db
+  postgres_pool_min: 2
+  postgres_pool_max: 10
+
+redis:
+  mode: local
+  host: 127.0.0.1
+  port: 6379
+  key_prefix: zeroth
+
+auth: {}
