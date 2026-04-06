@@ -99,11 +99,11 @@ def register_run_routes(app: FastAPI) -> None:
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
         graph = bootstrap.graph
-        principal = require_permission(request, Permission.RUN_CREATE)
-        require_deployment_scope(request, deployment, hide_as_not_found=False)
+        principal = await require_permission(request, Permission.RUN_CREATE)
+        await require_deployment_scope(request, deployment, hide_as_not_found=False)
         # Validate against the pinned deployment contract version.
-        validated_input = _validate_input_payload(bootstrap, payload.input_payload)
-        thread_id = _validate_thread_id(bootstrap, payload.thread_id) or ""
+        validated_input = await _validate_input_payload(bootstrap, payload.input_payload)
+        thread_id = await _validate_thread_id(bootstrap, payload.thread_id) or ""
         run = Run(
             graph_version_ref=deployment.graph_version_ref,
             deployment_ref=deployment.deployment_ref,
@@ -116,29 +116,29 @@ def register_run_routes(app: FastAPI) -> None:
             metadata=_initial_metadata(graph, validated_input),
         )
         # Guardrail checks before persisting.
-        _check_guardrails(bootstrap, run)
+        await _check_guardrails(bootstrap, run)
         try:
-            persisted = bootstrap.run_repository.create(run)
+            persisted = await bootstrap.run_repository.create(run)
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),
             ) from exc
         # The durable worker polls for PENDING runs and dispatches them.
-        return _serialize_run(bootstrap.run_repository.get(persisted.run_id) or persisted)
+        return _serialize_run(await bootstrap.run_repository.get(persisted.run_id) or persisted)
 
     @app.get("/runs/{run_id}", response_model=RunStatusResponse)
     async def get_run(request: Request, run_id: str) -> RunStatusResponse:
         bootstrap = _bootstrap(request)
-        require_permission(request, Permission.RUN_READ)
-        run = bootstrap.run_repository.get(run_id)
+        await require_permission(request, Permission.RUN_READ)
+        run = await bootstrap.run_repository.get(run_id)
         if (
             run is None
             or run.deployment_ref != bootstrap.deployment.deployment_ref
             or run.graph_version_ref != bootstrap.deployment.graph_version_ref
         ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-        require_resource_scope(
+        await require_resource_scope(
             request,
             tenant_id=run.tenant_id,
             workspace_id=run.workspace_id,
@@ -154,7 +154,7 @@ def _bootstrap(request: Request) -> RunApiBootstrapLike:
     return bootstrap
 
 
-def _validate_input_payload(
+async def _validate_input_payload(
     bootstrap: RunApiBootstrapLike,
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -172,7 +172,7 @@ def _validate_input_payload(
             detail="deployment snapshot is missing pinned input contract version",
         )
     try:
-        contract_model = bootstrap.contract_registry.resolve_model_type(
+        contract_model = await bootstrap.contract_registry.resolve_model_type(
             ContractReference(name=contract_ref, version=contract_version)
         )
         # Model validation keeps the API contract aligned with the deployed graph snapshot.
@@ -198,12 +198,12 @@ def _validate_input_payload(
     return validated.model_dump(mode="json")
 
 
-def _validate_thread_id(bootstrap: RunApiBootstrapLike, thread_id: str | None) -> str | None:
+async def _validate_thread_id(bootstrap: RunApiBootstrapLike, thread_id: str | None) -> str | None:
     """Validate that an explicit thread ID belongs to the active deployment snapshot."""
     if thread_id is None:
         return None
 
-    thread = bootstrap.thread_repository.get(thread_id)
+    thread = await bootstrap.thread_repository.get(thread_id)
     if thread is None:
         # A brand-new explicit thread ID is allowed and will become the new conversation key.
         return thread_id
@@ -305,7 +305,7 @@ def _pending_approval_payload(run: Run) -> dict[str, Any] | None:
     return None
 
 
-def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
+async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
     """Enforce rate limits, quotas, and backpressure before accepting a run."""
     guardrail_config = getattr(bootstrap, "guardrail_config", None)
     if guardrail_config is None:
@@ -316,7 +316,7 @@ def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
 
     # Backpressure: reject if the queue is too deep.
     backpressure_limit = guardrail_config.backpressure_queue_depth
-    pending_count = bootstrap.run_repository.count_pending(deployment_ref)
+    pending_count = await bootstrap.run_repository.count_pending(deployment_ref)
     if pending_count >= backpressure_limit:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -328,7 +328,7 @@ def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
     rate_limiter = getattr(bootstrap, "rate_limiter", None)
     if rate_limiter is not None:
         bucket_key = f"tenant:{tenant_id}:deployment:{deployment_ref}"
-        allowed = rate_limiter.check_and_consume(
+        allowed = await rate_limiter.check_and_consume(
             bucket_key,
             capacity=guardrail_config.rate_limit_capacity,
             refill_rate=guardrail_config.rate_limit_refill_rate,
@@ -346,7 +346,7 @@ def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
         quota_enforcer = getattr(bootstrap, "quota_enforcer", None)
         if quota_enforcer is not None:
             counter_key = f"tenant:{tenant_id}:deployment:{deployment_ref}:daily"
-            within_quota = quota_enforcer.check_and_increment(
+            within_quota = await quota_enforcer.check_and_increment(
                 counter_key,
                 limit=quota_limit,
                 window_seconds=86400,

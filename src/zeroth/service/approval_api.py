@@ -60,11 +60,13 @@ def register_approval_routes(app: FastAPI) -> None:
         run_id: str | None = None,
         thread_id: str | None = None,
     ) -> list[ApprovalRecord]:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.APPROVAL_READ)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.APPROVAL_READ)
         if approval_id is not None:
             # The list route also supports direct lookup so clients can stay on one endpoint shape.
-            record = _require_pending_visible_approval(request, bootstrap, deployment, approval_id)
+            record = await _require_pending_visible_approval(
+                request, bootstrap, deployment, approval_id
+            )
             if not _approval_matches_filters(record, run_id=run_id, thread_id=thread_id):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -72,7 +74,7 @@ def register_approval_routes(app: FastAPI) -> None:
                 )
             return [record]
 
-        approvals = bootstrap.approval_service.list_pending(
+        approvals = await bootstrap.approval_service.list_pending(
             run_id=run_id,
             thread_id=thread_id,
             deployment_ref=deployment.deployment_ref,
@@ -92,9 +94,9 @@ def register_approval_routes(app: FastAPI) -> None:
         deployment_ref: str,
         approval_id: str,
     ) -> ApprovalRecord:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.APPROVAL_READ)
-        record = _require_visible_approval(request, bootstrap, deployment, approval_id)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.APPROVAL_READ)
+        record = await _require_visible_approval(request, bootstrap, deployment, approval_id)
         if record.status is not ApprovalStatus.PENDING:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
         return record
@@ -109,13 +111,13 @@ def register_approval_routes(app: FastAPI) -> None:
         approval_id: str,
         payload: ApprovalResolutionRequest,
     ) -> ApprovalResolutionResponse:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        principal = require_permission(request, Permission.APPROVAL_RESOLVE)
-        existing = _require_visible_approval(request, bootstrap, deployment, approval_id)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        principal = await require_permission(request, Permission.APPROVAL_RESOLVE)
+        existing = await _require_visible_approval(request, bootstrap, deployment, approval_id)
         was_pending = existing.status is ApprovalStatus.PENDING
 
         try:
-            resolved = bootstrap.approval_service.resolve(
+            resolved = await bootstrap.approval_service.resolve(
                 approval_id,
                 decision=payload.decision,
                 actor=principal.to_actor(),
@@ -129,7 +131,7 @@ def register_approval_routes(app: FastAPI) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-        run = bootstrap.run_repository.get(resolved.run_id)
+        run = await bootstrap.run_repository.get(resolved.run_id)
         if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
 
@@ -140,19 +142,19 @@ def register_approval_routes(app: FastAPI) -> None:
             has_worker = getattr(bootstrap, "worker", None) is not None
             try:
                 if has_worker:
-                    run = bootstrap.approval_service.schedule_continuation(approval_id)
+                    run = await bootstrap.approval_service.schedule_continuation(approval_id)
                     # Yield to the event loop so the worker can claim and drive the run.
                     import asyncio as _asyncio
                     for _ in range(100):  # up to ~5 s
                         await _asyncio.sleep(0.05)
-                        current = bootstrap.run_repository.get(run.run_id)
+                        current = await bootstrap.run_repository.get(run.run_id)
                         if current is not None and current.status not in {
                             RunStatus.PENDING, RunStatus.RUNNING
                         }:
                             run = current
                             break
                     else:
-                        current = bootstrap.run_repository.get(run.run_id)
+                        current = await bootstrap.run_repository.get(run.run_id)
                         if current is not None:
                             run = current
                 else:
@@ -182,28 +184,28 @@ def _bootstrap(request: Request) -> ApprovalApiBootstrapLike:
     return bootstrap
 
 
-def _deployment_context(
+async def _deployment_context(
     request: Request,
     deployment_ref: str,
 ) -> tuple[ApprovalApiBootstrapLike, object]:
     bootstrap = _bootstrap(request)
     deployment = bootstrap.deployment
-    require_deployment_scope(request, deployment)
+    await require_deployment_scope(request, deployment)
     if getattr(deployment, "deployment_ref", None) != deployment_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")
     return bootstrap, deployment
 
 
-def _require_visible_approval(
+async def _require_visible_approval(
     request: Request,
     bootstrap: ApprovalApiBootstrapLike,
     deployment: object,
     approval_id: str,
 ) -> ApprovalRecord:
-    record = bootstrap.approval_service.get(approval_id)
+    record = await bootstrap.approval_service.get(approval_id)
     if record is None or not _approval_visible_to_deployment(record, deployment):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
-    require_resource_scope(
+    await require_resource_scope(
         request=request,
         tenant_id=record.tenant_id,
         workspace_id=record.workspace_id,
@@ -212,13 +214,13 @@ def _require_visible_approval(
     return record
 
 
-def _require_pending_visible_approval(
+async def _require_pending_visible_approval(
     request: Request,
     bootstrap: ApprovalApiBootstrapLike,
     deployment: object,
     approval_id: str,
 ) -> ApprovalRecord:
-    record = _require_visible_approval(request, bootstrap, deployment, approval_id)
+    record = await _require_visible_approval(request, bootstrap, deployment, approval_id)
     if record.status is not ApprovalStatus.PENDING:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
     return record

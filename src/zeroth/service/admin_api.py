@@ -1,11 +1,11 @@
 """Admin control surface for run management and metrics.
 
 Provides:
-  GET  /admin/runs              — list runs by status (admin only)
-  POST /admin/runs/{id}/cancel  — forcibly fail a run
-  POST /admin/runs/{id}/replay  — replay a dead-letter run
-  POST /admin/runs/{id}/interrupt — interrupt a running run
-  GET  /metrics                 — Prometheus-format metrics
+  GET  /admin/runs              -- list runs by status (admin only)
+  POST /admin/runs/{id}/cancel  -- forcibly fail a run
+  POST /admin/runs/{id}/replay  -- replay a dead-letter run
+  POST /admin/runs/{id}/interrupt -- interrupt a running run
+  GET  /metrics                 -- Prometheus-format metrics
 """
 
 from __future__ import annotations
@@ -41,8 +41,8 @@ def register_admin_routes(app: FastAPI) -> None:
         from fastapi.responses import PlainTextResponse
 
         bootstrap = _bootstrap(request)
-        require_permission(request, Permission.METRICS_READ)
-        require_deployment_scope(request, bootstrap.deployment)
+        await require_permission(request, Permission.METRICS_READ)
+        await require_deployment_scope(request, bootstrap.deployment)
         metrics_collector = getattr(bootstrap, "metrics_collector", None)
         if metrics_collector is None:
             return PlainTextResponse("# no metrics collector configured\n")
@@ -59,10 +59,10 @@ def register_admin_routes(app: FastAPI) -> None:
         offset: int = 0,
     ) -> AdminRunListResponse:
         bootstrap = _bootstrap(request)
-        require_permission(request, Permission.RUN_ADMIN)
-        require_deployment_scope(request, bootstrap.deployment)
+        await require_permission(request, Permission.RUN_ADMIN)
+        await require_deployment_scope(request, bootstrap.deployment)
         deployment_ref = bootstrap.deployment.deployment_ref
-        runs = bootstrap.run_repository.list_runs(
+        runs = await bootstrap.run_repository.list_runs(
             deployment_ref,
             status=status_filter,
             limit=limit,
@@ -76,15 +76,15 @@ def register_admin_routes(app: FastAPI) -> None:
     @app.post("/admin/runs/{run_id}/cancel", response_model=RunStatusResponse)
     async def cancel_run(request: Request, run_id: str) -> RunStatusResponse:
         bootstrap = _bootstrap(request)
-        require_permission(request, Permission.RUN_ADMIN)
-        require_deployment_scope(request, bootstrap.deployment)
-        run = bootstrap.run_repository.get(run_id)
+        await require_permission(request, Permission.RUN_ADMIN)
+        await require_deployment_scope(request, bootstrap.deployment)
+        run = await bootstrap.run_repository.get(run_id)
         if run is None or run.deployment_ref != bootstrap.deployment.deployment_ref:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         if run.status in {RunStatus.COMPLETED, RunStatus.FAILED}:
             return _serialize_run(run)
         try:
-            run = bootstrap.run_repository.transition(
+            run = await bootstrap.run_repository.transition(
                 run_id,
                 RunStatus.FAILED,
                 failure_state=RunFailureState(
@@ -96,16 +96,16 @@ def register_admin_routes(app: FastAPI) -> None:
         # Clear lease so any worker won't resume it.
         lease_manager = getattr(bootstrap, "lease_manager", None)
         if lease_manager is not None:
-            lease_manager.clear_lease(run_id)
+            await lease_manager.clear_lease(run_id)
         return _serialize_run(run)
 
     @app.post("/admin/runs/{run_id}/replay", response_model=RunStatusResponse)
     async def replay_run(request: Request, run_id: str) -> RunStatusResponse:
         """Replay a dead-letter or failed run by resetting it to PENDING."""
         bootstrap = _bootstrap(request)
-        require_permission(request, Permission.RUN_ADMIN)
-        require_deployment_scope(request, bootstrap.deployment)
-        run = bootstrap.run_repository.get(run_id)
+        await require_permission(request, Permission.RUN_ADMIN)
+        await require_deployment_scope(request, bootstrap.deployment)
+        run = await bootstrap.run_repository.get(run_id)
         if run is None or run.deployment_ref != bootstrap.deployment.deployment_ref:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         if run.status is not RunStatus.FAILED:
@@ -117,17 +117,17 @@ def register_admin_routes(app: FastAPI) -> None:
         run.failure_state = None
         run.error = None
         run.touch()
-        bootstrap.run_repository.put(run)
-        # Reset failure_count and transition to PENDING.
-        with bootstrap.run_repository._store.database.transaction() as conn:
-            conn.execute(
+        await bootstrap.run_repository.put(run)
+        # Reset failure_count and clear lease via raw SQL.
+        async with bootstrap.run_repository._store.database.transaction() as conn:
+            await conn.execute(
                 "UPDATE runs"
                 " SET failure_count = 0, lease_worker_id = NULL, lease_expires_at = NULL"
                 " WHERE run_id = ?",
                 (run_id,),
             )
         try:
-            run = bootstrap.run_repository.transition(run_id, RunStatus.PENDING)
+            run = await bootstrap.run_repository.transition(run_id, RunStatus.PENDING)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return _serialize_run(run)
@@ -136,9 +136,9 @@ def register_admin_routes(app: FastAPI) -> None:
     async def interrupt_run(request: Request, run_id: str) -> RunStatusResponse:
         """Interrupt a running run (transitions to WAITING_INTERRUPT)."""
         bootstrap = _bootstrap(request)
-        require_permission(request, Permission.RUN_ADMIN)
-        require_deployment_scope(request, bootstrap.deployment)
-        run = bootstrap.run_repository.get(run_id)
+        await require_permission(request, Permission.RUN_ADMIN)
+        await require_deployment_scope(request, bootstrap.deployment)
+        run = await bootstrap.run_repository.get(run_id)
         if run is None or run.deployment_ref != bootstrap.deployment.deployment_ref:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         if run.status is not RunStatus.RUNNING:
@@ -147,7 +147,9 @@ def register_admin_routes(app: FastAPI) -> None:
                 detail="only running runs can be interrupted",
             )
         try:
-            run = bootstrap.run_repository.transition(run_id, RunStatus.WAITING_INTERRUPT)
+            run = await bootstrap.run_repository.transition(
+                run_id, RunStatus.WAITING_INTERRUPT
+            )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return _serialize_run(run)

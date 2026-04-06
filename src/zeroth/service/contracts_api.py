@@ -81,10 +81,10 @@ def register_contract_routes(app: FastAPI) -> None:
         request: Request,
         deployment_ref: str,
     ) -> PublicContractSchemaResponse:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.DEPLOYMENT_READ)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.DEPLOYMENT_READ)
         return _serialize_contract(
-            _resolve_contract_version(
+            await _resolve_contract_version(
                 bootstrap,
                 deployment.entry_input_contract_ref,
                 version=deployment.entry_input_contract_version,
@@ -100,10 +100,10 @@ def register_contract_routes(app: FastAPI) -> None:
         request: Request,
         deployment_ref: str,
     ) -> PublicContractSchemaResponse:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.DEPLOYMENT_READ)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.DEPLOYMENT_READ)
         return _serialize_contract(
-            _resolve_contract_version(
+            await _resolve_contract_version(
                 bootstrap,
                 deployment.entry_output_contract_ref,
                 version=deployment.entry_output_contract_version,
@@ -119,11 +119,11 @@ def register_contract_routes(app: FastAPI) -> None:
         request: Request,
         deployment_ref: str,
     ) -> DeploymentResultErrorStateSchemaResponse:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.DEPLOYMENT_READ)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.DEPLOYMENT_READ)
         # Reuse the same pinned output contract endpoint logic so schema views stay consistent.
         result_contract = _serialize_contract(
-            _resolve_contract_version(
+            await _resolve_contract_version(
                 bootstrap,
                 deployment.entry_output_contract_ref,
                 version=deployment.entry_output_contract_version,
@@ -147,8 +147,8 @@ def register_contract_routes(app: FastAPI) -> None:
         request: Request,
         deployment_ref: str,
     ) -> DeploymentVersionMetadataResponse:
-        _, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.DEPLOYMENT_READ)
+        _, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.DEPLOYMENT_READ)
         return serialize_deployment_metadata(deployment)
 
 
@@ -159,19 +159,19 @@ def _bootstrap(request: Request) -> ContractApiBootstrapLike:
     return bootstrap
 
 
-def _deployment_context(
+async def _deployment_context(
     request: Request,
     deployment_ref: str,
 ) -> tuple[ContractApiBootstrapLike, object]:
     bootstrap = _bootstrap(request)
     deployment = bootstrap.deployment
-    require_deployment_scope(request, deployment)
+    await require_deployment_scope(request, deployment)
     if getattr(deployment, "deployment_ref", None) != deployment_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")
     return bootstrap, deployment
 
 
-def _resolve_contract_version(
+async def _resolve_contract_version(
     bootstrap: ContractApiBootstrapLike,
     contract_ref: str | None,
     *,
@@ -192,7 +192,7 @@ def _resolve_contract_version(
         )
     try:
         # Contract lookups are version-pinned so redeploys never drift with registry changes.
-        return bootstrap.contract_registry.resolve(
+        return await bootstrap.contract_registry.resolve(
             ContractReference(name=contract_ref, version=version)
         )
     except ContractNotFoundError as exc:

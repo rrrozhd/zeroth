@@ -40,7 +40,7 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
 }
 
 
-def require_permission(request: Request, permission: Permission) -> AuthenticatedPrincipal:
+async def require_permission(request: Request, permission: Permission) -> AuthenticatedPrincipal:
     """Require that the authenticated principal holds the requested permission."""
 
     principal = current_principal(request)
@@ -48,7 +48,7 @@ def require_permission(request: Request, permission: Permission) -> Authenticate
     if permission in allowed:
         return principal
     bootstrap = getattr(request.app.state, "bootstrap", None)
-    record_service_denial(
+    await record_service_denial(
         audit_repository=getattr(bootstrap, "audit_repository", None),
         deployment=getattr(bootstrap, "deployment", None),
         request=request,
@@ -61,7 +61,7 @@ def require_permission(request: Request, permission: Permission) -> Authenticate
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
 
-def require_deployment_scope(
+async def require_deployment_scope(
     request: Request,
     deployment: object,
     *,
@@ -78,7 +78,7 @@ def require_deployment_scope(
     ):
         return principal
     bootstrap = getattr(request.app.state, "bootstrap", None)
-    record_service_denial(
+    await record_service_denial(
         audit_repository=getattr(bootstrap, "audit_repository", None),
         deployment=deployment,
         request=request,
@@ -98,7 +98,7 @@ def require_deployment_scope(
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
 
-def require_resource_scope(
+async def require_resource_scope(
     request: Request,
     *,
     tenant_id: str,
@@ -111,7 +111,7 @@ def require_resource_scope(
     if principal.tenant_id == tenant_id and principal.workspace_id == workspace_id:
         return principal
     bootstrap = getattr(request.app.state, "bootstrap", None)
-    record_service_denial(
+    await record_service_denial(
         audit_repository=getattr(bootstrap, "audit_repository", None),
         deployment=getattr(bootstrap, "deployment", None),
         request=request,
