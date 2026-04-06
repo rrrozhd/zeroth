@@ -26,11 +26,25 @@ from zeroth.orchestrator import RuntimeOrchestrator
 from zeroth.runs import RunRepository, ThreadRepository
 from zeroth.service.app import create_app
 from zeroth.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, ServiceAuthenticator
-from zeroth.storage import SQLiteDatabase
+from zeroth.storage import AsyncDatabase
 
 
 class DeploymentBootstrapError(RuntimeError):
     """Raised when the service cannot load the requested deployment."""
+
+
+def run_migrations(database_url: str) -> None:
+    """Run Alembic migrations against the given database URL."""
+    import importlib.resources
+
+    from alembic import command
+    from alembic.config import Config
+
+    alembic_cfg = Config()
+    migrations_dir = str(importlib.resources.files("zeroth.migrations"))
+    alembic_cfg.set_main_option("script_location", migrations_dir)
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(alembic_cfg, "head")
 
 
 @dataclass(slots=True)
@@ -59,8 +73,8 @@ class ServiceBootstrap:
     queue_gauge: QueueDepthGauge | None = None
 
 
-def bootstrap_service(
-    database: SQLiteDatabase,
+async def bootstrap_service(
+    database: AsyncDatabase,
     *,
     deployment_ref: str,
     agent_runners: Mapping[str, AgentRunner] | None = None,
@@ -78,9 +92,11 @@ def bootstrap_service(
         deployment_repository=deployment_repository,
         contract_registry=ContractRegistry(database),
     )
-    deployment = deployment_service.get(deployment_ref)
+    deployment = await deployment_service.get(deployment_ref)
     if deployment is None:
-        raise DeploymentBootstrapError(f"deployment {deployment_ref!r} not found")
+        raise DeploymentBootstrapError(
+            f"deployment {deployment_ref!r} not found"
+        )
 
     try:
         graph = deserialize_graph(deployment.serialized_graph)
@@ -89,15 +105,20 @@ def bootstrap_service(
             f"failed to deserialize deployment {deployment_ref!r}"
         ) from exc
     # Make sure the saved snapshot still matches the deployment metadata.
-    if graph.graph_id != deployment.graph_id or graph.version != deployment.graph_version:
+    if (
+        graph.graph_id != deployment.graph_id
+        or graph.version != deployment.graph_version
+    ):
         raise DeploymentBootstrapError(
-            "deployment graph snapshot does not match persisted graph metadata "
-            f"for {deployment_ref!r}"
+            "deployment graph snapshot does not match persisted graph "
+            f"metadata for {deployment_ref!r}"
         )
-    if deployment.graph_version_ref != graph_version_ref(graph.graph_id, graph.version):
+    if deployment.graph_version_ref != graph_version_ref(
+        graph.graph_id, graph.version
+    ):
         raise DeploymentBootstrapError(
-            "deployment graph version ref does not match deserialized graph metadata "
-            f"for {deployment_ref!r}"
+            "deployment graph version ref does not match deserialized "
+            f"graph metadata for {deployment_ref!r}"
         )
 
     run_repository = RunRepository(database)
@@ -111,7 +132,9 @@ def bootstrap_service(
     )
     contract_registry = deployment_service.contract_registry
     resolved_agent_runners = dict(agent_runners or {})
-    resolved_executable_unit_runner = executable_unit_runner or ExecutableUnitRunner()
+    resolved_executable_unit_runner = (
+        executable_unit_runner or ExecutableUnitRunner()
+    )
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repository,
         agent_runners=resolved_agent_runners,
@@ -154,7 +177,6 @@ def bootstrap_service(
             metrics_collector=metrics_collector,
         )
 
-    # Return one small container so the HTTP layer can stay thin and avoid global state.
     return ServiceBootstrap(
         deployment_service=deployment_service,
         deployment=deployment,
@@ -178,8 +200,8 @@ def bootstrap_service(
     )
 
 
-def bootstrap_app(
-    database: SQLiteDatabase,
+async def bootstrap_app(
+    database: AsyncDatabase,
     *,
     deployment_ref: str,
     agent_runners: Mapping[str, AgentRunner] | None = None,
@@ -189,7 +211,7 @@ def bootstrap_app(
 ) -> FastAPI:
     """Build the FastAPI app for a specific deployment."""
     return create_app(
-        bootstrap_service(
+        await bootstrap_service(
             database,
             deployment_ref=deployment_ref,
             agent_runners=agent_runners,

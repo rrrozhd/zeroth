@@ -22,16 +22,16 @@ class DeadLetterManager:
     run_repository: RunRepository
     max_failure_count: int = 3
 
-    def handle_run_failure(self, run_id: str) -> bool:
+    async def handle_run_failure(self, run_id: str) -> bool:
         """Increment failure_count and dead-letter the run if threshold reached.
 
         Returns True if the run was dead-lettered, False otherwise.
         """
-        new_count = self.run_repository.increment_failure_count(run_id)
+        new_count = await self.run_repository.increment_failure_count(run_id)
         if new_count < self.max_failure_count:
             return False
 
-        run = self.run_repository.get(run_id)
+        run = await self.run_repository.get(run_id)
         if run is None:
             return False
         if run.status in {RunStatus.COMPLETED}:
@@ -45,7 +45,7 @@ class DeadLetterManager:
         # Transition to FAILED (covers both RUNNING and PENDING states).
         if run.status not in {RunStatus.FAILED}:
             try:
-                run = self.run_repository.transition(
+                run = await self.run_repository.transition(
                     run_id,
                     RunStatus.FAILED,
                     failure_state=run.failure_state,
@@ -53,9 +53,9 @@ class DeadLetterManager:
             except (ValueError, KeyError):
                 run.status = RunStatus.FAILED
                 run.touch()
-                self.run_repository.put(run)
+                await self.run_repository.put(run)
         else:
             run.touch()
-            self.run_repository.put(run)
+            await self.run_repository.put(run)
 
         return True

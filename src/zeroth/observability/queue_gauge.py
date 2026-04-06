@@ -22,7 +22,7 @@ class QueueDepthGauge:
         """Poll forever; cancelled by the app lifespan on shutdown."""
         while True:
             try:
-                count = self.run_repository.count_pending(self.deployment_ref)
+                count = await self.run_repository.count_pending(self.deployment_ref)
                 self.metrics_collector.gauge_set("zeroth_queue_depth", float(count))
             except asyncio.CancelledError:
                 raise

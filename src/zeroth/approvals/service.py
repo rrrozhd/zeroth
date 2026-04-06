@@ -55,7 +55,7 @@ class ApprovalService:
             AuditRedactionConfig(redact_keys={"secret", "token", "password"})
         )
 
-    def create_pending(
+    async def create_pending(
         self,
         *,
         run: Run,
@@ -71,7 +71,6 @@ class ApprovalService:
         allow_edits = bool(node.human_approval.approval_policy_config.get("allow_edits"))
         allowed_actions = [ApprovalDecision.APPROVE, ApprovalDecision.REJECT]
         if allow_edits:
-            # Edit-and-approve is only offered when the node policy explicitly allows it.
             allowed_actions.append(ApprovalDecision.EDIT_AND_APPROVE)
         record = ApprovalRecord(
             run_id=run.run_id,
@@ -90,13 +89,13 @@ class ApprovalService:
             urgency_metadata=dict(node.human_approval.pause_behavior_config),
             resolution_schema_ref=node.human_approval.resolution_schema_ref,
         )
-        return self.repository.write(record)
+        return await self.repository.write(record)
 
-    def get(self, approval_id: str) -> ApprovalRecord | None:
+    async def get(self, approval_id: str) -> ApprovalRecord | None:
         """Fetch a single approval record by its ID. Returns None if not found."""
-        return self.repository.get(approval_id)
+        return await self.repository.get(approval_id)
 
-    def list_pending(
+    async def list_pending(
         self,
         *,
         run_id: str | None = None,
@@ -107,13 +106,13 @@ class ApprovalService:
 
         Optionally filter by run_id, thread_id, or deployment_ref.
         """
-        return self.repository.list_pending(
+        return await self.repository.list_pending(
             run_id=run_id,
             thread_id=thread_id,
             deployment_ref=deployment_ref,
         )
 
-    def list(
+    async def list(
         self,
         *,
         run_id: str | None = None,
@@ -121,13 +120,13 @@ class ApprovalService:
         deployment_ref: str | None = None,
     ) -> list[ApprovalRecord]:
         """Return approval records for a run, thread, or deployment."""
-        return self.repository.list(
+        return await self.repository.list(
             run_id=run_id,
             thread_id=thread_id,
             deployment_ref=deployment_ref,
         )
 
-    def resolve(
+    async def resolve(
         self,
         approval_id: str,
         *,
@@ -144,7 +143,7 @@ class ApprovalService:
         Raises ValueError if the approval is already resolved with a different
         decision, or if the chosen decision is not in the allowed actions list.
         """
-        record = self._require(approval_id)
+        record = await self._require(approval_id)
         if record.status is ApprovalStatus.RESOLVED:
             current = record.resolution
             if current is None:
@@ -154,7 +153,6 @@ class ApprovalService:
                 and current.actor == actor
                 and current.edited_payload == edited_payload
             ):
-                # Repeating the same decision is treated as safe retry behavior for API clients.
                 return record
             raise ValueError("approval already resolved")
         if decision not in record.allowed_actions:
@@ -169,11 +167,11 @@ class ApprovalService:
             edited_payload=edited_payload,
         )
         record.updated_at = datetime.now(UTC)
-        resolved = self.repository.write(record)
-        self._record_api_audit(resolved)
+        resolved = await self.repository.write(record)
+        await self._record_api_audit(resolved)
         return resolved
 
-    def schedule_continuation(self, approval_id: str) -> Run:
+    async def schedule_continuation(self, approval_id: str) -> Run:
         """Prepare a resolved approval for durable worker pick-up.
 
         Instead of driving the orchestrator inline (which conflicts with the
@@ -185,10 +183,10 @@ class ApprovalService:
         The worker will call ``resume_graph`` on the next poll tick.
         Only call this from the approval HTTP endpoint when the durable worker is active.
         """
-        record = self._require(approval_id)
+        record = await self._require(approval_id)
         if record.status is not ApprovalStatus.RESOLVED or record.resolution is None:
             raise ValueError("approval must be resolved before continuation")
-        run = self.run_repository.get(record.run_id)
+        run = await self.run_repository.get(record.run_id)
         if run is None:
             raise KeyError(record.run_id)
 
@@ -199,8 +197,8 @@ class ApprovalService:
             )
             run.status = RunStatus.FAILED
             run.touch()
-            persisted = self.run_repository.put(run)
-            self._record_decision_audit(record, run, status="rejected", output_payload={})
+            persisted = await self.run_repository.put(run)
+            await self._record_decision_audit(record, run, status="rejected", output_payload={})
             return persisted
 
         # Prepare run state so the worker can resume from the approval node.
@@ -217,9 +215,9 @@ class ApprovalService:
         run.metadata["approval_resolved_id"] = approval_id
 
         run.touch()
-        self.run_repository.put(run)
+        await self.run_repository.put(run)
         # WAITING_APPROVAL -> PENDING so the worker's poll loop will re-claim it.
-        run = self.run_repository.transition(record.run_id, RunStatus.PENDING)
+        run = await self.run_repository.transition(record.run_id, RunStatus.PENDING)
         return run
 
     async def continue_run(
@@ -235,10 +233,10 @@ class ApprovalService:
         If APPROVE or EDIT_AND_APPROVE, the run is handed back to the
         orchestrator to continue executing from the approval node onward.
         """
-        record = self._require(approval_id)
+        record = await self._require(approval_id)
         if record.status is not ApprovalStatus.RESOLVED or record.resolution is None:
             raise ValueError("approval must be resolved before continuation")
-        run = self.run_repository.get(record.run_id)
+        run = await self.run_repository.get(record.run_id)
         if run is None:
             raise KeyError(record.run_id)
 
@@ -249,29 +247,26 @@ class ApprovalService:
         )
         run.metadata.pop("pending_approval", None)
         run.pending_approval = None
-        # Restore the run shape the orchestrator expects before normal execution.
         run.current_node_ids = [record.node_id]
         run.current_step = record.node_id
         run.status = RunStatus.RUNNING
 
         decision = record.resolution.decision
         if decision is ApprovalDecision.REJECT:
-            # Reject ends the run immediately instead of flowing to downstream nodes.
             run.failure_state = RunFailureState(
                 reason="approval_rejected", message="approval rejected"
             )
             run.status = RunStatus.FAILED
             run.touch()
-            persisted = self.run_repository.put(run)
-            self._record_decision_audit(record, run, status="rejected", output_payload={})
+            persisted = await self.run_repository.put(run)
+            await self._record_decision_audit(record, run, status="rejected", output_payload={})
             return persisted
 
         output_payload = record.proposed_payload or {}
         if decision is ApprovalDecision.EDIT_AND_APPROVE:
-            # Edited approval replaces the original proposed payload for the rest of the graph.
             output_payload = record.resolution.edited_payload or {}
 
-        orchestrator.record_approval_resolution(
+        await orchestrator.record_approval_resolution(
             graph=graph,
             run=run,
             node=node,
@@ -280,18 +275,18 @@ class ApprovalService:
         )
         return await orchestrator.resume_graph(graph, run.run_id)
 
-    def _require(self, approval_id: str) -> ApprovalRecord:
+    async def _require(self, approval_id: str) -> ApprovalRecord:
         """Fetch an approval record by ID, raising KeyError if it does not exist."""
-        record = self.repository.get(approval_id)
+        record = await self.repository.get(approval_id)
         if record is None:
             raise KeyError(approval_id)
         return record
 
-    def _record_api_audit(self, record: ApprovalRecord) -> None:
+    async def _record_api_audit(self, record: ApprovalRecord) -> None:
         """Write an audit log entry for the API-level approval resolution."""
         if self.audit_repository is None or record.resolution is None:
             return
-        self.audit_repository.write(
+        await self.audit_repository.write(
             NodeAuditRecord(
                 audit_id=f"approval-api:{record.approval_id}:{record.resolution.decision.value}",
                 run_id=record.run_id,
@@ -316,7 +311,7 @@ class ApprovalService:
             )
         )
 
-    def _record_decision_audit(
+    async def _record_decision_audit(
         self,
         record: ApprovalRecord,
         run: Run,
@@ -327,7 +322,7 @@ class ApprovalService:
         """Write an audit log entry capturing the decision outcome and payload snapshots."""
         if self.audit_repository is None or record.resolution is None:
             return
-        self.audit_repository.write(
+        await self.audit_repository.write(
             NodeAuditRecord(
                 audit_id=f"{run.run_id}:audit:{len(run.audit_refs) + 1}",
                 run_id=run.run_id,
