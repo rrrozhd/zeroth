@@ -3,15 +3,15 @@
 All tests mock ChatLiteLLM to avoid network calls (per D-12).
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from zeroth.agent_runtime.provider import (
     LiteLLMProviderAdapter,
     ProviderRequest,
     ProviderResponse,
 )
-from zeroth.audit.models import TokenUsage
 
 
 @pytest.fixture
@@ -96,7 +96,7 @@ async def test_ainvoke_converts_prompt_messages(adapter):
                 PromptMessage(role="user", content="Hello"),
             ],
         )
-        response = await adapter.ainvoke(request)
+        await adapter.ainvoke(request)
     # Verify the client received LangChain messages
     call_args = mock_client.ainvoke.call_args[0][0]
     assert len(call_args) == 2
