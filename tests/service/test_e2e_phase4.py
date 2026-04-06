@@ -39,11 +39,13 @@ async def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite
         first_run_id = first_run.json()["run_id"]
         thread_id = first_run.json()["thread_id"]
         wait_for(
-            lambda: client.get(
-                f"/runs/{first_run_id}",
-                headers=operator_headers(),
-            ).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(
+                    f"/runs/{first_run_id}",
+                    headers=operator_headers(),
+                ).json()["status"]
+                == "paused_for_approval"
+            )
         )
         approval_id = client.get(
             f"/runs/{first_run_id}",
@@ -71,11 +73,13 @@ async def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite
         )
         second_run_id = second_run.json()["run_id"]
         wait_for(
-            lambda: client.get(
-                f"/runs/{second_run_id}",
-                headers=operator_headers(),
-            ).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(
+                    f"/runs/{second_run_id}",
+                    headers=operator_headers(),
+                ).json()["status"]
+                == "paused_for_approval"
+            )
         )
         second_approval_id = client.get(
             f"/runs/{second_run_id}",
@@ -156,11 +160,13 @@ async def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite
         )
         rollback_run_id = rollback_run.json()["run_id"]
         wait_for(
-            lambda: client.get(
-                f"/runs/{rollback_run_id}",
-                headers=operator_headers(),
-            ).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(
+                    f"/runs/{rollback_run_id}",
+                    headers=operator_headers(),
+                ).json()["status"]
+                == "paused_for_approval"
+            )
         )
         rollback_approval_id = client.get(
             f"/runs/{rollback_run_id}",

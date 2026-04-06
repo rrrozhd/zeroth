@@ -123,7 +123,9 @@ async def test_run_and_deployment_evidence_bundles_include_governance_lineage(sq
 
 
 async def test_deployment_attestation_verification_detects_snapshot_tampering(sqlite_db) -> None:
-    service, deployment = await deploy_service(sqlite_db, approval_graph(graph_id="graph-attestation"))
+    service, deployment = await deploy_service(
+        sqlite_db, approval_graph(graph_id="graph-attestation")
+    )
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,

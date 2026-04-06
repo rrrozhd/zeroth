@@ -1,4 +1,5 @@
 """Tests for approval resume and durable dispatch recovery semantics."""
+
 from __future__ import annotations
 
 from zeroth.approvals import ApprovalDecision, ApprovalRepository, ApprovalService

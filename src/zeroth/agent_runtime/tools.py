@@ -197,9 +197,7 @@ class ToolAttachmentBridge:
         """
         required = set(binding.permission_scope)
         granted = {
-            permission.strip()
-            for permission in granted_permissions or []
-            if permission.strip()
+            permission.strip() for permission in granted_permissions or [] if permission.strip()
         }
         missing = sorted(required - granted)
         if missing:

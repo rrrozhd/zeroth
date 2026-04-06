@@ -223,10 +223,9 @@ class GraphRepository:
         if stored_status == GraphStatus.DRAFT.value:
             return True
         if stored_status == GraphStatus.PUBLISHED.value:
-            return (
-                incoming.status is GraphStatus.ARCHIVED
-                and _semantic_graph_dump(current) == _semantic_graph_dump(incoming)
-            )
+            return incoming.status is GraphStatus.ARCHIVED and _semantic_graph_dump(
+                current
+            ) == _semantic_graph_dump(incoming)
         return False
 
 

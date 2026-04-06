@@ -29,11 +29,7 @@ class EnvSecretProvider:
         return self._environment.get(secret_ref)
 
     def resolve_many(self, refs: list[str]) -> dict[str, str]:
-        return {
-            ref: value
-            for ref in refs
-            if (value := self.resolve(ref)) is not None
-        }
+        return {ref: value for ref in refs if (value := self.resolve(ref)) is not None}
 
 
 class SecretResolver:

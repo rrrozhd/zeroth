@@ -33,9 +33,7 @@ class PostgresConnection:
         converted = _sqlite_to_psycopg(sql)
         await self._conn.execute(converted, params or None)
 
-    async def fetch_one(
-        self, sql: str, params: tuple[Any, ...] = ()
-    ) -> dict[str, Any] | None:
+    async def fetch_one(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
         """Execute a query and return the first row as a dict, or None."""
         converted = _sqlite_to_psycopg(sql)
         cursor = await self._conn.execute(converted, params or None)
@@ -45,9 +43,7 @@ class PostgresConnection:
         col_names = [desc.name for desc in cursor.description]
         return dict(zip(col_names, row, strict=True))
 
-    async def fetch_all(
-        self, sql: str, params: tuple[Any, ...] = ()
-    ) -> list[dict[str, Any]]:
+    async def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         """Execute a query and return all rows as a list of dicts."""
         converted = _sqlite_to_psycopg(sql)
         cursor = await self._conn.execute(converted, params or None)

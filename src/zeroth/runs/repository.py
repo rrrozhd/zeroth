@@ -344,9 +344,7 @@ class _RunThreadStore:
             )
         if row is None:
             return None
-        return Run.model_validate(
-            load_typed_value(row["state_json"], dict[str, Any])
-        )
+        return Run.model_validate(load_typed_value(row["state_json"], dict[str, Any]))
 
     async def get_latest_checkpoint(self, thread_id: str) -> Run | None:
         """Load the most recent checkpoint for a given thread."""

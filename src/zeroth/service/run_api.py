@@ -181,8 +181,7 @@ async def _validate_input_payload(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"deployment input contract {contract_ref!r} version "
-                f"{contract_version} not found"
+                f"deployment input contract {contract_ref!r} version {contract_version} not found"
             ),
         ) from exc
     except ValidationError as exc:
@@ -281,6 +280,7 @@ def _public_status(run: Run) -> RunPublicStatus:
     if run.status is RunStatus.WAITING_INTERRUPT:
         return RunPublicStatus.WAITING_INTERRUPT
     return RunPublicStatus.FAILED
+
 
 def _failed_status(failure_state: RunFailureState | None) -> RunPublicStatus:
     if failure_state is None:

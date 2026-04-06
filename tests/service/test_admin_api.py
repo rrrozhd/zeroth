@@ -1,4 +1,5 @@
 """Tests for admin run management endpoints."""
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
@@ -39,7 +40,9 @@ async def test_list_admin_runs_requires_admin_role(sqlite_db) -> None:
 
 
 async def test_list_admin_runs_returns_runs(sqlite_db) -> None:
-    service, app = await _make_service_and_app(sqlite_db, "graph-admin-list2", DEPLOYMENT + "-list2")
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-admin-list2", DEPLOYMENT + "-list2"
+    )
 
     with TestClient(app) as client:
         # Create a run.
@@ -140,7 +143,9 @@ async def test_cancel_run_clears_active_lease(sqlite_db) -> None:
 
 
 async def test_cancel_run_404_for_unknown_run(sqlite_db) -> None:
-    service, app = await _make_service_and_app(sqlite_db, "graph-cancel-404", DEPLOYMENT + "-cancel-404")
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-cancel-404", DEPLOYMENT + "-cancel-404"
+    )
 
     with TestClient(app) as client:
         r = client.post("/admin/runs/nonexistent-run/cancel", headers=admin_headers())
@@ -195,7 +200,9 @@ async def test_replay_dead_letter_run_requeues(sqlite_db) -> None:
 
 
 async def test_replay_non_failed_run_returns_conflict(sqlite_db) -> None:
-    service, app = await _make_service_and_app(sqlite_db, "graph-replay-conflict", DEPLOYMENT + "-rc")
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-replay-conflict", DEPLOYMENT + "-rc"
+    )
 
     with TestClient(app) as client:
         r1 = client.post(
@@ -211,7 +218,9 @@ async def test_replay_non_failed_run_returns_conflict(sqlite_db) -> None:
 
 
 async def test_list_admin_runs_filters_by_status(sqlite_db) -> None:
-    service, app = await _make_service_and_app(sqlite_db, "graph-admin-filter", DEPLOYMENT + "-filter")
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-admin-filter", DEPLOYMENT + "-filter"
+    )
 
     with TestClient(app) as client:
         r1 = client.post(

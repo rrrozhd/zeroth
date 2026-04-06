@@ -61,6 +61,7 @@ class PayloadSanitizer:
 
 class _OmittedType:
     """Sentinel class used internally to mark values that should be dropped."""
+
     pass
 
 

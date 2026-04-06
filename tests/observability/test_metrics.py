@@ -1,4 +1,5 @@
 """Tests for the MetricsCollector."""
+
 from __future__ import annotations
 
 import threading

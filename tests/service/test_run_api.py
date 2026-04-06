@@ -180,8 +180,10 @@ async def test_run_status_reports_running_and_completed_state(sqlite_db) -> None
 
         release.set()
         wait_for(
-            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
-            == "succeeded"
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "succeeded"
+            )
         )
         completed_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
@@ -281,8 +283,10 @@ async def test_run_status_reports_failed_state(sqlite_db) -> None:
 
         wait_for(started.is_set)
         wait_for(
-            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
-            == "failed"
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "failed"
+            )
         )
         failed_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
@@ -336,8 +340,10 @@ async def test_run_status_reports_approval_paused_state(sqlite_db) -> None:
         run_id = create_response.json()["run_id"]
 
         wait_for(
-            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "paused_for_approval"
+            )
         )
         paused_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 

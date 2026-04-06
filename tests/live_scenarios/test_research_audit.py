@@ -81,9 +81,7 @@ class ToolThenContentProvider:
             content={
                 **current,
                 "summary": "Collected repo evidence from the service bootstrap path.",
-                "findings": [
-                    "bootstrap path should be checked for thread and policy wiring gaps"
-                ],
+                "findings": ["bootstrap path should be checked for thread and policy wiring gaps"],
                 "evidence": [
                     {
                         "kind": "repo_search",
@@ -210,7 +208,9 @@ async def test_research_audit_bootstrap_and_api_flow(sqlite_db) -> None:
     assert health.status_code == 200
     assert completed["terminal_output"]["approval_used"] is False
     assert completed["terminal_output"]["run_count"] == 1
-    assert [entry.node_id for entry in (await service.run_repository.get(run_id)).execution_history] == [
+    assert [
+        entry.node_id for entry in (await service.run_repository.get(run_id)).execution_history
+    ] == [
         "plan",
         "research",
         "normalize_evidence",

@@ -1,4 +1,5 @@
 """Storage-specific fixtures that provide the legacy sync SQLiteDatabase."""
+
 from __future__ import annotations
 
 from pathlib import Path
