@@ -1,7 +1,7 @@
-"""Versioned contract registry backed by SQLite.
+"""Versioned contract registry backed by async database.
 
 This module is the heart of the contracts system. It lets you register Pydantic
-models as named, versioned "contracts" and store them in a SQLite database.
+models as named, versioned "contracts" and store them in a database.
 Later, you can look up a contract by name (and optionally version) to get its
 schema, metadata, or even the original Python class back.
 
@@ -24,32 +24,8 @@ from zeroth.contracts.errors import (
     ContractTypeResolutionError,
     ContractVersionExistsError,
 )
-from zeroth.storage import Migration, SQLiteDatabase
+from zeroth.storage import AsyncDatabase
 from zeroth.storage.json import from_json_value, to_json_value
-
-# Scope string used to namespace migrations so contract migrations
-# don't collide with migrations from other parts of the system.
-MODEL_SCOPE = "contracts"
-MIGRATIONS: tuple[Migration, ...] = (
-    Migration(
-        version=1,
-        name="create_contract_versions",
-        sql="""
-        CREATE TABLE IF NOT EXISTS contract_versions (
-            contract_name TEXT NOT NULL,
-            version INTEGER NOT NULL,
-            model_path TEXT NOT NULL,
-            schema_json TEXT NOT NULL,
-            metadata_json TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(contract_name, version)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_contract_versions_name_version
-        ON contract_versions(contract_name, version DESC);
-        """,
-    ),
-)
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -134,19 +110,18 @@ class StepContractBinding(BaseModel):
 class ContractRegistry:
     """The main registry for storing and retrieving versioned contracts.
 
-    Backed by SQLite, this class lets you register Pydantic models as named
-    contracts with automatic version numbering, look them up later, and even
+    Backed by an async database, this class lets you register Pydantic models as
+    named contracts with automatic version numbering, look them up later, and even
     resolve them back to the original Python class. It also provides helpers
     for registering GovernAI tools and binding workflow steps to contracts.
     """
 
-    def __init__(self, database: SQLiteDatabase):
-        self._database = database
+    def __init__(self, database: AsyncDatabase):
+        self._database: AsyncDatabase = database
         # Cache of (name, version) -> Python class so we don't re-import every time
         self._runtime_types: dict[tuple[str, int], type[BaseModel]] = {}
-        self._database.apply_migrations(MODEL_SCOPE, MIGRATIONS)
 
-    def register(
+    async def register(
         self,
         model_type: type[ModelT],
         *,
@@ -163,7 +138,7 @@ class ContractRegistry:
         contract_name = name or model_type.__name__
         # Auto-increment starts at 1 because latest_version() returns 0 for new contracts.
         resolved_version = (
-            version if version is not None else self.latest_version(contract_name) + 1
+            version if version is not None else await self.latest_version(contract_name) + 1
         )
         record = ContractVersion(
             name=contract_name,
@@ -171,22 +146,22 @@ class ContractRegistry:
             model_path=self._model_path(model_type),
             json_schema=model_type.model_json_schema(),
             metadata=dict(metadata or {}),
-            created_at=self._now(),
+            created_at=await self._now(),
         )
-        with self._database.transaction() as connection:
-            existing = connection.execute(
+        async with self._database.transaction() as connection:
+            existing = await connection.fetch_one(
                 """
                 SELECT 1
                 FROM contract_versions
                 WHERE contract_name = ? AND version = ?
                 """,
                 (record.name, record.version),
-            ).fetchone()
+            )
             if existing is not None:
                 raise ContractVersionExistsError(
                     f"contract {record.name!r} version {record.version} already exists"
                 )
-            connection.execute(
+            await connection.execute(
                 """
                 INSERT INTO contract_versions (
                     contract_name,
@@ -210,7 +185,7 @@ class ContractRegistry:
         self._runtime_types[(record.name, record.version)] = model_type
         return record
 
-    def register_tool(
+    async def register_tool(
         self,
         tool: Tool[Any, Any],
         *,
@@ -220,7 +195,7 @@ class ContractRegistry:
     ) -> ToolContractBinding:
         """Register the typed contracts backing a GovernAI tool."""
         payload = dict(metadata or {})
-        input_contract = self.register(
+        input_contract = await self.register(
             tool.input_model,
             name=input_name or f"{tool.name}.input",
             metadata={
@@ -230,7 +205,7 @@ class ContractRegistry:
                 "remote_name": tool.remote_name,
             },
         )
-        output_contract = self.register(
+        output_contract = await self.register(
             tool.output_model,
             name=output_name or f"{tool.name}.output",
             metadata={
@@ -287,7 +262,7 @@ class ContractRegistry:
             metadata=payload,
         )
 
-    def get(
+    async def get(
         self,
         name: str | ContractReference,
         version: int | None = None,
@@ -301,27 +276,27 @@ class ContractRegistry:
         if reference.version is None:
             reference = ContractReference(
                 name=reference.name,
-                version=self.latest_version(reference.name),
+                version=await self.latest_version(reference.name),
             )
-        row = self._fetch_row(reference.name, reference.version)
+        row = await self._fetch_row(reference.name, reference.version)
         if row is None:
             raise ContractNotFoundError(
                 f"contract {reference.name!r} version {reference.version} does not exist"
             )
         return self._row_to_record(row)
 
-    def resolve(self, reference: ContractReference) -> ContractVersion:
+    async def resolve(self, reference: ContractReference) -> ContractVersion:
         """Look up a contract from a ContractReference. Shorthand for get()."""
-        return self.get(reference)
+        return await self.get(reference)
 
-    def resolve_model_type(self, reference: ContractReference) -> type[BaseModel]:
+    async def resolve_model_type(self, reference: ContractReference) -> type[BaseModel]:
         """Get the actual Python class for a contract reference.
 
         Looks up the contract, then imports and returns the original Pydantic
         model class. Results are cached so repeated calls are fast.
         Raises ContractTypeResolutionError if the class can't be imported.
         """
-        record = self.resolve(reference)
+        record = await self.resolve(reference)
         cached = self._runtime_types.get((record.name, record.version))
         if cached is not None:
             return cached
@@ -329,10 +304,10 @@ class ContractRegistry:
         self._runtime_types[(record.name, record.version)] = resolved
         return resolved
 
-    def list_versions(self, name: str) -> list[ContractVersion]:
+    async def list_versions(self, name: str) -> list[ContractVersion]:
         """Return all registered versions of a contract, oldest first."""
-        with self._database.transaction() as connection:
-            rows = connection.execute(
+        async with self._database.transaction() as connection:
+            rows = await connection.fetch_all(
                 """
                 SELECT contract_name, version, model_path, schema_json, metadata_json, created_at
                 FROM contract_versions
@@ -340,51 +315,51 @@ class ContractRegistry:
                 ORDER BY version ASC
                 """,
                 (name,),
-            ).fetchall()
+            )
         return [self._row_to_record(row) for row in rows]
 
-    def list_names(self) -> list[str]:
+    async def list_names(self) -> list[str]:
         """Return the names of all contracts in the registry, sorted alphabetically."""
-        with self._database.transaction() as connection:
-            rows = connection.execute(
+        async with self._database.transaction() as connection:
+            rows = await connection.fetch_all(
                 """
                 SELECT DISTINCT contract_name
                 FROM contract_versions
                 ORDER BY contract_name ASC
                 """
-            ).fetchall()
+            )
         return [str(row["contract_name"]) for row in rows]
 
-    def latest_version(self, name: str) -> int:
+    async def latest_version(self, name: str) -> int:
         """Return the highest version number for a contract, or 0 if it doesn't exist yet."""
-        with self._database.transaction() as connection:
-            row = connection.execute(
+        async with self._database.transaction() as connection:
+            row = await connection.fetch_one(
                 """
                 SELECT MAX(version) AS version
                 FROM contract_versions
                 WHERE contract_name = ?
                 """,
                 (name,),
-            ).fetchone()
+            )
         if row is None or row["version"] is None:
             return 0
         return int(row["version"])
 
-    def delete(self, name: str, version: int | None = None) -> None:
+    async def delete(self, name: str, version: int | None = None) -> None:
         """Remove a contract from the registry.
 
         If version is given, only that specific version is deleted.
         If version is None, all versions of the named contract are deleted.
         """
-        with self._database.transaction() as connection:
+        async with self._database.transaction() as connection:
             if version is None:
-                connection.execute(
+                await connection.execute(
                     "DELETE FROM contract_versions WHERE contract_name = ?",
                     (name,),
                 )
                 keys_to_remove = [key for key in self._runtime_types if key[0] == name]
             else:
-                connection.execute(
+                await connection.execute(
                     """
                     DELETE FROM contract_versions
                     WHERE contract_name = ? AND version = ?
@@ -395,21 +370,21 @@ class ContractRegistry:
         for key in keys_to_remove:
             self._runtime_types.pop(key, None)
 
-    def _fetch_row(self, name: str, version: int | None) -> Any:
+    async def _fetch_row(self, name: str, version: int | None) -> Any:
         """Fetch a single contract row from the database, or None if not found."""
-        with self._database.transaction() as connection:
-            row = connection.execute(
+        async with self._database.transaction() as connection:
+            row = await connection.fetch_one(
                 """
                 SELECT contract_name, version, model_path, schema_json, metadata_json, created_at
                 FROM contract_versions
                 WHERE contract_name = ? AND version = ?
                 """,
                 (name, version),
-            ).fetchone()
+            )
         return row
 
     def _row_to_record(self, row: Any) -> ContractVersion:
-        """Convert a raw SQLite row into a ContractVersion object."""
+        """Convert a raw database row into a ContractVersion object."""
         return ContractVersion(
             name=str(row["contract_name"]),
             version=int(row["version"]),
@@ -454,8 +429,8 @@ class ContractRegistry:
             )
         return cast(type[BaseModel], target)
 
-    def _now(self) -> str:
-        """Get the current timestamp from SQLite (ensures consistency with the DB)."""
-        with self._database.transaction() as connection:
-            row = connection.execute("SELECT CURRENT_TIMESTAMP AS now").fetchone()
+    async def _now(self) -> str:
+        """Get the current timestamp from the database (ensures consistency with the DB)."""
+        async with self._database.transaction() as connection:
+            row = await connection.fetch_one("SELECT CURRENT_TIMESTAMP AS now")
         return str(row["now"])
