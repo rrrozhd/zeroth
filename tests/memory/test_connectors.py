@@ -108,7 +108,7 @@ async def test_thread_memory_persists_across_runs_and_updates_thread_bindings(sq
         ThreadMemoryConnector(),
     )
     thread_repository = ThreadRepository(sqlite_db)
-    thread_repository.resolve(
+    await thread_repository.resolve(
         "thread-1",
         graph_version_ref="graph:v1",
         deployment_ref="graph",
@@ -120,7 +120,7 @@ async def test_thread_memory_persists_across_runs_and_updates_thread_bindings(sq
         {"value": 4}, thread_id="thread-1", runtime_context={"run_id": "run-2"}
     )
 
-    thread = thread_repository.get("thread-1")
+    thread = await thread_repository.get("thread-1")
     assert second.output_data["seen"] == 2
     assert thread is not None
     assert thread.memory_bindings[0].connector_id == "memory://shared"

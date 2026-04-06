@@ -10,8 +10,8 @@ from zeroth.runs import Run
 from zeroth.service.bootstrap import bootstrap_app
 
 
-def _seed_run_evidence(service) -> Run:
-    run = service.run_repository.create(
+async def _seed_run_evidence(service) -> Run:
+    run = await service.run_repository.create(
         Run(
             run_id="run-evidence",
             thread_id="thread-evidence",
@@ -21,12 +21,12 @@ def _seed_run_evidence(service) -> Run:
             workspace_id=service.deployment.workspace_id,
         )
     )
-    service.approval_service.create_pending(
+    await service.approval_service.create_pending(
         run=run,
         node=service.graph.nodes[0],
         input_payload={"secret": "hidden", "value": 7},
     )
-    service.audit_repository.write(
+    await service.audit_repository.write(
         NodeAuditRecord(
             audit_id="audit:evidence:1",
             run_id=run.run_id,
@@ -63,7 +63,7 @@ def _seed_run_evidence(service) -> Run:
             completed_at=datetime(2026, 3, 27, 0, 0, 1, tzinfo=UTC),
         )
     )
-    service.audit_repository.write(
+    await service.audit_repository.write(
         NodeAuditRecord(
             audit_id="audit:evidence:2",
             run_id=run.run_id,
@@ -84,10 +84,10 @@ def _seed_run_evidence(service) -> Run:
     return run
 
 
-def test_run_and_deployment_evidence_bundles_include_governance_lineage(sqlite_db) -> None:
-    service, deployment = deploy_service(sqlite_db, approval_graph(graph_id="graph-evidence"))
-    run = _seed_run_evidence(service)
-    app = bootstrap_app(
+async def test_run_and_deployment_evidence_bundles_include_governance_lineage(sqlite_db) -> None:
+    service, deployment = await deploy_service(sqlite_db, approval_graph(graph_id="graph-evidence"))
+    run = await _seed_run_evidence(service)
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -122,9 +122,9 @@ def test_run_and_deployment_evidence_bundles_include_governance_lineage(sqlite_d
     assert deployment_payload["run_ids"] == [run.run_id]
 
 
-def test_deployment_attestation_verification_detects_snapshot_tampering(sqlite_db) -> None:
-    service, deployment = deploy_service(sqlite_db, approval_graph(graph_id="graph-attestation"))
-    app = bootstrap_app(
+async def test_deployment_attestation_verification_detects_snapshot_tampering(sqlite_db) -> None:
+    service, deployment = await deploy_service(sqlite_db, approval_graph(graph_id="graph-attestation"))
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -155,8 +155,8 @@ def test_deployment_attestation_verification_detects_snapshot_tampering(sqlite_d
     assert verify_response.status_code == 200
     assert verify_response.json() == {"verified": True, "mismatches": []}
 
-    with sqlite_db.transaction() as connection:
-        connection.execute(
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
             """
             UPDATE deployment_versions
             SET serialized_graph = ?

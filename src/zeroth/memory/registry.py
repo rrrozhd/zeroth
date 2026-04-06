@@ -65,7 +65,7 @@ class MemoryConnectorResolver:
         self.registry = registry or InMemoryConnectorRegistry()
         self.thread_repository = thread_repository
 
-    def resolve(
+    async def resolve(
         self,
         memory_refs: list[str],
         *,
@@ -106,7 +106,7 @@ class MemoryConnectorResolver:
                     context=context,
                 )
             )
-            self._record_thread_binding(memory_ref, context, thread_id=thread_id)
+            await self._record_thread_binding(memory_ref, context, thread_id=thread_id)
         return bindings
 
     def _instance_id(
@@ -131,7 +131,7 @@ class MemoryConnectorResolver:
             return thread_id or f"{memory_ref}:thread"
         return memory_ref
 
-    def _record_thread_binding(
+    async def _record_thread_binding(
         self,
         memory_ref: str,
         context: MemoryContext,
@@ -147,7 +147,7 @@ class MemoryConnectorResolver:
         repository = self.thread_repository
         if repository is None or thread_id is None:
             return
-        thread = repository.get(thread_id)
+        thread = await repository.get(thread_id)
         if thread is None:
             return
         binding = ThreadMemoryBinding(
@@ -158,4 +158,4 @@ class MemoryConnectorResolver:
         if binding in thread.memory_bindings:
             return
         thread.memory_bindings.append(binding)
-        repository.update(thread)
+        await repository.update(thread)

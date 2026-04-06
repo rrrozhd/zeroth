@@ -36,9 +36,9 @@ def _record(
     )
 
 
-def test_run_and_deployment_metadata_expose_phase7_discoverability_refs(sqlite_db) -> None:
-    service, deployment = deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-refs"))
-    app = bootstrap_app(
+async def test_run_and_deployment_metadata_expose_phase7_discoverability_refs(sqlite_db) -> None:
+    service, deployment = await deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-refs"))
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -66,23 +66,23 @@ def test_run_and_deployment_metadata_expose_phase7_discoverability_refs(sqlite_d
     assert metadata["attestation_ref"] == f"/deployments/{deployment.deployment_ref}/attestation"
 
 
-def test_audit_api_lists_deployment_audits_with_redaction(sqlite_db) -> None:
-    service, deployment = deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-list"))
-    service.audit_repository.write(
+async def test_audit_api_lists_deployment_audits_with_redaction(sqlite_db) -> None:
+    service, deployment = await deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-list"))
+    await service.audit_repository.write(
         _record(
             audit_id="audit:1",
             run_id="run-1",
             deployment_ref=deployment.deployment_ref,
         )
     )
-    service.audit_repository.write(
+    await service.audit_repository.write(
         _record(
             audit_id="audit:2",
             run_id="run-2",
             deployment_ref="other-deployment",
         )
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -104,9 +104,9 @@ def test_audit_api_lists_deployment_audits_with_redaction(sqlite_db) -> None:
     assert payload["records"][0]["execution_metadata"]["password"] == "***REDACTED***"
 
 
-def test_audit_api_exposes_run_and_deployment_timelines_in_order(sqlite_db) -> None:
-    service, deployment = deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-timeline"))
-    service.audit_repository.write(
+async def test_audit_api_exposes_run_and_deployment_timelines_in_order(sqlite_db) -> None:
+    service, deployment = await deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-timeline"))
+    await service.audit_repository.write(
         _record(
             audit_id="audit:late",
             run_id="run-1",
@@ -115,7 +115,7 @@ def test_audit_api_exposes_run_and_deployment_timelines_in_order(sqlite_db) -> N
             started_at=datetime(2026, 3, 27, 0, 0, 2, tzinfo=UTC),
         )
     )
-    service.audit_repository.write(
+    await service.audit_repository.write(
         _record(
             audit_id="audit:early",
             run_id="run-1",
@@ -124,7 +124,7 @@ def test_audit_api_exposes_run_and_deployment_timelines_in_order(sqlite_db) -> N
             started_at=datetime(2026, 3, 27, 0, 0, 1, tzinfo=UTC),
         )
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         auth_config=service.auth_config,

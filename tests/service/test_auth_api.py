@@ -12,9 +12,9 @@ from tests.service.helpers import (
 from zeroth.service.bootstrap import bootstrap_app
 
 
-def test_service_health_requires_authentication(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, approval_resume_graph(graph_id="graph-auth-health"))
-    app = bootstrap_app(
+async def test_service_health_requires_authentication(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, approval_resume_graph(graph_id="graph-auth-health"))
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -28,9 +28,9 @@ def test_service_health_requires_authentication(sqlite_db) -> None:
     assert response.json() == {"detail": "authentication required"}
 
 
-def test_service_health_accepts_api_key_authentication(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, approval_resume_graph(graph_id="graph-auth-health-key"))
-    app = bootstrap_app(
+async def test_service_health_accepts_api_key_authentication(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, approval_resume_graph(graph_id="graph-auth-health-key"))
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -44,12 +44,12 @@ def test_service_health_accepts_api_key_authentication(sqlite_db) -> None:
     assert response.json()["deployment_ref"] == service.deployment.deployment_ref
 
 
-def test_approval_resolution_uses_authenticated_principal(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_approval_resolution_uses_authenticated_principal(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-auth-approval"),
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,

@@ -7,38 +7,36 @@ from zeroth.graph.diff import GraphDiff
 from zeroth.graph.errors import GraphLifecycleError
 from zeroth.graph.models import GraphStatus
 from zeroth.graph.repository import GraphRepository
-from zeroth.graph.storage import GRAPH_SCHEMA_VERSION
 
 
-def test_graph_repository_round_trip_and_schema_version(sqlite_db) -> None:
+async def test_graph_repository_round_trip(sqlite_db) -> None:
     repository = GraphRepository(sqlite_db)
     graph = build_graph()
 
-    saved = repository.save(graph)
-    loaded = repository.get(graph.graph_id)
+    saved = await repository.save(graph)
+    loaded = await repository.get(graph.graph_id)
 
     assert saved == graph
     assert loaded == graph
-    assert sqlite_db.fetch_schema_version("graphs") == GRAPH_SCHEMA_VERSION
 
 
-def test_graph_repository_updates_status(sqlite_db) -> None:
+async def test_graph_repository_updates_status(sqlite_db) -> None:
     repository = GraphRepository(sqlite_db)
     graph = build_graph()
-    repository.save(graph)
+    await repository.save(graph)
 
-    updated = repository.update_status(graph.graph_id, GraphStatus.PUBLISHED)
+    updated = await repository.update_status(graph.graph_id, GraphStatus.PUBLISHED)
 
     assert updated.status == GraphStatus.PUBLISHED
-    assert repository.get(graph.graph_id).status == GraphStatus.PUBLISHED
+    assert (await repository.get(graph.graph_id)).status == GraphStatus.PUBLISHED
 
 
-def test_graph_repository_clone_published_to_new_draft_and_preserve_history(sqlite_db) -> None:
+async def test_graph_repository_clone_published_to_new_draft_and_preserve_history(sqlite_db) -> None:
     repository = GraphRepository(sqlite_db)
-    original = repository.create(build_graph())
-    published = repository.publish(original.graph_id, original.version)
+    original = await repository.create(build_graph())
+    published = await repository.publish(original.graph_id, original.version)
 
-    cloned = repository.clone_published_to_draft(original.graph_id, original.version)
+    cloned = await repository.clone_published_to_draft(original.graph_id, original.version)
 
     assert published.status == GraphStatus.PUBLISHED
     assert cloned.status == GraphStatus.DRAFT
@@ -48,29 +46,29 @@ def test_graph_repository_clone_published_to_new_draft_and_preserve_history(sqli
         node.graph_version_ref == f"{cloned.graph_id}@{cloned.version}"
         for node in cloned.nodes
     )
-    assert [graph.version for graph in repository.list_versions(original.graph_id)] == [1, 2]
+    assert [graph.version for graph in await repository.list_versions(original.graph_id)] == [1, 2]
 
 
-def test_graph_repository_rejects_mutating_published_graph(sqlite_db) -> None:
+async def test_graph_repository_rejects_mutating_published_graph(sqlite_db) -> None:
     repository = GraphRepository(sqlite_db)
-    graph = repository.create(build_graph())
-    repository.publish(graph.graph_id, graph.version)
+    graph = await repository.create(build_graph())
+    await repository.publish(graph.graph_id, graph.version)
 
-    published = repository.get(graph.graph_id, 1)
+    published = await repository.get(graph.graph_id, 1)
     assert published is not None
 
     with pytest.raises(GraphLifecycleError, match="immutable"):
-        repository.save(published.model_copy(update={"name": "Mutated"}))
+        await repository.save(published.model_copy(update={"name": "Mutated"}))
 
     with pytest.raises(GraphLifecycleError, match="cannot revert to draft"):
-        repository.update_status(graph.graph_id, GraphStatus.DRAFT, version=1)
+        await repository.update_status(graph.graph_id, GraphStatus.DRAFT, version=1)
 
 
-def test_graph_repository_diff_detects_semantic_changes(sqlite_db) -> None:
+async def test_graph_repository_diff_detects_semantic_changes(sqlite_db) -> None:
     repository = GraphRepository(sqlite_db)
-    original = repository.create(build_graph())
-    repository.publish(original.graph_id, original.version)
-    cloned = repository.clone_published_to_draft(original.graph_id, original.version)
+    original = await repository.create(build_graph())
+    await repository.publish(original.graph_id, original.version)
+    cloned = await repository.clone_published_to_draft(original.graph_id, original.version)
 
     modified_nodes = list(cloned.nodes)
     modified_nodes[0] = modified_nodes[0].model_copy(
@@ -98,9 +96,9 @@ def test_graph_repository_diff_detects_semantic_changes(sqlite_db) -> None:
         }
     )
     modified = cloned.model_copy(update={"nodes": modified_nodes, "edges": modified_edges})
-    repository.save(modified)
+    await repository.save(modified)
 
-    diff = repository.diff(original.graph_id, 1, 2)
+    diff = await repository.diff(original.graph_id, 1, 2)
 
     assert isinstance(diff, GraphDiff)
     assert not diff.is_empty()

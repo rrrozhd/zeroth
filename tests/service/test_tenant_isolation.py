@@ -47,15 +47,15 @@ def _headers(secret: str) -> dict[str, str]:
     return {"X-API-Key": secret}
 
 
-def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_db) -> None:
+async def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_db) -> None:
     auth_config = _scoped_auth_config()
-    service, _ = deploy_service(
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-tenant-run-read"),
         auth_config=auth_config,
         tenant_id="tenant-a",
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,
@@ -78,21 +78,21 @@ def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_db) ->
     assert response.json() == {"detail": "run not found"}
     denials = [
         record
-        for record in service.audit_repository.list_by_node("service.authorization")
+        for record in await service.audit_repository.list_by_node("service.authorization")
         if record.error == "scope mismatch"
     ]
     assert denials
 
 
-def test_cross_tenant_approval_resolution_is_hidden(sqlite_db) -> None:
+async def test_cross_tenant_approval_resolution_is_hidden(sqlite_db) -> None:
     auth_config = _scoped_auth_config()
-    service, _ = deploy_service(
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-tenant-approval"),
         auth_config=auth_config,
         tenant_id="tenant-a",
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,

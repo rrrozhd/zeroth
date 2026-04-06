@@ -57,37 +57,37 @@ def _record(
     )
 
 
-def test_audit_repository_writes_queries_and_assembles_timeline(sqlite_db) -> None:
+async def test_audit_repository_writes_queries_and_assembles_timeline(sqlite_db) -> None:
     repository = AuditRepository(sqlite_db)
     first = _record(audit_id="audit:1", run_id="run-1", node_id="start")
     second = _record(audit_id="audit:2", run_id="run-1", node_id="finish")
     third = _record(audit_id="audit:3", run_id="run-2", node_id="start", deployment_ref="deploy-2")
 
-    repository.write(first)
-    repository.write(second)
-    repository.write(third)
+    await repository.write(first)
+    await repository.write(second)
+    await repository.write(third)
 
-    assert [record.audit_id for record in repository.list_by_run("run-1")] == ["audit:1", "audit:2"]
-    assert [record.audit_id for record in repository.list_by_thread("thread-1")] == [
+    assert [record.audit_id for record in await repository.list_by_run("run-1")] == ["audit:1", "audit:2"]
+    assert [record.audit_id for record in await repository.list_by_thread("thread-1")] == [
         "audit:1",
         "audit:2",
         "audit:3",
     ]
-    assert [record.audit_id for record in repository.list_by_node("start")] == [
+    assert [record.audit_id for record in await repository.list_by_node("start")] == [
         "audit:1",
         "audit:3",
     ]
-    assert [record.audit_id for record in repository.list_by_graph_version("graph:v1")] == [
+    assert [record.audit_id for record in await repository.list_by_graph_version("graph:v1")] == [
         "audit:1",
         "audit:2",
         "audit:3",
     ]
-    assert [record.audit_id for record in repository.list_by_deployment("deploy")] == [
+    assert [record.audit_id for record in await repository.list_by_deployment("deploy")] == [
         "audit:1",
         "audit:2",
     ]
 
-    timeline = AuditTimelineAssembler().assemble(repository.list(AuditQuery(run_id="run-1")))
+    timeline = AuditTimelineAssembler().assemble(await repository.list(AuditQuery(run_id="run-1")))
     assert [entry.audit_id for entry in timeline.entries] == ["audit:1", "audit:2"]
     assert timeline.run_id == "run-1"
 
@@ -110,7 +110,7 @@ def test_payload_sanitizer_redacts_keys_and_omits_fields() -> None:
     }
 
 
-def test_audit_repository_round_trips_actor_and_scope(sqlite_db) -> None:
+async def test_audit_repository_round_trips_actor_and_scope(sqlite_db) -> None:
     repository = AuditRepository(sqlite_db)
     record = _record(audit_id="audit:scope", run_id="run-scope", node_id="scope-node").model_copy(
         update={
@@ -126,7 +126,7 @@ def test_audit_repository_round_trips_actor_and_scope(sqlite_db) -> None:
         }
     )
 
-    persisted = repository.write(record)
+    persisted = await repository.write(record)
 
     assert persisted.tenant_id == "tenant-a"
     assert persisted.workspace_id == "workspace-1"
@@ -134,10 +134,10 @@ def test_audit_repository_round_trips_actor_and_scope(sqlite_db) -> None:
     assert persisted.actor.subject == "reviewer-1"
 
 
-def test_audit_repository_assigns_digest_chain_and_rejects_duplicate_ids(sqlite_db) -> None:
+async def test_audit_repository_assigns_digest_chain_and_rejects_duplicate_ids(sqlite_db) -> None:
     repository = AuditRepository(sqlite_db)
-    first = repository.write(_record(audit_id="audit:1", run_id="run-chain", node_id="start"))
-    second = repository.write(_record(audit_id="audit:2", run_id="run-chain", node_id="finish"))
+    first = await repository.write(_record(audit_id="audit:1", run_id="run-chain", node_id="start"))
+    second = await repository.write(_record(audit_id="audit:2", run_id="run-chain", node_id="finish"))
 
     assert first.record_digest
     assert first.previous_record_digest is None
@@ -145,33 +145,33 @@ def test_audit_repository_assigns_digest_chain_and_rejects_duplicate_ids(sqlite_
     assert second.previous_record_digest == first.record_digest
 
     with pytest.raises(ValueError, match="audit_id"):
-        repository.write(_record(audit_id="audit:1", run_id="run-chain", node_id="duplicate"))
+        await repository.write(_record(audit_id="audit:1", run_id="run-chain", node_id="duplicate"))
 
 
-def test_audit_continuity_verifier_detects_tampering_and_preserves_supersession(sqlite_db) -> None:
+async def test_audit_continuity_verifier_detects_tampering_and_preserves_supersession(sqlite_db) -> None:
     repository = AuditRepository(sqlite_db)
-    repository.write(_record(audit_id="audit:1", run_id="run-verify", node_id="start"))
-    repository.write(
+    await repository.write(_record(audit_id="audit:1", run_id="run-verify", node_id="start"))
+    await repository.write(
         _record(audit_id="audit:2", run_id="run-verify", node_id="finish").model_copy(
             update={"supersedes_audit_id": "audit:1"}
         )
     )
 
     verifier = AuditContinuityVerifier(repository)
-    report = verifier.verify_run("run-verify")
+    report = await verifier.verify_run("run-verify")
     assert report.verified is True
     assert report.record_count == 2
     assert report.failed_audit_id is None
 
-    tampered = repository.get("audit:2")
+    tampered = await repository.get("audit:2")
     assert tampered is not None
     tampered_payload = tampered.model_copy(update={"status": "tampered"}).model_dump(mode="json")
-    with sqlite_db.transaction() as connection:
-        connection.execute(
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
             "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
             (json.dumps(tampered_payload, sort_keys=True), "audit:2"),
         )
 
-    tampered_report = verifier.verify_run("run-verify")
+    tampered_report = await verifier.verify_run("run-verify")
     assert tampered_report.verified is False
     assert tampered_report.failed_audit_id == "audit:2"
