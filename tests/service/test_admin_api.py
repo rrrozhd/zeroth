@@ -18,19 +18,19 @@ from zeroth.service.bootstrap import bootstrap_app
 DEPLOYMENT = "admin-test"
 
 
-def _make_service_and_app(sqlite_db, graph_id: str, deployment_ref: str):
-    service, _ = deploy_service(
+async def _make_service_and_app(sqlite_db, graph_id: str, deployment_ref: str):
+    service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id=graph_id),
         deployment_ref=deployment_ref,
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
     return service, app
 
 
-def test_list_admin_runs_requires_admin_role(sqlite_db) -> None:
-    service, app = _make_service_and_app(sqlite_db, "graph-admin-list", DEPLOYMENT + "-list")
+async def test_list_admin_runs_requires_admin_role(sqlite_db) -> None:
+    service, app = await _make_service_and_app(sqlite_db, "graph-admin-list", DEPLOYMENT + "-list")
 
     with TestClient(app) as client:
         r = client.get("/admin/runs", headers=operator_headers())
@@ -38,8 +38,8 @@ def test_list_admin_runs_requires_admin_role(sqlite_db) -> None:
     assert r.status_code == 403
 
 
-def test_list_admin_runs_returns_runs(sqlite_db) -> None:
-    service, app = _make_service_and_app(sqlite_db, "graph-admin-list2", DEPLOYMENT + "-list2")
+async def test_list_admin_runs_returns_runs(sqlite_db) -> None:
+    service, app = await _make_service_and_app(sqlite_db, "graph-admin-list2", DEPLOYMENT + "-list2")
 
     with TestClient(app) as client:
         # Create a run.
@@ -57,8 +57,8 @@ def test_list_admin_runs_returns_runs(sqlite_db) -> None:
     assert body["total"] >= 1
 
 
-def test_cancel_run_requires_admin_role(sqlite_db) -> None:
-    service, app = _make_service_and_app(
+async def test_cancel_run_requires_admin_role(sqlite_db) -> None:
+    service, app = await _make_service_and_app(
         sqlite_db,
         "graph-cancel-auth",
         DEPLOYMENT + "-cancel-auth",
@@ -76,8 +76,8 @@ def test_cancel_run_requires_admin_role(sqlite_db) -> None:
     assert r.status_code == 403
 
 
-def test_cancel_run_transitions_to_failed(sqlite_db) -> None:
-    service, app = _make_service_and_app(sqlite_db, "graph-cancel", DEPLOYMENT + "-cancel")
+async def test_cancel_run_transitions_to_failed(sqlite_db) -> None:
+    service, app = await _make_service_and_app(sqlite_db, "graph-cancel", DEPLOYMENT + "-cancel")
 
     with TestClient(app) as client:
         r1 = client.post(
@@ -95,8 +95,8 @@ def test_cancel_run_transitions_to_failed(sqlite_db) -> None:
     assert body["status"] == "failed"
 
 
-def test_cancel_run_clears_active_lease(sqlite_db) -> None:
-    service, app = _make_service_and_app(
+async def test_cancel_run_clears_active_lease(sqlite_db) -> None:
+    service, app = await _make_service_and_app(
         sqlite_db,
         "graph-cancel-lease",
         DEPLOYMENT + "-cancel-lease",
@@ -110,8 +110,8 @@ def test_cancel_run_clears_active_lease(sqlite_db) -> None:
         )
         run_id = create_response.json()["run_id"]
 
-        with sqlite_db.transaction() as connection:
-            connection.execute(
+        async with sqlite_db.transaction() as connection:
+            await connection.execute(
                 """
                 UPDATE runs
                 SET lease_worker_id = 'worker-1',
@@ -125,22 +125,22 @@ def test_cancel_run_clears_active_lease(sqlite_db) -> None:
         response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
 
     assert response.status_code == 200
-    with sqlite_db.transaction() as connection:
-        row = connection.execute(
+    async with sqlite_db.transaction() as connection:
+        row = await connection.fetch_one(
             """
             SELECT lease_worker_id, lease_acquired_at, lease_expires_at
             FROM runs
             WHERE run_id = ?
             """,
             (run_id,),
-        ).fetchone()
+        )
     assert row["lease_worker_id"] is None
     assert row["lease_acquired_at"] is None
     assert row["lease_expires_at"] is None
 
 
-def test_cancel_run_404_for_unknown_run(sqlite_db) -> None:
-    service, app = _make_service_and_app(sqlite_db, "graph-cancel-404", DEPLOYMENT + "-cancel-404")
+async def test_cancel_run_404_for_unknown_run(sqlite_db) -> None:
+    service, app = await _make_service_and_app(sqlite_db, "graph-cancel-404", DEPLOYMENT + "-cancel-404")
 
     with TestClient(app) as client:
         r = client.post("/admin/runs/nonexistent-run/cancel", headers=admin_headers())
@@ -148,8 +148,8 @@ def test_cancel_run_404_for_unknown_run(sqlite_db) -> None:
     assert r.status_code == 404
 
 
-def test_replay_run_requires_admin_role(sqlite_db) -> None:
-    service, app = _make_service_and_app(
+async def test_replay_run_requires_admin_role(sqlite_db) -> None:
+    service, app = await _make_service_and_app(
         sqlite_db,
         "graph-replay-auth",
         DEPLOYMENT + "-replay-auth",
@@ -169,9 +169,9 @@ def test_replay_run_requires_admin_role(sqlite_db) -> None:
     assert r.status_code == 403
 
 
-def test_replay_dead_letter_run_requeues(sqlite_db) -> None:
+async def test_replay_dead_letter_run_requeues(sqlite_db) -> None:
     """A FAILED run can be replayed back to PENDING status."""
-    service, app = _make_service_and_app(sqlite_db, "graph-replay", DEPLOYMENT + "-replay")
+    service, app = await _make_service_and_app(sqlite_db, "graph-replay", DEPLOYMENT + "-replay")
 
     with TestClient(app) as client:
         # Create a run and cancel it to get it to FAILED.
@@ -194,8 +194,8 @@ def test_replay_dead_letter_run_requeues(sqlite_db) -> None:
     assert body["status"] == "queued"
 
 
-def test_replay_non_failed_run_returns_conflict(sqlite_db) -> None:
-    service, app = _make_service_and_app(sqlite_db, "graph-replay-conflict", DEPLOYMENT + "-rc")
+async def test_replay_non_failed_run_returns_conflict(sqlite_db) -> None:
+    service, app = await _make_service_and_app(sqlite_db, "graph-replay-conflict", DEPLOYMENT + "-rc")
 
     with TestClient(app) as client:
         r1 = client.post(
@@ -210,8 +210,8 @@ def test_replay_non_failed_run_returns_conflict(sqlite_db) -> None:
     assert r.status_code == 409
 
 
-def test_list_admin_runs_filters_by_status(sqlite_db) -> None:
-    service, app = _make_service_and_app(sqlite_db, "graph-admin-filter", DEPLOYMENT + "-filter")
+async def test_list_admin_runs_filters_by_status(sqlite_db) -> None:
+    service, app = await _make_service_and_app(sqlite_db, "graph-admin-filter", DEPLOYMENT + "-filter")
 
     with TestClient(app) as client:
         r1 = client.post(
@@ -235,20 +235,20 @@ def test_list_admin_runs_filters_by_status(sqlite_db) -> None:
         assert r_filtered.json()["total"] >= 1
 
 
-def test_admin_routes_hide_service_from_foreign_tenant_admin(sqlite_db) -> None:
+async def test_admin_routes_hide_service_from_foreign_tenant_admin(sqlite_db) -> None:
     auth_config = scoped_auth_config(
         ("tenant-a-admin", "tenant-a-admin-key", ServiceRole.ADMIN, "tenant-a", None),
         ("tenant-b-admin", "tenant-b-admin-key", ServiceRole.ADMIN, "tenant-b", None),
         ("tenant-a-operator", "tenant-a-operator-key", ServiceRole.OPERATOR, "tenant-a", None),
     )
-    service, _ = deploy_service(
+    service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-admin-scope"),
         deployment_ref=DEPLOYMENT + "-scope",
         auth_config=auth_config,
         tenant_id="tenant-a",
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,
@@ -270,8 +270,8 @@ def test_admin_routes_hide_service_from_foreign_tenant_admin(sqlite_db) -> None:
     assert response.status_code == 404
 
 
-def test_interrupt_run_returns_waiting_interrupt_status(sqlite_db) -> None:
-    service, app = _make_service_and_app(
+async def test_interrupt_run_returns_waiting_interrupt_status(sqlite_db) -> None:
+    service, app = await _make_service_and_app(
         sqlite_db,
         "graph-admin-interrupt",
         DEPLOYMENT + "-interrupt",
@@ -285,9 +285,9 @@ def test_interrupt_run_returns_waiting_interrupt_status(sqlite_db) -> None:
         )
         run_id = create_response.json()["run_id"]
 
-        run = service.run_repository.get(run_id)
+        run = await service.run_repository.get(run_id)
         assert run is not None
-        service.run_repository.transition(run_id, RunStatus.RUNNING)
+        await service.run_repository.transition(run_id, RunStatus.RUNNING)
 
         response = client.post(f"/admin/runs/{run_id}/interrupt", headers=admin_headers())
 

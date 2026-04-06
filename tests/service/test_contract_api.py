@@ -39,11 +39,11 @@ class DeployedOutputContractV2(BaseModel):
     request_id: str
 
 
-def _deploy_contract_service(sqlite_db, *, deployment_ref: str = "contract-api-service"):
+async def _deploy_contract_service(sqlite_db, *, deployment_ref: str = "contract-api-service"):
     graph_repository = GraphRepository(sqlite_db)
     contract_registry = ContractRegistry(sqlite_db)
-    contract_registry.register(DeployedInputContract, name="contract://input")
-    contract_registry.register(
+    await contract_registry.register(DeployedInputContract, name="contract://input")
+    await contract_registry.register(
         DeployedOutputContract,
         name="contract://output",
     )
@@ -52,10 +52,10 @@ def _deploy_contract_service(sqlite_db, *, deployment_ref: str = "contract-api-s
         deployment_repository=SQLiteDeploymentRepository(sqlite_db),
         contract_registry=contract_registry,
     )
-    graph = graph_repository.create(build_graph())
-    graph_repository.publish(graph.graph_id, graph.version)
-    deployment = deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
-    app = bootstrap_app(
+    graph = await graph_repository.create(build_graph())
+    await graph_repository.publish(graph.graph_id, graph.version)
+    deployment = await deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         auth_config=default_service_auth_config(),
@@ -63,14 +63,14 @@ def _deploy_contract_service(sqlite_db, *, deployment_ref: str = "contract-api-s
     return app, app.state.bootstrap, deployment
 
 
-def test_input_contract_endpoint_returns_deployed_contract_version(sqlite_db) -> None:
-    app, service, deployment = _deploy_contract_service(sqlite_db)
+async def test_input_contract_endpoint_returns_deployed_contract_version(sqlite_db) -> None:
+    app, service, deployment = await _deploy_contract_service(sqlite_db)
     expected = PublicContractSchemaResponse(
         name="contract://input",
         version=1,
-        json_schema=service.contract_registry.resolve(
+        json_schema=(await service.contract_registry.resolve(
             ContractReference(name="contract://input", version=1)
-        ).json_schema,
+        )).json_schema,
     )
 
     with TestClient(app) as client:
@@ -83,14 +83,14 @@ def test_input_contract_endpoint_returns_deployed_contract_version(sqlite_db) ->
     assert PublicContractSchemaResponse.model_validate(response.json()) == expected
 
 
-def test_output_contract_endpoint_returns_deployed_contract_version(sqlite_db) -> None:
-    app, service, deployment = _deploy_contract_service(sqlite_db)
+async def test_output_contract_endpoint_returns_deployed_contract_version(sqlite_db) -> None:
+    app, service, deployment = await _deploy_contract_service(sqlite_db)
     expected = PublicContractSchemaResponse(
         name="contract://output",
         version=1,
-        json_schema=service.contract_registry.resolve(
+        json_schema=(await service.contract_registry.resolve(
             ContractReference(name="contract://output", version=1)
-        ).json_schema,
+        )).json_schema,
     )
 
     with TestClient(app) as client:
@@ -103,16 +103,16 @@ def test_output_contract_endpoint_returns_deployed_contract_version(sqlite_db) -
     assert PublicContractSchemaResponse.model_validate(response.json()) == expected
 
 
-def test_result_error_state_schema_endpoint_exposes_output_contract_and_error_schema(
+async def test_result_error_state_schema_endpoint_exposes_output_contract_and_error_schema(
     sqlite_db,
 ) -> None:
-    app, service, deployment = _deploy_contract_service(sqlite_db)
+    app, service, deployment = await _deploy_contract_service(sqlite_db)
     expected_output = PublicContractSchemaResponse(
         name="contract://output",
         version=1,
-        json_schema=service.contract_registry.resolve(
+        json_schema=(await service.contract_registry.resolve(
             ContractReference(name="contract://output", version=1)
-        ).json_schema,
+        )).json_schema,
     )
 
     with TestClient(app) as client:
@@ -151,8 +151,8 @@ def test_result_error_state_schema_endpoint_exposes_output_contract_and_error_sc
     assert parsed.model_dump(mode="json") == payload
 
 
-def test_deployment_metadata_endpoint_returns_version_snapshot(sqlite_db) -> None:
-    app, service, deployment = _deploy_contract_service(sqlite_db)
+async def test_deployment_metadata_endpoint_returns_version_snapshot(sqlite_db) -> None:
+    app, service, deployment = await _deploy_contract_service(sqlite_db)
     with TestClient(app) as client:
         response = client.get(
             f"/deployments/{deployment.deployment_ref}/metadata",
@@ -175,8 +175,8 @@ def test_deployment_metadata_endpoint_returns_version_snapshot(sqlite_db) -> Non
     assert parsed.model_dump(mode="json") == response.json()
 
 
-def test_schema_serialization_round_trip(sqlite_db) -> None:
-    app, _, deployment = _deploy_contract_service(sqlite_db)
+async def test_schema_serialization_round_trip(sqlite_db) -> None:
+    app, _, deployment = await _deploy_contract_service(sqlite_db)
 
     with TestClient(app) as client:
         response = client.get(
@@ -188,14 +188,14 @@ def test_schema_serialization_round_trip(sqlite_db) -> None:
     assert parsed.model_dump(mode="json") == response.json()
 
 
-def test_contract_endpoints_use_deployed_contract_versions(sqlite_db) -> None:
-    app, service, deployment = _deploy_contract_service(sqlite_db)
-    service.contract_registry.register(
+async def test_contract_endpoints_use_deployed_contract_versions(sqlite_db) -> None:
+    app, service, deployment = await _deploy_contract_service(sqlite_db)
+    await service.contract_registry.register(
         DeployedInputContractV2,
         name="contract://input",
         version=2,
     )
-    service.contract_registry.register(
+    await service.contract_registry.register(
         DeployedOutputContractV2,
         name="contract://output",
         version=2,
@@ -219,18 +219,18 @@ def test_contract_endpoints_use_deployed_contract_versions(sqlite_db) -> None:
     assert "request_id" not in output_response.json()["json_schema"]["properties"]
 
 
-def test_contract_endpoints_fail_closed_for_legacy_unpinned_deployment(sqlite_db) -> None:
-    app, service, deployment = _deploy_contract_service(
+async def test_contract_endpoints_fail_closed_for_legacy_unpinned_deployment(sqlite_db) -> None:
+    app, service, deployment = await _deploy_contract_service(
         sqlite_db,
         deployment_ref="legacy-contract-api",
     )
-    service.contract_registry.register(
+    await service.contract_registry.register(
         DeployedInputContractV2,
         name="contract://input",
         version=2,
     )
-    with sqlite_db.transaction() as connection:
-        connection.execute(
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
             """
             UPDATE deployment_versions
             SET entry_input_contract_version = NULL
@@ -238,7 +238,7 @@ def test_contract_endpoints_fail_closed_for_legacy_unpinned_deployment(sqlite_db
             """,
             (deployment.deployment_id,),
         )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         auth_config=default_service_auth_config(),
@@ -256,8 +256,8 @@ def test_contract_endpoints_fail_closed_for_legacy_unpinned_deployment(sqlite_db
     }
 
 
-def test_contract_endpoint_returns_404_for_unknown_deployment(sqlite_db) -> None:
-    app, _, _ = _deploy_contract_service(sqlite_db)
+async def test_contract_endpoint_returns_404_for_unknown_deployment(sqlite_db) -> None:
+    app, _, _ = await _deploy_contract_service(sqlite_db)
 
     with TestClient(app) as client:
         response = client.get("/deployments/missing/input-contract", headers=admin_headers())

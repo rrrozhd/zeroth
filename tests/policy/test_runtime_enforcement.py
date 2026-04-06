@@ -134,7 +134,6 @@ class RecordingSandboxManager:
         )
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_passes_enforcement_context_to_runners_and_audit(
     sqlite_db,
 ) -> None:
@@ -181,12 +180,11 @@ async def test_runtime_orchestrator_passes_enforcement_context_to_runners_and_au
     assert agent_runner.calls[0]["enforcement_context"]["sandbox_strictness_mode"] == "strict"
     assert eu_runner.calls[0]["enforcement_context"]["allowed_secrets"] == ["API_KEY"]
 
-    audits = AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
     assert audits[0].execution_metadata["enforcement"]["network_mode"] == "disabled"
     assert audits[1].execution_metadata["enforcement"]["sandbox_strictness_mode"] == "strict"
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(sqlite_db) -> None:
     eu_runner = RecordingExecutableUnitRunner()
     graph = Graph(
@@ -229,7 +227,7 @@ async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(s
     assert paused.status is RunStatus.WAITING_APPROVAL
     approval_id = paused.metadata["pending_approval"]["approval_id"]
     assert approval_id is not None
-    approval_service.resolve(
+    await approval_service.resolve(
         approval_id,
         decision=ApprovalDecision.APPROVE,
         actor=ActorIdentity(subject="reviewer-1", auth_method=AuthMethod.API_KEY),
@@ -241,7 +239,6 @@ async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(s
     assert eu_runner.calls and eu_runner.calls[0]["manifest_ref"] == "eu://write"
 
 
-@pytest.mark.asyncio
 async def test_executable_unit_runner_applies_policy_overrides_before_sandbox() -> None:
     manifest = WrappedCommandUnitManifest(
         unit_id="policy-unit",
@@ -291,7 +288,6 @@ async def test_executable_unit_runner_applies_policy_overrides_before_sandbox() 
     assert sandbox_manager.calls[0]["resource_constraints"].network_access is False
 
 
-@pytest.mark.asyncio
 async def test_agent_runner_applies_timeout_override_and_blocks_side_effecting_tool_calls(
     monkeypatch,
 ) -> None:

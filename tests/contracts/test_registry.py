@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 
 from zeroth.contracts import ContractReference, ContractRegistry
 from zeroth.contracts.errors import ContractNotFoundError
-from zeroth.storage import SQLiteDatabase
 
 
 class Address(BaseModel):
@@ -58,37 +57,37 @@ async def echo_tool(ctx, data):  # noqa: ANN001, ARG001
     return {"message": data.message, "upper": data.message.upper()}
 
 
-def test_registry_crud_and_versioning(sqlite_db: SQLiteDatabase) -> None:
+async def test_registry_crud_and_versioning(sqlite_db) -> None:
     registry = ContractRegistry(sqlite_db)
 
-    first = registry.register(CustomerV1, name="customer", metadata={"owner": "platform"})
-    second = registry.register(CustomerV2, name="customer", metadata={"owner": "platform"})
+    first = await registry.register(CustomerV1, name="customer", metadata={"owner": "platform"})
+    second = await registry.register(CustomerV2, name="customer", metadata={"owner": "platform"})
 
     assert first.version == 1
     assert second.version == 2
-    assert registry.list_names() == ["customer"]
-    assert registry.latest_version("customer") == 2
-    assert [record.version for record in registry.list_versions("customer")] == [1, 2]
-    assert registry.get("customer", 1).metadata == {"owner": "platform"}
-    assert registry.resolve(ContractReference(name="customer")).version == 2
-    assert registry.resolve_model_type(ContractReference(name="customer", version=1)) is CustomerV1
+    assert await registry.list_names() == ["customer"]
+    assert await registry.latest_version("customer") == 2
+    assert [record.version for record in await registry.list_versions("customer")] == [1, 2]
+    assert (await registry.get("customer", 1)).metadata == {"owner": "platform"}
+    assert (await registry.resolve(ContractReference(name="customer"))).version == 2
+    assert (await registry.resolve_model_type(ContractReference(name="customer", version=1))) is CustomerV1
 
-    registry.delete("customer", 1)
+    await registry.delete("customer", 1)
 
-    assert [record.version for record in registry.list_versions("customer")] == [2]
-    assert registry.get("customer").version == 2
-    assert registry.latest_version("customer") == 2
+    assert [record.version for record in await registry.list_versions("customer")] == [2]
+    assert (await registry.get("customer")).version == 2
+    assert await registry.latest_version("customer") == 2
 
-    registry.delete("customer")
+    await registry.delete("customer")
 
-    assert registry.list_names() == []
-    assert registry.latest_version("customer") == 0
+    assert await registry.list_names() == []
+    assert await registry.latest_version("customer") == 0
 
 
-def test_registry_supports_nested_optional_enum_and_array_schema(sqlite_db: SQLiteDatabase) -> None:
+async def test_registry_supports_nested_optional_enum_and_array_schema(sqlite_db) -> None:
     registry = ContractRegistry(sqlite_db)
 
-    record = registry.register(CustomerV1, name="customer")
+    record = await registry.register(CustomerV1, name="customer")
 
     schema = record.json_schema
     customer_properties = schema["properties"]
@@ -102,25 +101,25 @@ def test_registry_supports_nested_optional_enum_and_array_schema(sqlite_db: SQLi
     assert any(option.get("type") == "null" for option in customer_properties["nickname"]["anyOf"])
 
 
-def test_registry_raises_for_missing_versions(sqlite_db: SQLiteDatabase) -> None:
+async def test_registry_raises_for_missing_versions(sqlite_db) -> None:
     registry = ContractRegistry(sqlite_db)
 
-    registry.register(CustomerV1, name="customer")
+    await registry.register(CustomerV1, name="customer")
 
     try:
-        registry.get("customer", 2)
+        await registry.get("customer", 2)
     except ContractNotFoundError:
         pass
     else:  # pragma: no cover - defensive test guard
         raise AssertionError("missing contract version should raise")
 
 
-def test_registry_binds_governai_tool_and_step_specs(sqlite_db: SQLiteDatabase) -> None:
+async def test_registry_binds_governai_tool_and_step_specs(sqlite_db) -> None:
     registry = ContractRegistry(sqlite_db)
     step = GovernedStepSpec(name="echo_step", tool=echo_tool)
     flow = GovernedFlowSpec(name="demo_flow", steps=[step], entry_step="echo_step")
 
-    binding = registry.register_tool(echo_tool, metadata={"flow_name": flow.name})
+    binding = await registry.register_tool(echo_tool, metadata={"flow_name": flow.name})
     step_binding = registry.bind_step(
         step,
         flow_name=flow.name,
@@ -132,8 +131,8 @@ def test_registry_binds_governai_tool_and_step_specs(sqlite_db: SQLiteDatabase) 
     assert binding.remote_name == "echo"
     assert binding.executor_type == "python"
     assert binding.capabilities == ["memory_read"]
-    assert registry.resolve_model_type(binding.input_contract) is EchoInput
-    assert registry.resolve_model_type(binding.output_contract) is EchoOutput
+    assert (await registry.resolve_model_type(binding.input_contract)) is EchoInput
+    assert (await registry.resolve_model_type(binding.output_contract)) is EchoOutput
     assert step_binding.flow_name == "demo_flow"
     assert step_binding.step_name == "echo_step"
     assert step_binding.tool_name == "echo"

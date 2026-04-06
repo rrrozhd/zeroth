@@ -94,7 +94,7 @@ class AgentRunner:
         validated_input = self._validate_input(input_payload)
         thread_state = await self._load_thread_state(thread_id)
         resolved_runtime_context = dict(runtime_context or {})
-        memory_context, memory_interactions = self._load_memory(
+        memory_context, memory_interactions = await self._load_memory(
             thread_id=thread_id,
             runtime_context=resolved_runtime_context,
         )
@@ -157,7 +157,7 @@ class AgentRunner:
                     },
                 )
                 memory_interactions.extend(
-                    self._store_memory(
+                    await self._store_memory(
                         output.model_dump(mode="json"),
                         thread_id=thread_id,
                         runtime_context=resolved_runtime_context,
@@ -348,7 +348,7 @@ class AgentRunner:
             },
         )
 
-    def _load_memory(
+    async def _load_memory(
         self,
         *,
         thread_id: str | None,
@@ -362,7 +362,7 @@ class AgentRunner:
         resolver = self.memory_resolver
         if resolver is None or not self.config.memory_refs:
             return {}, []
-        bindings = resolver.resolve(
+        bindings = await resolver.resolve(
             self.config.memory_refs,
             thread_id=thread_id,
             runtime_context=runtime_context,
@@ -386,7 +386,7 @@ class AgentRunner:
             )
         return memory_payload, interactions
 
-    def _store_memory(
+    async def _store_memory(
         self,
         output_payload: Mapping[str, Any],
         *,
@@ -400,7 +400,7 @@ class AgentRunner:
         resolver = self.memory_resolver
         if resolver is None or not self.config.memory_refs:
             return []
-        bindings = resolver.resolve(
+        bindings = await resolver.resolve(
             self.config.memory_refs,
             thread_id=thread_id,
             runtime_context=runtime_context,

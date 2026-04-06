@@ -54,13 +54,14 @@ async def test_repository_thread_state_store_integrates_with_agent_runner(sqlite
     thread_repository = ThreadRepository(sqlite_db)
     run_repository = RunRepository(sqlite_db)
     resolver = RepositoryThreadResolver(thread_repository)
-    resolved = resolver.resolve(
+    resolved = await resolver.resolve(
         None,
         graph_version_ref="graph:v1",
         deployment_ref="deployment:v1",
         run_id="run-a",
     )
     store = RepositoryThreadStateStore(
+        sqlite_db,
         run_repository=run_repository,
         thread_repository=thread_repository,
     )

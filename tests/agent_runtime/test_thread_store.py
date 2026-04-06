@@ -9,11 +9,10 @@ from zeroth.agent_runtime.thread_store import (
 from zeroth.runs.repository import RunRepository, ThreadRepository
 
 
-@pytest.mark.asyncio
 async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
     resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
 
-    created = resolver.resolve(
+    created = await resolver.resolve(
         None,
         graph_version_ref="graph:v1",
         deployment_ref="deployment:v1",
@@ -22,7 +21,7 @@ async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
         checkpoint_refs=["checkpoint-a"],
         run_id="run-a",
     )
-    continued = resolver.resolve(
+    continued = await resolver.resolve(
         created.thread.thread_id,
         graph_version_ref="graph:v1",
         deployment_ref="deployment:v1",
@@ -43,20 +42,20 @@ async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
     assert continued.thread.active_run_id == "run-b"
 
 
-@pytest.mark.asyncio
 async def test_thread_state_store_checkpoints_and_loads_latest_state(
     sqlite_db,
 ) -> None:
     run_repository = RunRepository(sqlite_db)
     thread_repository = ThreadRepository(sqlite_db)
     resolver = RepositoryThreadResolver(thread_repository)
-    created = resolver.resolve(
+    created = await resolver.resolve(
         None,
         graph_version_ref="graph:v1",
         deployment_ref="deployment:v1",
         run_id="run-a",
     )
     store = RepositoryThreadStateStore(
+        sqlite_db,
         run_repository=run_repository,
         thread_repository=thread_repository,
     )
@@ -71,8 +70,8 @@ async def test_thread_state_store_checkpoints_and_loads_latest_state(
     )
 
     loaded = await store.load(created.thread.thread_id)
-    thread = thread_repository.get(created.thread.thread_id)
-    latest_checkpoint = run_repository.get_checkpoint(second_checkpoint)
+    thread = await thread_repository.get(created.thread.thread_id)
+    latest_checkpoint = await run_repository.get_checkpoint(second_checkpoint)
 
     assert first_checkpoint != second_checkpoint
     assert loaded == {"step": 2, "nested": {"token": "abc"}}
@@ -87,12 +86,11 @@ async def test_thread_state_store_checkpoints_and_loads_latest_state(
     assert latest_checkpoint.final_output is None
 
 
-@pytest.mark.asyncio
 async def test_thread_store_noop_helpers_without_thread_id(sqlite_db) -> None:
     resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
     store = RepositoryThreadStateStore(sqlite_db)
 
-    assert resolver.resolve_optional(
+    assert await resolver.resolve_optional(
         None,
         graph_version_ref="graph:v1",
         deployment_ref="deployment:v1",

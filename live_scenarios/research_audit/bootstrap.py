@@ -87,7 +87,7 @@ from zeroth.policy import (
 from zeroth.service.app import create_app
 from zeroth.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig
 from zeroth.service.bootstrap import ServiceBootstrap, bootstrap_service
-from zeroth.storage import SQLiteDatabase
+from zeroth.storage import AsyncDatabase
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GRAPH_ID = "live-research-audit"
@@ -166,8 +166,8 @@ class _DeterministicToolingProvider:
         )
 
 
-def bootstrap_research_audit_service(
-    database: SQLiteDatabase,
+async def bootstrap_research_audit_service(
+    database: AsyncDatabase,
     *,
     provider_adapters: Mapping[str, ProviderAdapter] | None = None,
     deployment_ref: str = _DEPLOYMENT_REF,
@@ -179,10 +179,10 @@ def bootstrap_research_audit_service(
     """Create or load the research-audit deployment and wire live scenario runtime pieces."""
 
     repo_root = (repo_root or _REPO_ROOT).resolve()
-    _seed_scenario(database, deployment_ref=deployment_ref, repo_root=repo_root)
+    await _seed_scenario(database, deployment_ref=deployment_ref, repo_root=repo_root)
 
     eu_runner = _build_executable_unit_runner(repo_root)
-    service = bootstrap_service(
+    service = await bootstrap_service(
         database,
         deployment_ref=deployment_ref,
         agent_runners={},
@@ -207,8 +207,8 @@ def bootstrap_research_audit_service(
     return service
 
 
-def bootstrap_research_audit_app(
-    database: SQLiteDatabase,
+async def bootstrap_research_audit_app(
+    database: AsyncDatabase,
     *,
     provider_adapters: Mapping[str, ProviderAdapter] | None = None,
     deployment_ref: str = _DEPLOYMENT_REF,
@@ -219,7 +219,7 @@ def bootstrap_research_audit_app(
 ):
     """Create the FastAPI app for the research-audit deployment."""
 
-    service = bootstrap_research_audit_service(
+    service = await bootstrap_research_audit_service(
         database,
         provider_adapters=provider_adapters,
         deployment_ref=deployment_ref,
@@ -231,7 +231,7 @@ def bootstrap_research_audit_app(
     return create_app(service)
 
 
-def _seed_scenario(database: SQLiteDatabase, *, deployment_ref: str, repo_root: Path) -> None:
+async def _seed_scenario(database: AsyncDatabase, *, deployment_ref: str, repo_root: Path) -> None:
     graph_repository = GraphRepository(database)
     contract_registry = ContractRegistry(database)
     deployment_service = DeploymentService(
@@ -239,42 +239,42 @@ def _seed_scenario(database: SQLiteDatabase, *, deployment_ref: str, repo_root: 
         deployment_repository=SQLiteDeploymentRepository(database),
         contract_registry=contract_registry,
     )
-    if deployment_service.get(deployment_ref) is not None:
+    if await deployment_service.get(deployment_ref) is not None:
         return
 
-    _register_contract(contract_registry, AuditRequest, name="contract://audit-request")
-    _register_contract(contract_registry, AuditState, name="contract://audit-state")
-    _register_contract(contract_registry, AuditResult, name="contract://audit-result")
-    _register_contract(contract_registry, RepoSearchInput, name="contract://repo-search-input")
-    _register_contract(contract_registry, RepoSearchOutput, name="contract://repo-search-output")
-    _register_contract(
+    await _register_contract(contract_registry, AuditRequest, name="contract://audit-request")
+    await _register_contract(contract_registry, AuditState, name="contract://audit-state")
+    await _register_contract(contract_registry, AuditResult, name="contract://audit-result")
+    await _register_contract(contract_registry, RepoSearchInput, name="contract://repo-search-input")
+    await _register_contract(contract_registry, RepoSearchOutput, name="contract://repo-search-output")
+    await _register_contract(
         contract_registry,
         ReadFileExcerptInput,
         name="contract://read-file-excerpt-input",
     )
-    _register_contract(
+    await _register_contract(
         contract_registry,
         ReadFileExcerptOutput,
         name="contract://read-file-excerpt-output",
     )
-    _register_contract(contract_registry, WebSearchInput, name="contract://web-search-input")
-    _register_contract(contract_registry, WebSearchOutput, name="contract://web-search-output")
-    _register_contract(contract_registry, FetchUrlInput, name="contract://fetch-url-input")
-    _register_contract(contract_registry, FetchUrlOutput, name="contract://fetch-url-output")
+    await _register_contract(contract_registry, WebSearchInput, name="contract://web-search-input")
+    await _register_contract(contract_registry, WebSearchOutput, name="contract://web-search-output")
+    await _register_contract(contract_registry, FetchUrlInput, name="contract://fetch-url-input")
+    await _register_contract(contract_registry, FetchUrlOutput, name="contract://fetch-url-output")
 
-    graph = graph_repository.create(_build_graph(graph_id=_GRAPH_ID, repo_root=repo_root))
-    graph_repository.publish(graph.graph_id, graph.version)
-    deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
+    graph = await graph_repository.create(_build_graph(graph_id=_GRAPH_ID, repo_root=repo_root))
+    await graph_repository.publish(graph.graph_id, graph.version)
+    await deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
 
 
-def _register_contract(registry: ContractRegistry, model_type: type, *, name: str) -> None:
+async def _register_contract(registry: ContractRegistry, model_type: type, *, name: str) -> None:
     try:
-        registry.resolve(ContractReference(name=name))
+        await registry.resolve(ContractReference(name=name))
         return
     except ContractNotFoundError:
         pass
     try:
-        registry.register(model_type, name=name)
+        await registry.register(model_type, name=name)
     except ContractVersionExistsError:
         return
 

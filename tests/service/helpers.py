@@ -176,7 +176,7 @@ class CountingFinishRunner:
         )
 
 
-def deploy_service(
+async def deploy_service(
     sqlite_db,
     graph: Graph,
     *,
@@ -188,23 +188,23 @@ def deploy_service(
 ):
     graph_repository = GraphRepository(sqlite_db)
     contract_registry = ContractRegistry(sqlite_db)
-    contract_registry.register(RunInputPayload, name="contract://input")
-    contract_registry.register(RunInputPayload, name="contract://output")
+    await contract_registry.register(RunInputPayload, name="contract://input")
+    await contract_registry.register(RunInputPayload, name="contract://output")
     for contract_ref, model in (extra_contract_models or {}).items():
-        contract_registry.register(model, name=contract_ref)
+        await contract_registry.register(model, name=contract_ref)
     deployment_settings = dict(graph.deployment_settings)
     deployment_settings["tenant_id"] = tenant_id
     deployment_settings["workspace_id"] = workspace_id
     graph = graph.model_copy(update={"deployment_settings": deployment_settings})
-    graph = graph_repository.create(graph)
-    graph_repository.publish(graph.graph_id, graph.version)
+    graph = await graph_repository.create(graph)
+    await graph_repository.publish(graph.graph_id, graph.version)
     deployment_service = DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=SQLiteDeploymentRepository(sqlite_db),
         contract_registry=contract_registry,
     )
-    deployment = deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
-    service = bootstrap_service(
+    deployment = await deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
+    service = await bootstrap_service(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         auth_config=auth_config or default_service_auth_config(),
@@ -212,8 +212,8 @@ def deploy_service(
     return service, deployment
 
 
-def service_app(sqlite_db, deployment_ref: str, service, *, auth_config=None):
-    app = bootstrap_app(
+async def service_app(sqlite_db, deployment_ref: str, service, *, auth_config=None):
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment_ref,
         auth_config=auth_config or default_service_auth_config(),
@@ -222,8 +222,8 @@ def service_app(sqlite_db, deployment_ref: str, service, *, auth_config=None):
     return app
 
 
-def bootstrap_only_app(sqlite_db, deployment_ref: str, *, auth_config=None):
-    return bootstrap_app(
+async def bootstrap_only_app(sqlite_db, deployment_ref: str, *, auth_config=None):
+    return await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment_ref,
         auth_config=auth_config or default_service_auth_config(),

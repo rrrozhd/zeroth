@@ -14,12 +14,12 @@ class AuditContinuityVerifier:
     def __init__(self, repository) -> None:  # noqa: ANN001
         self._repository = repository
 
-    def verify_run(self, run_id: str) -> AuditContinuityReport:
-        records = self._repository.list_by_run(run_id)
+    async def verify_run(self, run_id: str) -> AuditContinuityReport:
+        records = await self._repository.list_by_run(run_id)
         return self._verify_records(scope=f"run:{run_id}", records=records)
 
-    def verify_deployment(self, deployment_ref: str) -> AuditContinuityReport:
-        records = self._repository.list_by_deployment(deployment_ref)
+    async def verify_deployment(self, deployment_ref: str) -> AuditContinuityReport:
+        records = await self._repository.list_by_deployment(deployment_ref)
         if not records:
             return AuditContinuityReport(
                 scope=f"deployment:{deployment_ref}",

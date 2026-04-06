@@ -46,16 +46,17 @@ def _encode_token(private_key, **claims: object) -> str:
     )
 
 
-def test_health_accepts_valid_bearer_token(sqlite_db) -> None:
+async def test_health_accepts_valid_bearer_token(sqlite_db) -> None:
     auth_config, private_key = _bearer_auth_fixture()
     token = _encode_token(private_key)
-    app = bootstrap_app(
+    service, _ = await deploy_service(
         sqlite_db,
-        deployment_ref=deploy_service(
-            sqlite_db,
-            approval_resume_graph(graph_id="graph-bearer-valid"),
-            auth_config=auth_config,
-        )[0].deployment.deployment_ref,
+        approval_resume_graph(graph_id="graph-bearer-valid"),
+        auth_config=auth_config,
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,
     )
 
@@ -65,16 +66,17 @@ def test_health_accepts_valid_bearer_token(sqlite_db) -> None:
     assert response.status_code == 200
 
 
-def test_health_rejects_bearer_token_with_wrong_issuer(sqlite_db) -> None:
+async def test_health_rejects_bearer_token_with_wrong_issuer(sqlite_db) -> None:
     auth_config, private_key = _bearer_auth_fixture()
     bad_token = _encode_token(private_key, iss="https://wrong-issuer.example.test")
-    app = bootstrap_app(
+    service, _ = await deploy_service(
         sqlite_db,
-        deployment_ref=deploy_service(
-            sqlite_db,
-            approval_resume_graph(graph_id="graph-bearer-wrong-issuer"),
-            auth_config=auth_config,
-        )[0].deployment.deployment_ref,
+        approval_resume_graph(graph_id="graph-bearer-wrong-issuer"),
+        auth_config=auth_config,
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,
     )
 
@@ -85,16 +87,17 @@ def test_health_rejects_bearer_token_with_wrong_issuer(sqlite_db) -> None:
     assert response.json() == {"detail": "invalid bearer token"}
 
 
-def test_health_rejects_bearer_token_with_wrong_audience(sqlite_db) -> None:
+async def test_health_rejects_bearer_token_with_wrong_audience(sqlite_db) -> None:
     auth_config, private_key = _bearer_auth_fixture()
     bad_token = _encode_token(private_key, aud="wrong-audience")
-    app = bootstrap_app(
+    service, _ = await deploy_service(
         sqlite_db,
-        deployment_ref=deploy_service(
-            sqlite_db,
-            approval_resume_graph(graph_id="graph-bearer-wrong-audience"),
-            auth_config=auth_config,
-        )[0].deployment.deployment_ref,
+        approval_resume_graph(graph_id="graph-bearer-wrong-audience"),
+        auth_config=auth_config,
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,
     )
 
@@ -105,17 +108,18 @@ def test_health_rejects_bearer_token_with_wrong_audience(sqlite_db) -> None:
     assert response.json() == {"detail": "invalid bearer token"}
 
 
-def test_health_rejects_bearer_token_with_wrong_signature(sqlite_db) -> None:
+async def test_health_rejects_bearer_token_with_wrong_signature(sqlite_db) -> None:
     auth_config, _ = _bearer_auth_fixture()
     bad_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     bad_token = _encode_token(bad_private_key)
-    app = bootstrap_app(
+    service, _ = await deploy_service(
         sqlite_db,
-        deployment_ref=deploy_service(
-            sqlite_db,
-            approval_resume_graph(graph_id="graph-bearer-wrong-signature"),
-            auth_config=auth_config,
-        )[0].deployment.deployment_ref,
+        approval_resume_graph(graph_id="graph-bearer-wrong-signature"),
+        auth_config=auth_config,
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,
     )
 
