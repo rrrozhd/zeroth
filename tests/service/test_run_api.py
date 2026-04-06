@@ -20,8 +20,8 @@ from zeroth.service.bootstrap import bootstrap_app
 from zeroth.service.run_api import RunInvocationRequest, RunStatusResponse
 
 
-def test_run_creation_accepts_input_and_supplied_thread_id(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-create"))
+async def test_run_creation_accepts_input_and_supplied_thread_id(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-create"))
     started = threading.Event()
     release = threading.Event()
     service.orchestrator.agent_runners["agent-step"] = BlockingAgentRunner(
@@ -29,7 +29,7 @@ def test_run_creation_accepts_input_and_supplied_thread_id(sqlite_db) -> None:
         release=release,
         output_data={"value": 10},
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -51,8 +51,8 @@ def test_run_creation_accepts_input_and_supplied_thread_id(sqlite_db) -> None:
         release.set()
 
 
-def test_run_creation_without_thread_id_returns_new_thread_linkage(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-new-thread"))
+async def test_run_creation_without_thread_id_returns_new_thread_linkage(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-new-thread"))
     started = threading.Event()
     release = threading.Event()
     service.orchestrator.agent_runners["agent-step"] = BlockingAgentRunner(
@@ -60,7 +60,7 @@ def test_run_creation_without_thread_id_returns_new_thread_linkage(sqlite_db) ->
         release=release,
         output_data={"value": 10},
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -79,9 +79,9 @@ def test_run_creation_without_thread_id_returns_new_thread_linkage(sqlite_db) ->
         release.set()
 
 
-def test_run_creation_rejects_invalid_input(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-invalid"))
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+async def test_run_creation_rejects_invalid_input(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-invalid"))
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -95,9 +95,9 @@ def test_run_creation_rejects_invalid_input(sqlite_db) -> None:
     assert "value" in response.text
 
 
-def test_run_creation_validates_against_deployed_input_contract_version(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-pinned-contract"))
-    service.contract_registry.register(
+async def test_run_creation_validates_against_deployed_input_contract_version(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-pinned-contract"))
+    await service.contract_registry.register(
         RunInputPayloadV2,
         name="contract://input",
         version=2,
@@ -109,7 +109,7 @@ def test_run_creation_validates_against_deployed_input_contract_version(sqlite_d
         release=release,
         output_data={"value": 10},
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -124,9 +124,9 @@ def test_run_creation_validates_against_deployed_input_contract_version(sqlite_d
         release.set()
 
 
-def test_run_creation_rejects_foreign_thread_id(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-thread-mismatch"))
-    service.run_repository.create(
+async def test_run_creation_rejects_foreign_thread_id(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-thread-mismatch"))
+    await service.run_repository.create(
         Run(
             run_id="foreign-run",
             thread_id="shared-thread",
@@ -134,7 +134,7 @@ def test_run_creation_rejects_foreign_thread_id(sqlite_db) -> None:
             deployment_ref="other-deployment",
         )
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -148,8 +148,8 @@ def test_run_creation_rejects_foreign_thread_id(sqlite_db) -> None:
     assert "thread identity mismatch" in response.text
 
 
-def test_run_status_reports_running_and_completed_state(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-complete"))
+async def test_run_status_reports_running_and_completed_state(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-complete"))
     started = threading.Event()
     release = threading.Event()
     service.orchestrator.agent_runners["agent-step"] = BlockingAgentRunner(
@@ -157,7 +157,7 @@ def test_run_status_reports_running_and_completed_state(sqlite_db) -> None:
         release=release,
         output_data={"value": 42},
     )
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -193,9 +193,9 @@ def test_run_status_reports_running_and_completed_state(sqlite_db) -> None:
     assert completed_payload["workspace_id"] is None
 
 
-def test_run_status_returns_404_for_unknown_run(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-missing"))
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+async def test_run_status_returns_404_for_unknown_run(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-missing"))
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -205,20 +205,20 @@ def test_run_status_returns_404_for_unknown_run(sqlite_db) -> None:
     assert response.json() == {"detail": "run not found"}
 
 
-def test_run_status_does_not_expose_runs_from_other_deployments(sqlite_db) -> None:
-    first_service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-scope-a"))
-    second_service, _ = deploy_service(
+async def test_run_status_does_not_expose_runs_from_other_deployments(sqlite_db) -> None:
+    first_service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-scope-a"))
+    second_service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-run-scope-b"),
         deployment_ref="service-run-api-b",
     )
-    foreign_run = second_service.run_repository.create(
+    foreign_run = await second_service.run_repository.create(
         Run(
             graph_version_ref=second_service.deployment.graph_version_ref,
             deployment_ref=second_service.deployment.deployment_ref,
         )
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=first_service.deployment.deployment_ref,
         auth_config=first_service.auth_config,
@@ -232,9 +232,9 @@ def test_run_status_does_not_expose_runs_from_other_deployments(sqlite_db) -> No
     assert response.json() == {"detail": "run not found"}
 
 
-def test_run_status_does_not_expose_runs_from_other_deployment_versions(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-scope-version"))
-    original_run = service.run_repository.create(
+async def test_run_status_does_not_expose_runs_from_other_deployment_versions(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-scope-version"))
+    original_run = await service.run_repository.create(
         Run(
             graph_version_ref=service.deployment.graph_version_ref,
             deployment_ref=service.deployment.deployment_ref,
@@ -242,16 +242,16 @@ def test_run_status_does_not_expose_runs_from_other_deployment_versions(sqlite_d
     )
 
     graph_repository = GraphRepository(sqlite_db)
-    draft = graph_repository.clone_published_to_draft("graph-run-scope-version", 1)
-    graph_repository.save(draft)
-    published_v2 = graph_repository.publish(draft.graph_id, draft.version)
-    service.deployment_service.deploy(
+    draft = await graph_repository.clone_published_to_draft("graph-run-scope-version", 1)
+    await graph_repository.save(draft)
+    published_v2 = await graph_repository.publish(draft.graph_id, draft.version)
+    await service.deployment_service.deploy(
         service.deployment.deployment_ref,
         published_v2.graph_id,
         published_v2.version,
     )
 
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -264,11 +264,11 @@ def test_run_status_does_not_expose_runs_from_other_deployment_versions(sqlite_d
     assert response.json() == {"detail": "run not found"}
 
 
-def test_run_status_reports_failed_state(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-failed"))
+async def test_run_status_reports_failed_state(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-failed"))
     started = threading.Event()
     service.orchestrator.agent_runners["agent-step"] = FailingAgentRunner(started=started)
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -292,10 +292,10 @@ def test_run_status_reports_failed_state(sqlite_db) -> None:
     assert failed_payload["failure_state"]["message"] == "boom"
 
 
-def test_run_creation_returns_404_when_pinned_input_contract_is_missing(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-missing-contract"))
-    with sqlite_db.transaction() as connection:
-        connection.execute(
+async def test_run_creation_returns_404_when_pinned_input_contract_is_missing(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-missing-contract"))
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
             """
             UPDATE deployment_versions
             SET entry_input_contract_version = 999
@@ -303,7 +303,7 @@ def test_run_creation_returns_404_when_pinned_input_contract_is_missing(sqlite_d
             """,
             (service.deployment.deployment_id,),
         )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -322,9 +322,9 @@ def test_run_creation_returns_404_when_pinned_input_contract_is_missing(sqlite_d
     }
 
 
-def test_run_status_reports_approval_paused_state(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, approval_graph(graph_id="graph-run-paused"))
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+async def test_run_status_reports_approval_paused_state(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, approval_graph(graph_id="graph-run-paused"))
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -347,19 +347,19 @@ def test_run_status_reports_approval_paused_state(sqlite_db) -> None:
     assert paused_payload["terminal_output"] is None
 
 
-def test_run_status_reports_policy_and_loop_guard_termination(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, agent_graph(graph_id="graph-run-terminated"))
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+async def test_run_status_reports_policy_and_loop_guard_termination(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-terminated"))
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
-    policy_run = service.run_repository.create(
+    policy_run = await service.run_repository.create(
         Run(
             graph_version_ref=service.deployment.graph_version_ref,
             deployment_ref=service.deployment.deployment_ref,
             failure_state=RunFailureState(reason="policy_violation", message="denied"),
         ).model_copy(update={"status": RunStatus.FAILED})
     )
-    loop_guard_run = service.run_repository.create(
+    loop_guard_run = await service.run_repository.create(
         Run(
             graph_version_ref=service.deployment.graph_version_ref,
             deployment_ref=service.deployment.deployment_ref,

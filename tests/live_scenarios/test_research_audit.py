@@ -171,10 +171,10 @@ def _final_provider():
     return CallableProviderAdapter(provider)
 
 
-def test_research_audit_bootstrap_and_api_flow(sqlite_db) -> None:
+async def test_research_audit_bootstrap_and_api_flow(sqlite_db) -> None:
     from live_scenarios.research_audit.bootstrap import bootstrap_research_audit_service
 
-    service = bootstrap_research_audit_service(
+    service = await bootstrap_research_audit_service(
         sqlite_db,
         provider_adapters={
             "plan": _planner_provider(requires_research=True),
@@ -187,7 +187,7 @@ def test_research_audit_bootstrap_and_api_flow(sqlite_db) -> None:
         },
         auth_config=default_service_auth_config(),
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=default_service_auth_config(),
@@ -205,12 +205,12 @@ def test_research_audit_bootstrap_and_api_flow(sqlite_db) -> None:
         run_id = create.json()["run_id"]
         completed = _wait_for(client, run_id, "succeeded", headers=operator_headers())
 
-    audits = service.audit_repository.list_by_run(run_id)
+    audits = await service.audit_repository.list_by_run(run_id)
 
     assert health.status_code == 200
     assert completed["terminal_output"]["approval_used"] is False
     assert completed["terminal_output"]["run_count"] == 1
-    assert [entry.node_id for entry in service.run_repository.get(run_id).execution_history] == [
+    assert [entry.node_id for entry in (await service.run_repository.get(run_id)).execution_history] == [
         "plan",
         "research",
         "normalize_evidence",
@@ -225,10 +225,10 @@ def test_research_audit_bootstrap_and_api_flow(sqlite_db) -> None:
     } == {"repo_search", "read_file_excerpt"}
 
 
-def test_research_audit_approval_pause_and_resume(sqlite_db) -> None:
+async def test_research_audit_approval_pause_and_resume(sqlite_db) -> None:
     from live_scenarios.research_audit.bootstrap import bootstrap_research_audit_service
 
-    service = bootstrap_research_audit_service(
+    service = await bootstrap_research_audit_service(
         sqlite_db,
         provider_adapters={
             "plan": _planner_provider(requires_research=True),
@@ -241,7 +241,7 @@ def test_research_audit_approval_pause_and_resume(sqlite_db) -> None:
         },
         auth_config=default_service_auth_config(),
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=default_service_auth_config(),
@@ -277,10 +277,10 @@ def test_research_audit_approval_pause_and_resume(sqlite_db) -> None:
     assert completed["terminal_output"]["answer"].startswith("Audit complete")
 
 
-def test_research_audit_thread_continuity_across_runs(sqlite_db) -> None:
+async def test_research_audit_thread_continuity_across_runs(sqlite_db) -> None:
     from live_scenarios.research_audit.bootstrap import bootstrap_research_audit_service
 
-    service = bootstrap_research_audit_service(
+    service = await bootstrap_research_audit_service(
         sqlite_db,
         provider_adapters={
             "plan": _planner_provider(requires_research=False),
@@ -288,7 +288,7 @@ def test_research_audit_thread_continuity_across_runs(sqlite_db) -> None:
         },
         auth_config=default_service_auth_config(),
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=default_service_auth_config(),
@@ -315,7 +315,7 @@ def test_research_audit_thread_continuity_across_runs(sqlite_db) -> None:
         second_run_id = second.json()["run_id"]
         second_done = _wait_for(client, second_run_id, "succeeded", headers=operator_headers())
 
-    thread = service.thread_repository.get(thread_id)
+    thread = await service.thread_repository.get(thread_id)
 
     assert first_done["terminal_output"]["run_count"] == 1
     assert second_done["terminal_output"]["run_count"] == 2
@@ -324,10 +324,10 @@ def test_research_audit_thread_continuity_across_runs(sqlite_db) -> None:
     assert thread.state_snapshot_refs
 
 
-def test_research_audit_strict_policy_mode_terminates_run(sqlite_db) -> None:
+async def test_research_audit_strict_policy_mode_terminates_run(sqlite_db) -> None:
     from live_scenarios.research_audit.bootstrap import bootstrap_research_audit_service
 
-    service = bootstrap_research_audit_service(
+    service = await bootstrap_research_audit_service(
         sqlite_db,
         provider_adapters={
             "plan": _planner_provider(requires_research=True),
@@ -341,7 +341,7 @@ def test_research_audit_strict_policy_mode_terminates_run(sqlite_db) -> None:
         strict_policy=True,
         auth_config=default_service_auth_config(),
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=default_service_auth_config(),
@@ -363,7 +363,7 @@ def test_research_audit_strict_policy_mode_terminates_run(sqlite_db) -> None:
             headers=operator_headers(),
         )
 
-    audits = service.audit_repository.list_by_run(run_id)
+    audits = await service.audit_repository.list_by_run(run_id)
 
     assert failed["failure_state"]["reason"] == "policy_violation"
     assert len(audits) == 1

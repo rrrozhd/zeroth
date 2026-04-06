@@ -12,7 +12,9 @@ from zeroth.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
 from zeroth.orchestrator import RuntimeOrchestrator
 from zeroth.runs import RunRepository, RunStatus, ThreadRepository
 from zeroth.secrets import EnvSecretProvider, SecretResolver
-from zeroth.storage import EncryptedField, SQLiteDatabase
+from zeroth.service.bootstrap import run_migrations
+from zeroth.storage import EncryptedField
+from zeroth.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 def test_encrypted_field_round_trips_plaintext() -> None:
@@ -24,16 +26,16 @@ def test_encrypted_field_round_trips_plaintext() -> None:
     assert encrypted.decrypt(ciphertext) == "top-secret"
 
 
-@pytest.mark.asyncio
 async def test_checkpoints_do_not_persist_raw_secret_values(tmp_path: Path) -> None:
-    database = SQLiteDatabase(
-        tmp_path / "checkpoints.db",
-        encryption_key=EncryptedField.generate_key(),
-    )
+    db_path = str(tmp_path / "checkpoints.db")
+    encryption_key = EncryptedField.generate_key()
+    run_migrations(f"sqlite:///{db_path}")
+    database = AsyncSQLiteDatabase(path=db_path, encryption_key=encryption_key)
+
     run_repository = RunRepository(database)
     thread_repository = ThreadRepository(database)
     resolver = RepositoryThreadResolver(thread_repository)
-    created = resolver.resolve(
+    created = await resolver.resolve(
         None,
         graph_version_ref="graph:v1",
         deployment_ref="deployment:v1",
@@ -49,25 +51,26 @@ async def test_checkpoints_do_not_persist_raw_secret_values(tmp_path: Path) -> N
         {"secret": "top-secret", "nested": {"token": "abc123"}},
     )
 
-    with database.transaction() as connection:
-        row = connection.execute(
+    async with database.transaction() as connection:
+        row = await connection.fetch_one(
             "SELECT state_json FROM run_checkpoints WHERE checkpoint_id = ?",
             (checkpoint_id,),
-        ).fetchone()
+        )
     assert row is not None
     assert "top-secret" not in row["state_json"]
     assert "abc123" not in row["state_json"]
 
     loaded = await store.load(created.thread.thread_id)
     assert loaded == {"secret": "top-secret", "nested": {"token": "abc123"}}
+    await database.close()
 
 
-@pytest.mark.asyncio
 async def test_audit_records_do_not_contain_raw_secret_values_at_rest(tmp_path: Path) -> None:
-    database = SQLiteDatabase(
-        tmp_path / "audit.db",
-        encryption_key=EncryptedField.generate_key(),
-    )
+    db_path = str(tmp_path / "audit.db")
+    encryption_key = EncryptedField.generate_key()
+    run_migrations(f"sqlite:///{db_path}")
+    database = AsyncSQLiteDatabase(path=db_path, encryption_key=encryption_key)
+
     audit_repository = AuditRepository(database)
     run_repository = RunRepository(database)
     secret_resolver = SecretResolver(EnvSecretProvider({"API_KEY": "super-secret"}))
@@ -110,11 +113,13 @@ async def test_audit_records_do_not_contain_raw_secret_values_at_rest(tmp_path: 
     run = await orchestrator.run_graph(graph, {"value": "super-secret"})
 
     assert run.status is RunStatus.COMPLETED
-    audit = audit_repository.list_by_run(run.run_id)[0]
+    audits = await audit_repository.list_by_run(run.run_id)
+    audit = audits[0]
     assert audit.input_snapshot == {"value": "[REDACTED:API_KEY]"}
     assert audit.execution_metadata["secret"] == "[REDACTED:API_KEY]"
 
-    with database.transaction() as connection:
-        row = connection.execute("SELECT record_json FROM node_audits").fetchone()
+    async with database.transaction() as connection:
+        row = await connection.fetch_one("SELECT record_json FROM node_audits", ())
     assert row is not None
     assert "super-secret" not in row["record_json"]
+    await database.close()

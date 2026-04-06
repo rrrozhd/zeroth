@@ -150,7 +150,7 @@ async def test_executable_unit_admission_denials_are_recorded_in_audit(
     run = await orchestrator.run_graph(graph, {"value": 1})
 
     assert run.status is RunStatus.FAILED
-    audits = AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     assert audits[0].status == "rejected"
     assert audits[0].execution_metadata["admission"]["admitted"] is False

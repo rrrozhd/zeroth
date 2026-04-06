@@ -423,7 +423,7 @@ def _policy_graph(*, graph_id: str) -> Graph:
     )
 
 
-def test_phase5_linear_graph_runs_agent_to_eu_to_agent_via_api(sqlite_db, tmp_path: Path) -> None:
+async def test_phase5_linear_graph_runs_agent_to_eu_to_agent_via_api(sqlite_db, tmp_path: Path) -> None:
     script = tmp_path / "double.py"
     script.write_text(
         """
@@ -443,7 +443,7 @@ print(json.dumps({"value": payload["value"] * 2}))
         input_model=NumberInput,
         output_model=NumberOutput,
     )
-    service, _ = deploy_service(
+    service, _ = await deploy_service(
         sqlite_db,
         _linear_graph(graph_id="graph-phase5-linear"),
         extra_contract_models={"contract://number": NumberOutput},
@@ -455,7 +455,7 @@ print(json.dumps({"value": payload["value"] * 2}))
         lambda payload, _thread_id, _context: {"value": payload["value"] + 1}
     )
     service.orchestrator.executable_unit_runner = ExecutableUnitRunner(registry)
-    app = service_app(sqlite_db, service.deployment.deployment_ref, service)
+    app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -467,8 +467,8 @@ print(json.dumps({"value": payload["value"] * 2}))
         run_id = create_response.json()["run_id"]
         completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
-    persisted = service.run_repository.get(run_id)
-    audits = service.audit_repository.list_by_run(run_id)
+    persisted = await service.run_repository.get(run_id)
+    audits = await service.audit_repository.list_by_run(run_id)
 
     assert completed["terminal_output"] == {"value": 7}
     assert completed["audit_refs"] == ["audit:1", "audit:2", "audit:3"]
@@ -478,12 +478,12 @@ print(json.dumps({"value": payload["value"] * 2}))
     assert audits[1].execution_metadata["backend"] == "local"
 
 
-def test_phase5_cyclic_graph_stops_at_loop_guard_via_api(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, _cyclic_graph(graph_id="graph-phase5-cycle"))
+async def test_phase5_cyclic_graph_stops_at_loop_guard_via_api(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, _cyclic_graph(graph_id="graph-phase5-cycle"))
     service.orchestrator.agent_runners["loop"] = FunctionalRunner(
         lambda payload, _thread_id, _context: {"value": payload.get("value", 0) + 1}
     )
-    app = service_app(sqlite_db, service.deployment.deployment_ref, service)
+    app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -500,7 +500,7 @@ def test_phase5_cyclic_graph_stops_at_loop_guard_via_api(sqlite_db) -> None:
             headers=operator_headers(),
         )
 
-    persisted = service.run_repository.get(run_id)
+    persisted = await service.run_repository.get(run_id)
 
     assert failed["terminal_output"] is None
     assert failed["failure_state"]["reason"] == "max_total_steps"
@@ -509,7 +509,7 @@ def test_phase5_cyclic_graph_stops_at_loop_guard_via_api(sqlite_db) -> None:
     assert persisted.node_visit_counts["loop"] == 2
 
 
-def test_phase5_conditional_branching_fans_out_via_api(sqlite_db, tmp_path: Path) -> None:
+async def test_phase5_conditional_branching_fans_out_via_api(sqlite_db, tmp_path: Path) -> None:
     left_script = tmp_path / "left.py"
     left_script.write_text(
         """
@@ -547,7 +547,7 @@ print(json.dumps({"branch": "right", "value": payload["value"] + 20}))
         input_model=NumberInput,
         output_model=BranchResult,
     )
-    service, _ = deploy_service(
+    service, _ = await deploy_service(
         sqlite_db,
         _branching_graph(graph_id="graph-phase5-branching"),
         extra_contract_models={"contract://branch-plan": BranchPlanOutput},
@@ -560,7 +560,7 @@ print(json.dumps({"branch": "right", "value": payload["value"] + 20}))
         }
     )
     service.orchestrator.executable_unit_runner = ExecutableUnitRunner(registry)
-    app = service_app(sqlite_db, service.deployment.deployment_ref, service)
+    app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -572,8 +572,8 @@ print(json.dumps({"branch": "right", "value": payload["value"] + 20}))
         run_id = create_response.json()["run_id"]
         completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
-    persisted = service.run_repository.get(run_id)
-    audits = service.audit_repository.list_by_run(run_id)
+    persisted = await service.run_repository.get(run_id)
+    audits = await service.audit_repository.list_by_run(run_id)
 
     assert completed["terminal_output"] == {"branch": "right", "value": 25}
     assert persisted is not None
@@ -584,14 +584,14 @@ print(json.dumps({"branch": "right", "value": payload["value"] + 20}))
     assert [record.node_id for record in audits] == ["decide", "left", "right"]
 
 
-def test_phase5_approval_pause_and_resume_via_api(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_phase5_approval_pause_and_resume_via_api(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-phase5-approval"),
     )
     finish_runner = CountingFinishRunner()
     service.orchestrator.agent_runners["finish-step"] = finish_runner
-    app = service_app(sqlite_db, service.deployment.deployment_ref, service)
+    app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -619,8 +619,8 @@ def test_phase5_approval_pause_and_resume_via_api(sqlite_db) -> None:
         )
         completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
-    persisted = service.run_repository.get(run_id)
-    audits = service.audit_repository.list_by_run(run_id)
+    persisted = await service.run_repository.get(run_id)
+    audits = await service.audit_repository.list_by_run(run_id)
 
     assert resolve_response.status_code == 200
     assert completed["terminal_output"] == {"value": 9}
@@ -638,8 +638,8 @@ def test_phase5_approval_pause_and_resume_via_api(sqlite_db) -> None:
     )
 
 
-def test_phase5_thread_continuity_across_runs_via_api(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, _thread_state_graph(graph_id="graph-phase5-thread"))
+async def test_phase5_thread_continuity_across_runs_via_api(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, _thread_state_graph(graph_id="graph-phase5-thread"))
     thread_store = RepositoryThreadStateStore(
         run_repository=service.run_repository,
         thread_repository=service.thread_repository,
@@ -662,7 +662,7 @@ def test_phase5_thread_continuity_across_runs_via_api(sqlite_db) -> None:
         ),
         thread_state_store=thread_store,
     )
-    app = service_app(sqlite_db, service.deployment.deployment_ref, service)
+    app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
         first_create = client.post(
@@ -694,20 +694,20 @@ def test_phase5_thread_continuity_across_runs_via_api(sqlite_db) -> None:
             headers=operator_headers(),
         )
 
-    thread = service.thread_repository.get(thread_id)
+    thread = await service.thread_repository.get(thread_id)
     assert first_completed["thread_id"] == thread_id
     assert first_completed["terminal_output"] == {"value": 3}
     assert second_completed["thread_id"] == thread_id
     assert second_completed["terminal_output"] == {"value": 8}
     assert thread is not None
     assert thread.run_ids == [first_run_id, second_run_id]
-    checkpoint = service.run_repository.get_checkpoint(thread.state_snapshot_refs[-1])
+    checkpoint = await service.run_repository.get_checkpoint(thread.state_snapshot_refs[-1])
     assert checkpoint is not None
     assert checkpoint.metadata["thread_state"]["output"] == {"value": 8}
 
 
-def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, _shared_memory_graph(graph_id="graph-phase5-memory"))
+async def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, _shared_memory_graph(graph_id="graph-phase5-memory"))
     registry = InMemoryConnectorRegistry()
     registry.register(
         "memory://shared",
@@ -750,7 +750,7 @@ def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) -> Non
 
     service.orchestrator.agent_runners["writer"] = build_memory_runner("writer")
     service.orchestrator.agent_runners["reader"] = build_memory_runner("reader")
-    app = service_app(sqlite_db, service.deployment.deployment_ref, service)
+    app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -762,8 +762,8 @@ def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) -> Non
         run_id = create_response.json()["run_id"]
         completed = _wait_for_status(client, run_id, "succeeded", headers=operator_headers())
 
-    persisted = service.run_repository.get(run_id)
-    audits = service.audit_repository.list_by_run(run_id)
+    persisted = await service.run_repository.get(run_id)
+    audits = await service.audit_repository.list_by_run(run_id)
     reader_memory = audits[1].execution_metadata["extra"]["memory_interactions"]
 
     assert completed["terminal_output"] == {"value": 4, "seen": 4}
@@ -772,8 +772,8 @@ def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) -> Non
     assert [interaction["operation"] for interaction in reader_memory] == ["read", "write"]
 
 
-def test_phase5_deploy_and_invoke_via_service_wrapper_api(sqlite_db) -> None:
-    service, deployment = deploy_service(
+async def test_phase5_deploy_and_invoke_via_service_wrapper_api(sqlite_db) -> None:
+    service, deployment = await deploy_service(
         sqlite_db,
         _service_wrapper_graph(graph_id="graph-phase5-deploy"),
         deployment_ref="phase5-deploy",
@@ -781,7 +781,7 @@ def test_phase5_deploy_and_invoke_via_service_wrapper_api(sqlite_db) -> None:
     service.orchestrator.agent_runners["service-agent"] = FunctionalRunner(
         lambda payload, _thread_id, _context: {"value": payload["value"] * 3}
     )
-    app = service_app(sqlite_db, service.deployment.deployment_ref, service)
+    app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
         health_response = client.get("/health", headers=operator_headers())
@@ -807,8 +807,8 @@ def test_phase5_deploy_and_invoke_via_service_wrapper_api(sqlite_db) -> None:
     assert completed["audit_refs"] == ["audit:1"]
 
 
-def test_phase5_policy_violation_fails_execution_and_records_audit(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, _policy_graph(graph_id="graph-phase5-policy"))
+async def test_phase5_policy_violation_fails_execution_and_records_audit(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, _policy_graph(graph_id="graph-phase5-policy"))
     runner = FunctionalRunner(lambda payload, _thread_id, _context: {"value": payload["value"]})
     service.orchestrator.agent_runners["policy-agent"] = runner
 
@@ -831,7 +831,7 @@ def test_phase5_policy_violation_fails_execution_and_records_audit(sqlite_db) ->
         policy_registry=policy_registry,
         capability_registry=capability_registry,
     )
-    app = service_app(sqlite_db, service.deployment.deployment_ref, service)
+    app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -848,7 +848,7 @@ def test_phase5_policy_violation_fails_execution_and_records_audit(sqlite_db) ->
             headers=operator_headers(),
         )
 
-    audits = service.audit_repository.list_by_run(run_id)
+    audits = await service.audit_repository.list_by_run(run_id)
 
     assert failed["terminal_output"] is None
     assert failed["failure_state"]["reason"] == "policy_violation"

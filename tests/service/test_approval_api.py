@@ -16,9 +16,9 @@ from zeroth.graph import GraphRepository
 from zeroth.service.bootstrap import bootstrap_app
 
 
-def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, approval_graph(graph_id="graph-approval-query"))
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+async def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, approval_graph(graph_id="graph-approval-query"))
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -70,18 +70,18 @@ def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope(sqlit
     assert [item["approval_id"] for item in query_by_id_response.json()] == [approval_id]
 
     graph_repository = GraphRepository(sqlite_db)
-    draft = graph_repository.clone_published_to_draft(
+    draft = await graph_repository.clone_published_to_draft(
         service.deployment.graph_id,
         service.deployment.graph_version,
     )
-    graph_repository.save(draft)
-    published_v2 = graph_repository.publish(draft.graph_id, draft.version)
-    service.deployment_service.deploy(
+    await graph_repository.save(draft)
+    published_v2 = await graph_repository.publish(draft.graph_id, draft.version)
+    await service.deployment_service.deploy(
         service.deployment.deployment_ref,
         published_v2.graph_id,
         published_v2.version,
     )
-    fresh_app = bootstrap_app(
+    fresh_app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -105,20 +105,20 @@ def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope(sqlit
         ("edit_and_approve", {"value": 4}, "succeeded", {"value": 5}),
     ],
 )
-def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
+async def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
     sqlite_db,
     decision,
     edited_payload,
     expected_status,
     expected_output,
 ) -> None:
-    service, _ = deploy_service(
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id=f"graph-approval-{decision}"),
     )
     finish_runner = CountingFinishRunner()
     service.orchestrator.agent_runners["finish-step"] = finish_runner
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -162,14 +162,14 @@ def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
         assert finish_runner.last_input == (edited_payload or {"value": 3})
 
 
-def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-approval-idempotent"),
     )
     finish_runner = CountingFinishRunner()
     service.orchestrator.agent_runners["finish-step"] = finish_runner
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:

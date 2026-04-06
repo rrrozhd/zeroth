@@ -4,9 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from zeroth.storage import SQLiteDatabase
+from zeroth.service.bootstrap import run_migrations
+from zeroth.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 @pytest.fixture
-def runs_db(tmp_path: Path) -> SQLiteDatabase:
-    return SQLiteDatabase(tmp_path / "runs.db")
+async def runs_db(tmp_path: Path) -> AsyncSQLiteDatabase:
+    db_path = str(tmp_path / "runs.db")
+    run_migrations(f"sqlite:///{db_path}")
+    db = AsyncSQLiteDatabase(path=db_path)
+    yield db
+    await db.close()

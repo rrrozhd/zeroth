@@ -13,15 +13,15 @@ from zeroth.service.bootstrap import bootstrap_app
 DEPLOYMENT = "guardrail-test"
 
 
-def test_rate_limit_returns_429_when_bucket_exhausted(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_rate_limit_returns_429_when_bucket_exhausted(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-ratelimit"),
         deployment_ref=DEPLOYMENT,
     )
     # Use a tiny capacity so it exhausts immediately.
     service.guardrail_config.rate_limit_capacity = 1.0
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -43,8 +43,8 @@ def test_rate_limit_returns_429_when_bucket_exhausted(sqlite_db) -> None:
     assert r2.headers.get("Retry-After") is not None
 
 
-def test_backpressure_returns_503_when_queue_too_deep(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_backpressure_returns_503_when_queue_too_deep(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-backpressure"),
         deployment_ref=DEPLOYMENT + "-bp",
@@ -52,7 +52,7 @@ def test_backpressure_returns_503_when_queue_too_deep(sqlite_db) -> None:
     # Set depth limit to 1 — any run already in the queue triggers backpressure.
     service.guardrail_config.backpressure_queue_depth = 1
 
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -74,15 +74,15 @@ def test_backpressure_returns_503_when_queue_too_deep(sqlite_db) -> None:
     assert r1.status_code in (202, 503)
 
 
-def test_quota_returns_503_when_daily_limit_exceeded(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_quota_returns_503_when_daily_limit_exceeded(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-quota"),
         deployment_ref=DEPLOYMENT + "-quota",
     )
     service.guardrail_config.quota_daily_limit = 1
 
-    app = bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:

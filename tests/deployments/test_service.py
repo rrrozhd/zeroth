@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
-
 import pytest
 from pydantic import BaseModel
 
@@ -25,12 +23,12 @@ class DeploymentOutputContract(BaseModel):
     value: int
 
 
-def _build_service(sqlite_db) -> DeploymentService:
+async def _build_service(sqlite_db) -> DeploymentService:
     graph_repository = GraphRepository(sqlite_db)
     deployment_repository = SQLiteDeploymentRepository(sqlite_db)
     contract_registry = ContractRegistry(sqlite_db)
-    contract_registry.register(DeploymentInputContract, name="contract://input")
-    contract_registry.register(DeploymentOutputContract, name="contract://output")
+    await contract_registry.register(DeploymentInputContract, name="contract://input")
+    await contract_registry.register(DeploymentOutputContract, name="contract://output")
     return DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=deployment_repository,
@@ -52,13 +50,13 @@ def _retarget_graph(graph_id: str):
     )
 
 
-def test_deploy_published_graph_succeeds(sqlite_db) -> None:
-    service = _build_service(sqlite_db)
+async def test_deploy_published_graph_succeeds(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
-    graph = graph_repository.create(build_graph())
-    published = graph_repository.publish(graph.graph_id, graph.version)
+    graph = await graph_repository.create(build_graph())
+    published = await graph_repository.publish(graph.graph_id, graph.version)
 
-    deployed = service.deploy("graph-1-service", graph.graph_id, graph.version)
+    deployed = await service.deploy("graph-1-service", graph.graph_id, graph.version)
 
     assert deployed.deployment_ref == "graph-1-service"
     assert deployed.version == 1
@@ -71,51 +69,51 @@ def test_deploy_published_graph_succeeds(sqlite_db) -> None:
     assert deployed.entry_output_contract_version == 1
     assert deployed.serialized_graph == serialize_graph(published)
     assert deployed.status is DeploymentStatus.ACTIVE
-    assert service.get("graph-1-service", 1) == deployed
-    assert service.list("graph-1-service") == [deployed]
+    assert await service.get("graph-1-service", 1) == deployed
+    assert await service.list("graph-1-service") == [deployed]
 
 
-def test_deploy_draft_graph_fails(sqlite_db) -> None:
-    service = _build_service(sqlite_db)
+async def test_deploy_draft_graph_fails(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
-    graph = graph_repository.create(build_graph())
+    graph = await graph_repository.create(build_graph())
 
     with pytest.raises(DeploymentError, match="published"):
-        service.deploy("graph-1-service", graph.graph_id, graph.version)
+        await service.deploy("graph-1-service", graph.graph_id, graph.version)
 
 
-def test_unversioned_deploy_selects_latest_published_version_when_newer_draft_exists(
+async def test_unversioned_deploy_selects_latest_published_version_when_newer_draft_exists(
     sqlite_db,
 ) -> None:
-    service = _build_service(sqlite_db)
+    service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
-    original = graph_repository.create(build_graph())
-    graph_repository.publish(original.graph_id, original.version)
+    original = await graph_repository.create(build_graph())
+    await graph_repository.publish(original.graph_id, original.version)
 
-    second = graph_repository.clone_published_to_draft(original.graph_id, 1)
-    graph_repository.save(second)
-    graph_repository.publish(second.graph_id, second.version)
+    second = await graph_repository.clone_published_to_draft(original.graph_id, 1)
+    await graph_repository.save(second)
+    await graph_repository.publish(second.graph_id, second.version)
 
-    newer_draft = graph_repository.clone_published_to_draft(original.graph_id, 2)
-    graph_repository.save(newer_draft)
+    newer_draft = await graph_repository.clone_published_to_draft(original.graph_id, 2)
+    await graph_repository.save(newer_draft)
 
-    deployed = service.deploy("graph-1-service", original.graph_id)
+    deployed = await service.deploy("graph-1-service", original.graph_id)
 
     assert deployed.graph_version == 2
     assert deployed.graph_version_ref == "graph-1@2"
     assert deployed.serialized_graph == serialize_graph(
-        graph_repository.get(original.graph_id, 2)
+        await graph_repository.get(original.graph_id, 2)
     )
 
 
-def test_snapshot_integrity_is_preserved(sqlite_db) -> None:
-    service = _build_service(sqlite_db)
+async def test_snapshot_integrity_is_preserved(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
-    original = graph_repository.create(build_graph())
-    published_v1 = graph_repository.publish(original.graph_id, original.version)
-    deployed_v1 = service.deploy("graph-1-service", original.graph_id, 1)
+    original = await graph_repository.create(build_graph())
+    published_v1 = await graph_repository.publish(original.graph_id, original.version)
+    deployed_v1 = await service.deploy("graph-1-service", original.graph_id, 1)
 
-    cloned = graph_repository.clone_published_to_draft(original.graph_id, 1)
+    cloned = await graph_repository.clone_published_to_draft(original.graph_id, 1)
     entry_node = cloned.nodes[0].model_copy(
         update={
             "input_contract_ref": "contract://input.v2",
@@ -128,10 +126,10 @@ def test_snapshot_integrity_is_preserved(sqlite_db) -> None:
             "deployment_settings": {"environment": "prod", "region": "us-east-1"},
         }
     )
-    graph_repository.save(updated_graph)
-    graph_repository.publish(updated_graph.graph_id, updated_graph.version)
+    await graph_repository.save(updated_graph)
+    await graph_repository.publish(updated_graph.graph_id, updated_graph.version)
 
-    persisted = service.get("graph-1-service", deployed_v1.version)
+    persisted = await service.get("graph-1-service", deployed_v1.version)
     assert persisted is not None
 
     assert persisted.graph_version == 1
@@ -144,10 +142,10 @@ def test_snapshot_integrity_is_preserved(sqlite_db) -> None:
     assert deserialize_graph(persisted.serialized_graph) == published_v1
 
 
-def test_deploy_rejects_missing_entry_contract_registration(sqlite_db) -> None:
-    service = _build_service(sqlite_db)
+async def test_deploy_rejects_missing_entry_contract_registration(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
-    original = graph_repository.create(build_graph())
+    original = await graph_repository.create(build_graph())
     cloned = original.model_copy(
         update={
             "nodes": [
@@ -158,32 +156,32 @@ def test_deploy_rejects_missing_entry_contract_registration(sqlite_db) -> None:
             ]
         }
     )
-    graph_repository.save(cloned)
-    graph_repository.publish(cloned.graph_id, cloned.version)
+    await graph_repository.save(cloned)
+    await graph_repository.publish(cloned.graph_id, cloned.version)
 
     with pytest.raises(DeploymentError, match="not registered"):
-        service.deploy("graph-1-service", cloned.graph_id, cloned.version)
+        await service.deploy("graph-1-service", cloned.graph_id, cloned.version)
 
 
-def test_rollback_creates_new_deployment_version_for_older_published_graph(sqlite_db) -> None:
-    service = _build_service(sqlite_db)
+async def test_rollback_creates_new_deployment_version_for_older_published_graph(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
-    original = graph_repository.create(build_graph())
-    graph_repository.publish(original.graph_id, original.version)
-    first = service.deploy("graph-1-service", original.graph_id, 1)
+    original = await graph_repository.create(build_graph())
+    await graph_repository.publish(original.graph_id, original.version)
+    first = await service.deploy("graph-1-service", original.graph_id, 1)
 
-    cloned = graph_repository.clone_published_to_draft(original.graph_id, 1)
+    cloned = await graph_repository.clone_published_to_draft(original.graph_id, 1)
     updated_graph = cloned.model_copy(
         update={
             "deployment_settings": {"environment": "prod"},
             "metadata": {"owner": "team-b"},
         }
     )
-    graph_repository.save(updated_graph)
-    graph_repository.publish(updated_graph.graph_id, updated_graph.version)
-    second = service.deploy("graph-1-service", original.graph_id, 2)
+    await graph_repository.save(updated_graph)
+    await graph_repository.publish(updated_graph.graph_id, updated_graph.version)
+    second = await service.deploy("graph-1-service", original.graph_id, 2)
 
-    rolled_back = service.rollback("graph-1-service", target_graph_version=1)
+    rolled_back = await service.rollback("graph-1-service", target_graph_version=1)
 
     assert first.version == 1
     assert second.version == 2
@@ -193,7 +191,7 @@ def test_rollback_creates_new_deployment_version_for_older_published_graph(sqlit
     assert rolled_back.serialized_graph == first.serialized_graph
     assert rolled_back.status is DeploymentStatus.ACTIVE
 
-    history = service.list("graph-1-service")
+    history = await service.list("graph-1-service")
     assert [deployment.version for deployment in history] == [1, 2, 3]
     assert [deployment.status for deployment in history] == [
         DeploymentStatus.SUPERSEDED,
@@ -202,45 +200,45 @@ def test_rollback_creates_new_deployment_version_for_older_published_graph(sqlit
     ]
 
 
-def test_reusing_existing_deployment_ref_for_different_graph_is_rejected(sqlite_db) -> None:
-    service = _build_service(sqlite_db)
+async def test_reusing_existing_deployment_ref_for_different_graph_is_rejected(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
-    first_graph = graph_repository.create(build_graph())
-    second_graph = graph_repository.create(_retarget_graph("graph-2"))
-    graph_repository.publish(first_graph.graph_id, first_graph.version)
-    graph_repository.publish(second_graph.graph_id, second_graph.version)
+    first_graph = await graph_repository.create(build_graph())
+    second_graph = await graph_repository.create(_retarget_graph("graph-2"))
+    await graph_repository.publish(first_graph.graph_id, first_graph.version)
+    await graph_repository.publish(second_graph.graph_id, second_graph.version)
 
-    service.deploy("shared-service", first_graph.graph_id, first_graph.version)
+    await service.deploy("shared-service", first_graph.graph_id, first_graph.version)
 
     with pytest.raises(DeploymentError, match="deployment_ref"):
-        service.deploy("shared-service", second_graph.graph_id, second_graph.version)
+        await service.deploy("shared-service", second_graph.graph_id, second_graph.version)
 
 
-def test_deploy_retries_when_version_insert_races(sqlite_db, monkeypatch) -> None:
-    service = _build_service(sqlite_db)
+async def test_deploy_retries_when_version_insert_races(sqlite_db, monkeypatch) -> None:
+    service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
-    graph = graph_repository.create(build_graph())
-    graph_repository.publish(graph.graph_id, graph.version)
+    graph = await graph_repository.create(build_graph())
+    await graph_repository.publish(graph.graph_id, graph.version)
 
     versions = iter([1, 2])
     original_create = service.deployment_repository.create
     create_attempts = {"count": 0}
 
-    def fake_next_version(deployment_ref: str) -> int:
+    async def fake_next_version(deployment_ref: str) -> int:
         return next(versions)
 
-    def flaky_create(deployment):
+    async def flaky_create(deployment):
         create_attempts["count"] += 1
         if create_attempts["count"] == 1:
-            raise sqlite3.IntegrityError(
+            raise Exception(
                 "UNIQUE constraint failed: idx_deployment_versions_ref_version"
             )
-        return original_create(deployment)
+        return await original_create(deployment)
 
     monkeypatch.setattr(service.deployment_repository, "next_version", fake_next_version)
     monkeypatch.setattr(service.deployment_repository, "create", flaky_create)
 
-    deployed = service.deploy("graph-1-service", graph.graph_id, graph.version)
+    deployed = await service.deploy("graph-1-service", graph.graph_id, graph.version)
 
     assert deployed.version == 2
     assert create_attempts["count"] == 2

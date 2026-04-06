@@ -35,15 +35,15 @@ def _run() -> Run:
     )
 
 
-def test_approval_service_creates_and_queries_pending_records(sqlite_db) -> None:
+async def test_approval_service_creates_and_queries_pending_records(sqlite_db) -> None:
     service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
         audit_repository=AuditRepository(sqlite_db),
     )
-    run = RunRepository(sqlite_db).create(_run())
+    run = await RunRepository(sqlite_db).create(_run())
 
-    record = service.create_pending(
+    record = await service.create_pending(
         run=run,
         node=_node(),
         input_payload={"secret": "hidden", "value": 2},
@@ -55,29 +55,29 @@ def test_approval_service_creates_and_queries_pending_records(sqlite_db) -> None
         ApprovalDecision.REJECT,
         ApprovalDecision.EDIT_AND_APPROVE,
     ]
-    assert service.get(record.approval_id) == record
-    assert [item.approval_id for item in service.list_pending(run_id=run.run_id)] == [
+    assert await service.get(record.approval_id) == record
+    assert [item.approval_id for item in await service.list_pending(run_id=run.run_id)] == [
         record.approval_id
     ]
-    assert [item.approval_id for item in service.list_pending(thread_id=run.thread_id)] == [
+    assert [item.approval_id for item in await service.list_pending(thread_id=run.thread_id)] == [
         record.approval_id
     ]
     assert [
-        item.approval_id for item in service.list_pending(deployment_ref=run.deployment_ref)
+        item.approval_id for item in await service.list_pending(deployment_ref=run.deployment_ref)
     ] == [record.approval_id]
     assert record.context_excerpt["secret"] == "***REDACTED***"
 
 
-def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
+async def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
     service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
         audit_repository=AuditRepository(sqlite_db),
     )
-    run = RunRepository(sqlite_db).create(_run())
-    record = service.create_pending(run=run, node=_node(), input_payload={"value": 2})
+    run = await RunRepository(sqlite_db).create(_run())
+    record = await service.create_pending(run=run, node=_node(), input_payload={"value": 2})
 
-    resolved = service.resolve(
+    resolved = await service.resolve(
         record.approval_id,
         decision=ApprovalDecision.EDIT_AND_APPROVE,
         actor=ActorIdentity(
@@ -88,7 +88,7 @@ def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
         ),
         edited_payload={"value": 9},
     )
-    repeat = service.resolve(
+    repeat = await service.resolve(
         record.approval_id,
         decision=ApprovalDecision.EDIT_AND_APPROVE,
         actor=ActorIdentity(
@@ -106,7 +106,7 @@ def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
     assert repeat == resolved
 
     with pytest.raises(ValueError):
-        service.resolve(
+        await service.resolve(
             record.approval_id,
             decision=ApprovalDecision.REJECT,
             actor=ActorIdentity(

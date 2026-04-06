@@ -15,15 +15,15 @@ from zeroth.graph import GraphRepository
 from zeroth.service.bootstrap import bootstrap_app
 
 
-def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-phase4-e2e"),
         deployment_ref="phase4-e2e",
     )
     finish_runner = CountingFinishRunner()
     service.orchestrator.agent_runners["finish-step"] = finish_runner
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=default_service_auth_config(),
@@ -103,16 +103,16 @@ def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite_db) -
     assert second_resolution.json()["run"]["terminal_output"] == {"value": 10}
 
     graph_repository = GraphRepository(sqlite_db)
-    draft_v2 = graph_repository.clone_published_to_draft(service.deployment.graph_id, 1)
-    graph_repository.save(draft_v2)
-    published_v2 = graph_repository.publish(draft_v2.graph_id, draft_v2.version)
-    service.deployment_service.deploy(
+    draft_v2 = await graph_repository.clone_published_to_draft(service.deployment.graph_id, 1)
+    await graph_repository.save(draft_v2)
+    published_v2 = await graph_repository.publish(draft_v2.graph_id, draft_v2.version)
+    await service.deployment_service.deploy(
         service.deployment.deployment_ref,
         published_v2.graph_id,
         published_v2.version,
     )
 
-    v2_app = bootstrap_app(
+    v2_app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=default_service_auth_config(),
@@ -133,11 +133,11 @@ def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite_db) -
     assert v2_metadata.json()["graph_version"] == 2
     assert stale_thread.status_code == 409
 
-    rolled_back = service.deployment_service.rollback(
+    rolled_back = await service.deployment_service.rollback(
         service.deployment.deployment_ref,
         target_graph_version=1,
     )
-    rollback_app = bootstrap_app(
+    rollback_app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=default_service_auth_config(),
