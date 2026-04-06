@@ -72,10 +72,7 @@ async def require_deployment_scope(
     principal = current_principal(request)
     deployment_tenant = getattr(deployment, "tenant_id", "default")
     deployment_workspace = getattr(deployment, "workspace_id", None)
-    if (
-        principal.tenant_id == deployment_tenant
-        and principal.workspace_id == deployment_workspace
-    ):
+    if principal.tenant_id == deployment_tenant and principal.workspace_id == deployment_workspace:
         return principal
     bootstrap = getattr(request.app.state, "bootstrap", None)
     await record_service_denial(

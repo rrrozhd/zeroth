@@ -67,7 +67,10 @@ async def test_audit_repository_writes_queries_and_assembles_timeline(sqlite_db)
     await repository.write(second)
     await repository.write(third)
 
-    assert [record.audit_id for record in await repository.list_by_run("run-1")] == ["audit:1", "audit:2"]
+    assert [record.audit_id for record in await repository.list_by_run("run-1")] == [
+        "audit:1",
+        "audit:2",
+    ]
     assert [record.audit_id for record in await repository.list_by_thread("thread-1")] == [
         "audit:1",
         "audit:2",
@@ -137,7 +140,9 @@ async def test_audit_repository_round_trips_actor_and_scope(sqlite_db) -> None:
 async def test_audit_repository_assigns_digest_chain_and_rejects_duplicate_ids(sqlite_db) -> None:
     repository = AuditRepository(sqlite_db)
     first = await repository.write(_record(audit_id="audit:1", run_id="run-chain", node_id="start"))
-    second = await repository.write(_record(audit_id="audit:2", run_id="run-chain", node_id="finish"))
+    second = await repository.write(
+        _record(audit_id="audit:2", run_id="run-chain", node_id="finish")
+    )
 
     assert first.record_digest
     assert first.previous_record_digest is None
@@ -148,7 +153,9 @@ async def test_audit_repository_assigns_digest_chain_and_rejects_duplicate_ids(s
         await repository.write(_record(audit_id="audit:1", run_id="run-chain", node_id="duplicate"))
 
 
-async def test_audit_continuity_verifier_detects_tampering_and_preserves_supersession(sqlite_db) -> None:
+async def test_audit_continuity_verifier_detects_tampering_and_preserves_supersession(
+    sqlite_db,
+) -> None:
     repository = AuditRepository(sqlite_db)
     await repository.write(_record(audit_id="audit:1", run_id="run-verify", node_id="start"))
     await repository.write(

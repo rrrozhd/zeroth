@@ -52,7 +52,7 @@ class RunWorker:
     poll_interval: float = 0.5
     worker_id: str = field(default_factory=_new_worker_id)
     dead_letter_manager: object | None = None  # DeadLetterManager
-    metrics_collector: object | None = None    # MetricsCollector
+    metrics_collector: object | None = None  # MetricsCollector
 
     def __post_init__(self) -> None:
         self._semaphore = asyncio.Semaphore(self.max_concurrency)
@@ -118,6 +118,7 @@ class RunWorker:
     ) -> None:
         """Drive one run to completion or failure under the semaphore."""
         import time
+
         if self.metrics_collector is not None:
             self.metrics_collector.increment("zeroth_runs_started_total")
         started_at = time.perf_counter()
@@ -151,6 +152,7 @@ class RunWorker:
                 await self._mark_failed(run_id, reason="worker_exception")
         finally:
             import contextlib
+
             renewal_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await renewal_task
@@ -186,7 +188,9 @@ class RunWorker:
             if recovery_cp_id:
                 logger.info(
                     "worker %s resuming run %s from checkpoint %s",
-                    self.worker_id, run_id, recovery_cp_id,
+                    self.worker_id,
+                    run_id,
+                    recovery_cp_id,
                 )
                 await self.orchestrator.resume_graph(self.graph, run_id)
                 return
@@ -213,7 +217,8 @@ class RunWorker:
 
         node = next(
             (
-                n for n in self.graph.nodes
+                n
+                for n in self.graph.nodes
                 if n.node_id == record.node_id and isinstance(n, HumanApprovalNode)
             ),
             None,
@@ -257,9 +262,7 @@ class RunWorker:
         while True:
             await asyncio.sleep(interval)
             if not await self.lease_manager.renew_lease(run_id, self.worker_id):
-                logger.warning(
-                    "worker %s lost lease on run %s", self.worker_id, run_id
-                )
+                logger.warning("worker %s lost lease on run %s", self.worker_id, run_id)
                 return
 
     def _track(self, task: asyncio.Task) -> None:

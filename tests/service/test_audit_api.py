@@ -105,7 +105,9 @@ async def test_audit_api_lists_deployment_audits_with_redaction(sqlite_db) -> No
 
 
 async def test_audit_api_exposes_run_and_deployment_timelines_in_order(sqlite_db) -> None:
-    service, deployment = await deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-timeline"))
+    service, deployment = await deploy_service(
+        sqlite_db, agent_graph(graph_id="graph-audit-timeline")
+    )
     await service.audit_repository.write(
         _record(
             audit_id="audit:late",

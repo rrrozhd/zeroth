@@ -31,7 +31,9 @@ async def test_graph_repository_updates_status(sqlite_db) -> None:
     assert (await repository.get(graph.graph_id)).status == GraphStatus.PUBLISHED
 
 
-async def test_graph_repository_clone_published_to_new_draft_and_preserve_history(sqlite_db) -> None:
+async def test_graph_repository_clone_published_to_new_draft_and_preserve_history(
+    sqlite_db,
+) -> None:
     repository = GraphRepository(sqlite_db)
     original = await repository.create(build_graph())
     published = await repository.publish(original.graph_id, original.version)
@@ -43,8 +45,7 @@ async def test_graph_repository_clone_published_to_new_draft_and_preserve_histor
     assert cloned.version == 2
     assert cloned.graph_id == published.graph_id
     assert all(
-        node.graph_version_ref == f"{cloned.graph_id}@{cloned.version}"
-        for node in cloned.nodes
+        node.graph_version_ref == f"{cloned.graph_id}@{cloned.version}" for node in cloned.nodes
     )
     assert [graph.version for graph in await repository.list_versions(original.graph_id)] == [1, 2]
 

@@ -68,9 +68,11 @@ async def test_input_contract_endpoint_returns_deployed_contract_version(sqlite_
     expected = PublicContractSchemaResponse(
         name="contract://input",
         version=1,
-        json_schema=(await service.contract_registry.resolve(
-            ContractReference(name="contract://input", version=1)
-        )).json_schema,
+        json_schema=(
+            await service.contract_registry.resolve(
+                ContractReference(name="contract://input", version=1)
+            )
+        ).json_schema,
     )
 
     with TestClient(app) as client:
@@ -88,9 +90,11 @@ async def test_output_contract_endpoint_returns_deployed_contract_version(sqlite
     expected = PublicContractSchemaResponse(
         name="contract://output",
         version=1,
-        json_schema=(await service.contract_registry.resolve(
-            ContractReference(name="contract://output", version=1)
-        )).json_schema,
+        json_schema=(
+            await service.contract_registry.resolve(
+                ContractReference(name="contract://output", version=1)
+            )
+        ).json_schema,
     )
 
     with TestClient(app) as client:
@@ -110,9 +114,11 @@ async def test_result_error_state_schema_endpoint_exposes_output_contract_and_er
     expected_output = PublicContractSchemaResponse(
         name="contract://output",
         version=1,
-        json_schema=(await service.contract_registry.resolve(
-            ContractReference(name="contract://output", version=1)
-        )).json_schema,
+        json_schema=(
+            await service.contract_registry.resolve(
+                ContractReference(name="contract://output", version=1)
+            )
+        ).json_schema,
     )
 
     with TestClient(app) as client:
@@ -130,9 +136,7 @@ async def test_result_error_state_schema_endpoint_exposes_output_contract_and_er
     assert parsed.graph_version_ref == deployment.graph_version_ref
     assert parsed.result_contract == expected_output
     assert parsed.result_state_schema["type"] == "object"
-    assert parsed.result_state_schema["properties"]["status"] == {
-        "$ref": "#/$defs/RunPublicStatus"
-    }
+    assert parsed.result_state_schema["properties"]["status"] == {"$ref": "#/$defs/RunPublicStatus"}
     assert parsed.result_state_schema["$defs"]["RunPublicStatus"]["enum"] == [
         "queued",
         "running",

@@ -1,4 +1,5 @@
 """Tests for the dead-letter manager."""
+
 from __future__ import annotations
 
 from zeroth.guardrails.dead_letter import DeadLetterManager

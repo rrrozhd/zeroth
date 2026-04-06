@@ -186,9 +186,7 @@ async def _resolve_contract_version(
     if version is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"deployment snapshot is missing pinned {contract_kind} contract version"
-            ),
+            detail=(f"deployment snapshot is missing pinned {contract_kind} contract version"),
         )
     try:
         # Contract lookups are version-pinned so redeploys never drift with registry changes.

@@ -1,4 +1,5 @@
 """Tests for the async LeaseManager."""
+
 from __future__ import annotations
 
 from zeroth.dispatch.lease import LeaseManager
@@ -12,6 +13,7 @@ WORKER_B = "worker-b"
 async def _create_pending_run(run_repo: RunRepository) -> str:
     """Create a PENDING run and return its run_id."""
     from zeroth.runs.models import Run
+
     run = Run(graph_version_ref="g:v1", deployment_ref=DEPLOYMENT)
     persisted = await run_repo.create(run)
     return persisted.run_id
@@ -49,9 +51,7 @@ async def test_claim_pending_sets_lease_columns(sqlite_db) -> None:
 
     # Directly inspect the database for lease columns.
     async with sqlite_db.transaction() as conn:
-        row = await conn.fetch_one(
-            "SELECT lease_worker_id FROM runs WHERE run_id = ?", (run_id,)
-        )
+        row = await conn.fetch_one("SELECT lease_worker_id FROM runs WHERE run_id = ?", (run_id,))
     assert row["lease_worker_id"] == WORKER_A
 
 

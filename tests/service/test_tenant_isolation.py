@@ -107,11 +107,13 @@ async def test_cross_tenant_approval_resolution_is_hidden(sqlite_db) -> None:
         )
         run_id = create_response.json()["run_id"]
         wait_for(
-            lambda: client.get(
-                f"/runs/{run_id}",
-                headers=_headers("tenant-a-operator-key"),
-            ).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(
+                    f"/runs/{run_id}",
+                    headers=_headers("tenant-a-operator-key"),
+                ).json()["status"]
+                == "paused_for_approval"
+            )
         )
         approval_id = client.get(
             f"/runs/{run_id}",

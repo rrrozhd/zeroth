@@ -437,9 +437,7 @@ class SandboxManager:
                 if strictness is not SandboxStrictnessMode.PERMISSIVE
                 else SandboxBackendUnavailableError
             )
-            raise error_type(
-                f"docker sandbox container {docker.container_name!r} is not available"
-            )
+            raise error_type(f"docker sandbox container {docker.container_name!r} is not available")
         return SandboxBackendMode.DOCKER
 
     def _docker_container_available(self, container_name: str) -> bool:

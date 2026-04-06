@@ -11,4 +11,3 @@ class MappingValidationError(ValueError):
     target, or no operations at all. It inherits from ValueError so you can
     catch it with a broad ``except ValueError`` if needed.
     """
-

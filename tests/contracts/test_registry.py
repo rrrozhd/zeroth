@@ -70,7 +70,9 @@ async def test_registry_crud_and_versioning(sqlite_db) -> None:
     assert [record.version for record in await registry.list_versions("customer")] == [1, 2]
     assert (await registry.get("customer", 1)).metadata == {"owner": "platform"}
     assert (await registry.resolve(ContractReference(name="customer"))).version == 2
-    assert (await registry.resolve_model_type(ContractReference(name="customer", version=1))) is CustomerV1
+    assert (
+        await registry.resolve_model_type(ContractReference(name="customer", version=1))
+    ) is CustomerV1
 
     await registry.delete("customer", 1)
 

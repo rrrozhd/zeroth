@@ -196,13 +196,17 @@ def test_validator_reports_contract_attachment_and_condition_errors() -> None:
     graph = build_valid_graph().model_copy(
         update={
             "nodes": [
-                build_valid_graph().nodes[0].model_copy(
+                build_valid_graph()
+                .nodes[0]
+                .model_copy(
                     update={
                         "input_contract_ref": "",
                         "output_contract_ref": "",
                         "policy_bindings": [""],
                         "capability_bindings": [""],
-                        "agent": build_valid_graph().nodes[0].agent.model_copy(
+                        "agent": build_valid_graph()
+                        .nodes[0]
+                        .agent.model_copy(
                             update={
                                 "instruction": "",
                                 "model_provider": "",
@@ -212,20 +216,26 @@ def test_validator_reports_contract_attachment_and_condition_errors() -> None:
                         ),
                     }
                 ),
-                build_valid_graph().nodes[1].model_copy(
+                build_valid_graph()
+                .nodes[1]
+                .model_copy(
                     update={
                         "input_contract_ref": "",
                         "output_contract_ref": "",
-                        "executable_unit": build_valid_graph().nodes[1].executable_unit.model_copy(
-                            update={"manifest_ref": ""}
-                        ),
+                        "executable_unit": build_valid_graph()
+                        .nodes[1]
+                        .executable_unit.model_copy(update={"manifest_ref": ""}),
                     }
                 ),
-                build_valid_graph().nodes[2].model_copy(
+                build_valid_graph()
+                .nodes[2]
+                .model_copy(
                     update={
                         "input_contract_ref": "",
                         "output_contract_ref": "",
-                        "human_approval": build_valid_graph().nodes[2].human_approval.model_copy(
+                        "human_approval": build_valid_graph()
+                        .nodes[2]
+                        .human_approval.model_copy(
                             update={
                                 "approval_payload_schema_ref": "",
                                 "resolution_schema_ref": "",

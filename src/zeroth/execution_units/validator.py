@@ -107,6 +107,7 @@ class ManifestValidationReport(BaseModel):
         if self.errors:
             raise ManifestValidationError(self)
 
+
 class ExecutableUnitValidator:
     """Checks manifests for problems before they are used.
 

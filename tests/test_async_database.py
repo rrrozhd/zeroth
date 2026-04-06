@@ -36,9 +36,7 @@ class TestAsyncSQLiteDatabase:
             )
         with pytest.raises(RuntimeError, match="deliberate"):
             async with db.transaction() as conn:
-                await conn.execute(
-                    "INSERT INTO items (id, name) VALUES (?, ?)", ("2", "beta")
-                )
+                await conn.execute("INSERT INTO items (id, name) VALUES (?, ?)", ("2", "beta"))
                 raise RuntimeError("deliberate error")
         async with db.transaction() as conn:
             row = await conn.fetch_one("SELECT id, name FROM items WHERE id = ?", ("2",))
@@ -77,7 +75,9 @@ class TestDatabaseFactory:
         from zeroth.config.settings import ZerothSettings
         from zeroth.storage.factory import create_database
 
-        settings = ZerothSettings(database={"backend": "sqlite", "sqlite_path": str(tmp_path / "f.db")})
+        settings = ZerothSettings(
+            database={"backend": "sqlite", "sqlite_path": str(tmp_path / "f.db")}
+        )
         db = await create_database(settings)
         assert isinstance(db, AsyncSQLiteDatabase)
 

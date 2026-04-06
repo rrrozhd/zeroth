@@ -232,11 +232,15 @@ class RuntimeOrchestrator:
             return result.output_data, audit_record
         if isinstance(node, ExecutableUnitNode):
             enforcement_context = self._enforcement_context_for(run, node.node_id)
-            if self.secret_resolver is not None and getattr(
-                self.executable_unit_runner,
-                "secret_resolver",
-                None,
-            ) is None:
+            if (
+                self.secret_resolver is not None
+                and getattr(
+                    self.executable_unit_runner,
+                    "secret_resolver",
+                    None,
+                )
+                is None
+            ):
                 self.executable_unit_runner.secret_resolver = self.secret_resolver
             result = await self._run_executable_unit_with_optional_enforcement(
                 node.executable_unit.manifest_ref,
