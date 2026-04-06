@@ -34,6 +34,7 @@ from zeroth.agent_runtime.provider import (
     ProviderRequest,
     run_provider_with_timeout,
 )
+from zeroth.agent_runtime.retry import compute_backoff_delay, is_retryable_provider_error
 from zeroth.agent_runtime.tools import ToolAttachmentBridge
 from zeroth.agent_runtime.validation import OutputValidator
 from zeroth.audit import MemoryAccessRecord
@@ -190,11 +191,22 @@ class AgentRunner:
                     raise
             except Exception as exc:
                 last_error = exc
-                if not retry_policy.retry_on_provider_error or attempt == max_attempts:
+                # Classify: only retry transient provider errors (per LLM-03)
+                retryable = is_retryable_provider_error(exc)
+                should_retry = retry_policy.retry_on_provider_error and retryable
+                if not should_retry or attempt == max_attempts:
                     if isinstance(last_error, AgentProviderError):
                         raise last_error from exc
                     raise AgentProviderError(str(last_error)) from last_error
-            if retry_policy.backoff_seconds:
+            if retry_policy.use_exponential_backoff:
+                delay = compute_backoff_delay(
+                    attempt,
+                    base_delay=retry_policy.base_delay,
+                    max_delay=retry_policy.max_delay,
+                )
+                if delay > 0:
+                    await asyncio.sleep(delay)
+            elif retry_policy.backoff_seconds:
                 await asyncio.sleep(retry_policy.backoff_seconds)
         if last_error is None:
             last_error = AgentProviderError("provider call failed without a specific error")
