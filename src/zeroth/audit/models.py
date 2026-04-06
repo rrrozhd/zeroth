@@ -82,6 +82,22 @@ class ApprovalActionRecord(BaseModel):
     occurred_at: datetime = Field(default_factory=_utc_now)
 
 
+class TokenUsage(BaseModel):
+    """Token consumption metrics from a single LLM provider call.
+
+    Tracks input (prompt) tokens, output (completion) tokens, total tokens,
+    and the model that produced them. Used by ProviderResponse and
+    NodeAuditRecord for cost attribution and budget enforcement.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    model_name: str = ""
+
+
 class NodeAuditRecord(BaseModel):
     """The main audit record for a single node execution.
 
