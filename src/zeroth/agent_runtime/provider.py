@@ -17,6 +17,7 @@ from governai.integrations.tool_calls import NormalizedToolCall, extract_tool_ca
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.agent_runtime.models import PromptMessage
+from zeroth.audit.models import TokenUsage
 
 ProviderMessage = PromptMessage | dict[str, Any] | Any
 
@@ -47,6 +48,7 @@ class ProviderResponse(BaseModel):
     content: Any = None
     raw: Any = None
     tool_calls: list[NormalizedToolCall] = Field(default_factory=list)
+    token_usage: TokenUsage | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
