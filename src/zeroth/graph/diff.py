@@ -364,9 +364,7 @@ def _changed_field_names(left: dict[str, Any] | None, right: dict[str, Any] | No
     left = left or {}
     right = right or {}
     return [
-        field
-        for field in sorted(left.keys() | right.keys())
-        if left.get(field) != right.get(field)
+        field for field in sorted(left.keys() | right.keys()) if left.get(field) != right.get(field)
     ]
 
 

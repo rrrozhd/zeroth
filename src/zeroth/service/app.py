@@ -121,6 +121,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     # Admin and metrics routes are registered if the bootstrap provides them.
     from zeroth.service.admin_api import register_admin_routes
+
     register_admin_routes(app)
 
     return app

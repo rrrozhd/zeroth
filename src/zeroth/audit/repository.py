@@ -81,9 +81,7 @@ class AuditRepository:
             )
         if row is None:
             return None
-        return NodeAuditRecord.model_validate(
-            load_typed_value(row["record_json"], dict)
-        )
+        return NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
 
     async def list(self, query: AuditQuery | None = None) -> list[NodeAuditRecord]:
         """Return audit records matching the given filters, ordered by time.
@@ -107,9 +105,7 @@ class AuditRepository:
         async with self._database.transaction() as connection:
             rows = await connection.fetch_all(sql, tuple(params))
         return [
-            NodeAuditRecord.model_validate(
-                load_typed_value(row["record_json"], dict)
-            )
+            NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
             for row in rows
         ]
 
@@ -150,6 +146,4 @@ class AuditRepository:
         )
         if row is None:
             return None
-        return NodeAuditRecord.model_validate(
-            load_typed_value(row["record_json"], dict)
-        )
+        return NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))

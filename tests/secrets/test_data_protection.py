@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from zeroth.agent_runtime.thread_store import RepositoryThreadResolver, RepositoryThreadStateStore
 from zeroth.audit import AuditRepository
 from zeroth.execution_units import EnvironmentVariable

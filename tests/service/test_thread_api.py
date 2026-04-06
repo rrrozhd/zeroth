@@ -64,8 +64,10 @@ async def test_thread_api_continues_existing_thread_for_same_deployment_snapshot
         wait_for(started.is_set)
         release.set()
         wait_for(
-            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
-            == "succeeded"
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "succeeded"
+            )
         )
 
         second = client.post(
@@ -162,8 +164,10 @@ async def test_thread_api_keeps_thread_linkage_visible_in_run_state_and_audits(s
         wait_for(started.is_set)
         release.set()
         wait_for(
-            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
-            == "succeeded"
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "succeeded"
+            )
         )
         run_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 

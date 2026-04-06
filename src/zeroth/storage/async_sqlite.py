@@ -30,9 +30,7 @@ class AsyncSQLiteConnection:
         """Execute a SQL statement without returning results."""
         await self._conn.execute(sql, params)
 
-    async def fetch_one(
-        self, sql: str, params: tuple[Any, ...] = ()
-    ) -> dict[str, Any] | None:
+    async def fetch_one(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
         """Execute a query and return the first row as a dict, or None."""
         cursor = await self._conn.execute(sql, params)
         row = await cursor.fetchone()
@@ -40,9 +38,7 @@ class AsyncSQLiteConnection:
             return None
         return _convert_row(row)
 
-    async def fetch_all(
-        self, sql: str, params: tuple[Any, ...] = ()
-    ) -> list[dict[str, Any]]:
+    async def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         """Execute a query and return all rows as a list of dicts."""
         cursor = await self._conn.execute(sql, params)
         rows = await cursor.fetchall()

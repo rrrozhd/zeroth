@@ -76,9 +76,7 @@ def verify_attestation(deployment: object, attestation: dict[str, object]) -> li
         "entry_input_contract_version": deployment.entry_input_contract_version,
         "entry_output_contract_ref": deployment.entry_output_contract_ref,
         "entry_output_contract_version": deployment.entry_output_contract_version,
-        "graph_snapshot_digest": compute_graph_snapshot_digest(
-            deployment.serialized_graph
-        ),
+        "graph_snapshot_digest": compute_graph_snapshot_digest(deployment.serialized_graph),
         "contract_snapshot_digest": compute_contract_snapshot_digest(
             entry_input_contract_ref=deployment.entry_input_contract_ref,
             entry_input_contract_version=deployment.entry_input_contract_version,

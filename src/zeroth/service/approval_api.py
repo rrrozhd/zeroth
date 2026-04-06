@@ -145,11 +145,13 @@ def register_approval_routes(app: FastAPI) -> None:
                     run = await bootstrap.approval_service.schedule_continuation(approval_id)
                     # Yield to the event loop so the worker can claim and drive the run.
                     import asyncio as _asyncio
+
                     for _ in range(100):  # up to ~5 s
                         await _asyncio.sleep(0.05)
                         current = await bootstrap.run_repository.get(run.run_id)
                         if current is not None and current.status not in {
-                            RunStatus.PENDING, RunStatus.RUNNING
+                            RunStatus.PENDING,
+                            RunStatus.RUNNING,
                         }:
                             run = current
                             break
@@ -227,10 +229,9 @@ async def _require_pending_visible_approval(
 
 
 def _approval_visible_to_deployment(record: ApprovalRecord, deployment: object) -> bool:
-    return (
-        record.deployment_ref == getattr(deployment, "deployment_ref", None)
-        and record.graph_version_ref == getattr(deployment, "graph_version_ref", None)
-    )
+    return record.deployment_ref == getattr(
+        deployment, "deployment_ref", None
+    ) and record.graph_version_ref == getattr(deployment, "graph_version_ref", None)
 
 
 def _approval_matches_filters(

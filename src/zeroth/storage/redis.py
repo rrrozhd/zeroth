@@ -66,12 +66,12 @@ class RedisConfig(BaseModel):
         """
         if self.url:
             return self.url
-        if require_docker_available and self.mode is RedisDeploymentMode.DOCKER and not (
-            self.docker_container_available(container_inspector=container_inspector)
+        if (
+            require_docker_available
+            and self.mode is RedisDeploymentMode.DOCKER
+            and not (self.docker_container_available(container_inspector=container_inspector))
         ):
-            raise RuntimeError(
-                f"redis container {self.docker_container_name!r} is not available"
-            )
+            raise RuntimeError(f"redis container {self.docker_container_name!r} is not available")
         scheme = "rediss" if self.ssl else "redis"
         auth = self._auth_fragment()
         host = self.host

@@ -94,9 +94,7 @@ async def bootstrap_service(
     )
     deployment = await deployment_service.get(deployment_ref)
     if deployment is None:
-        raise DeploymentBootstrapError(
-            f"deployment {deployment_ref!r} not found"
-        )
+        raise DeploymentBootstrapError(f"deployment {deployment_ref!r} not found")
 
     try:
         graph = deserialize_graph(deployment.serialized_graph)
@@ -105,17 +103,12 @@ async def bootstrap_service(
             f"failed to deserialize deployment {deployment_ref!r}"
         ) from exc
     # Make sure the saved snapshot still matches the deployment metadata.
-    if (
-        graph.graph_id != deployment.graph_id
-        or graph.version != deployment.graph_version
-    ):
+    if graph.graph_id != deployment.graph_id or graph.version != deployment.graph_version:
         raise DeploymentBootstrapError(
             "deployment graph snapshot does not match persisted graph "
             f"metadata for {deployment_ref!r}"
         )
-    if deployment.graph_version_ref != graph_version_ref(
-        graph.graph_id, graph.version
-    ):
+    if deployment.graph_version_ref != graph_version_ref(graph.graph_id, graph.version):
         raise DeploymentBootstrapError(
             "deployment graph version ref does not match deserialized "
             f"graph metadata for {deployment_ref!r}"
@@ -132,9 +125,7 @@ async def bootstrap_service(
     )
     contract_registry = deployment_service.contract_registry
     resolved_agent_runners = dict(agent_runners or {})
-    resolved_executable_unit_runner = (
-        executable_unit_runner or ExecutableUnitRunner()
-    )
+    resolved_executable_unit_runner = executable_unit_runner or ExecutableUnitRunner()
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repository,
         agent_runners=resolved_agent_runners,

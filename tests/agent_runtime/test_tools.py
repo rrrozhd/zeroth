@@ -96,4 +96,3 @@ def test_tool_attachment_audit_helpers_capture_timeout_and_side_effect_metadata(
     assert call_audit["tool"]["side_effect_allowed"] is True
     assert call_audit["arguments"] == {"topic": "daily-review"}
     assert call_audit["outcome"] == {"status": "ok"}
-

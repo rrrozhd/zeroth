@@ -149,9 +149,7 @@ async def test_deploy_rejects_missing_entry_contract_registration(sqlite_db) -> 
     cloned = original.model_copy(
         update={
             "nodes": [
-                original.nodes[0].model_copy(
-                    update={"input_contract_ref": "contract://missing"}
-                ),
+                original.nodes[0].model_copy(update={"input_contract_ref": "contract://missing"}),
                 *original.nodes[1:],
             ]
         }
@@ -230,9 +228,7 @@ async def test_deploy_retries_when_version_insert_races(sqlite_db, monkeypatch) 
     async def flaky_create(deployment):
         create_attempts["count"] += 1
         if create_attempts["count"] == 1:
-            raise Exception(
-                "UNIQUE constraint failed: idx_deployment_versions_ref_version"
-            )
+            raise Exception("UNIQUE constraint failed: idx_deployment_versions_ref_version")
         return await original_create(deployment)
 
     monkeypatch.setattr(service.deployment_repository, "next_version", fake_next_version)

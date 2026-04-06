@@ -423,7 +423,9 @@ def _policy_graph(*, graph_id: str) -> Graph:
     )
 
 
-async def test_phase5_linear_graph_runs_agent_to_eu_to_agent_via_api(sqlite_db, tmp_path: Path) -> None:
+async def test_phase5_linear_graph_runs_agent_to_eu_to_agent_via_api(
+    sqlite_db, tmp_path: Path
+) -> None:
     script = tmp_path / "double.py"
     script.write_text(
         """
@@ -639,7 +641,9 @@ async def test_phase5_approval_pause_and_resume_via_api(sqlite_db) -> None:
 
 
 async def test_phase5_thread_continuity_across_runs_via_api(sqlite_db) -> None:
-    service, _ = await deploy_service(sqlite_db, _thread_state_graph(graph_id="graph-phase5-thread"))
+    service, _ = await deploy_service(
+        sqlite_db, _thread_state_graph(graph_id="graph-phase5-thread")
+    )
     thread_store = RepositoryThreadStateStore(
         run_repository=service.run_repository,
         thread_repository=service.thread_repository,
@@ -707,7 +711,9 @@ async def test_phase5_thread_continuity_across_runs_via_api(sqlite_db) -> None:
 
 
 async def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) -> None:
-    service, _ = await deploy_service(sqlite_db, _shared_memory_graph(graph_id="graph-phase5-memory"))
+    service, _ = await deploy_service(
+        sqlite_db, _shared_memory_graph(graph_id="graph-phase5-memory")
+    )
     registry = InMemoryConnectorRegistry()
     registry.register(
         "memory://shared",

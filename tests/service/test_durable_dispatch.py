@@ -1,4 +1,5 @@
 """Tests for durable dispatch: run survives worker restart."""
+
 from __future__ import annotations
 
 import asyncio

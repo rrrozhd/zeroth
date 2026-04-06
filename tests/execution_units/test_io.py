@@ -120,7 +120,7 @@ def test_input_file_json_mode_writes_payload(tmp_path: Path) -> None:
         ),
         (
             OutputMode.TAGGED_STDOUT_JSON,
-            "log line\nZEROTH_OUTPUT_JSON={\"answer\":\"done\",\"score\":7}\n",
+            'log line\nZEROTH_OUTPUT_JSON={"answer":"done","score":7}\n',
             None,
             None,
             {"answer": "done", "score": 7},

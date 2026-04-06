@@ -169,9 +169,7 @@ class BranchResolver:
         branch_rule = (
             binding.condition.branch_rule if binding.condition is not None else "passthrough"
         )
-        operand_refs = (
-            list(binding.condition.operand_refs) if binding.condition is not None else []
-        )
+        operand_refs = list(binding.condition.operand_refs) if binding.condition is not None else []
         expression = binding.condition.expression if binding.condition is not None else None
         details = {
             "expression": expression,
@@ -207,6 +205,8 @@ class BranchResolver:
         if isinstance(context, ConditionContext):
             return context
         return ConditionContext.model_validate(dict(context))
+
+
 class NextStepPlanner:
     """Determines which node(s) to execute next in a workflow.
 

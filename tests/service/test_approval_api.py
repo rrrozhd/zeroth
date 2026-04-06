@@ -29,8 +29,10 @@ async def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope
         )
         run_id = create_response.json()["run_id"]
         wait_for(
-            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "paused_for_approval"
+            )
         )
 
         paused_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
@@ -129,8 +131,10 @@ async def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
         )
         run_id = create_response.json()["run_id"]
         wait_for(
-            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "paused_for_approval"
+            )
         )
         approval_id = client.get(
             f"/runs/{run_id}",
@@ -180,8 +184,10 @@ async def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> Non
         )
         run_id = create_response.json()["run_id"]
         wait_for(
-            lambda: client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "paused_for_approval"
+            )
         )
         approval_id = client.get(
             f"/runs/{run_id}",

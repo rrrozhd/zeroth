@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from zeroth.agent_runtime.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
@@ -90,10 +88,13 @@ async def test_thread_store_noop_helpers_without_thread_id(sqlite_db) -> None:
     resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
     store = RepositoryThreadStateStore(sqlite_db)
 
-    assert await resolver.resolve_optional(
-        None,
-        graph_version_ref="graph:v1",
-        deployment_ref="deployment:v1",
-    ) is None
+    assert (
+        await resolver.resolve_optional(
+            None,
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment:v1",
+        )
+        is None
+    )
     assert await store.load_optional(None) is None
     assert await store.checkpoint_optional(None, {"step": 1}) is None

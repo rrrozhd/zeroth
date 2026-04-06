@@ -128,9 +128,7 @@ class PythonRuntimeAdapter(BaseRuntimeAdapter):
                 "PythonRuntimeAdapter only supports native manifests"
             )
         if handler is None:
-            raise UnsupportedRuntimeAdapterError(
-                "PythonRuntimeAdapter requires a handler callable"
-            )
+            raise UnsupportedRuntimeAdapterError("PythonRuntimeAdapter requires a handler callable")
         return PythonTool(
             name=manifest.unit_id,
             handler=handler,
