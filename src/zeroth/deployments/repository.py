@@ -1,4 +1,4 @@
-"""SQLite-backed persistence for immutable deployment snapshots."""
+"""Async database-backed persistence for immutable deployment snapshots."""
 
 from __future__ import annotations
 
@@ -11,100 +11,20 @@ from zeroth.deployments.provenance import (
     compute_graph_snapshot_digest,
     compute_settings_snapshot_digest,
 )
-from zeroth.storage import Migration, SQLiteDatabase
+from zeroth.storage import AsyncDatabase
 from zeroth.storage.json import load_typed_value, to_json_value
-
-SCHEMA_SCOPE = "deployments"
-SCHEMA_VERSION = 4
-
-MIGRATIONS = (
-    Migration(
-        version=1,
-        name="create_deployment_versions",
-        sql="""
-        CREATE TABLE IF NOT EXISTS deployment_versions (
-            deployment_id TEXT PRIMARY KEY,
-            deployment_ref TEXT NOT NULL,
-            version INTEGER NOT NULL,
-            graph_id TEXT NOT NULL,
-            graph_version INTEGER NOT NULL,
-            graph_version_ref TEXT NOT NULL,
-            serialized_graph TEXT NOT NULL,
-            entry_input_contract_ref TEXT,
-            entry_output_contract_ref TEXT,
-            deployment_settings_snapshot TEXT NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            UNIQUE(deployment_ref, version)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_deployment_versions_ref_version
-            ON deployment_versions(deployment_ref, version DESC);
-        CREATE INDEX IF NOT EXISTS idx_deployment_versions_graph
-            ON deployment_versions(graph_id, graph_version, created_at, deployment_id);
-        """,
-    ),
-    Migration(
-        version=2,
-        name="add_entry_contract_versions",
-        sql="""
-        ALTER TABLE deployment_versions
-        ADD COLUMN entry_input_contract_version INTEGER;
-
-        ALTER TABLE deployment_versions
-        ADD COLUMN entry_output_contract_version INTEGER;
-        """,
-    ),
-    Migration(
-        version=3,
-        name="add_deployment_scope_columns",
-        sql="""
-        ALTER TABLE deployment_versions
-        ADD COLUMN tenant_id TEXT DEFAULT 'default';
-
-        ALTER TABLE deployment_versions
-        ADD COLUMN workspace_id TEXT;
-
-        UPDATE deployment_versions
-        SET tenant_id = 'default'
-        WHERE tenant_id IS NULL;
-
-        CREATE INDEX IF NOT EXISTS idx_deployment_versions_scope
-            ON deployment_versions(tenant_id, workspace_id, deployment_ref, version DESC);
-        """,
-    ),
-    Migration(
-        version=4,
-        name="add_provenance_digest_columns",
-        sql="""
-        ALTER TABLE deployment_versions
-        ADD COLUMN graph_snapshot_digest TEXT;
-
-        ALTER TABLE deployment_versions
-        ADD COLUMN contract_snapshot_digest TEXT;
-
-        ALTER TABLE deployment_versions
-        ADD COLUMN settings_snapshot_digest TEXT;
-
-        ALTER TABLE deployment_versions
-        ADD COLUMN attestation_digest TEXT;
-        """,
-    ),
-)
 
 
 class SQLiteDeploymentRepository:
-    """Persist and query deployment history in SQLite."""
+    """Persist and query deployment history using an async database."""
 
-    def __init__(self, database: SQLiteDatabase):
-        self._database = database
-        self._database.apply_migrations(SCHEMA_SCOPE, MIGRATIONS)
+    def __init__(self, database: AsyncDatabase):
+        self._database: AsyncDatabase = database
 
-    def create(self, deployment: Deployment) -> Deployment:
+    async def create(self, deployment: Deployment) -> Deployment:
         """Insert a new deployment version and supersede older active versions."""
-        with self._database.transaction() as connection:
-            connection.execute(
+        async with self._database.transaction() as connection:
+            await connection.execute(
                 """
                 UPDATE deployment_versions
                 SET status = ?, updated_at = ?
@@ -117,7 +37,7 @@ class SQLiteDeploymentRepository:
                     DeploymentStatus.ACTIVE.value,
                 ),
             )
-            connection.execute(
+            await connection.execute(
                 """
                 INSERT INTO deployment_versions (
                     deployment_id,
@@ -167,9 +87,9 @@ class SQLiteDeploymentRepository:
                     deployment.updated_at.isoformat(),
                 ),
             )
-        return self.get(deployment.deployment_ref, deployment.version)  # type: ignore[return-value]
+        return await self.get(deployment.deployment_ref, deployment.version)  # type: ignore[return-value]
 
-    def get(self, deployment_ref: str, version: int | None = None) -> Deployment | None:
+    async def get(self, deployment_ref: str, version: int | None = None) -> Deployment | None:
         """Load the latest or a specific deployment version."""
         sql = """
             SELECT *
@@ -183,13 +103,13 @@ class SQLiteDeploymentRepository:
         else:
             params = (deployment_ref,)
         sql += " ORDER BY version DESC LIMIT 1"
-        with self._database.transaction() as connection:
-            row = connection.execute(sql, params).fetchone()
+        async with self._database.transaction() as connection:
+            row = await connection.fetch_one(sql, params)
         if row is None:
             return None
         return self._row_to_deployment(row)
 
-    def list(self, deployment_ref: str | None = None) -> list[Deployment]:
+    async def list(self, deployment_ref: str | None = None) -> list[Deployment]:
         """Return deployment history ordered from oldest to newest."""
         sql = "SELECT * FROM deployment_versions"
         params: tuple[object, ...] = ()
@@ -197,26 +117,26 @@ class SQLiteDeploymentRepository:
             sql += " WHERE deployment_ref = ?"
             params = (deployment_ref,)
         sql += " ORDER BY deployment_ref, version"
-        with self._database.transaction() as connection:
-            rows = connection.execute(sql, params).fetchall()
+        async with self._database.transaction() as connection:
+            rows = await connection.fetch_all(sql, params)
         return [self._row_to_deployment(row) for row in rows]
 
-    def next_version(self, deployment_ref: str) -> int:
+    async def next_version(self, deployment_ref: str) -> int:
         """Return the next deployment version number for a stable deployment ref."""
-        with self._database.transaction() as connection:
-            row = connection.execute(
+        async with self._database.transaction() as connection:
+            row = await connection.fetch_one(
                 """
                 SELECT MAX(version) AS max_version
                 FROM deployment_versions
                 WHERE deployment_ref = ?
                 """,
                 (deployment_ref,),
-            ).fetchone()
+            )
         max_version = row["max_version"] if row is not None else None
         return int(max_version or 0) + 1
 
     def _row_to_deployment(self, row) -> Deployment:
-        """Convert a SQLite row to a Deployment model."""
+        """Convert a database row to a Deployment model."""
         settings_snapshot = load_typed_value(
             row["deployment_settings_snapshot"],
             dict,
