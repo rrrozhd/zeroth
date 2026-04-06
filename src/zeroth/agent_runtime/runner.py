@@ -157,6 +157,9 @@ class AgentRunner:
                         ],
                     },
                 )
+                # Copy token usage from provider response to audit record (per D-11)
+                if response.token_usage is not None:
+                    record["token_usage"] = response.token_usage.model_dump(mode="json")
                 memory_interactions.extend(
                     await self._store_memory(
                         output.model_dump(mode="json"),
