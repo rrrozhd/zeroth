@@ -14,6 +14,8 @@ from typing import Any, Protocol
 
 from governai.integrations.llm import GovernedLLM
 from governai.integrations.tool_calls import NormalizedToolCall, extract_tool_calls
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_litellm import ChatLiteLLM
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.agent_runtime.models import PromptMessage
@@ -125,6 +127,110 @@ class GovernedLLMProviderAdapter:
             tool_calls=tool_calls,
             metadata={"provider": "governai"},
         )
+
+
+class LiteLLMProviderAdapter:
+    """Universal LLM adapter using LangChain's ChatLiteLLM wrapper.
+
+    Routes to any LiteLLM-supported provider (OpenAI, Anthropic, 100+ others)
+    based on the model string in ProviderRequest.model_name.
+    Uses LangChain interface per D-01 for GovernAI compatibility.
+
+    Model strings use LiteLLM format: ``openai/gpt-4o``,
+    ``anthropic/claude-sonnet-4-5-20250514``, etc.  API keys are read from
+    standard environment variables (``OPENAI_API_KEY``,
+    ``ANTHROPIC_API_KEY``, ...) by LiteLLM automatically.
+    """
+
+    def __init__(self, *, default_timeout: float = 600.0) -> None:
+        self._default_timeout = default_timeout
+        self._clients: dict[str, ChatLiteLLM] = {}
+
+    def _get_client(self, model: str) -> ChatLiteLLM:
+        """Get or create a ChatLiteLLM client for the given model string."""
+        if model not in self._clients:
+            self._clients[model] = ChatLiteLLM(
+                model=model,
+                timeout=self._default_timeout,
+            )
+        return self._clients[model]
+
+    async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
+        """Send request to LLM via ChatLiteLLM and return normalized response."""
+        client = self._get_client(request.model_name)
+        lc_messages = self._to_langchain_messages(request.messages)
+        ai_message: AIMessage = await client.ainvoke(lc_messages)
+        token_usage = self._extract_token_usage(ai_message, request.model_name)
+        tool_calls = self._extract_tool_calls(ai_message)
+        return ProviderResponse(
+            content=ai_message.content,
+            raw=ai_message,
+            tool_calls=tool_calls,
+            token_usage=token_usage,
+            metadata={"provider": "litellm", "model": request.model_name},
+        )
+
+    def _to_langchain_messages(self, messages: list[Any]) -> list[Any]:
+        """Convert PromptMessage or dict messages to LangChain message objects."""
+        result: list[Any] = []
+        for msg in messages:
+            if isinstance(msg, PromptMessage):
+                role, content = msg.role, msg.content
+            elif isinstance(msg, dict):
+                role, content = msg.get("role", "user"), msg.get("content", "")
+            else:
+                result.append(msg)  # Already a LangChain message
+                continue
+            if role == "system":
+                result.append(SystemMessage(content=content))
+            elif role == "assistant":
+                result.append(AIMessage(content=content))
+            else:
+                result.append(HumanMessage(content=content))
+        return result
+
+    def _extract_token_usage(self, ai_message: AIMessage, model_name: str) -> TokenUsage | None:
+        """Extract token usage from AIMessage.usage_metadata or response_metadata."""
+        # Try usage_metadata first (LangChain standard)
+        usage_meta = getattr(ai_message, "usage_metadata", None)
+        if usage_meta and isinstance(usage_meta, dict):
+            input_t = usage_meta.get("input_tokens", 0)
+            output_t = usage_meta.get("output_tokens", 0)
+            total_t = usage_meta.get("total_tokens", input_t + output_t)
+            return TokenUsage(
+                input_tokens=input_t,
+                output_tokens=output_t,
+                total_tokens=total_t,
+                model_name=model_name,
+            )
+        # Fallback: response_metadata.token_usage (OpenAI-style)
+        resp_meta = getattr(ai_message, "response_metadata", None)
+        if resp_meta and isinstance(resp_meta, dict):
+            token_usage_dict = resp_meta.get("token_usage", {})
+            if token_usage_dict:
+                return TokenUsage(
+                    input_tokens=token_usage_dict.get("prompt_tokens", 0),
+                    output_tokens=token_usage_dict.get("completion_tokens", 0),
+                    total_tokens=token_usage_dict.get("total_tokens", 0),
+                    model_name=model_name,
+                )
+        return None
+
+    def _extract_tool_calls(self, ai_message: AIMessage) -> list[NormalizedToolCall]:
+        """Extract tool calls from AIMessage if present."""
+        raw_tool_calls = getattr(ai_message, "tool_calls", None)
+        if not raw_tool_calls:
+            return []
+        result = []
+        for tc in raw_tool_calls:
+            result.append(
+                NormalizedToolCall(
+                    id=tc.get("id", ""),
+                    name=tc.get("name", ""),
+                    args=tc.get("args", {}),
+                )
+            )
+        return result
 
 
 class CallableProviderAdapter:
