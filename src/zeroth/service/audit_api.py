@@ -145,9 +145,9 @@ def register_audit_routes(app: FastAPI) -> None:
         node_id: str | None = None,
         graph_version_ref: str | None = None,
     ) -> AuditRecordListResponse:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.AUDIT_READ)
-        records = bootstrap.audit_repository.list(
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.AUDIT_READ)
+        records = await bootstrap.audit_repository.list(
             AuditQuery(
                 run_id=run_id,
                 thread_id=thread_id,
@@ -158,7 +158,7 @@ def register_audit_routes(app: FastAPI) -> None:
         )
         return AuditRecordListResponse(
             deployment_ref=deployment.deployment_ref,
-            records=[_visible_record(request, record) for record in records],
+            records=[await _visible_record(request, record) for record in records],
         )
 
     @app.get(
@@ -171,13 +171,13 @@ def register_audit_routes(app: FastAPI) -> None:
     ) -> AuditTimelineResponse:
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
-        require_permission(request, Permission.AUDIT_READ)
-        require_deployment_scope(request, deployment)
-        run = bootstrap.run_repository.get(run_id)
+        await require_permission(request, Permission.AUDIT_READ)
+        await require_deployment_scope(request, deployment)
+        run = await bootstrap.run_repository.get(run_id)
         if run is not None:
             if run.deployment_ref != deployment.deployment_ref:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-            require_resource_scope(
+            await require_resource_scope(
                 request,
                 tenant_id=run.tenant_id,
                 workspace_id=run.workspace_id,
@@ -186,13 +186,13 @@ def register_audit_routes(app: FastAPI) -> None:
 
         records = [
             record
-            for record in bootstrap.audit_repository.list_by_run(run_id)
+            for record in await bootstrap.audit_repository.list_by_run(run_id)
             if record.deployment_ref == deployment.deployment_ref
         ]
         if run is None and not records:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         visible = [
-            _visible_record(request, record, not_found_detail="run not found")
+            await _visible_record(request, record, not_found_detail="run not found")
             for record in records
         ]
         timeline = AuditTimelineAssembler().assemble(visible)
@@ -210,11 +210,13 @@ def register_audit_routes(app: FastAPI) -> None:
         request: Request,
         deployment_ref: str,
     ) -> AuditTimelineResponse:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.AUDIT_READ)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.AUDIT_READ)
         records = [
-            _visible_record(request, record)
-            for record in bootstrap.audit_repository.list_by_deployment(deployment.deployment_ref)
+            await _visible_record(request, record)
+            for record in await bootstrap.audit_repository.list_by_deployment(
+                deployment.deployment_ref
+            )
         ]
         timeline = AuditTimelineAssembler().assemble(records)
         run_ids = {record.run_id for record in timeline.entries}
@@ -234,25 +236,25 @@ def register_audit_routes(app: FastAPI) -> None:
     ) -> RunEvidenceResponse:
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
-        require_permission(request, Permission.AUDIT_READ)
-        require_deployment_scope(request, deployment)
-        run = bootstrap.run_repository.get(run_id)
+        await require_permission(request, Permission.AUDIT_READ)
+        await require_deployment_scope(request, deployment)
+        run = await bootstrap.run_repository.get(run_id)
         if run is None or run.deployment_ref != deployment.deployment_ref:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-        require_resource_scope(
+        await require_resource_scope(
             request,
             tenant_id=run.tenant_id,
             workspace_id=run.workspace_id,
             not_found_detail="run not found",
         )
         audits = [
-            _visible_record(request, record, not_found_detail="run not found")
-            for record in bootstrap.audit_repository.list_by_run(run_id)
+            await _visible_record(request, record, not_found_detail="run not found")
+            for record in await bootstrap.audit_repository.list_by_run(run_id)
             if record.deployment_ref == deployment.deployment_ref
         ]
-        approvals = _visible_approvals(
+        approvals = await _visible_approvals(
             request,
-            bootstrap.approval_service.list(run_id=run_id),
+            await bootstrap.approval_service.list(run_id=run_id),
             not_found_detail="run not found",
         )
         return RunEvidenceResponse(
@@ -271,15 +273,17 @@ def register_audit_routes(app: FastAPI) -> None:
         request: Request,
         deployment_ref: str,
     ) -> DeploymentEvidenceResponse:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.AUDIT_READ)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.AUDIT_READ)
         audits = [
-            _visible_record(request, record)
-            for record in bootstrap.audit_repository.list_by_deployment(deployment.deployment_ref)
+            await _visible_record(request, record)
+            for record in await bootstrap.audit_repository.list_by_deployment(
+                deployment.deployment_ref
+            )
         ]
-        approvals = _visible_approvals(
+        approvals = await _visible_approvals(
             request,
-            bootstrap.approval_service.list(deployment_ref=deployment.deployment_ref),
+            await bootstrap.approval_service.list(deployment_ref=deployment.deployment_ref),
         )
         run_ids = sorted(
             {record.run_id for record in audits} | {record.run_id for record in approvals}
@@ -301,8 +305,8 @@ def register_audit_routes(app: FastAPI) -> None:
         request: Request,
         deployment_ref: str,
     ) -> DeploymentAttestationResponse:
-        bootstrap, deployment = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.DEPLOYMENT_READ)
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.DEPLOYMENT_READ)
         current = _load_bound_deployment(bootstrap)
         return DeploymentAttestationResponse.model_validate(build_attestation_payload(current))
 
@@ -315,8 +319,8 @@ def register_audit_routes(app: FastAPI) -> None:
         deployment_ref: str,
         attestation: DeploymentAttestationResponse,
     ) -> AttestationVerificationResponse:
-        bootstrap, _ = _deployment_context(request, deployment_ref)
-        require_permission(request, Permission.DEPLOYMENT_READ)
+        bootstrap, _ = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.DEPLOYMENT_READ)
         current = _load_bound_deployment(bootstrap)
         mismatches = verify_attestation(current, attestation.model_dump(mode="json"))
         return AttestationVerificationResponse(
@@ -332,25 +336,25 @@ def _bootstrap(request: Request) -> AuditApiBootstrapLike:
     return bootstrap
 
 
-def _deployment_context(
+async def _deployment_context(
     request: Request,
     deployment_ref: str,
 ) -> tuple[AuditApiBootstrapLike, object]:
     bootstrap = _bootstrap(request)
     deployment = bootstrap.deployment
-    require_deployment_scope(request, deployment)
+    await require_deployment_scope(request, deployment)
     if getattr(deployment, "deployment_ref", None) != deployment_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")
     return bootstrap, deployment
 
 
-def _visible_record(
+async def _visible_record(
     request: Request,
     record: NodeAuditRecord,
     *,
     not_found_detail: str = "audit not found",
 ) -> NodeAuditRecord:
-    require_resource_scope(
+    await require_resource_scope(
         request,
         tenant_id=record.tenant_id,
         workspace_id=record.workspace_id,
@@ -369,7 +373,7 @@ def _sanitize_mapping(payload: dict[str, object]) -> dict[str, object]:
     return dict(_REDACTOR.sanitize(payload))
 
 
-def _visible_approvals(
+async def _visible_approvals(
     request: Request,
     approvals: list[ApprovalRecord],
     *,
@@ -377,7 +381,7 @@ def _visible_approvals(
 ) -> list[ApprovalRecord]:
     visible: list[ApprovalRecord] = []
     for approval in approvals:
-        require_resource_scope(
+        await require_resource_scope(
             request,
             tenant_id=approval.tenant_id,
             workspace_id=approval.workspace_id,

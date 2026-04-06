@@ -175,7 +175,7 @@ def current_principal(request: Request) -> AuthenticatedPrincipal:
     return principal
 
 
-def record_service_denial(
+async def record_service_denial(
     *,
     audit_repository: AuditRepository | None,
     deployment: object | None,
@@ -192,7 +192,7 @@ def record_service_denial(
         return
     tenant_id = getattr(deployment, "tenant_id", "default")
     workspace_id = getattr(deployment, "workspace_id", None)
-    audit_repository.write(
+    await audit_repository.write(
         NodeAuditRecord(
             audit_id=f"{node_id}:{uuid4().hex}",
             run_id=f"service:{request.method}:{request.url.path}",

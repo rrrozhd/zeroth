@@ -89,7 +89,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         try:
             request.state.principal = bootstrap.authenticator.authenticate_headers(request.headers)
         except AuthenticationError as exc:
-            record_service_denial(
+            await record_service_denial(
                 audit_repository=getattr(bootstrap, "audit_repository", None),
                 deployment=getattr(bootstrap, "deployment", None),
                 request=request,

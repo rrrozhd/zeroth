@@ -94,11 +94,11 @@ class RuntimeOrchestrator:
             pending_node_ids=[self._entry_step(graph)],
             metadata=self._initial_metadata(graph, initial_input),
         )
-        persisted = self.run_repository.create(run)
+        persisted = await self.run_repository.create(run)
         persisted.status = RunStatus.RUNNING
         persisted.touch()
-        persisted = self.run_repository.put(persisted)
-        self.run_repository.write_checkpoint(persisted)
+        persisted = await self.run_repository.put(persisted)
+        await self.run_repository.write_checkpoint(persisted)
         return await self._drive(graph, persisted)
 
     async def resume_graph(self, graph: Graph, run_id: str) -> Run:
@@ -108,7 +108,7 @@ class RuntimeOrchestrator:
         it left off. Raises KeyError if the run doesn't exist, or
         OrchestratorError if the run can't be resumed (e.g., already completed).
         """
-        run = self.run_repository.get(run_id)
+        run = await self.run_repository.get(run_id)
         if run is None:
             raise KeyError(run_id)
         if run.status not in {RunStatus.RUNNING, RunStatus.PENDING, RunStatus.WAITING_APPROVAL}:
@@ -124,7 +124,7 @@ class RuntimeOrchestrator:
         """
         started_at = perf_counter()
         while True:
-            failed_run = self._enforce_loop_guards(graph, run, started_at)
+            failed_run = await self._enforce_loop_guards(graph, run, started_at)
             if failed_run is not None:
                 return failed_run
             if not run.pending_node_ids:
@@ -133,8 +133,8 @@ class RuntimeOrchestrator:
                 run.current_node_ids = []
                 run.final_output = run.metadata.get("last_output")
                 run.touch()
-                persisted = self.run_repository.put(run)
-                self.run_repository.write_checkpoint(persisted)
+                persisted = await self.run_repository.put(run)
+                await self.run_repository.write_checkpoint(persisted)
                 return persisted
 
             node_id = run.pending_node_ids.pop(0)
@@ -144,17 +144,19 @@ class RuntimeOrchestrator:
             run.current_node_ids = [node_id]
             run.current_step = node_id
             run.touch()
-            run = self.run_repository.put(run)
+            run = await self.run_repository.put(run)
 
-            pending_approval = self._consume_side_effect_approval(run, node, input_payload)
+            pending_approval = await self._consume_side_effect_approval(run, node, input_payload)
             if pending_approval is not None:
                 return pending_approval
 
-            denial = self._enforce_policy(graph, run, node, input_payload)
+            denial = await self._enforce_policy(graph, run, node, input_payload)
             if denial is not None:
                 return denial
 
-            side_effect_gate = self._gate_policy_required_side_effects(run, node, input_payload)
+            side_effect_gate = await self._gate_policy_required_side_effects(
+                run, node, input_payload
+            )
             if side_effect_gate is not None:
                 return side_effect_gate
 
@@ -163,7 +165,7 @@ class RuntimeOrchestrator:
                 approval_id = None
                 if service is not None:
                     # Store a separate approval record so a human can review it outside the run.
-                    approval = service.create_pending(
+                    approval = await service.create_pending(
                         run=run,
                         node=node,
                         input_payload=dict(input_payload),
@@ -178,16 +180,16 @@ class RuntimeOrchestrator:
                 }
                 run.pending_node_ids.insert(0, node.node_id)
                 run.touch()
-                persisted = self.run_repository.put(run)
-                self.run_repository.write_checkpoint(persisted)
+                persisted = await self.run_repository.put(run)
+                await self.run_repository.write_checkpoint(persisted)
                 return persisted
 
             try:
                 output_data, audit_record = await self._dispatch_node(node, run, input_payload)
             except Exception as exc:
-                self._record_failed_execution_audit(run, node, node_id, input_payload, exc)
-                return self._fail_run(run, "node_execution_failed", str(exc))
-            self._record_history(run, node, node_id, input_payload, output_data, audit_record)
+                await self._record_failed_execution_audit(run, node, node_id, input_payload, exc)
+                return await self._fail_run(run, "node_execution_failed", str(exc))
+            await self._record_history(run, node, node_id, input_payload, output_data, audit_record)
             self._increment_node_visit(run, node_id)
             next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
             self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
@@ -195,8 +197,8 @@ class RuntimeOrchestrator:
             run.status = RunStatus.RUNNING
             run.current_node_ids = []
             run.touch()
-            run = self.run_repository.put(run)
-            self.run_repository.write_checkpoint(run)
+            run = await self.run_repository.put(run)
+            await self.run_repository.write_checkpoint(run)
 
     async def _dispatch_node(
         self,
@@ -214,7 +216,7 @@ class RuntimeOrchestrator:
             runner = self.agent_runners.get(node.node_id)
             if runner is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
-            thread_id = self._resolve_thread(node, run)
+            thread_id = await self._resolve_thread(node, run)
             enforcement_context = self._enforcement_context_for(run, node.node_id)
             result = await self._run_agent_with_optional_enforcement(
                 runner,
@@ -248,7 +250,7 @@ class RuntimeOrchestrator:
             return result.output_data, audit_record
         raise NodeDispatcherError(f"unsupported node type: {type(node)!r}")
 
-    def _resolve_thread(self, node: AgentNode, run: Run) -> str | None:
+    async def _resolve_thread(self, node: AgentNode, run: Run) -> str | None:
         """Figure out which thread ID an agent node should use.
 
         Some agents participate in threads (conversations), others don't.
@@ -260,7 +262,7 @@ class RuntimeOrchestrator:
         if mode == "none" and persistence_mode != "thread":
             return None
         if self.thread_resolver is not None:
-            resolution = self.thread_resolver.resolve(
+            resolution = await self.thread_resolver.resolve(
                 run.thread_id,
                 graph_version_ref=run.graph_version_ref,
                 deployment_ref=run.deployment_ref,
@@ -338,7 +340,7 @@ class RuntimeOrchestrator:
             run.pending_node_ids.append(target_node_id)
         run.metadata["node_payloads"] = payloads
 
-    def _record_history(
+    async def _record_history(
         self,
         run: Run,
         node: Node,
@@ -361,7 +363,7 @@ class RuntimeOrchestrator:
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
         if self.audit_repository is not None:
-            self.audit_repository.write(
+            await self.audit_repository.write(
                 NodeAuditRecord(
                     audit_id=self._stored_audit_id(run.run_id, audit_ref),
                     run_id=run.run_id,
@@ -392,7 +394,7 @@ class RuntimeOrchestrator:
         """Bump the visit counter for this node by one."""
         run.node_visit_counts[node_id] = run.node_visit_counts.get(node_id, 0) + 1
 
-    def _record_failed_execution_audit(
+    async def _record_failed_execution_audit(
         self,
         run: Run,
         node: Node,
@@ -408,7 +410,7 @@ class RuntimeOrchestrator:
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
-        self.audit_repository.write(
+        await self.audit_repository.write(
             NodeAuditRecord(
                 audit_id=self._stored_audit_id(run.run_id, audit_ref),
                 run_id=run.run_id,
@@ -438,7 +440,7 @@ class RuntimeOrchestrator:
             return {}
         return dict(payload)
 
-    def _enforce_loop_guards(
+    async def _enforce_loop_guards(
         self,
         graph: Graph,
         run: Run,
@@ -452,14 +454,14 @@ class RuntimeOrchestrator:
         total_steps = len(run.execution_history)
         settings = graph.execution_settings
         if total_steps >= settings.max_total_steps:
-            return self._fail_run(run, "max_total_steps", "max total step limit exceeded")
+            return await self._fail_run(run, "max_total_steps", "max total step limit exceeded")
         if settings.max_total_runtime_seconds is not None:
             elapsed = perf_counter() - started_at
             if elapsed > settings.max_total_runtime_seconds:
-                return self._fail_run(run, "max_total_runtime", "max total runtime exceeded")
+                return await self._fail_run(run, "max_total_runtime", "max total runtime exceeded")
         return None
 
-    def _enforce_policy(
+    async def _enforce_policy(
         self,
         graph: Graph,
         run: Run,
@@ -488,7 +490,7 @@ class RuntimeOrchestrator:
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
         if self.audit_repository is not None:
-            self.audit_repository.write(
+            await self.audit_repository.write(
                 NodeAuditRecord(
                     audit_id=self._stored_audit_id(run.run_id, audit_ref),
                     run_id=run.run_id,
@@ -511,8 +513,10 @@ class RuntimeOrchestrator:
                 )
             )
         run.touch()
-        run = self.run_repository.put(run)
-        return self._fail_run(run, "policy_violation", result.reason or "policy denied execution")
+        run = await self.run_repository.put(run)
+        return await self._fail_run(
+            run, "policy_violation", result.reason or "policy denied execution"
+        )
 
     def _enforcement_context_for(self, run: Run, node_id: str) -> dict[str, Any]:
         """Return the stored policy enforcement context for a node, if any."""
@@ -524,7 +528,7 @@ class RuntimeOrchestrator:
             return {}
         return dict(context)
 
-    def _gate_policy_required_side_effects(
+    async def _gate_policy_required_side_effects(
         self,
         run: Run,
         node: Node,
@@ -542,7 +546,7 @@ class RuntimeOrchestrator:
         service = self.approval_service
         approval_id = None
         if service is not None:
-            approval = service.create_pending(
+            approval = await service.create_pending(
                 run=run,
                 node=HumanApprovalNode(
                     node_id=node.node_id,
@@ -564,11 +568,11 @@ class RuntimeOrchestrator:
         }
         run.pending_node_ids.insert(0, node.node_id)
         run.touch()
-        persisted = self.run_repository.put(run)
-        self.run_repository.write_checkpoint(persisted)
+        persisted = await self.run_repository.put(run)
+        await self.run_repository.write_checkpoint(persisted)
         return persisted
 
-    def _consume_side_effect_approval(
+    async def _consume_side_effect_approval(
         self,
         run: Run,
         node: Node,
@@ -584,19 +588,19 @@ class RuntimeOrchestrator:
         if approval_id is None or self.approval_service is None:
             run.status = RunStatus.WAITING_APPROVAL
             run.pending_node_ids.insert(0, node.node_id)
-            persisted = self.run_repository.put(run)
-            self.run_repository.write_checkpoint(persisted)
+            persisted = await self.run_repository.put(run)
+            await self.run_repository.write_checkpoint(persisted)
             return persisted
-        record = self.approval_service.get(approval_id)
+        record = await self.approval_service.get(approval_id)
         if record is None or record.resolution is None:
             run.status = RunStatus.WAITING_APPROVAL
             run.pending_node_ids.insert(0, node.node_id)
-            persisted = self.run_repository.put(run)
-            self.run_repository.write_checkpoint(persisted)
+            persisted = await self.run_repository.put(run)
+            await self.run_repository.write_checkpoint(persisted)
             return persisted
         run.metadata.pop("pending_approval", None)
         if record.resolution.decision is ApprovalDecision.REJECT:
-            return self._fail_run(run, "approval_rejected", "approval rejected")
+            return await self._fail_run(run, "approval_rejected", "approval rejected")
         approved_nodes = set(run.metadata.get("approved_side_effect_nodes", []))
         approved_nodes.add(node.node_id)
         run.metadata["approved_side_effect_nodes"] = sorted(approved_nodes)
@@ -672,7 +676,7 @@ class RuntimeOrchestrator:
             return value
         return resolver.redactor().redact(value)
 
-    def record_approval_resolution(
+    async def record_approval_resolution(
         self,
         *,
         graph: Graph,
@@ -702,7 +706,7 @@ class RuntimeOrchestrator:
                 else None
             ),
         }
-        self._record_history(
+        await self._record_history(
             run,
             node,
             node.node_id,
@@ -718,18 +722,18 @@ class RuntimeOrchestrator:
         run.pending_approval = None
         run.status = RunStatus.RUNNING
         run.touch()
-        run = self.run_repository.put(run)
-        self.run_repository.write_checkpoint(run)
+        run = await self.run_repository.put(run)
+        await self.run_repository.write_checkpoint(run)
         return run
 
-    def _fail_run(self, run: Run, reason: str, message: str) -> Run:
+    async def _fail_run(self, run: Run, reason: str, message: str) -> Run:
         """Mark a run as failed with the given reason and save it."""
         run.status = RunStatus.FAILED
         run.failure_state = RunFailureState(reason=reason, message=message)
         run.metadata["termination_reason"] = reason
         run.touch()
-        persisted = self.run_repository.put(run)
-        self.run_repository.write_checkpoint(persisted)
+        persisted = await self.run_repository.put(run)
+        await self.run_repository.write_checkpoint(persisted)
         return persisted
 
     def _entry_step(self, graph: Graph) -> str:
