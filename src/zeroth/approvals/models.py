@@ -60,6 +60,7 @@ class ApprovalStatus(StrEnum):
 
     PENDING = "pending"
     RESOLVED = "resolved"
+    ESCALATED = "escalated"
 
 
 class ApprovalResolution(BaseModel):
@@ -108,5 +109,8 @@ class ApprovalRecord(BaseModel):
     urgency_metadata: dict[str, Any] = Field(default_factory=dict)
     resolution_schema_ref: str | None = None
     resolution: ApprovalResolution | None = None
+    sla_deadline: datetime | None = None
+    escalation_action: str | None = None
+    escalated_from_id: str | None = None
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)

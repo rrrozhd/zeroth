@@ -147,6 +147,9 @@ class HumanApprovalNodeData(BaseModel):
     resolution_schema_ref: str | None = None
     approval_policy_config: dict[str, Any] = Field(default_factory=dict)
     pause_behavior_config: dict[str, Any] = Field(default_factory=dict)
+    sla_timeout_seconds: int | None = None
+    escalation_action: str | None = None
+    delegate_identity: dict[str, Any] | None = None
 
 
 class AgentNode(NodeBase):

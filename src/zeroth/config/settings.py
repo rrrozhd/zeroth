@@ -94,6 +94,25 @@ class SandboxSettings(BaseModel):
     docker_binary: str = "docker"
 
 
+class WebhookSettings(BaseModel):
+    """Webhook delivery system configuration."""
+
+    enabled: bool = True
+    delivery_poll_interval: float = 2.0
+    delivery_timeout: float = 10.0
+    max_delivery_concurrency: int = 16
+    default_max_retries: int = 5
+    retry_base_delay: float = 1.0
+    retry_max_delay: float = 300.0
+
+
+class ApprovalSLASettings(BaseModel):
+    """Approval SLA timeout and escalation configuration."""
+
+    enabled: bool = True
+    checker_poll_interval: float = 10.0
+
+
 class ZerothSettings(BaseSettings):
     """Top-level settings for the Zeroth platform.
 
@@ -119,6 +138,8 @@ class ZerothSettings(BaseSettings):
     chroma: ChromaSettings = Field(default_factory=ChromaSettings)
     elasticsearch: ElasticsearchSettings = Field(default_factory=ElasticsearchSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
+    webhook: WebhookSettings = Field(default_factory=WebhookSettings)
+    approval_sla: ApprovalSLASettings = Field(default_factory=ApprovalSLASettings)
 
     @classmethod
     def settings_customise_sources(
