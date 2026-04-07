@@ -131,8 +131,21 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         app.state.regulus_base_url = _regulus_settings.base_url
         app.state.regulus_timeout = _regulus_settings.request_timeout
 
+    # Register health probe routes BEFORE auth middleware (per D-07).
+    from zeroth.service.health import register_health_routes
+
+    register_health_routes(app)
+
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):
+        # Health endpoints bypass authentication (load balancer probes).
+        if request.url.path.startswith("/health"):
+            cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
+            set_correlation_id(cid)
+            response = await call_next(request)
+            response.headers["X-Correlation-ID"] = get_correlation_id()
+            return response
+
         # Propagate or generate a correlation ID for the lifetime of this request.
         cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
         set_correlation_id(cid)

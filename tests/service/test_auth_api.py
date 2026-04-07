@@ -12,7 +12,8 @@ from tests.service.helpers import (
 from zeroth.service.bootstrap import bootstrap_app
 
 
-async def test_service_health_requires_authentication(sqlite_db) -> None:
+async def test_service_health_bypasses_authentication(sqlite_db) -> None:
+    """Health endpoints should be accessible without authentication."""
     service, _ = await deploy_service(
         sqlite_db, approval_resume_graph(graph_id="graph-auth-health")
     )
@@ -26,8 +27,8 @@ async def test_service_health_requires_authentication(sqlite_db) -> None:
     with TestClient(app) as client:
         response = client.get("/health")
 
-    assert response.status_code == 401
-    assert response.json() == {"detail": "authentication required"}
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
 
 
 async def test_service_health_accepts_api_key_authentication(sqlite_db) -> None:

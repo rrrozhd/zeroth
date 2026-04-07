@@ -113,6 +113,13 @@ class ApprovalSLASettings(BaseModel):
     checker_poll_interval: float = 10.0
 
 
+class TLSSettings(BaseModel):
+    """TLS configuration for direct uvicorn SSL."""
+
+    certfile: str | None = None
+    keyfile: str | None = None
+
+
 class ZerothSettings(BaseSettings):
     """Top-level settings for the Zeroth platform.
 
@@ -140,6 +147,7 @@ class ZerothSettings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
     approval_sla: ApprovalSLASettings = Field(default_factory=ApprovalSLASettings)
+    tls: TLSSettings = Field(default_factory=TLSSettings)
 
     @classmethod
     def settings_customise_sources(

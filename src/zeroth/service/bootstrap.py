@@ -122,6 +122,8 @@ class ServiceBootstrap:
     budget_enforcer: object | None = None
     # Phase 14: Memory connector registry (populated at bootstrap).
     memory_registry: InMemoryConnectorRegistry | None = None
+    # Phase 17: Database reference for health probes.
+    database: AsyncDatabase | None = None
     # Phase 15: Webhook and SLA components (optional).
     webhook_service: object | None = None
     webhook_repository: object | None = None
@@ -304,6 +306,7 @@ async def bootstrap_service(
             pass
 
     return ServiceBootstrap(
+        database=database,
         deployment_service=deployment_service,
         deployment=deployment,
         graph=graph,
