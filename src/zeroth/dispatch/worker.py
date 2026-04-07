@@ -152,9 +152,7 @@ class RunWorker:
                 self.metrics_collector.increment("zeroth_worker_crashes_total")
             # Increment failure_count and maybe dead-letter before marking failed.
             if self.dead_letter_manager is not None:
-                dead_lettered = await asyncio.get_event_loop().run_in_executor(
-                    None, self.dead_letter_manager.handle_run_failure, run_id
-                )
+                dead_lettered = await self.dead_letter_manager.handle_run_failure(run_id)
                 if not dead_lettered:
                     await self._mark_failed(run_id, reason="worker_exception")
                 else:
@@ -218,7 +216,7 @@ class RunWorker:
             await self.orchestrator.resume_graph(self.graph, getattr(run, "run_id", ""))
             return
 
-        record = approval_service.get(approval_id)
+        record = await approval_service.get(approval_id)
         if record is None:
             await self.orchestrator.resume_graph(self.graph, getattr(run, "run_id", ""))
             return
@@ -235,7 +233,7 @@ class RunWorker:
             return
 
         output_payload = getattr(run, "metadata", {}).get("approval_resolved_payload") or {}
-        self.orchestrator.record_approval_resolution(
+        await self.orchestrator.record_approval_resolution(
             graph=self.graph,
             run=run,
             node=node,
