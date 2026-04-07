@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Protocol
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.contracts import ContractReference
@@ -70,7 +70,7 @@ class DeploymentResultErrorStateSchemaResponse(BaseModel):
     error_state_schema: dict[str, Any] = Field(default_factory=dict)
 
 
-def register_contract_routes(app: FastAPI) -> None:
+def register_contract_routes(app: FastAPI | APIRouter) -> None:
     """Register the deployment contract exposure routes on the service app."""
 
     @app.get(
