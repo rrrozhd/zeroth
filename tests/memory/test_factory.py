@@ -13,7 +13,8 @@ from zeroth.memory.connectors import (
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,
 )
-from zeroth.memory.models import ConnectorManifest, ConnectorScope
+from governai.memory.models import MemoryScope
+from zeroth.memory.models import ConnectorManifest
 from zeroth.memory.registry import InMemoryConnectorRegistry
 
 
@@ -97,7 +98,7 @@ class TestDefaultRegistration:
         register_memory_connectors(registry, _make_settings())
 
         manifest, _ = registry.resolve("ephemeral")
-        assert manifest.scope == ConnectorScope.RUN
+        assert manifest.scope == MemoryScope.RUN
 
     def test_key_value_has_shared_scope(self) -> None:
         from zeroth.memory.factory import register_memory_connectors
@@ -106,7 +107,7 @@ class TestDefaultRegistration:
         register_memory_connectors(registry, _make_settings())
 
         manifest, _ = registry.resolve("key_value")
-        assert manifest.scope == ConnectorScope.SHARED
+        assert manifest.scope == MemoryScope.SHARED
 
     def test_thread_has_thread_scope(self) -> None:
         from zeroth.memory.factory import register_memory_connectors
@@ -115,7 +116,7 @@ class TestDefaultRegistration:
         register_memory_connectors(registry, _make_settings())
 
         manifest, _ = registry.resolve("thread")
-        assert manifest.scope == ConnectorScope.THREAD
+        assert manifest.scope == MemoryScope.THREAD
 
     def test_external_connectors_not_registered(self) -> None:
         from zeroth.memory.factory import register_memory_connectors
@@ -166,11 +167,11 @@ class TestRedisRegistration:
 
         manifest_kv, conn_kv = registry.resolve("redis_kv")
         assert manifest_kv.connector_type == "redis_kv"
-        assert manifest_kv.scope == ConnectorScope.SHARED
+        assert manifest_kv.scope == MemoryScope.SHARED
 
         manifest_th, conn_th = registry.resolve("redis_thread")
         assert manifest_th.connector_type == "redis_thread"
-        assert manifest_th.scope == ConnectorScope.THREAD
+        assert manifest_th.scope == MemoryScope.THREAD
 
     def test_redis_connectors_receive_correct_config(self) -> None:
         from zeroth.memory.factory import register_memory_connectors
@@ -235,7 +236,7 @@ class TestPgvectorRegistration:
 
         manifest, _ = registry.resolve("pgvector")
         assert manifest.connector_type == "pgvector"
-        assert manifest.scope == ConnectorScope.SHARED
+        assert manifest.scope == MemoryScope.SHARED
 
     def test_pgvector_not_registered_without_conninfo(self) -> None:
         from zeroth.memory.factory import register_memory_connectors
@@ -311,7 +312,7 @@ class TestChromaRegistration:
 
         manifest, _ = registry.resolve("chroma")
         assert manifest.connector_type == "chroma"
-        assert manifest.scope == ConnectorScope.SHARED
+        assert manifest.scope == MemoryScope.SHARED
 
     def test_chroma_not_registered_when_disabled(self) -> None:
         from zeroth.memory.factory import register_memory_connectors
@@ -368,7 +369,7 @@ class TestElasticsearchRegistration:
 
         manifest, _ = registry.resolve("elasticsearch")
         assert manifest.connector_type == "elasticsearch"
-        assert manifest.scope == ConnectorScope.SHARED
+        assert manifest.scope == MemoryScope.SHARED
 
     def test_elasticsearch_not_registered_when_disabled(self) -> None:
         from zeroth.memory.factory import register_memory_connectors
