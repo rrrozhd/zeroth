@@ -252,12 +252,12 @@ async def test_handle_wakeup_claims_and_dispatches(sqlite_db: SQLiteDatabase) ->
         max_concurrency=4,
     )
 
-    run = _make_run(run_repo)
+    run = await _make_run(run_repo)
     await worker.handle_wakeup(run.run_id)
     # Allow the spawned task to complete.
     await asyncio.sleep(0.1)
 
-    final = run_repo.get(run.run_id)
+    final = await run_repo.get(run.run_id)
     assert final is not None
     assert final.status is RunStatus.COMPLETED
     assert run.run_id in orchestrator.driven
@@ -314,7 +314,7 @@ async def test_graceful_shutdown_waits_for_active_tasks(
         shutdown_timeout=0.1,
     )
 
-    run = _make_run(run_repo)
+    run = await _make_run(run_repo)
     # Start the worker and begin processing.
     await worker.start()
     poll_task = asyncio.create_task(worker.poll_loop())
@@ -328,7 +328,7 @@ async def test_graceful_shutdown_waits_for_active_tasks(
         await poll_task
 
     # The run should have been released back to PENDING.
-    final = run_repo.get(run.run_id)
+    final = await run_repo.get(run.run_id)
     assert final is not None
     assert final.status is RunStatus.PENDING
 
@@ -387,7 +387,7 @@ async def test_stopping_flag_exits_poll_loop(sqlite_db: SQLiteDatabase) -> None:
         lease_manager=lease_manager,
     )
 
-    _make_run(run_repo)
+    await _make_run(run_repo)
     worker._stopping = True
 
     # poll_loop should return immediately without claiming anything.
