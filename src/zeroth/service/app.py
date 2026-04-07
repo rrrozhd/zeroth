@@ -22,6 +22,7 @@ from zeroth.service.auth import AuthenticationError, record_service_denial
 from zeroth.service.contracts_api import register_contract_routes
 from zeroth.service.cost_api import register_cost_routes
 from zeroth.service.run_api import register_run_routes
+from zeroth.service.webhook_api import register_webhook_routes
 
 
 class ServiceBootstrapLike(Protocol):
@@ -56,6 +57,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         worker = getattr(app.state.bootstrap, "worker", None)
         poll_task: asyncio.Task | None = None
         queue_gauge_task: asyncio.Task | None = None
+        delivery_poll_task: asyncio.Task | None = None
 
         if worker is not None:
             await worker.start()
@@ -65,6 +67,13 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         queue_gauge = getattr(app.state.bootstrap, "queue_gauge", None)
         if queue_gauge is not None:
             queue_gauge_task = asyncio.create_task(queue_gauge.run(), name="queue-gauge")
+
+        # Start webhook delivery worker if configured.
+        delivery_worker = getattr(app.state.bootstrap, "delivery_worker", None)
+        if delivery_worker is not None:
+            delivery_poll_task = asyncio.create_task(
+                delivery_worker.poll_loop(), name="webhook-delivery"
+            )
 
         yield
 
@@ -77,6 +86,19 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             queue_gauge_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await queue_gauge_task
+
+        # Shutdown webhook delivery worker.
+        if delivery_poll_task is not None:
+            delivery_poll_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await delivery_poll_task
+
+        # Close webhook HTTP client.
+        webhook_http_client = getattr(
+            app.state.bootstrap, "webhook_http_client", None
+        )
+        if webhook_http_client is not None:
+            await webhook_http_client.aclose()
 
         # Flush and stop Regulus telemetry transport (Pitfall 2).
         regulus_client = getattr(app.state.bootstrap, "regulus_client", None)
@@ -139,5 +161,6 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     register_admin_routes(app)
     register_cost_routes(app)
+    register_webhook_routes(app)
 
     return app
