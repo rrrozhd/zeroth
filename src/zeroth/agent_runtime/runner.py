@@ -21,6 +21,7 @@ from zeroth.agent_runtime.errors import (
     AgentProviderError,
     AgentRetryExhaustedError,
     AgentTimeoutError,
+    BudgetExceededError,
 )
 from zeroth.agent_runtime.models import (
     AgentConfig,
@@ -62,6 +63,7 @@ class AgentRunner:
         tool_executor: Any | None = None,
         granted_tool_permissions: list[str] | None = None,
         memory_resolver: MemoryConnectorResolver | None = None,
+        budget_enforcer: Any | None = None,
     ) -> None:
         self.config = config
         self.provider = provider
@@ -76,6 +78,7 @@ class AgentRunner:
         self.tool_executor = tool_executor
         self.granted_tool_permissions = granted_tool_permissions or []
         self.memory_resolver = memory_resolver
+        self.budget_enforcer = budget_enforcer
 
     async def run(
         self,
@@ -120,6 +123,22 @@ class AgentRunner:
             runtime_context=resolved_runtime_context,
         )
         messages: list[Any] = list(prompt.messages)
+
+        # Pre-execution budget check (per D-10, ECON-03)
+        if self.budget_enforcer is not None:
+            _tenant_id = (
+                enforcement_context.get("tenant_id", "default")
+                if enforcement_context is not None
+                else "default"
+            )
+            allowed, spend, cap = await self.budget_enforcer.check_budget(_tenant_id)
+            if not allowed:
+                raise BudgetExceededError(
+                    f"tenant budget exceeded: spent ${spend:.4f} of ${cap:.4f} cap",
+                    spend=spend,
+                    cap=cap,
+                )
+
         last_error: Exception | None = None
         attempts = 0
         for attempt in range(1, max_attempts + 1):
