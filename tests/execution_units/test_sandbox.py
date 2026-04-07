@@ -179,3 +179,94 @@ def test_sandbox_manager_raises_when_docker_backend_is_requested_but_missing() -
 
     with pytest.raises(SandboxBackendUnavailableError, match="not available"):
         manager.run(["echo", "hello"])
+
+
+# --- SIDECAR mode tests ---
+
+
+def test_sidecar_enum_exists() -> None:
+    """SandboxBackendMode.SIDECAR is a valid enum value."""
+    assert SandboxBackendMode.SIDECAR == "sidecar"
+    assert SandboxBackendMode.SIDECAR.value == "sidecar"
+
+
+def test_resolve_backend_returns_sidecar_when_configured() -> None:
+    """_resolve_backend returns SIDECAR when backend is configured and client provided."""
+    from unittest.mock import AsyncMock
+
+    mock_client = AsyncMock()
+    config = SandboxConfig(backend=SandboxBackendMode.SIDECAR)
+    manager = SandboxManager(config=config, sidecar_client=mock_client)
+
+    result = manager._resolve_backend()
+    assert result is SandboxBackendMode.SIDECAR
+
+
+def test_resolve_backend_raises_when_sidecar_no_client() -> None:
+    """_resolve_backend raises when SIDECAR configured but no client provided."""
+    config = SandboxConfig(backend=SandboxBackendMode.SIDECAR)
+    manager = SandboxManager(config=config)
+
+    with pytest.raises(SandboxBackendUnavailableError, match="sidecar client not configured"):
+        manager._resolve_backend()
+
+
+def test_run_via_sidecar_constructs_request_and_translates_response() -> None:
+    """_run_via_sidecar builds correct SidecarExecuteRequest and maps response."""
+    from unittest.mock import AsyncMock
+
+    from zeroth.execution_units.constraints import ResourceConstraints
+    from zeroth.sandbox_sidecar.models import SidecarExecuteResponse
+
+    mock_response = SidecarExecuteResponse(
+        execution_id="test-id",
+        status="completed",
+        returncode=0,
+        stdout="output\n",
+        stderr="",
+        duration_seconds=1.0,
+        timed_out=False,
+    )
+    mock_client = AsyncMock()
+    mock_client.execute.return_value = mock_response
+
+    config = SandboxConfig(backend=SandboxBackendMode.SIDECAR)
+    manager = SandboxManager(
+        config=config,
+        sidecar_client=mock_client,
+        base_env={"PATH": "/usr/bin"},
+    )
+
+    constraints = ResourceConstraints(
+        cpu_cores=2.0,
+        memory_mb=512,
+        max_processes=100,
+        network_access=False,
+    )
+
+    result = manager.run(
+        ["python", "-c", "print('hello')"],
+        resource_constraints=constraints,
+    )
+
+    assert result.backend == "sidecar"
+    assert result.returncode == 0
+    assert result.stdout == "output\n"
+    assert result.timed_out is False
+    assert result.duration_seconds == 1.0
+
+    # Verify the request was constructed correctly
+    call_args = mock_client.execute.call_args[0][0]
+    assert call_args.command == ["python", "-c", "print('hello')"]
+    assert call_args.cpu_cores == 2.0
+    assert call_args.memory_mb == 512
+    assert call_args.network_access is False
+
+
+def test_sandbox_config_has_sidecar_url() -> None:
+    """SandboxConfig supports sidecar_url field."""
+    config = SandboxConfig(
+        backend=SandboxBackendMode.SIDECAR,
+        sidecar_url="http://localhost:8001",
+    )
+    assert config.sidecar_url == "http://localhost:8001"
