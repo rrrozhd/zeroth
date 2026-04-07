@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.10",
     "redis>=5.0.0",
     "uvicorn>=0.30",
+    "arq>=0.26",
 ]
 
 [build-system]
