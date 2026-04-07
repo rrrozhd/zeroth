@@ -85,6 +85,15 @@ class ElasticsearchSettings(BaseModel):
     index_prefix: str = "zeroth_memory"
 
 
+class SandboxSettings(BaseModel):
+    """Sandbox execution backend configuration."""
+
+    backend: str = "local"  # local, docker, auto, sidecar
+    sidecar_url: str = "http://sandbox-sidecar:8001"
+    docker_container_name: str = "zeroth-sandbox"
+    docker_binary: str = "docker"
+
+
 class ZerothSettings(BaseSettings):
     """Top-level settings for the Zeroth platform.
 
@@ -109,6 +118,7 @@ class ZerothSettings(BaseSettings):
     pgvector: PgvectorSettings = Field(default_factory=PgvectorSettings)
     chroma: ChromaSettings = Field(default_factory=ChromaSettings)
     elasticsearch: ElasticsearchSettings = Field(default_factory=ElasticsearchSettings)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
 
     @classmethod
     def settings_customise_sources(
