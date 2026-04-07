@@ -51,6 +51,15 @@ class AuthSettings(BaseModel):
     bearer_json: str | None = None
 
 
+class SandboxSettings(BaseModel):
+    """Sandbox execution backend configuration."""
+
+    backend: str = "local"  # local, docker, auto, sidecar
+    sidecar_url: str = "http://sandbox-sidecar:8001"
+    docker_container_name: str = "zeroth-sandbox"
+    docker_binary: str = "docker"
+
+
 class ZerothSettings(BaseSettings):
     """Top-level settings for the Zeroth platform.
 
@@ -71,6 +80,7 @@ class ZerothSettings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     regulus: RegulusSettings = Field(default_factory=RegulusSettings)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
 
     @classmethod
     def settings_customise_sources(
