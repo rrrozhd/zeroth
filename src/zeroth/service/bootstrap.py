@@ -10,9 +10,11 @@ from fastapi import FastAPI
 from zeroth.agent_runtime import AgentRunner
 from zeroth.approvals import ApprovalRepository, ApprovalService
 from zeroth.audit import AuditRepository
+from zeroth.config.settings import get_settings
 from zeroth.contracts import ContractRegistry
 from zeroth.deployments import Deployment, DeploymentService, SQLiteDeploymentRepository
 from zeroth.dispatch import LeaseManager, RunWorker
+from zeroth.econ.client import RegulusClient
 from zeroth.execution_units import ExecutableUnitRunner
 from zeroth.graph import Graph, GraphRepository
 from zeroth.graph.serialization import deserialize_graph
@@ -71,6 +73,9 @@ class ServiceBootstrap:
     dead_letter_manager: DeadLetterManager | None = None
     metrics_collector: MetricsCollector | None = None
     queue_gauge: QueueDepthGauge | None = None
+    # Phase 13: Regulus economics integration (optional).
+    regulus_client: RegulusClient | None = None
+    budget_enforcer: object | None = None
 
 
 async def bootstrap_service(
@@ -168,6 +173,28 @@ async def bootstrap_service(
             metrics_collector=metrics_collector,
         )
 
+    # Phase 13: Regulus economics integration.
+    settings = get_settings()
+    regulus_client: RegulusClient | None = None
+    budget_enforcer: object | None = None
+    if settings.regulus.enabled:
+        regulus_client = RegulusClient(
+            base_url=settings.regulus.base_url,
+            timeout=settings.regulus.request_timeout,
+            enabled=True,
+        )
+        # BudgetEnforcer wired here once econ.budget module lands (Plan 13-02).
+        try:
+            from zeroth.econ.budget import BudgetEnforcer
+
+            budget_enforcer = BudgetEnforcer(
+                regulus_base_url=settings.regulus.base_url,
+                cache_ttl=settings.regulus.budget_cache_ttl,
+                timeout=settings.regulus.request_timeout,
+            )
+        except ImportError:
+            pass
+
     return ServiceBootstrap(
         deployment_service=deployment_service,
         deployment=deployment,
@@ -188,6 +215,8 @@ async def bootstrap_service(
         dead_letter_manager=dead_letter_manager,
         metrics_collector=metrics_collector,
         queue_gauge=queue_gauge,
+        regulus_client=regulus_client,
+        budget_enforcer=budget_enforcer,
     )
 
 
