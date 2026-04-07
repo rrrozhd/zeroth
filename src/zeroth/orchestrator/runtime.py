@@ -9,6 +9,7 @@ so that executions can be resumed if interrupted.
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from time import perf_counter
@@ -32,6 +33,8 @@ from zeroth.mappings import MappingExecutor
 from zeroth.policy import PolicyDecision, PolicyGuard
 from zeroth.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
 from zeroth.secrets import SecretResolver
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestratorError(RuntimeError):
@@ -69,6 +72,7 @@ class RuntimeOrchestrator:
     approval_service: ApprovalService | None = None
     secret_resolver: SecretResolver | None = None
     thread_resolver: RepositoryThreadResolver | None = None
+    webhook_service: object | None = None  # Optional WebhookService for event emission
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -135,6 +139,15 @@ class RuntimeOrchestrator:
                 run.touch()
                 persisted = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(persisted)
+                await self._emit_webhook(
+                    "run.completed",
+                    persisted,
+                    {
+                        "run_id": persisted.run_id,
+                        "graph_version_ref": persisted.graph_version_ref,
+                        "status": "completed",
+                    },
+                )
                 return persisted
 
             node_id = run.pending_node_ids.pop(0)
@@ -171,6 +184,20 @@ class RuntimeOrchestrator:
                         input_payload=dict(input_payload),
                     )
                     approval_id = approval.approval_id
+                    await self._emit_webhook(
+                        "approval.requested",
+                        run,
+                        {
+                            "approval_id": approval.approval_id,
+                            "run_id": run.run_id,
+                            "node_id": node.node_id,
+                            "sla_deadline": (
+                                approval.sla_deadline.isoformat()
+                                if approval.sla_deadline
+                                else None
+                            ),
+                        },
+                    )
                 run.status = RunStatus.WAITING_APPROVAL
                 # Put the same node back at the front so execution can resume from this gate.
                 run.metadata["pending_approval"] = {
@@ -738,7 +765,37 @@ class RuntimeOrchestrator:
         run.touch()
         persisted = await self.run_repository.put(run)
         await self.run_repository.write_checkpoint(persisted)
+        await self._emit_webhook(
+            "run.failed",
+            persisted,
+            {
+                "run_id": persisted.run_id,
+                "graph_version_ref": persisted.graph_version_ref,
+                "status": "failed",
+                "failure_reason": reason,
+            },
+        )
         return persisted
+
+    async def _emit_webhook(
+        self,
+        event_type: str,
+        run: Run,
+        data: dict[str, Any],
+    ) -> None:
+        """Emit a webhook event if a webhook service is configured."""
+        ws = self.webhook_service
+        if ws is None:
+            return
+        try:
+            await ws.emit_event(
+                event_type=event_type,
+                deployment_ref=run.deployment_ref,
+                tenant_id=run.tenant_id,
+                data=data,
+            )
+        except Exception:
+            logger.exception("failed to emit %s webhook", event_type)
 
     def _entry_step(self, graph: Graph) -> str:
         """Get the ID of the first node to run in the graph."""

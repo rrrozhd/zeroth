@@ -58,6 +58,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         poll_task: asyncio.Task | None = None
         queue_gauge_task: asyncio.Task | None = None
         delivery_poll_task: asyncio.Task | None = None
+        sla_checker_task: asyncio.Task | None = None
 
         if worker is not None:
             await worker.start()
@@ -73,6 +74,13 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         if delivery_worker is not None:
             delivery_poll_task = asyncio.create_task(
                 delivery_worker.poll_loop(), name="webhook-delivery"
+            )
+
+        # Start approval SLA checker if configured.
+        sla_checker = getattr(app.state.bootstrap, "sla_checker", None)
+        if sla_checker is not None:
+            sla_checker_task = asyncio.create_task(
+                sla_checker.poll_loop(), name="sla-checker"
             )
 
         yield
@@ -92,6 +100,12 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             delivery_poll_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await delivery_poll_task
+
+        # Shutdown SLA checker.
+        if sla_checker_task is not None:
+            sla_checker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sla_checker_task
 
         # Close webhook HTTP client.
         webhook_http_client = getattr(
