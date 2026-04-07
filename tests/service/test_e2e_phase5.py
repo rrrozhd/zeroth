@@ -42,9 +42,10 @@ from zeroth.graph import (
     Graph,
 )
 from zeroth.mappings.models import EdgeMapping, PassthroughMappingOperation
+from governai.memory.models import MemoryScope
+
 from zeroth.memory import (
     ConnectorManifest,
-    ConnectorScope,
     InMemoryConnectorRegistry,
     KeyValueMemoryConnector,
     MemoryConnectorResolver,
@@ -719,7 +720,7 @@ async def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) 
         "memory://shared",
         ConnectorManifest(
             connector_type="key_value",
-            scope=ConnectorScope.SHARED,
+            scope=MemoryScope.SHARED,
             instance_id="phase5-shared-memory",
         ),
         KeyValueMemoryConnector(),

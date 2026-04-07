@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from governai.integrations.tool_calls import build_tool_message
+from governai.memory.models import MemoryScope
 from pydantic import BaseModel, ValidationError
 
 from zeroth.agent_runtime.errors import (
@@ -405,14 +406,15 @@ class AgentRunner:
         memory_payload: dict[str, Any] = {}
         interactions: list[MemoryAccessRecord] = []
         for binding in bindings:
-            value = binding.connector.read(binding.context, "latest")
+            entry = await binding.connector.read("latest", MemoryScope.RUN)
+            value = entry.value if entry is not None else None
             # Expose each memory source under its own ref in the prompt payload.
             memory_payload[binding.memory_ref] = {"latest": value} if value is not None else {}
             interactions.append(
                 MemoryAccessRecord(
                     memory_ref=binding.memory_ref,
                     connector_type=binding.manifest.connector_type,
-                    scope=binding.context.scope.value,
+                    scope=binding.manifest.scope.value,
                     operation="read",
                     key="latest",
                     value=value,
@@ -443,12 +445,12 @@ class AgentRunner:
         interactions: list[MemoryAccessRecord] = []
         for binding in bindings:
             # The MVP stores the latest structured output for each memory binding.
-            binding.connector.write(binding.context, "latest", dict(output_payload))
+            await binding.connector.write("latest", dict(output_payload), MemoryScope.RUN)
             interactions.append(
                 MemoryAccessRecord(
                     memory_ref=binding.memory_ref,
                     connector_type=binding.manifest.connector_type,
-                    scope=binding.context.scope.value,
+                    scope=binding.manifest.scope.value,
                     operation="write",
                     key="latest",
                     value=dict(output_payload),
