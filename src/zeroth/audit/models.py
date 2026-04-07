@@ -125,6 +125,8 @@ class NodeAuditRecord(BaseModel):
     validation_results: dict[str, Any] = Field(default_factory=dict)
     execution_metadata: dict[str, Any] = Field(default_factory=dict)
     token_usage: TokenUsage | None = None
+    cost_usd: float | None = None
+    cost_event_id: str | None = None
     error: str | None = None
     condition_results: list[dict[str, Any]] = Field(default_factory=list)
     memory_interactions: list[MemoryAccessRecord] = Field(default_factory=list)

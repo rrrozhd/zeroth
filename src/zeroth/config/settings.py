@@ -18,6 +18,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from zeroth.econ.models import RegulusSettings
+
 
 class DatabaseSettings(BaseModel):
     """Database backend configuration."""
@@ -68,6 +70,7 @@ class ZerothSettings(BaseSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    regulus: RegulusSettings = Field(default_factory=RegulusSettings)
 
     @classmethod
     def settings_customise_sources(
