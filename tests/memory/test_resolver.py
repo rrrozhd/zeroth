@@ -6,8 +6,6 @@ then ScopedMemoryConnector, and returns correct ResolvedMemoryBinding shape.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 from governai.audit.emitter import AuditEmitter
 from governai.memory.models import MemoryScope
@@ -58,7 +56,7 @@ async def test_resolver_wraps_with_scoped_and_auditing(registry: InMemoryConnect
         audit_emitter=emitter,
         workflow_name="test-wf",
     )
-    bindings = resolver.resolve(
+    bindings = await resolver.resolve(
         ["memory://kv"],
         runtime_context={"run_id": "run-1"},
         thread_id="t-1",
@@ -82,7 +80,7 @@ async def test_resolver_without_emitter_still_wraps_scoped(registry: InMemoryCon
         registry=registry,
         workflow_name="test-wf",
     )
-    bindings = resolver.resolve(
+    bindings = await resolver.resolve(
         ["memory://ephemeral"],
         runtime_context={"run_id": "run-1"},
     )
@@ -98,7 +96,7 @@ async def test_resolver_without_emitter_still_wraps_scoped(registry: InMemoryCon
 @pytest.mark.asyncio
 async def test_resolved_binding_has_no_context_field(registry: InMemoryConnectorRegistry) -> None:
     resolver = MemoryConnectorResolver(registry=registry, workflow_name="test-wf")
-    bindings = resolver.resolve(
+    bindings = await resolver.resolve(
         ["memory://kv"],
         runtime_context={"run_id": "run-1"},
     )
@@ -109,7 +107,7 @@ async def test_resolved_binding_has_no_context_field(registry: InMemoryConnector
 @pytest.mark.asyncio
 async def test_connector_manifest_uses_memory_scope(registry: InMemoryConnectorRegistry) -> None:
     resolver = MemoryConnectorResolver(registry=registry, workflow_name="test-wf")
-    bindings = resolver.resolve(
+    bindings = await resolver.resolve(
         ["memory://kv"],
         runtime_context={"run_id": "run-1"},
     )
