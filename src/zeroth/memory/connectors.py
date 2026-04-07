@@ -1,72 +1,23 @@
 """In-memory connector implementations for agent memory.
 
-Each connector stores key-value data in plain Python dictionaries.
-They differ in how they group (or "bucket") the data -- by run, by thread, etc.
-These are the MVP implementations; production versions would use a real database.
+Each connector stores key-value data using the GovernAI async MemoryConnector
+protocol. Storage layout mirrors GovernAI's DictMemoryConnector:
+_store[scope.value][target][key] = MemoryEntry
 """
 
 from __future__ import annotations
 
-from collections.abc import MutableMapping
-from typing import Any, Protocol
+from datetime import UTC, datetime
 
-from zeroth.memory.models import MemoryContext
-
-
-class MemoryConnector(Protocol):
-    """Interface that all memory connectors must follow.
-
-    A memory connector knows how to read and write data for an agent.
-    Any class that has a `connector_type` string and `read`/`write` methods
-    matching these signatures counts as a MemoryConnector -- no need to
-    inherit from this class.
-    """
-
-    connector_type: str
-
-    def read(self, context: MemoryContext, key: str) -> Any | None:  # pragma: no cover - protocol
-        """Look up a value by key, returning None if it doesn't exist."""
-        ...
-
-    def write(
-        self, context: MemoryContext, key: str, value: Any
-    ) -> None:  # pragma: no cover - protocol
-        """Store a value under the given key."""
-        ...
+from governai.memory.models import MemoryEntry, MemoryScope
+from governai.models.common import JSONValue
 
 
-class _BaseDictConnector:
-    """Shared logic for dictionary-backed memory connectors.
-
-    Stores data in nested Python dicts. Each unique "bucket key" (derived
-    from the context) gets its own isolated dictionary of key-value pairs.
-    Subclasses just need to set `connector_type`.
-    """
-
-    connector_type = "memory"
-
-    def __init__(self) -> None:
-        # Outer key = bucket name (derived from context), inner dict = actual key-value pairs
-        self._state: dict[str, dict[str, Any]] = {}
-
-    def read(self, context: MemoryContext, key: str) -> Any | None:
-        """Return the stored value for the key, or None if not found."""
-        return self._bucket(context).get(key)
-
-    def write(self, context: MemoryContext, key: str, value: Any) -> None:
-        """Save a value under the given key in the appropriate bucket."""
-        self._bucket(context)[key] = value
-
-    def _bucket(self, context: MemoryContext) -> MutableMapping[str, Any]:
-        """Get (or create) the dictionary for this context's bucket."""
-        return self._state.setdefault(self._bucket_key(context), {})
-
-    def _bucket_key(self, context: MemoryContext) -> str:
-        """Decide which bucket to use based on the context's instance ID."""
-        return context.instance_id
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
-class RunEphemeralMemoryConnector(_BaseDictConnector):
+class RunEphemeralMemoryConnector:
     """Memory that only lasts for a single run and is thrown away afterward.
 
     Use this when an agent needs scratch space during one execution but
@@ -75,8 +26,54 @@ class RunEphemeralMemoryConnector(_BaseDictConnector):
 
     connector_type = "ephemeral"
 
+    def __init__(self) -> None:
+        self._store: dict[str, dict[str, dict[str, MemoryEntry]]] = {}
 
-class KeyValueMemoryConnector(_BaseDictConnector):
+    async def read(
+        self, key: str, scope: MemoryScope, *, target: str | None = None
+    ) -> MemoryEntry | None:
+        entry = self._store.get(scope.value, {}).get(target or "", {}).get(key)
+        if entry is None:
+            return None
+        return entry.model_copy(deep=True)
+
+    async def write(
+        self, key: str, value: JSONValue, scope: MemoryScope, *, target: str | None = None
+    ) -> None:
+        scope_key = scope.value
+        target_key = target or ""
+        bucket = self._store.setdefault(scope_key, {}).setdefault(target_key, {})
+        existing = bucket.get(key)
+        if existing is not None:
+            bucket[key] = existing.model_copy(
+                update={"value": value, "updated_at": _utcnow()}, deep=True
+            )
+        else:
+            bucket[key] = MemoryEntry(
+                key=key, value=value, scope=scope, scope_target=target_key
+            )
+
+    async def delete(
+        self, key: str, scope: MemoryScope, *, target: str | None = None
+    ) -> None:
+        bucket = self._store.get(scope.value, {}).get(target or "", {})
+        if key not in bucket:
+            raise KeyError(key)
+        del bucket[key]
+
+    async def search(
+        self, query: dict, scope: MemoryScope, *, target: str | None = None
+    ) -> list[MemoryEntry]:
+        bucket = self._store.get(scope.value, {}).get(target or "", {})
+        text = query.get("text", "").lower()
+        results = []
+        for entry in bucket.values():
+            if not text or text in entry.key.lower() or text in str(entry.value).lower():
+                results.append(entry.model_copy(deep=True))
+        return results
+
+
+class KeyValueMemoryConnector:
     """Simple key-value memory connector.
 
     A general-purpose connector for storing and retrieving data by key.
@@ -84,8 +81,54 @@ class KeyValueMemoryConnector(_BaseDictConnector):
 
     connector_type = "key_value"
 
+    def __init__(self) -> None:
+        self._store: dict[str, dict[str, dict[str, MemoryEntry]]] = {}
 
-class ThreadMemoryConnector(_BaseDictConnector):
+    async def read(
+        self, key: str, scope: MemoryScope, *, target: str | None = None
+    ) -> MemoryEntry | None:
+        entry = self._store.get(scope.value, {}).get(target or "", {}).get(key)
+        if entry is None:
+            return None
+        return entry.model_copy(deep=True)
+
+    async def write(
+        self, key: str, value: JSONValue, scope: MemoryScope, *, target: str | None = None
+    ) -> None:
+        scope_key = scope.value
+        target_key = target or ""
+        bucket = self._store.setdefault(scope_key, {}).setdefault(target_key, {})
+        existing = bucket.get(key)
+        if existing is not None:
+            bucket[key] = existing.model_copy(
+                update={"value": value, "updated_at": _utcnow()}, deep=True
+            )
+        else:
+            bucket[key] = MemoryEntry(
+                key=key, value=value, scope=scope, scope_target=target_key
+            )
+
+    async def delete(
+        self, key: str, scope: MemoryScope, *, target: str | None = None
+    ) -> None:
+        bucket = self._store.get(scope.value, {}).get(target or "", {})
+        if key not in bucket:
+            raise KeyError(key)
+        del bucket[key]
+
+    async def search(
+        self, query: dict, scope: MemoryScope, *, target: str | None = None
+    ) -> list[MemoryEntry]:
+        bucket = self._store.get(scope.value, {}).get(target or "", {})
+        text = query.get("text", "").lower()
+        results = []
+        for entry in bucket.values():
+            if not text or text in entry.key.lower() or text in str(entry.value).lower():
+                results.append(entry.model_copy(deep=True))
+        return results
+
+
+class ThreadMemoryConnector:
     """Memory scoped to a conversation thread.
 
     Use this when data should persist across multiple runs within the
@@ -93,3 +136,49 @@ class ThreadMemoryConnector(_BaseDictConnector):
     """
 
     connector_type = "thread"
+
+    def __init__(self) -> None:
+        self._store: dict[str, dict[str, dict[str, MemoryEntry]]] = {}
+
+    async def read(
+        self, key: str, scope: MemoryScope, *, target: str | None = None
+    ) -> MemoryEntry | None:
+        entry = self._store.get(scope.value, {}).get(target or "", {}).get(key)
+        if entry is None:
+            return None
+        return entry.model_copy(deep=True)
+
+    async def write(
+        self, key: str, value: JSONValue, scope: MemoryScope, *, target: str | None = None
+    ) -> None:
+        scope_key = scope.value
+        target_key = target or ""
+        bucket = self._store.setdefault(scope_key, {}).setdefault(target_key, {})
+        existing = bucket.get(key)
+        if existing is not None:
+            bucket[key] = existing.model_copy(
+                update={"value": value, "updated_at": _utcnow()}, deep=True
+            )
+        else:
+            bucket[key] = MemoryEntry(
+                key=key, value=value, scope=scope, scope_target=target_key
+            )
+
+    async def delete(
+        self, key: str, scope: MemoryScope, *, target: str | None = None
+    ) -> None:
+        bucket = self._store.get(scope.value, {}).get(target or "", {})
+        if key not in bucket:
+            raise KeyError(key)
+        del bucket[key]
+
+    async def search(
+        self, query: dict, scope: MemoryScope, *, target: str | None = None
+    ) -> list[MemoryEntry]:
+        bucket = self._store.get(scope.value, {}).get(target or "", {})
+        text = query.get("text", "").lower()
+        results = []
+        for entry in bucket.values():
+            if not text or text in entry.key.lower() or text in str(entry.value).lower():
+                results.append(entry.model_copy(deep=True))
+        return results

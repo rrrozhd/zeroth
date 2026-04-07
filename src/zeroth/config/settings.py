@@ -51,6 +51,40 @@ class AuthSettings(BaseModel):
     bearer_json: str | None = None
 
 
+class MemorySettings(BaseModel):
+    """Memory backend configuration."""
+
+    default_connector: str = "ephemeral"
+    redis_kv_prefix: str = "zeroth:mem:kv"
+    redis_thread_prefix: str = "zeroth:mem:thread"
+
+
+class PgvectorSettings(BaseModel):
+    """Pgvector-based vector memory configuration."""
+
+    enabled: bool = False
+    table_name: str = "zeroth_memory_vectors"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+
+
+class ChromaSettings(BaseModel):
+    """ChromaDB vector memory configuration."""
+
+    enabled: bool = False
+    host: str = "localhost"
+    port: int = 8000
+    collection_prefix: str = "zeroth_memory"
+
+
+class ElasticsearchSettings(BaseModel):
+    """Elasticsearch memory backend configuration."""
+
+    enabled: bool = False
+    hosts: list[str] = Field(default_factory=lambda: ["http://localhost:9200"])
+    index_prefix: str = "zeroth_memory"
+
+
 class ZerothSettings(BaseSettings):
     """Top-level settings for the Zeroth platform.
 
@@ -71,6 +105,10 @@ class ZerothSettings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     regulus: RegulusSettings = Field(default_factory=RegulusSettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
+    pgvector: PgvectorSettings = Field(default_factory=PgvectorSettings)
+    chroma: ChromaSettings = Field(default_factory=ChromaSettings)
+    elasticsearch: ElasticsearchSettings = Field(default_factory=ElasticsearchSettings)
 
     @classmethod
     def settings_customise_sources(
