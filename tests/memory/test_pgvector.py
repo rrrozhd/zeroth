@@ -62,13 +62,16 @@ def _mock_conn():
 @pytest.fixture
 def connector(_mock_conn, _mock_litellm):
     """Create a PgvectorMemoryConnector with mocked connection factory."""
-    c = PgvectorMemoryConnector(
-        conn_factory=AsyncMock(return_value=_mock_conn),
-        table_name="test_vectors",
-        embedding_model="text-embedding-3-small",
-        embedding_dimensions=1536,
-    )
-    return c
+    with patch("zeroth.memory.pgvector_connector.register_vector_async", new=AsyncMock()):
+        c = PgvectorMemoryConnector(
+            conn_factory=AsyncMock(return_value=_mock_conn),
+            table_name="test_vectors",
+            embedding_model="text-embedding-3-small",
+            embedding_dimensions=1536,
+        )
+        # Skip schema setup in tests
+        c._setup_done = True
+        yield c
 
 
 # ---------------------------------------------------------------------------
