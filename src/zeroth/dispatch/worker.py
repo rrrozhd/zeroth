@@ -12,7 +12,9 @@ currently executing (the semaphore ensures bounded concurrency).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import socket
 from dataclasses import dataclass, field
 from uuid import uuid4
 
@@ -53,10 +55,12 @@ class RunWorker:
     worker_id: str = field(default_factory=_new_worker_id)
     dead_letter_manager: object | None = None  # DeadLetterManager
     metrics_collector: object | None = None    # MetricsCollector
+    shutdown_timeout: float = 30.0
 
     def __post_init__(self) -> None:
         self._semaphore = asyncio.Semaphore(self.max_concurrency)
         self._active_tasks: set[asyncio.Task] = set()
+        self._stopping = False
 
     # ---------------------------------------------------------------------------
     # Public lifecycle
@@ -64,6 +68,13 @@ class RunWorker:
 
     async def start(self) -> None:
         """Recover orphaned runs from crashed workers, then begin the poll loop."""
+        logger.info(
+            "worker %s starting on %s, deployment=%s, max_concurrency=%d",
+            self.worker_id,
+            socket.gethostname(),
+            self.deployment_ref,
+            self.max_concurrency,
+        )
         orphans = self.lease_manager.claim_orphaned(self.deployment_ref, self.worker_id)
         for run_id in orphans:
             logger.info("worker %s recovering orphaned run %s", self.worker_id, run_id)
@@ -75,7 +86,7 @@ class RunWorker:
 
     async def poll_loop(self) -> None:
         """Continuously claim and dispatch PENDING runs until cancelled."""
-        while True:
+        while not self._stopping:
             slot_reserved = False
             try:
                 await self._semaphore.acquire()
@@ -152,7 +163,6 @@ class RunWorker:
             else:
                 await self._mark_failed(run_id, reason="worker_exception")
         finally:
-            import contextlib
             renewal_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await renewal_task
@@ -263,6 +273,105 @@ class RunWorker:
                     "worker %s lost lease on run %s", self.worker_id, run_id
                 )
                 return
+
+    # ---------------------------------------------------------------------------
+    # Wakeup handler
+    # ---------------------------------------------------------------------------
+
+    async def handle_wakeup(self, run_id: str) -> None:
+        """ARQ wakeup callback -- attempt to claim from DB immediately.
+
+        The run_id is informational only; the worker always claims from the
+        lease store (not from the ARQ job payload) per D-06.
+        """
+        slot_reserved = False
+        try:
+            await self._semaphore.acquire()
+            slot_reserved = True
+            claimed_id = self.lease_manager.claim_pending(
+                self.deployment_ref, self.worker_id
+            )
+            if claimed_id is not None:
+                task = asyncio.create_task(
+                    self._execute_leased_run(
+                        claimed_id,
+                        is_recovery=False,
+                        slot_reserved=True,
+                    ),
+                    name=f"wakeup-{claimed_id}",
+                )
+                self._track(task)
+            else:
+                self._semaphore.release()
+        except Exception:
+            if slot_reserved:
+                self._semaphore.release()
+            logger.exception("worker %s wakeup claim error", self.worker_id)
+
+    # ---------------------------------------------------------------------------
+    # Graceful shutdown
+    # ---------------------------------------------------------------------------
+
+    async def graceful_shutdown(self) -> None:
+        """Wait for in-flight tasks then release remaining leases to PENDING.
+
+        Called on SIGTERM. Steps:
+        1. Set stopping flag so poll_loop exits cleanly
+        2. Wait for active tasks to complete (up to shutdown_timeout)
+        3. For any tasks still running, cancel them and release their leases
+           back to PENDING so another worker can claim them
+        """
+        self._stopping = True
+        if not self._active_tasks:
+            return
+
+        # Wait for active tasks to finish within timeout
+        done, pending = await asyncio.wait(
+            self._active_tasks,
+            timeout=self.shutdown_timeout,
+        )
+
+        # Release leases for tasks that didn't finish
+        for task in pending:
+            run_id = self._extract_run_id(task)
+            if run_id:
+                self._release_to_pending(run_id)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def _extract_run_id(self, task: asyncio.Task) -> str | None:
+        """Extract run_id from a task name like 'run-abc123' or 'wakeup-abc123'."""
+        name = task.get_name()
+        for prefix in ("run-", "wakeup-", "recover-"):
+            if name.startswith(prefix):
+                return name[len(prefix) :]
+        return None
+
+    def _release_to_pending(self, run_id: str) -> None:
+        """Release lease and revert run to PENDING for another worker."""
+        try:
+            self.lease_manager.release_lease(run_id, self.worker_id)
+            run = self.run_repository.get(run_id)
+            if run is not None and run.status == RunStatus.RUNNING:
+                run.status = RunStatus.PENDING
+                run.touch()
+                self.run_repository.put(run)
+                logger.info(
+                    "worker %s released run %s back to PENDING on shutdown",
+                    self.worker_id,
+                    run_id,
+                )
+        except Exception:
+            logger.exception(
+                "worker %s: failed to release run %s on shutdown",
+                self.worker_id,
+                run_id,
+            )
+
+    # ---------------------------------------------------------------------------
+    # Task tracking
+    # ---------------------------------------------------------------------------
 
     def _track(self, task: asyncio.Task) -> None:
         self._active_tasks.add(task)
