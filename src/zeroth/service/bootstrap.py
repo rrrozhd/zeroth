@@ -122,6 +122,8 @@ class ServiceBootstrap:
     budget_enforcer: object | None = None
     # Phase 14: Memory connector registry (populated at bootstrap).
     memory_registry: InMemoryConnectorRegistry | None = None
+    # Phase 16: ARQ wakeup pool (optional).
+    arq_pool: object | None = None
     # Phase 15: Webhook and SLA components (optional).
     webhook_service: object | None = None
     webhook_repository: object | None = None
@@ -212,6 +214,8 @@ async def bootstrap_service(
         metrics_collector=metrics_collector,
     )
 
+    settings = get_settings()
+
     worker: RunWorker | None = None
     if enable_durable_worker:
         worker = RunWorker(
@@ -221,12 +225,13 @@ async def bootstrap_service(
             graph=graph,
             lease_manager=lease_manager,
             max_concurrency=resolved_guardrail_config.max_concurrency,
+            poll_interval=settings.dispatch.poll_interval,
+            shutdown_timeout=settings.dispatch.shutdown_timeout,
             dead_letter_manager=dead_letter_manager,
             metrics_collector=metrics_collector,
         )
 
     # Phase 13: Regulus economics integration.
-    settings = get_settings()
     regulus_client: RegulusClient | None = None
     budget_enforcer: object | None = None
     if settings.regulus.enabled:
@@ -303,6 +308,16 @@ async def bootstrap_service(
         except ImportError:
             pass
 
+    # Phase 16: ARQ wakeup pool for low-latency dispatch.
+    arq_pool = None
+    if settings.dispatch.arq_enabled:
+        try:
+            from zeroth.dispatch.arq_wakeup import create_arq_pool
+
+            arq_pool = await create_arq_pool(settings.redis)
+        except ImportError:
+            pass
+
     return ServiceBootstrap(
         deployment_service=deployment_service,
         deployment=deployment,
@@ -326,6 +341,7 @@ async def bootstrap_service(
         regulus_client=regulus_client,
         budget_enforcer=budget_enforcer,
         memory_registry=memory_registry,
+        arq_pool=arq_pool,
         webhook_service=webhook_service_obj,
         webhook_repository=webhook_repository,
         delivery_worker=delivery_worker_obj,
