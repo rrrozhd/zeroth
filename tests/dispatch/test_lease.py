@@ -1,7 +1,11 @@
-"""Tests for the SQLite-backed LeaseManager."""
+"""Tests for the backend-conditional LeaseManager."""
 from __future__ import annotations
 
-from zeroth.dispatch.lease import LeaseManager
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from zeroth.dispatch.lease import LeaseManager, _HAS_PG
 from zeroth.runs import RunRepository, RunStatus
 from zeroth.storage import SQLiteDatabase
 
@@ -16,6 +20,11 @@ def _create_pending_run(run_repo: RunRepository) -> str:
     run = Run(graph_version_ref="g:v1", deployment_ref=DEPLOYMENT)
     persisted = run_repo.create(run)
     return persisted.run_id
+
+
+# ---------------------------------------------------------------------------
+# SQLite path tests (existing)
+# ---------------------------------------------------------------------------
 
 
 def test_claim_pending_returns_none_when_empty(sqlite_db: SQLiteDatabase) -> None:
@@ -135,3 +144,122 @@ def test_get_recovery_checkpoint_id_returns_none_when_no_checkpoint(
     run_id = _create_pending_run(run_repo)
     result = manager.get_recovery_checkpoint_id(run_id)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# SQLite fallback test
+# ---------------------------------------------------------------------------
+
+
+def test_claim_pending_sqlite_fallback(sqlite_db: SQLiteDatabase) -> None:
+    """With a non-Postgres database, verify _claim_pending_sqlite is called."""
+    manager = LeaseManager(sqlite_db)
+
+    assert manager._is_postgres() is False
+
+    # Patch on the class (slots=True prevents instance-level patching)
+    with patch.object(LeaseManager, "_claim_pending_sqlite", return_value=None) as mock_sqlite:
+        manager.claim_pending(DEPLOYMENT, WORKER_A)
+        mock_sqlite.assert_called_once_with(DEPLOYMENT, WORKER_A)
+
+
+# ---------------------------------------------------------------------------
+# Backend detection tests
+# ---------------------------------------------------------------------------
+
+
+def test_is_postgres_detection_with_sqlite(sqlite_db: SQLiteDatabase) -> None:
+    """_is_postgres returns False for SQLiteDatabase instances."""
+    manager = LeaseManager(sqlite_db)
+    assert manager._is_postgres() is False
+
+
+@pytest.mark.skipif(not _HAS_PG, reason="psycopg not installed")
+def test_is_postgres_detection_with_pg() -> None:
+    """_is_postgres returns True for AsyncPostgresDatabase instances."""
+    from zeroth.storage.async_postgres import AsyncPostgresDatabase
+
+    mock_pool = MagicMock()
+    pg_db = AsyncPostgresDatabase(pool=mock_pool)
+    manager = LeaseManager(pg_db)  # type: ignore[arg-type]
+    assert manager._is_postgres() is True
+
+
+def test_is_postgres_detection_with_mock_non_pg() -> None:
+    """_is_postgres returns False for non-Postgres AsyncDatabase implementations."""
+    mock_db = MagicMock(spec=[])  # No AsyncPostgresDatabase attributes
+    manager = LeaseManager(mock_db)  # type: ignore[arg-type]
+    assert manager._is_postgres() is False
+
+
+# ---------------------------------------------------------------------------
+# Postgres path tests (mocked)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_PG, reason="psycopg not installed")
+def test_claim_pending_pg_uses_skip_locked() -> None:
+    """When database is AsyncPostgresDatabase, _claim_pending_pg is called."""
+    from zeroth.storage.async_postgres import AsyncPostgresDatabase
+
+    mock_pool = MagicMock()
+    pg_db = AsyncPostgresDatabase(pool=mock_pool)
+    manager = LeaseManager(pg_db)  # type: ignore[arg-type]
+
+    with patch.object(LeaseManager, "_claim_pending_pg", return_value="test-run") as mock_pg:
+        result = manager.claim_pending(DEPLOYMENT, WORKER_A)
+        mock_pg.assert_called_once_with(DEPLOYMENT, WORKER_A)
+        assert result == "test-run"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _HAS_PG, reason="psycopg not installed")
+async def test_claim_pending_pg_returns_none_when_no_work() -> None:
+    """Postgres claim returns None when no pending rows found."""
+    from zeroth.storage.async_postgres import AsyncPostgresDatabase
+
+    mock_conn = AsyncMock()
+    mock_conn.fetch_one = AsyncMock(return_value=None)
+
+    mock_pool = MagicMock()
+    pg_db = AsyncPostgresDatabase(pool=mock_pool)
+
+    # Mock the transaction context manager
+    mock_tx = AsyncMock()
+    mock_tx.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_tx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(pg_db, "transaction", return_value=mock_tx):
+        manager = LeaseManager(pg_db)  # type: ignore[arg-type]
+        result = await manager._claim_pending_pg_async(DEPLOYMENT, WORKER_A)
+        assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _HAS_PG, reason="psycopg not installed")
+async def test_claim_pending_pg_returns_run_id_on_success() -> None:
+    """Postgres claim returns run_id when a pending row is found."""
+    from zeroth.storage.async_postgres import AsyncPostgresDatabase
+
+    mock_conn = AsyncMock()
+    mock_conn.fetch_one = AsyncMock(return_value={"run_id": "test-123"})
+    mock_conn.execute = AsyncMock()
+
+    mock_pool = MagicMock()
+    pg_db = AsyncPostgresDatabase(pool=mock_pool)
+
+    # Mock the transaction context manager
+    mock_tx = AsyncMock()
+    mock_tx.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_tx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(pg_db, "transaction", return_value=mock_tx):
+        manager = LeaseManager(pg_db)  # type: ignore[arg-type]
+        result = await manager._claim_pending_pg_async(DEPLOYMENT, WORKER_A)
+        assert result == "test-123"
+
+        # Verify the UPDATE was called with the run_id
+        mock_conn.execute.assert_called_once()
+        call_args = mock_conn.execute.call_args
+        assert "UPDATE runs" in call_args[0][0]
+        assert "test-123" in call_args[0][1]
