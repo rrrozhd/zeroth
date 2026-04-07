@@ -25,6 +25,11 @@ dependencies = [
     "redis>=5.0.0",
     "tenacity>=8.2",
     "uvicorn>=0.30",
+    "pgvector>=0.4.2",
+    "litellm>=1.83.0",
+    "psycopg[binary]>=3.1",
+    "chromadb-client>=1.5.6",
+    "elasticsearch[async]>=8.0,<9",
 ]
 
 [build-system]
