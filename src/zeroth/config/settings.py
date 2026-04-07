@@ -113,6 +113,14 @@ class ApprovalSLASettings(BaseModel):
     checker_poll_interval: float = 10.0
 
 
+class DispatchSettings(BaseModel):
+    """Distributed dispatch configuration."""
+
+    arq_enabled: bool = False
+    shutdown_timeout: float = 30.0
+    poll_interval: float = 0.5
+
+
 class ZerothSettings(BaseSettings):
     """Top-level settings for the Zeroth platform.
 
@@ -140,6 +148,7 @@ class ZerothSettings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
     approval_sla: ApprovalSLASettings = Field(default_factory=ApprovalSLASettings)
+    dispatch: DispatchSettings = Field(default_factory=DispatchSettings)
 
     @classmethod
     def settings_customise_sources(
