@@ -6,10 +6,12 @@ Public API:
 - CostEstimator: USD cost estimation via litellm pricing data
 """
 
+from zeroth.econ.budget import BudgetEnforcer
 from zeroth.econ.client import RegulusClient
 from zeroth.econ.cost import CostEstimator
 
 __all__ = [
+    "BudgetEnforcer",
     "RegulusClient",
     "CostEstimator",
 ]
