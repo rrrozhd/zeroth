@@ -13,6 +13,7 @@ from zeroth.webhooks.models import (
     WebhookEventType,
     WebhookSubscription,
 )
+from zeroth.webhooks.repository import WebhookRepository
 from zeroth.webhooks.signing import sign_payload
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "WebhookDelivery",
     "WebhookEventPayload",
     "WebhookEventType",
+    "WebhookRepository",
     "WebhookSubscription",
     "sign_payload",
 ]
