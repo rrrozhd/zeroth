@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any, Protocol
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from zeroth.contracts import ContractReference
@@ -91,7 +91,7 @@ class RunInvocationResponse(RunStatusResponse):
     """Response body for run creation."""
 
 
-def register_run_routes(app: FastAPI) -> None:
+def register_run_routes(app: FastAPI | APIRouter) -> None:
     """Register the public run API routes on the service app."""
 
     @app.post("/runs", response_model=RunInvocationResponse, status_code=status.HTTP_202_ACCEPTED)

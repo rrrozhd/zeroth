@@ -8,7 +8,7 @@ import signal
 from contextlib import asynccontextmanager
 from typing import Protocol
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -181,7 +181,12 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         if regulus_client is not None:
             regulus_client.stop()
 
-    app = FastAPI(title="Zeroth Service Wrapper", lifespan=lifespan)
+    app = FastAPI(
+        title="Zeroth Platform API",
+        description="Governed medium-code platform for production-grade multi-agent systems",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
     app.state.bootstrap = bootstrap
 
     # Regulus backend URL for cost API queries (per D-16).
@@ -240,16 +245,32 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             graph_version_ref=deployment.graph_version_ref,
         )
 
-    register_contract_routes(app)
-    register_audit_routes(app)
-    register_approval_routes(app)
-    register_run_routes(app)
+    # Primary: versioned routes under /v1/ (per D-06)
+    v1_router = APIRouter(prefix="/v1", tags=["v1"])
+    register_contract_routes(v1_router)
+    register_audit_routes(v1_router)
+    register_approval_routes(v1_router)
+    register_run_routes(v1_router)
 
-    # Admin and metrics routes are registered if the bootstrap provides them.
     from zeroth.service.admin_api import register_admin_routes
 
-    register_admin_routes(app)
-    register_cost_routes(app)
-    register_webhook_routes(app)
+    register_admin_routes(v1_router)
+    register_cost_routes(v1_router)
+    register_webhook_routes(v1_router)
+
+    app.include_router(v1_router)
+
+    # Backward-compatible aliases: same routes without /v1/ prefix,
+    # excluded from OpenAPI spec to avoid duplicate operationIds (per D-06, Pitfall 3)
+    compat_router = APIRouter(include_in_schema=False)
+    register_contract_routes(compat_router)
+    register_audit_routes(compat_router)
+    register_approval_routes(compat_router)
+    register_run_routes(compat_router)
+    register_admin_routes(compat_router)
+    register_cost_routes(compat_router)
+    register_webhook_routes(compat_router)
+
+    app.include_router(compat_router)
 
     return app

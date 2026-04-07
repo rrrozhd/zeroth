@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.approvals.models import ApprovalRecord
@@ -130,7 +130,7 @@ class AttestationVerificationResponse(BaseModel):
     mismatches: list[str] = Field(default_factory=list)
 
 
-def register_audit_routes(app: FastAPI) -> None:
+def register_audit_routes(app: FastAPI | APIRouter) -> None:
     """Register public audit query and timeline routes."""
 
     @app.get(

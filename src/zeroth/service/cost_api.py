@@ -7,7 +7,7 @@ deployments by querying the Regulus backend as the source of truth.
 from __future__ import annotations
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
 
@@ -32,7 +32,7 @@ class DeploymentCostResponse(BaseModel):
     currency: str = "USD"
 
 
-def register_cost_routes(app: FastAPI) -> None:
+def register_cost_routes(app: FastAPI | APIRouter) -> None:
     """Register cost attribution query routes on the FastAPI app."""
 
     @app.get("/v1/tenants/{tenant_id}/cost", response_model=TenantCostResponse)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.runs import RunFailureState, RunStatus
@@ -33,7 +33,7 @@ class AdminRunListResponse(BaseModel):
     total: int
 
 
-def register_admin_routes(app: FastAPI) -> None:
+def register_admin_routes(app: FastAPI | APIRouter) -> None:
     """Register admin and metrics routes on the service app."""
 
     @app.get("/metrics")
