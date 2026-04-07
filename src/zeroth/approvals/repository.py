@@ -6,6 +6,8 @@ simple read/write/query methods.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from zeroth.approvals.models import ApprovalRecord, ApprovalStatus
 from zeroth.storage import AsyncDatabase
 from zeroth.storage.json import load_typed_value, to_json_value
@@ -28,6 +30,7 @@ class ApprovalRepository:
         If a record with the same approval_id already exists, it will be
         updated. Returns the freshly-read record from the database.
         """
+        sla_deadline_str = record.sla_deadline.isoformat() if record.sla_deadline else None
         async with self._database.transaction() as connection:
             await connection.execute(
                 """
@@ -43,8 +46,11 @@ class ApprovalRepository:
                     status,
                     created_at,
                     updated_at,
+                    sla_deadline,
+                    escalation_action,
+                    escalated_from_id,
                     record_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(approval_id) DO UPDATE SET
                     run_id = excluded.run_id,
                     thread_id = excluded.thread_id,
@@ -56,6 +62,9 @@ class ApprovalRepository:
                     status = excluded.status,
                     created_at = excluded.created_at,
                     updated_at = excluded.updated_at,
+                    sla_deadline = excluded.sla_deadline,
+                    escalation_action = excluded.escalation_action,
+                    escalated_from_id = excluded.escalated_from_id,
                     record_json = excluded.record_json
                 """,
                 (
@@ -70,6 +79,9 @@ class ApprovalRepository:
                     record.status.value,
                     record.created_at.isoformat(),
                     record.updated_at.isoformat(),
+                    sla_deadline_str,
+                    record.escalation_action,
+                    record.escalated_from_id,
                     to_json_value(record.model_dump(mode="json")),
                 ),
             )
@@ -143,6 +155,21 @@ class ApprovalRepository:
         sql += " ORDER BY created_at, approval_id"
         async with self._database.transaction() as connection:
             rows = await connection.fetch_all(sql, tuple(params))
+        return [
+            ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
+            for row in rows
+        ]
+
+    async def list_overdue(self) -> list[ApprovalRecord]:
+        """Return PENDING approvals past their SLA deadline."""
+        now = datetime.now(UTC).isoformat()
+        sql = (
+            "SELECT record_json FROM approvals "
+            "WHERE status = ? AND sla_deadline IS NOT NULL AND sla_deadline < ? "
+            "ORDER BY sla_deadline"
+        )
+        async with self._database.transaction() as connection:
+            rows = await connection.fetch_all(sql, (ApprovalStatus.PENDING.value, now))
         return [
             ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
             for row in rows
