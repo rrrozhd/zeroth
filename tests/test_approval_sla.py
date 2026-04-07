@@ -15,7 +15,7 @@ from zeroth.approvals.models import (
 )
 from zeroth.approvals.repository import ApprovalRepository
 from zeroth.approvals.service import ApprovalService
-from zeroth.identity import ActorIdentity
+from zeroth.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.runs import RunRepository
 
 
@@ -152,7 +152,10 @@ class TestApprovalServiceCreatePendingSLA:
         run.tenant_id = "tenant-1"
         run.workspace_id = "ws-1"
         run.submitted_by = ActorIdentity(
-            identity_type="user", identifier="user-1", display_name="Test User"
+            subject="user-1",
+            auth_method=AuthMethod.API_KEY,
+            roles=[ServiceRole.REVIEWER],
+            tenant_id="default",
         )
         return run
 
@@ -192,7 +195,7 @@ class TestApprovalServiceCreatePendingSLA:
     async def test_delegate_identity_stored_in_urgency(self, service, repo):
         """create_pending stores delegate_identity in urgency_metadata."""
         run = self._make_run()
-        delegate = {"identity_type": "user", "identifier": "delegate-1"}
+        delegate = {"subject": "delegate-1", "auth_method": "api_key"}
         node = self._make_node(
             sla_timeout_seconds=600,
             escalation_action="delegate",
@@ -229,7 +232,7 @@ class TestApprovalServiceEscalate:
 
     async def test_delegate_creates_new_record(self, service, repo):
         """escalate with action=delegate creates a new approval for the delegate."""
-        delegate = {"identity_type": "user", "identifier": "delegate-1", "display_name": "Delegate"}
+        delegate = {"subject": "delegate-1", "auth_method": "api_key"}
         original = _make_record(
             escalation_action="delegate",
             sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
@@ -272,7 +275,7 @@ class TestApprovalServiceEscalate:
         assert result.status == ApprovalStatus.RESOLVED
         assert result.resolution is not None
         assert result.resolution.decision == ApprovalDecision.REJECT
-        assert result.resolution.actor.identifier == "sla_enforcer"
+        assert result.resolution.actor.subject == "sla_enforcer"
 
     async def test_alert_marks_escalated(self, service, repo):
         """escalate with action=alert marks as ESCALATED."""

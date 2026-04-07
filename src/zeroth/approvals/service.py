@@ -7,7 +7,7 @@ resuming the paused agent run afterward.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from zeroth.approvals.models import (
@@ -89,6 +89,17 @@ class ApprovalService:
             urgency_metadata=dict(node.human_approval.pause_behavior_config),
             resolution_schema_ref=node.human_approval.resolution_schema_ref,
         )
+        # SLA deadline from node config (D-09)
+        if node.human_approval.sla_timeout_seconds is not None:
+            record.sla_deadline = record.created_at + timedelta(
+                seconds=node.human_approval.sla_timeout_seconds
+            )
+            record.escalation_action = node.human_approval.escalation_action
+        # Store delegate info and timeout in urgency_metadata for later escalation
+        if node.human_approval.delegate_identity:
+            record.urgency_metadata["delegate_identity"] = node.human_approval.delegate_identity
+        if node.human_approval.sla_timeout_seconds:
+            record.urgency_metadata["sla_timeout_seconds"] = node.human_approval.sla_timeout_seconds
         return await self.repository.write(record)
 
     async def get(self, approval_id: str) -> ApprovalRecord | None:
@@ -125,6 +136,79 @@ class ApprovalService:
             thread_id=thread_id,
             deployment_ref=deployment_ref,
         )
+
+    async def escalate(self, approval_id: str) -> ApprovalRecord:
+        """Escalate an overdue approval based on its configured escalation action.
+
+        Supports three actions:
+        - delegate: marks original ESCALATED, creates new approval for delegate
+        - auto_reject: resolves original as REJECTED with system actor
+        - alert (default): marks original ESCALATED (webhook emission by caller)
+
+        If the approval is already ESCALATED, this is a no-op (prevents double-escalation).
+        """
+        record = await self._require(approval_id)
+        if record.status is ApprovalStatus.ESCALATED:
+            return record  # already escalated, no-op per pitfall 3
+
+        action = record.escalation_action or "alert"
+
+        if action == "delegate":
+            record.status = ApprovalStatus.ESCALATED
+            record.updated_at = datetime.now(UTC)
+            await self.repository.write(record)
+
+            delegate_identity_dict = record.urgency_metadata.get("delegate_identity")
+            delegate_actor = (
+                ActorIdentity(**delegate_identity_dict)
+                if isinstance(delegate_identity_dict, dict)
+                else None
+            )
+            delegate_record = ApprovalRecord(
+                run_id=record.run_id,
+                thread_id=record.thread_id,
+                node_id=record.node_id,
+                graph_version_ref=record.graph_version_ref,
+                deployment_ref=record.deployment_ref,
+                tenant_id=record.tenant_id,
+                workspace_id=record.workspace_id,
+                requested_by=delegate_actor or record.requested_by,
+                interaction_type=record.interaction_type,
+                allowed_actions=list(record.allowed_actions),
+                summary=f"[Escalated] {record.summary}",
+                rationale=f"Escalated from approval {record.approval_id} due to SLA timeout",
+                context_excerpt=dict(record.context_excerpt),
+                proposed_payload=dict(record.proposed_payload) if record.proposed_payload else None,
+                urgency_metadata=dict(record.urgency_metadata),
+                resolution_schema_ref=record.resolution_schema_ref,
+                escalated_from_id=record.approval_id,
+            )
+            timeout_seconds = record.urgency_metadata.get("sla_timeout_seconds")
+            if timeout_seconds:
+                delegate_record.sla_deadline = delegate_record.created_at + timedelta(
+                    seconds=timeout_seconds
+                )
+                delegate_record.escalation_action = record.escalation_action
+            await self.repository.write(delegate_record)
+            return record
+
+        elif action == "auto_reject":
+            from zeroth.identity import AuthMethod
+
+            system_actor = ActorIdentity(
+                subject="sla_enforcer",
+                auth_method=AuthMethod.API_KEY,
+            )
+            return await self.resolve(
+                approval_id,
+                decision=ApprovalDecision.REJECT,
+                actor=system_actor,
+            )
+
+        else:  # "alert" or unknown
+            record.status = ApprovalStatus.ESCALATED
+            record.updated_at = datetime.now(UTC)
+            return await self.repository.write(record)
 
     async def resolve(
         self,
