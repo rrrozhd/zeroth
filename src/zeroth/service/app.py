@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import signal
 from contextlib import asynccontextmanager
 from typing import Protocol
 
@@ -83,7 +84,68 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
                 sla_checker.poll_loop(), name="sla-checker"
             )
 
+        # Phase 16: ARQ wakeup consumer task.
+        arq_consumer_task: asyncio.Task | None = None
+        arq_pool = getattr(app.state.bootstrap, "arq_pool", None)
+        if worker is not None and arq_pool is not None:
+            try:
+                from zeroth.config.settings import get_settings
+                from zeroth.dispatch.arq_wakeup import run_arq_consumer
+
+                redis_settings = get_settings().redis
+                arq_consumer_task = asyncio.create_task(
+                    run_arq_consumer(redis_settings, worker.handle_wakeup),
+                    name="arq-consumer",
+                )
+            except ImportError:
+                pass
+
+        # Phase 16: SIGTERM / SIGINT graceful shutdown signal handler.
+        shutdown_event = asyncio.Event()
+
+        def _handle_shutdown_signal():
+            shutdown_event.set()
+
+        loop = asyncio.get_running_loop()
+        try:
+            loop.add_signal_handler(signal.SIGTERM, _handle_shutdown_signal)
+            loop.add_signal_handler(signal.SIGINT, _handle_shutdown_signal)
+        except (NotImplementedError, RuntimeError):
+            pass  # Signal handlers not supported on this platform (e.g., Windows)
+
+        async def _shutdown_watcher():
+            await shutdown_event.wait()
+            if worker is not None:
+                await worker.graceful_shutdown()
+
+        shutdown_watcher_task: asyncio.Task | None = None
+        if worker is not None:
+            shutdown_watcher_task = asyncio.create_task(
+                _shutdown_watcher(), name="shutdown-watcher"
+            )
+
         yield
+
+        # Cancel shutdown watcher.
+        if shutdown_watcher_task is not None:
+            shutdown_watcher_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await shutdown_watcher_task
+
+        # Phase 16: Graceful shutdown -- wait for in-flight runs then release leases.
+        if worker is not None:
+            await worker.graceful_shutdown()
+
+        # Cancel ARQ consumer.
+        if arq_consumer_task is not None:
+            arq_consumer_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await arq_consumer_task
+
+        # Close ARQ pool.
+        if arq_pool is not None:
+            with contextlib.suppress(Exception):
+                await arq_pool.close()
 
         # Graceful shutdown: cancel the poll loop (not the executing runs).
         if poll_task is not None:
