@@ -233,3 +233,169 @@ async def test_worker_does_not_claim_more_runs_than_available_capacity(
     final = run_repo.get(first_run.run_id)
     assert final is not None
     assert final.status is RunStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# Wakeup handler tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_wakeup_claims_and_dispatches(sqlite_db: SQLiteDatabase) -> None:
+    """handle_wakeup should claim a pending run and dispatch it."""
+    run_repo = RunRepository(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _FakeOrchestrator(run_repo)
+    graph = _FakeGraph()
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=graph,
+        lease_manager=lease_manager,
+        max_concurrency=4,
+    )
+
+    run = _make_run(run_repo)
+    await worker.handle_wakeup(run.run_id)
+    # Allow the spawned task to complete.
+    await asyncio.sleep(0.1)
+
+    final = run_repo.get(run.run_id)
+    assert final is not None
+    assert final.status is RunStatus.COMPLETED
+    assert run.run_id in orchestrator.driven
+
+
+@pytest.mark.asyncio
+async def test_handle_wakeup_releases_semaphore_on_no_work(
+    sqlite_db: SQLiteDatabase,
+) -> None:
+    """When no work is available, handle_wakeup should release the semaphore."""
+    run_repo = RunRepository(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _FakeOrchestrator(run_repo)
+    graph = _FakeGraph()
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=graph,
+        lease_manager=lease_manager,
+        max_concurrency=2,
+    )
+
+    # No runs created, so claim returns None.
+    await worker.handle_wakeup("nonexistent-run")
+
+    # Semaphore should be back to its initial value.
+    assert worker._semaphore._value == 2
+
+
+# ---------------------------------------------------------------------------
+# Graceful shutdown tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_graceful_shutdown_waits_for_active_tasks(
+    sqlite_db: SQLiteDatabase,
+) -> None:
+    """graceful_shutdown should wait for tasks and release leases on timeout."""
+    run_repo = RunRepository(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _BlockingOrchestrator(run_repo)
+    graph = _FakeGraph()
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=graph,
+        lease_manager=lease_manager,
+        max_concurrency=4,
+        shutdown_timeout=0.1,
+    )
+
+    run = _make_run(run_repo)
+    # Start the worker and begin processing.
+    await worker.start()
+    poll_task = asyncio.create_task(worker.poll_loop())
+    await asyncio.wait_for(orchestrator.started.wait(), timeout=1)
+
+    # Shutdown while the task is still running.
+    await worker.graceful_shutdown()
+
+    poll_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await poll_task
+
+    # The run should have been released back to PENDING.
+    final = run_repo.get(run.run_id)
+    assert final is not None
+    assert final.status is RunStatus.PENDING
+
+
+# ---------------------------------------------------------------------------
+# Extract run_id tests
+# ---------------------------------------------------------------------------
+
+
+def test_extract_run_id_from_task_name() -> None:
+    """_extract_run_id should parse run_id from task name prefixes."""
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=None,  # type: ignore[arg-type]
+        orchestrator=None,
+        graph=None,
+        lease_manager=None,  # type: ignore[arg-type]
+    )
+
+    loop = asyncio.new_event_loop()
+    try:
+        async def _noop():
+            pass
+
+        task_run = loop.create_task(_noop(), name="run-abc123")
+        task_wakeup = loop.create_task(_noop(), name="wakeup-abc123")
+        task_recover = loop.create_task(_noop(), name="recover-abc123")
+        task_unknown = loop.create_task(_noop(), name="unknown-task")
+
+        assert worker._extract_run_id(task_run) == "abc123"
+        assert worker._extract_run_id(task_wakeup) == "abc123"
+        assert worker._extract_run_id(task_recover) == "abc123"
+        assert worker._extract_run_id(task_unknown) is None
+    finally:
+        loop.close()
+
+
+# ---------------------------------------------------------------------------
+# Stopping flag test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stopping_flag_exits_poll_loop(sqlite_db: SQLiteDatabase) -> None:
+    """Setting _stopping = True should make poll_loop exit without claiming."""
+    run_repo = RunRepository(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _FakeOrchestrator(run_repo)
+    graph = _FakeGraph()
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=graph,
+        lease_manager=lease_manager,
+    )
+
+    _make_run(run_repo)
+    worker._stopping = True
+
+    # poll_loop should return immediately without claiming anything.
+    await worker.poll_loop()
+
+    assert len(orchestrator.driven) == 0
