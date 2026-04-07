@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.approvals import ApprovalDecision, ApprovalRecord, ApprovalStatus
@@ -46,7 +46,7 @@ class ApprovalResolutionResponse(BaseModel):
     run: RunStatusResponse
 
 
-def register_approval_routes(app: FastAPI) -> None:
+def register_approval_routes(app: FastAPI | APIRouter) -> None:
     """Register deployment-scoped approval query and resolution routes."""
 
     @app.get(

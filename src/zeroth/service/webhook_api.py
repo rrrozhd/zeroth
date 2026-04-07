@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.service.authorization import Permission, require_permission
@@ -97,7 +97,7 @@ def _serialize_subscription(sub: WebhookSubscription) -> WebhookSubscriptionResp
     )
 
 
-def register_webhook_routes(app: FastAPI) -> None:
+def register_webhook_routes(app: FastAPI | APIRouter) -> None:
     """Register webhook subscription and dead-letter management routes."""
 
     @app.post(
