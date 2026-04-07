@@ -20,6 +20,7 @@ from zeroth.service.approval_api import register_approval_routes
 from zeroth.service.audit_api import register_audit_routes
 from zeroth.service.auth import AuthenticationError, record_service_denial
 from zeroth.service.contracts_api import register_contract_routes
+from zeroth.service.cost_api import register_cost_routes
 from zeroth.service.run_api import register_run_routes
 
 
@@ -77,8 +78,22 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             with contextlib.suppress(asyncio.CancelledError):
                 await queue_gauge_task
 
+        # Flush and stop Regulus telemetry transport (Pitfall 2).
+        regulus_client = getattr(app.state.bootstrap, "regulus_client", None)
+        if regulus_client is not None:
+            regulus_client.stop()
+
     app = FastAPI(title="Zeroth Service Wrapper", lifespan=lifespan)
     app.state.bootstrap = bootstrap
+
+    # Regulus backend URL for cost API queries (per D-16).
+    regulus_client = getattr(bootstrap, "regulus_client", None)
+    if regulus_client is not None:
+        from zeroth.config.settings import get_settings
+
+        _regulus_settings = get_settings().regulus
+        app.state.regulus_base_url = _regulus_settings.base_url
+        app.state.regulus_timeout = _regulus_settings.request_timeout
 
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):
@@ -123,5 +138,6 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     from zeroth.service.admin_api import register_admin_routes
 
     register_admin_routes(app)
+    register_cost_routes(app)
 
     return app
