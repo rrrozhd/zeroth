@@ -17,7 +17,8 @@ from zeroth.memory.connectors import (
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,
 )
-from zeroth.memory.models import ConnectorManifest, ConnectorScope
+from governai.memory.models import MemoryScope
+from zeroth.memory.models import ConnectorManifest
 from zeroth.memory.registry import InMemoryConnectorRegistry
 
 logger = logging.getLogger(__name__)
@@ -78,17 +79,17 @@ def register_memory_connectors(
     # Always register in-memory connectors for dev/test
     registry.register(
         "ephemeral",
-        ConnectorManifest(connector_type="ephemeral", scope=ConnectorScope.RUN),
+        ConnectorManifest(connector_type="ephemeral", scope=MemoryScope.RUN),
         RunEphemeralMemoryConnector(),
     )
     registry.register(
         "key_value",
-        ConnectorManifest(connector_type="key_value", scope=ConnectorScope.SHARED),
+        ConnectorManifest(connector_type="key_value", scope=MemoryScope.SHARED),
         KeyValueMemoryConnector(),
     )
     registry.register(
         "thread",
-        ConnectorManifest(connector_type="thread", scope=ConnectorScope.THREAD),
+        ConnectorManifest(connector_type="thread", scope=MemoryScope.THREAD),
         ThreadMemoryConnector(),
     )
     logger.info("Registered in-memory connectors: ephemeral, key_value, thread")
@@ -122,7 +123,7 @@ def _register_redis_connectors(
 
     registry.register(
         "redis_kv",
-        ConnectorManifest(connector_type="redis_kv", scope=ConnectorScope.SHARED),
+        ConnectorManifest(connector_type="redis_kv", scope=MemoryScope.SHARED),
         RedisKVMemoryConnector(
             redis_client,
             key_prefix=settings.memory.redis_kv_prefix,
@@ -130,7 +131,7 @@ def _register_redis_connectors(
     )
     registry.register(
         "redis_thread",
-        ConnectorManifest(connector_type="redis_thread", scope=ConnectorScope.THREAD),
+        ConnectorManifest(connector_type="redis_thread", scope=MemoryScope.THREAD),
         RedisThreadMemoryConnector(
             redis_client,
             key_prefix=settings.memory.redis_thread_prefix,
@@ -151,7 +152,7 @@ def _register_pgvector_connector(
 
     registry.register(
         "pgvector",
-        ConnectorManifest(connector_type="pgvector", scope=ConnectorScope.SHARED),
+        ConnectorManifest(connector_type="pgvector", scope=MemoryScope.SHARED),
         PgvectorMemoryConnector(
             pg_conninfo,
             table_name=settings.pgvector.table_name,
@@ -178,7 +179,7 @@ def _register_chroma_connector(
 
     registry.register(
         "chroma",
-        ConnectorManifest(connector_type="chroma", scope=ConnectorScope.SHARED),
+        ConnectorManifest(connector_type="chroma", scope=MemoryScope.SHARED),
         ChromaDBMemoryConnector(
             client,
             collection_prefix=settings.chroma.collection_prefix,
@@ -200,7 +201,7 @@ def _register_elasticsearch_connector(
 
     registry.register(
         "elasticsearch",
-        ConnectorManifest(connector_type="elasticsearch", scope=ConnectorScope.SHARED),
+        ConnectorManifest(connector_type="elasticsearch", scope=MemoryScope.SHARED),
         ElasticsearchMemoryConnector(
             client,
             index_prefix=settings.elasticsearch.index_prefix,
