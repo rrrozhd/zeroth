@@ -113,12 +113,11 @@ class ApprovalSLASettings(BaseModel):
     checker_poll_interval: float = 10.0
 
 
-class DispatchSettings(BaseModel):
-    """Distributed dispatch configuration."""
+class TLSSettings(BaseModel):
+    """TLS configuration for direct uvicorn SSL."""
 
-    arq_enabled: bool = False
-    shutdown_timeout: float = 30.0
-    poll_interval: float = 0.5
+    certfile: str | None = None
+    keyfile: str | None = None
 
 
 class ZerothSettings(BaseSettings):
@@ -148,7 +147,7 @@ class ZerothSettings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
     approval_sla: ApprovalSLASettings = Field(default_factory=ApprovalSLASettings)
-    dispatch: DispatchSettings = Field(default_factory=DispatchSettings)
+    tls: TLSSettings = Field(default_factory=TLSSettings)
 
     @classmethod
     def settings_customise_sources(
