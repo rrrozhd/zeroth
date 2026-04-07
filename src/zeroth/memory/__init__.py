@@ -11,6 +11,7 @@ from zeroth.memory.connectors import (
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,
 )
+from zeroth.memory.factory import register_memory_connectors
 from zeroth.memory.models import (
     ConnectorManifest,
     ConnectorScope,
@@ -30,4 +31,5 @@ __all__ = [
     "ResolvedMemoryBinding",
     "RunEphemeralMemoryConnector",
     "ThreadMemoryConnector",
+    "register_memory_connectors",
 ]

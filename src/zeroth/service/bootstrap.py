@@ -20,6 +20,8 @@ from zeroth.graph.versioning import graph_version_ref
 from zeroth.guardrails.config import GuardrailConfig
 from zeroth.guardrails.dead_letter import DeadLetterManager
 from zeroth.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.memory.factory import register_memory_connectors
+from zeroth.memory.registry import InMemoryConnectorRegistry
 from zeroth.observability.metrics import MetricsCollector
 from zeroth.observability.queue_gauge import QueueDepthGauge
 from zeroth.orchestrator import RuntimeOrchestrator
@@ -27,6 +29,48 @@ from zeroth.runs import RunRepository, ThreadRepository
 from zeroth.service.app import create_app
 from zeroth.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, ServiceAuthenticator
 from zeroth.storage import SQLiteDatabase
+
+
+class _BootstrapMemorySubsection:
+    """Tiny helper providing default attribute values for memory sub-settings."""
+
+    def __init__(self, **kwargs: object) -> None:
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+class _BootstrapMemorySettings:
+    """Default memory settings used by bootstrap when no ZerothSettings is available.
+
+    Provides the attribute shape expected by ``register_memory_connectors``:
+    ``memory``, ``pgvector``, ``chroma``, and ``elasticsearch`` sub-objects.
+    All external backends are disabled by default; only in-memory connectors
+    are registered.
+    """
+
+    def __init__(self) -> None:
+        self.memory = _BootstrapMemorySubsection(
+            default_connector="ephemeral",
+            redis_kv_prefix="zeroth:mem:kv",
+            redis_thread_prefix="zeroth:mem:thread",
+        )
+        self.pgvector = _BootstrapMemorySubsection(
+            enabled=False,
+            table_name="zeroth_memory_vectors",
+            embedding_model="text-embedding-3-small",
+            embedding_dimensions=1536,
+        )
+        self.chroma = _BootstrapMemorySubsection(
+            enabled=False,
+            host="localhost",
+            port=8000,
+            collection_prefix="zeroth_memory",
+        )
+        self.elasticsearch = _BootstrapMemorySubsection(
+            enabled=False,
+            hosts=["http://localhost:9200"],
+            index_prefix="zeroth_memory",
+        )
 
 
 class DeploymentBootstrapError(RuntimeError):
@@ -57,6 +101,8 @@ class ServiceBootstrap:
     dead_letter_manager: DeadLetterManager | None = None
     metrics_collector: MetricsCollector | None = None
     queue_gauge: QueueDepthGauge | None = None
+    # Phase 14: Memory connector registry (populated at bootstrap).
+    memory_registry: InMemoryConnectorRegistry | None = None
 
 
 def bootstrap_service(
@@ -154,6 +200,10 @@ def bootstrap_service(
             metrics_collector=metrics_collector,
         )
 
+    # Phase 14: Memory connector registration.
+    memory_registry = InMemoryConnectorRegistry()
+    register_memory_connectors(memory_registry, _BootstrapMemorySettings())
+
     # Return one small container so the HTTP layer can stay thin and avoid global state.
     return ServiceBootstrap(
         deployment_service=deployment_service,
@@ -175,6 +225,7 @@ def bootstrap_service(
         dead_letter_manager=dead_letter_manager,
         metrics_collector=metrics_collector,
         queue_gauge=queue_gauge,
+        memory_registry=memory_registry,
     )
 
 
