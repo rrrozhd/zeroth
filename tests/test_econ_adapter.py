@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -185,10 +184,10 @@ async def test_runner_copies_cost_fields_to_audit_record(
         tenant_id="tenant-1",
         deployment_ref="deploy-1",
     )
-    request = ProviderRequest(
+    req = ProviderRequest(
         model_name="openai/gpt-4o", messages=[{"role": "user", "content": "hi"}]
     )
-    result = await adapter.ainvoke(provider_request)
+    result = await adapter.ainvoke(req)
 
     # Simulate what the runner would do: copy cost fields to a dict (audit record)
     record = {}
