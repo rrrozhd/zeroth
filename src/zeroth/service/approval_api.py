@@ -143,6 +143,12 @@ def register_approval_routes(app: FastAPI) -> None:
             try:
                 if has_worker:
                     run = await bootstrap.approval_service.schedule_continuation(approval_id)
+                    # Phase 16: ARQ wakeup for approval continuation.
+                    arq_pool = getattr(bootstrap, "arq_pool", None)
+                    if arq_pool is not None:
+                        from zeroth.dispatch.arq_wakeup import enqueue_wakeup
+
+                        await enqueue_wakeup(arq_pool, run.run_id)
                     # Yield to the event loop so the worker can claim and drive the run.
                     import asyncio as _asyncio
 
