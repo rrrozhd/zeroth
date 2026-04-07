@@ -124,6 +124,13 @@ def register_run_routes(app: FastAPI) -> None:
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),
             ) from exc
+        # Phase 16: ARQ wakeup notification for low-latency dispatch.
+        arq_pool = getattr(bootstrap, "arq_pool", None)
+        if arq_pool is not None:
+            from zeroth.dispatch.arq_wakeup import enqueue_wakeup
+
+            await enqueue_wakeup(arq_pool, persisted.run_id)
+
         # The durable worker polls for PENDING runs and dispatches them.
         return _serialize_run(await bootstrap.run_repository.get(persisted.run_id) or persisted)
 
