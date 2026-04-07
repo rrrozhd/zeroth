@@ -66,7 +66,8 @@ async def test_health_accepts_valid_bearer_token(sqlite_db) -> None:
     assert response.status_code == 200
 
 
-async def test_health_rejects_bearer_token_with_wrong_issuer(sqlite_db) -> None:
+async def test_health_bypasses_auth_even_with_bad_bearer_token(sqlite_db) -> None:
+    """Health endpoints should return 200 even when presented with an invalid bearer token."""
     auth_config, private_key = _bearer_auth_fixture()
     bad_token = _encode_token(private_key, iss="https://wrong-issuer.example.test")
     service, _ = await deploy_service(
@@ -83,11 +84,31 @@ async def test_health_rejects_bearer_token_with_wrong_issuer(sqlite_db) -> None:
     with TestClient(app) as client:
         response = client.get("/health", headers=_token_headers(bad_token))
 
+    assert response.status_code == 200
+
+
+async def test_runs_rejects_bearer_token_with_wrong_issuer(sqlite_db) -> None:
+    auth_config, private_key = _bearer_auth_fixture()
+    bad_token = _encode_token(private_key, iss="https://wrong-issuer.example.test")
+    service, _ = await deploy_service(
+        sqlite_db,
+        approval_resume_graph(graph_id="graph-bearer-wrong-iss-runs"),
+        auth_config=auth_config,
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=auth_config,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/runs", headers=_token_headers(bad_token))
+
     assert response.status_code == 401
     assert response.json() == {"detail": "invalid bearer token"}
 
 
-async def test_health_rejects_bearer_token_with_wrong_audience(sqlite_db) -> None:
+async def test_runs_rejects_bearer_token_with_wrong_audience(sqlite_db) -> None:
     auth_config, private_key = _bearer_auth_fixture()
     bad_token = _encode_token(private_key, aud="wrong-audience")
     service, _ = await deploy_service(
@@ -102,13 +123,13 @@ async def test_health_rejects_bearer_token_with_wrong_audience(sqlite_db) -> Non
     )
 
     with TestClient(app) as client:
-        response = client.get("/health", headers=_token_headers(bad_token))
+        response = client.get("/runs", headers=_token_headers(bad_token))
 
     assert response.status_code == 401
     assert response.json() == {"detail": "invalid bearer token"}
 
 
-async def test_health_rejects_bearer_token_with_wrong_signature(sqlite_db) -> None:
+async def test_runs_rejects_bearer_token_with_wrong_signature(sqlite_db) -> None:
     auth_config, _ = _bearer_auth_fixture()
     bad_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     bad_token = _encode_token(bad_private_key)
@@ -124,7 +145,7 @@ async def test_health_rejects_bearer_token_with_wrong_signature(sqlite_db) -> No
     )
 
     with TestClient(app) as client:
-        response = client.get("/health", headers=_token_headers(bad_token))
+        response = client.get("/runs", headers=_token_headers(bad_token))
 
     assert response.status_code == 401
     assert response.json() == {"detail": "invalid bearer token"}
