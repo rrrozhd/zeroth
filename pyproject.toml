@@ -12,6 +12,9 @@ dependencies = [
     "pydantic>=2.10",
     "redis>=5.0.0",
     "uvicorn>=0.30",
+    "pgvector>=0.4.2",
+    "litellm>=1.83.0",
+    "psycopg[binary]>=3.1",
 ]
 
 [build-system]
