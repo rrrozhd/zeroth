@@ -119,6 +119,7 @@ class SandboxBackendMode(StrEnum):
     LOCAL = "local"
     DOCKER = "docker"
     AUTO = "auto"
+    SIDECAR = "sidecar"
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +150,7 @@ class SandboxConfig:
     backend: SandboxBackendMode = SandboxBackendMode.LOCAL
     docker: DockerSandboxConfig = field(default_factory=DockerSandboxConfig)
     strictness_mode: SandboxStrictnessMode = SandboxStrictnessMode.STANDARD
+    sidecar_url: str | None = None  # e.g., "http://sandbox-sidecar:8001"
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,12 +292,14 @@ class SandboxManager:
         config: SandboxConfig | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         container_inspector: Callable[[str], bool] | None = None,
+        sidecar_client: Any | None = None,
     ) -> None:
         self._base_env = dict(base_env or os.environ)
         self._cache_manager = cache_manager or EnvironmentCacheManager()
         self._config = config or SandboxConfig()
         self._command_runner = command_runner or subprocess.run
         self._container_inspector = container_inspector
+        self._sidecar_client = sidecar_client
 
     @property
     def cache_manager(self) -> EnvironmentCacheManager:
@@ -385,6 +389,14 @@ class SandboxManager:
             host_cwd = sandbox_root if relative_cwd is None else sandbox_root / relative_cwd
             host_cwd.mkdir(parents=True, exist_ok=True)
             backend = self._resolve_backend(resource_constraints)
+            if backend is SandboxBackendMode.SIDECAR:
+                return self._run_via_sidecar(
+                    command=command,
+                    input_text=input_text,
+                    timeout_seconds=timeout_seconds,
+                    environment=env_snapshot,
+                    resource_constraints=resource_constraints,
+                )
             if backend is SandboxBackendMode.DOCKER:
                 return self._run_in_docker(
                     command=command,
@@ -411,6 +423,12 @@ class SandboxManager:
         """Decide which backend to use based on config and Docker availability."""
         configured = self._config.backend
         strictness = self._config.strictness_mode
+        if configured is SandboxBackendMode.SIDECAR:
+            if self._sidecar_client is None:
+                raise SandboxBackendUnavailableError(
+                    "sidecar client not configured"
+                )
+            return SandboxBackendMode.SIDECAR
         if configured is SandboxBackendMode.LOCAL:
             if (
                 strictness is not SandboxStrictnessMode.PERMISSIVE
@@ -583,6 +601,70 @@ class SandboxManager:
             cache_key=environment.cache_key,
             backend=SandboxBackendMode.DOCKER.value,
             container_name=container_name,
+        )
+
+    def _run_via_sidecar(
+        self,
+        *,
+        command: Sequence[str],
+        input_text: str | None,
+        timeout_seconds: float | None,
+        environment: SandboxEnvironment,
+        resource_constraints: ResourceConstraints | None = None,
+    ) -> SandboxExecutionResult:
+        """Dispatch execution to the sandbox sidecar over HTTP.
+
+        Uses ``asyncio.run()`` to bridge from the sync ``run()`` method
+        to the async sidecar client.
+        """
+        import asyncio
+        import uuid
+
+        from zeroth.sandbox_sidecar.models import SidecarExecuteRequest
+
+        execution_id = str(uuid.uuid4())
+        image_ref = self._config.docker.container_name
+
+        request = SidecarExecuteRequest(
+            execution_id=execution_id,
+            image=image_ref,
+            command=list(command),
+            input_text=input_text,
+            timeout_seconds=timeout_seconds,
+            environment=environment.variables,
+            cpu_cores=(
+                resource_constraints.cpu_cores
+                if resource_constraints
+                else None
+            ),
+            memory_mb=(
+                resource_constraints.memory_mb
+                if resource_constraints
+                else None
+            ),
+            max_processes=(
+                resource_constraints.max_processes
+                if resource_constraints
+                else None
+            ),
+            network_access=(
+                resource_constraints.network_access
+                if resource_constraints
+                else False
+            ) or False,
+        )
+        response = asyncio.run(self._sidecar_client.execute(request))
+        return SandboxExecutionResult(
+            command=tuple(command),
+            returncode=response.returncode if response.returncode is not None else 1,
+            stdout=response.stdout,
+            stderr=response.stderr,
+            workdir=request.working_directory,
+            environment=dict(environment.variables),
+            timed_out=response.timed_out,
+            duration_seconds=response.duration_seconds,
+            cache_key=environment.cache_key,
+            backend=SandboxBackendMode.SIDECAR.value,
         )
 
     def _docker_image_for(self, container_name: str) -> str:
