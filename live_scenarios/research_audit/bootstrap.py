@@ -70,9 +70,10 @@ from zeroth.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
+from governai.memory.models import MemoryScope
+
 from zeroth.memory import (
     ConnectorManifest,
-    ConnectorScope,
     InMemoryConnectorRegistry,
     KeyValueMemoryConnector,
     MemoryConnectorResolver,
@@ -542,7 +543,7 @@ def _build_memory_resolver(service: ServiceBootstrap) -> MemoryConnectorResolver
         _MEMORY_REF,
         ConnectorManifest(
             connector_type="key_value",
-            scope=ConnectorScope.THREAD,
+            scope=MemoryScope.THREAD,
         ),
         KeyValueMemoryConnector(),
     )
