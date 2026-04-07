@@ -42,3 +42,16 @@ class AgentRetryExhaustedError(AgentRuntimeError):
         self.attempts = attempts
         # Keep the last error so callers can inspect what ultimately went wrong
         self.last_error = last_error
+
+
+class BudgetExceededError(RuntimeError):
+    """Raised when a tenant has exceeded its budget cap (per D-12).
+
+    Carries the current spend and cap so callers can include them in
+    user-facing error messages or audit records.
+    """
+
+    def __init__(self, message: str, *, spend: float = 0.0, cap: float = 0.0) -> None:
+        super().__init__(message)
+        self.spend = spend
+        self.cap = cap
