@@ -7,6 +7,7 @@ resuming the paused agent run afterward.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +32,8 @@ from zeroth.runs import Run, RunFailureState, RunRepository, RunStatus
 if TYPE_CHECKING:
     from zeroth.orchestrator.runtime import RuntimeOrchestrator
 
+logger = logging.getLogger(__name__)
+
 
 class ApprovalService:
     """The main entry point for working with approvals.
@@ -54,6 +57,7 @@ class ApprovalService:
         self.payload_sanitizer = payload_sanitizer or PayloadSanitizer(
             AuditRedactionConfig(redact_keys={"secret", "token", "password"})
         )
+        self.webhook_service: object | None = None
 
     async def create_pending(
         self,
@@ -100,7 +104,20 @@ class ApprovalService:
             record.urgency_metadata["delegate_identity"] = node.human_approval.delegate_identity
         if node.human_approval.sla_timeout_seconds:
             record.urgency_metadata["sla_timeout_seconds"] = node.human_approval.sla_timeout_seconds
-        return await self.repository.write(record)
+        result = await self.repository.write(record)
+        await self._emit_webhook(
+            "approval.requested",
+            result,
+            {
+                "approval_id": result.approval_id,
+                "run_id": result.run_id,
+                "node_id": result.node_id,
+                "sla_deadline": (
+                    result.sla_deadline.isoformat() if result.sla_deadline else None
+                ),
+            },
+        )
+        return result
 
     async def get(self, approval_id: str) -> ApprovalRecord | None:
         """Fetch a single approval record by its ID. Returns None if not found."""
@@ -253,6 +270,18 @@ class ApprovalService:
         record.updated_at = datetime.now(UTC)
         resolved = await self.repository.write(record)
         await self._record_api_audit(resolved)
+        await self._emit_webhook(
+            "approval.resolved",
+            resolved,
+            {
+                "approval_id": resolved.approval_id,
+                "run_id": resolved.run_id,
+                "node_id": resolved.node_id,
+                "decision": (
+                    resolved.resolution.decision.value if resolved.resolution else None
+                ),
+            },
+        )
         return resolved
 
     async def schedule_continuation(self, approval_id: str) -> Run:
@@ -358,6 +387,26 @@ class ApprovalService:
             approval_record=record,
         )
         return await orchestrator.resume_graph(graph, run.run_id)
+
+    async def _emit_webhook(
+        self,
+        event_type: str,
+        record: ApprovalRecord,
+        data: dict[str, Any],
+    ) -> None:
+        """Emit a webhook event if a webhook service is configured."""
+        ws = self.webhook_service
+        if ws is None:
+            return
+        try:
+            await ws.emit_event(
+                event_type=event_type,
+                deployment_ref=record.deployment_ref,
+                tenant_id=record.tenant_id,
+                data=data,
+            )
+        except Exception:
+            logger.exception("failed to emit %s webhook", event_type)
 
     async def _require(self, approval_id: str) -> ApprovalRecord:
         """Fetch an approval record by ID, raising KeyError if it does not exist."""

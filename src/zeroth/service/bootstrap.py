@@ -122,6 +122,12 @@ class ServiceBootstrap:
     budget_enforcer: object | None = None
     # Phase 14: Memory connector registry (populated at bootstrap).
     memory_registry: InMemoryConnectorRegistry | None = None
+    # Phase 15: Webhook and SLA components (optional).
+    webhook_service: object | None = None
+    webhook_repository: object | None = None
+    delivery_worker: object | None = None
+    sla_checker: object | None = None
+    webhook_http_client: object | None = None
 
 
 async def bootstrap_service(
@@ -245,6 +251,58 @@ async def bootstrap_service(
     memory_registry = InMemoryConnectorRegistry()
     register_memory_connectors(memory_registry, _BootstrapMemorySettings())
 
+    # Phase 15: Webhook delivery and SLA enforcement.
+    webhook_repository = None
+    webhook_service_obj = None
+    delivery_worker_obj = None
+    sla_checker_obj = None
+    webhook_http_client = None
+
+    if settings.webhook.enabled:
+        try:
+            from zeroth.webhooks.repository import WebhookRepository
+            from zeroth.webhooks.service import WebhookService
+
+            webhook_repository = WebhookRepository(database)
+            webhook_service_obj = WebhookService(
+                repository=webhook_repository,
+                default_max_retries=settings.webhook.default_max_retries,
+            )
+            # Wire webhook_service into orchestrator and approval_service
+            orchestrator.webhook_service = webhook_service_obj
+            approval_service.webhook_service = webhook_service_obj
+
+            import httpx
+
+            from zeroth.webhooks.delivery import WebhookDeliveryWorker
+
+            webhook_http_client = httpx.AsyncClient(
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                timeout=httpx.Timeout(settings.webhook.delivery_timeout),
+            )
+            delivery_worker_obj = WebhookDeliveryWorker(
+                repository=webhook_repository,
+                http_client=webhook_http_client,
+                poll_interval=settings.webhook.delivery_poll_interval,
+                max_concurrency=settings.webhook.max_delivery_concurrency,
+                retry_base_delay=settings.webhook.retry_base_delay,
+                retry_max_delay=settings.webhook.retry_max_delay,
+            )
+        except ImportError:
+            pass
+
+    if settings.approval_sla.enabled:
+        try:
+            from zeroth.approvals.sla_checker import ApprovalSLAChecker
+
+            sla_checker_obj = ApprovalSLAChecker(
+                approval_service=approval_service,
+                webhook_service=webhook_service_obj,
+                poll_interval=settings.approval_sla.checker_poll_interval,
+            )
+        except ImportError:
+            pass
+
     return ServiceBootstrap(
         deployment_service=deployment_service,
         deployment=deployment,
@@ -268,6 +326,11 @@ async def bootstrap_service(
         regulus_client=regulus_client,
         budget_enforcer=budget_enforcer,
         memory_registry=memory_registry,
+        webhook_service=webhook_service_obj,
+        webhook_repository=webhook_repository,
+        delivery_worker=delivery_worker_obj,
+        sla_checker=sla_checker_obj,
+        webhook_http_client=webhook_http_client,
     )
 
 
