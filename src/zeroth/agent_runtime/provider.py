@@ -52,6 +52,8 @@ class ProviderResponse(BaseModel):
     tool_calls: list[NormalizedToolCall] = Field(default_factory=list)
     token_usage: TokenUsage | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    cost_usd: float | None = None
+    cost_event_id: str | None = None
 
 
 class ProviderAdapter(Protocol):

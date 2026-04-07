@@ -20,6 +20,8 @@ dependencies = [
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
     "sqlalchemy>=2.0",
+    "econ-instrumentation-sdk @ file:///Users/dondoe/coding/regulus/sdk/python",
+    "cachetools>=5.5",
     "redis>=5.0.0",
     "tenacity>=8.2",
     "uvicorn>=0.30",
