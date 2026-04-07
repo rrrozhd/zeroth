@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,7 +18,6 @@ from zeroth.service.health import (
     check_regulus,
     register_health_routes,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -250,7 +248,6 @@ def test_health_paths_bypass_auth():
 async def test_register_health_routes_adds_endpoints():
     """Verify register_health_routes adds /health/ready and /health/live routes."""
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
 
     app = FastAPI()
 
