@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from zeroth.service.cost_api import register_cost_routes
@@ -19,7 +19,9 @@ def _make_app(
     if regulus_base_url is not None:
         app.state.regulus_base_url = regulus_base_url
         app.state.regulus_timeout = timeout
-    register_cost_routes(app)
+    router = APIRouter(prefix="/v1")
+    register_cost_routes(router)
+    app.include_router(router)
     return app
 
 
@@ -71,7 +73,9 @@ class TestTenantCostEndpoint:
 
     def test_returns_503_when_regulus_not_configured(self) -> None:
         app = FastAPI()
-        register_cost_routes(app)
+        router = APIRouter(prefix="/v1")
+        register_cost_routes(router)
+        app.include_router(router)
         client = TestClient(app)
         resp = client.get("/v1/tenants/t1/cost")
         assert resp.status_code == 503
@@ -108,7 +112,9 @@ class TestDeploymentCostEndpoint:
 
     def test_returns_503_when_regulus_not_configured(self) -> None:
         app = FastAPI()
-        register_cost_routes(app)
+        router = APIRouter(prefix="/v1")
+        register_cost_routes(router)
+        app.include_router(router)
         client = TestClient(app)
         resp = client.get("/v1/deployments/d1/cost")
         assert resp.status_code == 503
