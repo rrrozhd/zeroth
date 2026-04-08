@@ -24,6 +24,7 @@ from zeroth.agent_runtime.errors import (
     AgentTimeoutError,
     BudgetExceededError,
 )
+from zeroth.agent_runtime.mcp import MCPClientManager
 from zeroth.agent_runtime.models import (
     AgentConfig,
     AgentRunResult,
@@ -80,6 +81,7 @@ class AgentRunner:
         self.granted_tool_permissions = granted_tool_permissions or []
         self.memory_resolver = memory_resolver
         self.budget_enforcer = budget_enforcer
+        self._mcp_manager: MCPClientManager | None = None
 
     async def run(
         self,
@@ -140,96 +142,102 @@ class AgentRunner:
                     cap=cap,
                 )
 
-        last_error: Exception | None = None
-        attempts = 0
-        for attempt in range(1, max_attempts + 1):
-            attempts = attempt
-            try:
-                # Each retry rebuilds the provider request from the current message history.
-                request = self._build_provider_request(messages, prompt.metadata)
-                response = await run_provider_with_timeout(
-                    self.provider,
-                    request,
-                    timeout_seconds=provider_timeout_seconds,
-                )
-                response, messages, tool_audits = await self._resolve_tool_calls(
-                    response=response,
-                    messages=messages,
-                    provider_timeout_seconds=provider_timeout_seconds,
-                    approval_required_for_side_effects=approval_required_for_side_effects,
-                )
-                # Validation turns the provider response into the typed Zeroth output.
-                output = self.output_validator.validate(self.config.output_model, response)
-                record = self.audit_serializer.serialize_record(
-                    prompt=prompt,
-                    response=response,
-                    extra={
-                        "attempts": attempts,
-                        "thread_id": thread_id,
-                        "thread_state": thread_state,
-                        "tool_calls": tool_audits,
-                        "memory_interactions": [
-                            item.model_dump(mode="json") for item in memory_interactions
-                        ],
-                    },
-                )
-                # Copy token usage from provider response to audit record (per D-11)
-                if response.token_usage is not None:
-                    record["token_usage"] = response.token_usage.model_dump(mode="json")
-                memory_interactions.extend(
-                    await self._store_memory(
-                        output.model_dump(mode="json"),
-                        thread_id=thread_id,
-                        runtime_context=resolved_runtime_context,
+        await self._start_mcp_servers()
+        try:
+            last_error: Exception | None = None
+            attempts = 0
+            for attempt in range(1, max_attempts + 1):
+                attempts = attempt
+                try:
+                    # Each retry rebuilds the provider request from the current message history.
+                    request = self._build_provider_request(messages, prompt.metadata)
+                    response = await run_provider_with_timeout(
+                        self.provider,
+                        request,
+                        timeout_seconds=provider_timeout_seconds,
                     )
-                )
-                # Keep both memory reads and writes in the final audit record.
-                record["extra"]["memory_interactions"] = [
-                    item.model_dump(mode="json") for item in memory_interactions
-                ]
-                await self._checkpoint_thread_state(thread_id, validated_input, output, record)
-                return AgentRunResult(
-                    input_data=validated_input.model_dump(mode="json"),
-                    output_data=output.model_dump(mode="json"),
-                    attempts=attempts,
-                    prompt=prompt,
-                    provider_response=response,
-                    thread_state_snapshot=thread_state,
-                    tool_call_records=tool_audits,
-                    audit_record=record,
-                )
-            except TimeoutError as exc:
-                last_error = AgentTimeoutError(
-                    f"provider timed out after {provider_timeout_seconds} second(s)"
-                )
-                if not retry_policy.retry_on_timeout or attempt == max_attempts:
-                    raise last_error from exc
-            except AgentOutputValidationError as exc:
-                last_error = exc
-                if not retry_policy.retry_on_validation_error or attempt == max_attempts:
-                    raise
-            except Exception as exc:
-                last_error = exc
-                # Classify: only retry transient provider errors (per LLM-03)
-                retryable = is_retryable_provider_error(exc)
-                should_retry = retry_policy.retry_on_provider_error and retryable
-                if not should_retry or attempt == max_attempts:
-                    if isinstance(last_error, AgentProviderError):
+                    response, messages, tool_audits = await self._resolve_tool_calls(
+                        response=response,
+                        messages=messages,
+                        provider_timeout_seconds=provider_timeout_seconds,
+                        approval_required_for_side_effects=approval_required_for_side_effects,
+                    )
+                    # Validation turns the provider response into the typed Zeroth output.
+                    output = self.output_validator.validate(self.config.output_model, response)
+                    record = self.audit_serializer.serialize_record(
+                        prompt=prompt,
+                        response=response,
+                        extra={
+                            "attempts": attempts,
+                            "thread_id": thread_id,
+                            "thread_state": thread_state,
+                            "tool_calls": tool_audits,
+                            "memory_interactions": [
+                                item.model_dump(mode="json") for item in memory_interactions
+                            ],
+                        },
+                    )
+                    # Copy token usage from provider response to audit record (per D-11)
+                    if response.token_usage is not None:
+                        record["token_usage"] = response.token_usage.model_dump(mode="json")
+                    memory_interactions.extend(
+                        await self._store_memory(
+                            output.model_dump(mode="json"),
+                            thread_id=thread_id,
+                            runtime_context=resolved_runtime_context,
+                        )
+                    )
+                    # Keep both memory reads and writes in the final audit record.
+                    record["extra"]["memory_interactions"] = [
+                        item.model_dump(mode="json") for item in memory_interactions
+                    ]
+                    await self._checkpoint_thread_state(
+                        thread_id, validated_input, output, record
+                    )
+                    return AgentRunResult(
+                        input_data=validated_input.model_dump(mode="json"),
+                        output_data=output.model_dump(mode="json"),
+                        attempts=attempts,
+                        prompt=prompt,
+                        provider_response=response,
+                        thread_state_snapshot=thread_state,
+                        tool_call_records=tool_audits,
+                        audit_record=record,
+                    )
+                except TimeoutError as exc:
+                    last_error = AgentTimeoutError(
+                        f"provider timed out after {provider_timeout_seconds} second(s)"
+                    )
+                    if not retry_policy.retry_on_timeout or attempt == max_attempts:
                         raise last_error from exc
-                    raise AgentProviderError(str(last_error)) from last_error
-            if retry_policy.use_exponential_backoff:
-                delay = compute_backoff_delay(
-                    attempt,
-                    base_delay=retry_policy.base_delay,
-                    max_delay=retry_policy.max_delay,
-                )
-                if delay > 0:
-                    await asyncio.sleep(delay)
-            elif retry_policy.backoff_seconds:
-                await asyncio.sleep(retry_policy.backoff_seconds)
-        if last_error is None:
-            last_error = AgentProviderError("provider call failed without a specific error")
-        raise AgentRetryExhaustedError(attempts=attempts, last_error=last_error)
+                except AgentOutputValidationError as exc:
+                    last_error = exc
+                    if not retry_policy.retry_on_validation_error or attempt == max_attempts:
+                        raise
+                except Exception as exc:
+                    last_error = exc
+                    # Classify: only retry transient provider errors (per LLM-03)
+                    retryable = is_retryable_provider_error(exc)
+                    should_retry = retry_policy.retry_on_provider_error and retryable
+                    if not should_retry or attempt == max_attempts:
+                        if isinstance(last_error, AgentProviderError):
+                            raise last_error from exc
+                        raise AgentProviderError(str(last_error)) from last_error
+                if retry_policy.use_exponential_backoff:
+                    delay = compute_backoff_delay(
+                        attempt,
+                        base_delay=retry_policy.base_delay,
+                        max_delay=retry_policy.max_delay,
+                    )
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                elif retry_policy.backoff_seconds:
+                    await asyncio.sleep(retry_policy.backoff_seconds)
+            if last_error is None:
+                last_error = AgentProviderError("provider call failed without a specific error")
+            raise AgentRetryExhaustedError(attempts=attempts, last_error=last_error)
+        finally:
+            await self._stop_mcp_servers()
 
     def _build_provider_request(
         self,
@@ -275,7 +283,7 @@ class AgentRunner:
         current_response = response
         current_messages = list(messages)
         while getattr(current_response, "tool_calls", None):
-            if self.tool_executor is None:
+            if self.tool_executor is None and self._mcp_manager is None:
                 raise AgentProviderError(
                     "provider requested tool calls but no tool executor is configured"
                 )
@@ -299,9 +307,18 @@ class AgentRunner:
                     )
                 self.tool_bridge.validate_permissions(binding, self.granted_tool_permissions)
                 try:
-                    result = self.tool_executor(binding, call["args"])
-                    if asyncio.iscoroutine(result):
-                        result = await result
+                    # Route MCP tool calls through MCPClientManager
+                    if (
+                        binding.executable_unit_ref.startswith("mcp://")
+                        and self._mcp_manager is not None
+                    ):
+                        result = await self._mcp_manager.call_tool(
+                            call["name"], call["args"]
+                        )
+                    else:
+                        result = self.tool_executor(binding, call["args"])
+                        if asyncio.iscoroutine(result):
+                            result = await result
                     audit = self.tool_bridge.build_call_audit(
                         binding=binding,
                         arguments=call["args"],
@@ -339,6 +356,27 @@ class AgentRunner:
                 timeout_seconds=provider_timeout_seconds,
             )
         return current_response, current_messages, tool_audits
+
+    async def _start_mcp_servers(self) -> None:
+        """Start MCP server connections and register discovered tools."""
+        if not self.config.mcp_servers:
+            return
+        self._mcp_manager = MCPClientManager(self.config.mcp_servers)
+        discovered_tools = await self._mcp_manager.start()
+        # Register discovered MCP tools into the tool bridge registry
+        for manifest in discovered_tools:
+            self.tool_bridge.registry.register(manifest)
+        # Extend config's tool_attachments so they appear in declared_tool_refs
+        # and get included in ProviderRequest.tools via _build_provider_request
+        self.config = self.config.model_copy(
+            update={"tool_attachments": list(self.config.tool_attachments) + discovered_tools}
+        )
+
+    async def _stop_mcp_servers(self) -> None:
+        """Stop MCP server connections and clean up."""
+        if self._mcp_manager is not None:
+            await self._mcp_manager.stop()
+            self._mcp_manager = None
 
     def _effective_timeout(
         self,

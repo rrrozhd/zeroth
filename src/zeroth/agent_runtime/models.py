@@ -12,6 +12,7 @@ from typing import Any, Literal, Protocol
 from governai.tools.base import ExecutionPlacement
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
+from zeroth.agent_runtime.mcp import MCPServerConfig
 from zeroth.agent_runtime.tools import ToolAttachmentManifest
 
 
@@ -102,6 +103,7 @@ class AgentConfig(BaseModel):
     max_tool_calls: int = Field(default=4, ge=0)
     execution_placement: ExecutionPlacement = "local_only"
     requires_approval: bool = False
+    mcp_servers: list[MCPServerConfig] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     model_params: ModelParams | None = None
 
