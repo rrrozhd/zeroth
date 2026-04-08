@@ -18,7 +18,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.agent_runtime.models import PromptMessage
+from zeroth.agent_runtime.models import ModelParams, PromptMessage
 from zeroth.audit.models import TokenUsage
 
 ProviderMessage = PromptMessage | dict[str, Any] | Any
@@ -36,6 +36,10 @@ class ProviderRequest(BaseModel):
     model_name: str
     messages: list[Any] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | dict[str, Any] | None = None
+    response_format: dict[str, Any] | None = None
+    model_params: ModelParams | None = None
 
 
 class ProviderResponse(BaseModel):
