@@ -146,11 +146,7 @@ class AgentRunner:
             attempts = attempt
             try:
                 # Each retry rebuilds the provider request from the current message history.
-                request = ProviderRequest(
-                    model_name=self.config.model_name,
-                    messages=messages,
-                    metadata=prompt.metadata,
-                )
+                request = self._build_provider_request(messages, prompt.metadata)
                 response = await run_provider_with_timeout(
                     self.provider,
                     request,
@@ -235,6 +231,31 @@ class AgentRunner:
             last_error = AgentProviderError("provider call failed without a specific error")
         raise AgentRetryExhaustedError(attempts=attempts, last_error=last_error)
 
+    def _build_provider_request(
+        self,
+        messages: list[Any],
+        metadata: dict[str, Any],
+    ) -> ProviderRequest:
+        """Build a ProviderRequest with tools, response_format, and model_params from config."""
+        from zeroth.agent_runtime.response_format import build_response_format
+
+        # Convert tool_attachments to OpenAI tool schemas
+        tools: list[dict[str, Any]] | None = None
+        if self.config.tool_attachments:
+            tools = [att.to_openai_tool() for att in self.config.tool_attachments]
+
+        # Build response_format from output_model
+        response_format = build_response_format(self.config.output_model)
+
+        return ProviderRequest(
+            model_name=self.config.model_name,
+            messages=messages,
+            metadata=metadata,
+            tools=tools,
+            response_format=response_format,
+            model_params=self.config.model_params,
+        )
+
     async def _resolve_tool_calls(
         self,
         *,
@@ -314,11 +335,7 @@ class AgentRunner:
                 tool_audits.append(audit)
             current_response = await run_provider_with_timeout(
                 self.provider,
-                ProviderRequest(
-                    model_name=self.config.model_name,
-                    messages=current_messages,
-                    metadata={},
-                ),
+                self._build_provider_request(current_messages, {}),
                 timeout_seconds=provider_timeout_seconds,
             )
         return current_response, current_messages, tool_audits
