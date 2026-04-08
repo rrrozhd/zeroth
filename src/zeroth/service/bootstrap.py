@@ -130,6 +130,10 @@ class ServiceBootstrap:
     delivery_worker: object | None = None
     sla_checker: object | None = None
     webhook_http_client: object | None = None
+    # Phase 18: Cross-phase wiring.
+    cost_estimator: object | None = None
+    arq_pool: object | None = None
+    redis_client: object | None = None
 
 
 async def bootstrap_service(
@@ -231,6 +235,7 @@ async def bootstrap_service(
     settings = get_settings()
     regulus_client: RegulusClient | None = None
     budget_enforcer: object | None = None
+    cost_estimator: object | None = None
     if settings.regulus.enabled:
         regulus_client = RegulusClient(
             base_url=settings.regulus.base_url,
@@ -248,10 +253,42 @@ async def bootstrap_service(
             )
         except ImportError:
             pass
+        try:
+            from zeroth.econ.cost import CostEstimator
 
-    # Phase 14: Memory connector registration.
+            cost_estimator = CostEstimator()
+        except ImportError:
+            cost_estimator = None
+
+    # Phase 16/18: ARQ wakeup pool.
+    arq_pool = None
+    if settings.dispatch.arq_enabled:
+        try:
+            from zeroth.dispatch.arq_wakeup import create_arq_pool
+
+            arq_pool = await create_arq_pool(settings.redis)
+        except ImportError:
+            pass
+
+    # Phase 14/18: Memory connector registration with real settings.
     memory_registry = InMemoryConnectorRegistry()
-    register_memory_connectors(memory_registry, _BootstrapMemorySettings())
+    redis_client = None
+    if settings.redis.mode != "disabled":
+        try:
+            import redis.asyncio as aioredis
+
+            redis_url = f"redis://{settings.redis.host}:{settings.redis.port}/{settings.redis.db}"
+            if settings.redis.password:
+                redis_url = f"redis://:{settings.redis.password.get_secret_value()}@{settings.redis.host}:{settings.redis.port}/{settings.redis.db}"
+            redis_client = aioredis.from_url(redis_url)
+        except ImportError:
+            pass
+
+    pg_conninfo = None
+    if settings.database.backend == "postgres" and settings.database.postgres_dsn:
+        pg_conninfo = settings.database.postgres_dsn.get_secret_value()
+
+    register_memory_connectors(memory_registry, settings, redis_client=redis_client, pg_conninfo=pg_conninfo)
 
     # Phase 15: Webhook delivery and SLA enforcement.
     webhook_repository = None
@@ -334,6 +371,9 @@ async def bootstrap_service(
         delivery_worker=delivery_worker_obj,
         sla_checker=sla_checker_obj,
         webhook_http_client=webhook_http_client,
+        cost_estimator=cost_estimator,
+        arq_pool=arq_pool,
+        redis_client=redis_client,
     )
 
 
