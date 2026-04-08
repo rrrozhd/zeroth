@@ -44,8 +44,6 @@ class ToolAttachmentManifest(BaseModel):
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
-    description: str = ""
-    parameters_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_openai_tool(self) -> dict[str, Any]:
@@ -95,8 +93,6 @@ class ToolAttachmentBinding(BaseModel):
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
-    description: str = ""
-    parameters_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
