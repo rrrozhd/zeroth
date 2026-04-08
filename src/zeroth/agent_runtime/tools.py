@@ -106,14 +106,12 @@ class ToolAttachmentBinding(BaseModel):
             alias=manifest.alias,
             executable_unit_ref=manifest.executable_unit_ref,
             description=manifest.description,
-            parameters_schema=manifest.parameters_schema,
-            permission_scope=manifest.permission_scope,
-            timeout_override_seconds=manifest.timeout_override_seconds,
-            side_effect_allowed=manifest.side_effect_allowed,
-            description=manifest.description,
             parameters_schema=(
                 dict(manifest.parameters_schema) if manifest.parameters_schema else None
             ),
+            permission_scope=manifest.permission_scope,
+            timeout_override_seconds=manifest.timeout_override_seconds,
+            side_effect_allowed=manifest.side_effect_allowed,
             metadata=dict(manifest.metadata),
         )
 
