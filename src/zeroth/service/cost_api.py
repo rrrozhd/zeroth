@@ -35,11 +35,11 @@ class DeploymentCostResponse(BaseModel):
 def register_cost_routes(app: FastAPI | APIRouter) -> None:
     """Register cost attribution query routes on the FastAPI app."""
 
-    @app.get("/v1/tenants/{tenant_id}/cost", response_model=TenantCostResponse)
+    @app.get("/tenants/{tenant_id}/cost", response_model=TenantCostResponse)
     async def get_tenant_cost(request: Request, tenant_id: str) -> TenantCostResponse:
         """Return cumulative spend for a tenant (per D-14, D-16)."""
-        regulus_base_url = getattr(app.state, "regulus_base_url", None)
-        regulus_timeout = getattr(app.state, "regulus_timeout", 5.0)
+        regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
+        regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:
             raise HTTPException(status_code=503, detail="Regulus backend not configured")
         try:
@@ -59,13 +59,13 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
             raise HTTPException(status_code=503, detail=f"Regulus backend error: {exc}") from exc
 
     @app.get(
-        "/v1/deployments/{deployment_ref}/cost",
+        "/deployments/{deployment_ref}/cost",
         response_model=DeploymentCostResponse,
     )
     async def get_deployment_cost(request: Request, deployment_ref: str) -> DeploymentCostResponse:
         """Return cumulative spend for a deployment (per D-15, D-16)."""
-        regulus_base_url = getattr(app.state, "regulus_base_url", None)
-        regulus_timeout = getattr(app.state, "regulus_timeout", 5.0)
+        regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
+        regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:
             raise HTTPException(status_code=503, detail="Regulus backend not configured")
         try:
