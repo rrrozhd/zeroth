@@ -1,0 +1,13 @@
+
+> studio-mockups@0.0.0 build
+> vue-tsc --noEmit && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 13 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                  0.42 kB │ gzip:  0.28 kB
+dist/assets/index-Bw0tmuj3.css   7.18 kB │ gzip:  2.25 kB
+dist/assets/index-DH9TyfMS.js   65.02 kB │ gzip: 25.83 kB
+✓ built in 329ms
