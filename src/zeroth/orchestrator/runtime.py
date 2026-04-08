@@ -73,6 +73,10 @@ class RuntimeOrchestrator:
     secret_resolver: SecretResolver | None = None
     thread_resolver: RepositoryThreadResolver | None = None
     webhook_service: object | None = None  # Optional WebhookService for event emission
+    # Phase 18: Cost instrumentation for provider adapter wrapping.
+    regulus_client: object | None = None
+    cost_estimator: object | None = None
+    deployment_ref: str | None = None
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -243,15 +247,40 @@ class RuntimeOrchestrator:
             runner = self.agent_runners.get(node.node_id)
             if runner is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
+
+            # Phase 18: Wrap provider with cost instrumentation (per ECON-01).
+            original_provider = runner.provider
+            if self.regulus_client is not None and self.cost_estimator is not None:
+                try:
+                    from zeroth.econ.adapter import InstrumentedProviderAdapter
+
+                    tenant_id = run.metadata.get("tenant_id", "default") if run.metadata else "default"
+                    runner.provider = InstrumentedProviderAdapter(
+                        inner=original_provider,
+                        regulus_client=self.regulus_client,
+                        cost_estimator=self.cost_estimator,
+                        node_id=node.node_id,
+                        run_id=run.run_id,
+                        tenant_id=tenant_id,
+                        deployment_ref=self.deployment_ref or "unknown",
+                    )
+                except ImportError:
+                    pass
+
             thread_id = await self._resolve_thread(node, run)
             enforcement_context = self._enforcement_context_for(run, node.node_id)
-            result = await self._run_agent_with_optional_enforcement(
-                runner,
-                input_payload,
-                thread_id=thread_id,
-                runtime_context={"node_id": node.node_id, "run_id": run.run_id},
-                enforcement_context=enforcement_context,
-            )
+            try:
+                result = await self._run_agent_with_optional_enforcement(
+                    runner,
+                    input_payload,
+                    thread_id=thread_id,
+                    runtime_context={"node_id": node.node_id, "run_id": run.run_id},
+                    enforcement_context=enforcement_context,
+                )
+            finally:
+                # Always restore original provider to avoid leaking wrapped state.
+                runner.provider = original_provider
+
             audit_record = dict(result.audit_record)
             if enforcement_context:
                 audit_record["enforcement"] = enforcement_context

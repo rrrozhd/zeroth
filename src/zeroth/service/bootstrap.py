@@ -260,6 +260,11 @@ async def bootstrap_service(
         except ImportError:
             cost_estimator = None
 
+    # Phase 18: Wire cost instrumentation into orchestrator.
+    orchestrator.regulus_client = regulus_client
+    orchestrator.cost_estimator = cost_estimator
+    orchestrator.deployment_ref = deployment.deployment_ref
+
     # Phase 16/18: ARQ wakeup pool.
     arq_pool = None
     if settings.dispatch.arq_enabled:
