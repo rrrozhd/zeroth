@@ -39,6 +39,8 @@ class ToolAttachmentManifest(BaseModel):
 
     alias: str
     executable_unit_ref: str
+    description: str = ""
+    parameters_schema: dict[str, Any] | None = None
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
@@ -77,6 +79,8 @@ class ToolAttachmentBinding(BaseModel):
 
     alias: str
     executable_unit_ref: str
+    description: str = ""
+    parameters_schema: dict[str, Any] | None = None
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
@@ -88,6 +92,8 @@ class ToolAttachmentBinding(BaseModel):
         return cls(
             alias=manifest.alias,
             executable_unit_ref=manifest.executable_unit_ref,
+            description=manifest.description,
+            parameters_schema=manifest.parameters_schema,
             permission_scope=manifest.permission_scope,
             timeout_override_seconds=manifest.timeout_override_seconds,
             side_effect_allowed=manifest.side_effect_allowed,
