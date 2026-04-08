@@ -42,7 +42,18 @@ class ToolAttachmentManifest(BaseModel):
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
+    description: str = ""
+    parameters_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def to_openai_tool(self) -> dict[str, Any]:
+        """Convert to OpenAI function-calling tool format."""
+        func: dict[str, Any] = {"name": self.alias}
+        if self.description:
+            func["description"] = self.description
+        if self.parameters_schema:
+            func["parameters"] = self.parameters_schema
+        return {"type": "function", "function": func}
 
     @model_validator(mode="after")
     def _validate(self) -> ToolAttachmentManifest:
@@ -80,6 +91,8 @@ class ToolAttachmentBinding(BaseModel):
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
+    description: str = ""
+    parameters_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
@@ -91,6 +104,10 @@ class ToolAttachmentBinding(BaseModel):
             permission_scope=manifest.permission_scope,
             timeout_override_seconds=manifest.timeout_override_seconds,
             side_effect_allowed=manifest.side_effect_allowed,
+            description=manifest.description,
+            parameters_schema=(
+                dict(manifest.parameters_schema) if manifest.parameters_schema else None
+            ),
             metadata=dict(manifest.metadata),
         )
 

@@ -18,7 +18,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.agent_runtime.models import PromptMessage
+from zeroth.agent_runtime.models import ModelParams, PromptMessage
 from zeroth.audit.models import TokenUsage
 
 ProviderMessage = PromptMessage | dict[str, Any] | Any
@@ -36,6 +36,10 @@ class ProviderRequest(BaseModel):
     model_name: str
     messages: list[Any] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | dict[str, Any] | None = None
+    response_format: dict[str, Any] | None = None
+    model_params: ModelParams | None = None
 
 
 class ProviderResponse(BaseModel):
@@ -161,7 +165,26 @@ class LiteLLMProviderAdapter:
         """Send request to LLM via ChatLiteLLM and return normalized response."""
         client = self._get_client(request.model_name)
         lc_messages = self._to_langchain_messages(request.messages)
-        ai_message: AIMessage = await client.ainvoke(lc_messages)
+        kwargs: dict[str, Any] = {}
+        if request.tools is not None:
+            kwargs["tools"] = request.tools
+        if request.tool_choice is not None:
+            kwargs["tool_choice"] = request.tool_choice
+        if request.response_format is not None:
+            kwargs["response_format"] = request.response_format
+        if request.model_params is not None:
+            params = request.model_params
+            if params.temperature is not None:
+                kwargs["temperature"] = params.temperature
+            if params.top_p is not None:
+                kwargs["top_p"] = params.top_p
+            if params.max_tokens is not None:
+                kwargs["max_tokens"] = params.max_tokens
+            if params.stop is not None:
+                kwargs["stop"] = params.stop
+            if params.seed is not None:
+                kwargs["seed"] = params.seed
+        ai_message: AIMessage = await client.ainvoke(lc_messages, **kwargs)
         token_usage = self._extract_token_usage(ai_message, request.model_name)
         tool_calls = self._extract_tool_calls(ai_message)
         return ProviderResponse(
