@@ -121,6 +121,8 @@ class AgentNodeData(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=1)
     state_persistence: dict[str, Any] = Field(default_factory=dict)
     thread_participation: Literal["none", "read", "write", "full"] = "none"
+    model_params: dict[str, Any] = Field(default_factory=dict)
+    mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ExecutableUnitNodeData(BaseModel):

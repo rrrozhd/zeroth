@@ -63,6 +63,18 @@ class PromptConfig(BaseModel):
     extra_context: dict[str, Any] = Field(default_factory=dict)
 
 
+class ModelParams(BaseModel):
+    """Per-node LLM parameters. None means use provider default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+    stop: list[str] | None = None
+    seed: int | None = None
+
+
 class AgentConfig(BaseModel):
     """The main configuration for an agent.
 
@@ -91,6 +103,7 @@ class AgentConfig(BaseModel):
     execution_placement: ExecutionPlacement = "local_only"
     requires_approval: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
+    model_params: ModelParams | None = None
 
     @property
     def declared_tool_refs(self) -> list[str]:
