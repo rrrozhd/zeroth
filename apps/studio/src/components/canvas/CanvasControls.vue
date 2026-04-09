@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useVueFlow } from '@vue-flow/core'
 import { useCanvasActions } from '../../composables/useCanvasActions'
+import { useCanvasStore } from '../../stores/canvas'
 import { NODE_TYPE_REGISTRY } from '../../types/nodes'
 
 const { zoomIn, zoomOut } = useVueFlow()
 const { addNodeAtCenter, fitToView } = useCanvasActions()
+const canvasStore = useCanvasStore()
+const { canUndo, canRedo } = storeToRefs(canvasStore)
+const { undo, redo } = canvasStore
 
 const showNodeMenu = ref(false)
 
@@ -22,6 +27,19 @@ function handleAddNode(type: string) {
 
 <template>
   <div class="canvas-controls">
+    <button class="canvas-controls__btn" title="Undo (Ctrl+Z)" :disabled="!canUndo" @click="undo()">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M3 7h7a3 3 0 1 1 0 6H8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M5.5 4.5 3 7l2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <button class="canvas-controls__btn" title="Redo (Ctrl+Shift+Z)" :disabled="!canRedo" @click="redo()">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M11 7H4a3 3 0 1 0 0 6h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M8.5 4.5 11 7l-2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <div class="canvas-controls__divider" />
     <button class="canvas-controls__btn" title="Fit to view" @click="fitToView()">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <path d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
