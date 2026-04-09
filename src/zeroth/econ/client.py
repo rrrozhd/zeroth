@@ -25,11 +25,17 @@ class RegulusClient:
         timeout: float = 5.0,
         enabled: bool = True,
     ) -> None:
+        self._base_url = base_url
         self._client = InstrumentationClient(
             base_url=base_url,
             timeout=timeout,
             enabled=enabled,
         )
+
+    @property
+    def base_url(self) -> str:
+        """Return the Regulus API base URL."""
+        return self._base_url
 
     def track_execution(self, event: ExecutionEvent) -> None:
         """Fire-and-forget: enqueue an execution event for delivery to Regulus."""

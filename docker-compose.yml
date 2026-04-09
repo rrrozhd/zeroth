@@ -11,6 +11,8 @@ services:
       ZEROTH_DATABASE__POSTGRES_DSN: "postgresql://zeroth:zeroth@postgres:5432/zeroth"
       ZEROTH_REDIS__HOST: redis
       ZEROTH_REDIS__PORT: "6379"
+      ZEROTH_REGULUS__ENABLED: "true"
+      ZEROTH_REGULUS__BASE_URL: "http://regulus:8080/v1"
       ZEROTH_SANDBOX__BACKEND: sidecar
       ZEROTH_SANDBOX__SIDECAR_URL: "http://sandbox-sidecar:8001"
       ZEROTH_DISPATCH__ARQ_ENABLED: "true"
