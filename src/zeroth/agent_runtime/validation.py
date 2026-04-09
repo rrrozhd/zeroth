@@ -32,9 +32,15 @@ class OutputValidator:
     ) -> BaseModel:
         """Parse the provider response into the expected output model.
 
-        Extracts the payload from the response, then validates it against
-        the output model. Returns a validated Pydantic instance.
+        If the provider already returned a typed Pydantic model instance
+        (via LangChain's ``with_structured_output``), returns it directly
+        when it matches the expected type.  Otherwise extracts the payload
+        from the response and validates it against the output model.
         """
+        content = response.content if isinstance(response, ProviderResponse) else response
+        # Fast path: provider already returned a validated Pydantic instance
+        if isinstance(content, output_model):
+            return content
         payload = self._extract_payload(response)
         try:
             return output_model.model_validate(payload)

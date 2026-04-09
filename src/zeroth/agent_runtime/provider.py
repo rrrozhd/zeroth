@@ -31,7 +31,7 @@ class ProviderRequest(BaseModel):
     extra metadata the provider might need.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     model_name: str
     messages: list[Any] = Field(default_factory=list)
@@ -39,6 +39,7 @@ class ProviderRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | dict[str, Any] | None = None
     response_format: dict[str, Any] | None = None
+    output_model: type[BaseModel] | None = None
     model_params: ModelParams | None = None
 
 
@@ -162,7 +163,13 @@ class LiteLLMProviderAdapter:
         return self._clients[model]
 
     async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
-        """Send request to LLM via ChatLiteLLM and return normalized response."""
+        """Send request to LLM via ChatLiteLLM and return normalized response.
+
+        When ``request.output_model`` is set, uses LangChain's
+        ``with_structured_output()`` for provider-agnostic structured output.
+        This handles schema generation, provider-specific formatting, and
+        response parsing automatically, returning a typed Pydantic instance.
+        """
         client = self._get_client(request.model_name)
         lc_messages = self._to_langchain_messages(request.messages)
         kwargs: dict[str, Any] = {}
@@ -170,8 +177,6 @@ class LiteLLMProviderAdapter:
             kwargs["tools"] = request.tools
         if request.tool_choice is not None:
             kwargs["tool_choice"] = request.tool_choice
-        if request.response_format is not None:
-            kwargs["response_format"] = request.response_format
         if request.model_params is not None:
             params = request.model_params
             if params.temperature is not None:
@@ -184,7 +189,32 @@ class LiteLLMProviderAdapter:
                 kwargs["stop"] = params.stop
             if params.seed is not None:
                 kwargs["seed"] = params.seed
-        ai_message: AIMessage = await client.ainvoke(lc_messages, **kwargs)
+
+        if request.output_model is not None:
+            # Use LangChain's with_structured_output for provider-agnostic
+            # structured output. include_raw=True gives us the AIMessage
+            # alongside the parsed Pydantic model for token usage extraction.
+            structured = client.with_structured_output(
+                request.output_model, include_raw=True
+            )
+            result = await structured.ainvoke(lc_messages, **kwargs)
+            ai_message: AIMessage = result["raw"]
+            parsed: BaseModel = result["parsed"]
+            token_usage = self._extract_token_usage(ai_message, request.model_name)
+            tool_calls = self._extract_tool_calls(ai_message)
+            return ProviderResponse(
+                content=parsed,
+                raw=ai_message,
+                tool_calls=tool_calls,
+                token_usage=token_usage,
+                metadata={"provider": "litellm", "model": request.model_name},
+            )
+
+        # Fallback: no structured output — plain invocation.
+        # Supports legacy response_format dict if provided directly.
+        if request.response_format is not None:
+            kwargs["response_format"] = request.response_format
+        ai_message = await client.ainvoke(lc_messages, **kwargs)
         token_usage = self._extract_token_usage(ai_message, request.model_name)
         tool_calls = self._extract_tool_calls(ai_message)
         return ProviderResponse(

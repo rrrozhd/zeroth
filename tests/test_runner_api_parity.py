@@ -112,8 +112,8 @@ async def test_runner_threads_tool_attachments_to_provider_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_threads_response_format_from_output_model() -> None:
-    """AgentRunner with custom output_model produces ProviderRequest with response_format."""
+async def test_runner_threads_output_model_from_config() -> None:
+    """AgentRunner with custom output_model produces ProviderRequest with output_model set."""
     config = _make_config(output_model=StructuredOutput)
     provider = DeterministicProviderAdapter(
         [ProviderResponse(content='{"name":"test","score":42}')]
@@ -123,9 +123,7 @@ async def test_runner_threads_response_format_from_output_model() -> None:
 
     assert len(provider.requests) == 1
     req = provider.requests[0]
-    assert req.response_format is not None
-    assert req.response_format["type"] == "json_schema"
-    assert req.response_format["json_schema"]["name"] == "StructuredOutput"
+    assert req.output_model is StructuredOutput
 
 
 @pytest.mark.asyncio
@@ -210,12 +208,11 @@ async def test_resolve_tool_calls_also_includes_new_fields() -> None:
     # Two requests should have been made: initial + re-invocation after tool call
     assert len(provider.requests) == 2
 
-    # Both requests should have tools, response_format, and model_params
+    # Both requests should have tools, output_model, and model_params
     for req in provider.requests:
         assert req.tools is not None
         assert len(req.tools) == 1
         assert req.tools[0]["function"]["name"] == "lookup"
-        assert req.response_format is not None
-        assert req.response_format["json_schema"]["name"] == "StructuredOutput"
+        assert req.output_model is StructuredOutput
         assert req.model_params is not None
         assert req.model_params.temperature == 0.7

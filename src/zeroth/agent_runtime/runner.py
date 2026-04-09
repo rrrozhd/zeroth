@@ -244,23 +244,25 @@ class AgentRunner:
         messages: list[Any],
         metadata: dict[str, Any],
     ) -> ProviderRequest:
-        """Build a ProviderRequest with tools, response_format, and model_params from config."""
-        from zeroth.agent_runtime.response_format import build_response_format
-
+        """Build a ProviderRequest with tools, output_model, and model_params from config."""
         # Convert tool_attachments to OpenAI tool schemas
         tools: list[dict[str, Any]] | None = None
         if self.config.tool_attachments:
             tools = [att.to_openai_tool() for att in self.config.tool_attachments]
 
-        # Build response_format from output_model
-        response_format = build_response_format(self.config.output_model)
+        # Pass the Pydantic output model directly — the provider adapter
+        # uses LangChain's with_structured_output() for provider-agnostic
+        # structured output handling.
+        output_model = self.config.output_model
+        if output_model is BaseModel or not getattr(output_model, "model_fields", None):
+            output_model = None
 
         return ProviderRequest(
             model_name=self.config.model_name,
             messages=messages,
             metadata=metadata,
             tools=tools,
-            response_format=response_format,
+            output_model=output_model,
             model_params=self.config.model_params,
         )
 

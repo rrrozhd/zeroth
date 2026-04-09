@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from zeroth.agent_runtime.models import ModelParams
 from zeroth.agent_runtime.provider import LiteLLMProviderAdapter, ProviderRequest
@@ -56,7 +57,8 @@ class TestLiteLLMAdapterForwarding:
         assert kwargs["tool_choice"] == "auto"
 
     @pytest.mark.asyncio
-    async def test_response_format_forwarded(self, adapter: LiteLLMProviderAdapter) -> None:
+    async def test_response_format_forwarded_legacy(self, adapter: LiteLLMProviderAdapter) -> None:
+        """Legacy response_format dict still forwarded when no output_model is set."""
         mock_msg = _mock_ai_message()
         mock_client = MagicMock()
         mock_client.ainvoke = AsyncMock(return_value=mock_msg)
@@ -69,6 +71,35 @@ class TestLiteLLMAdapterForwarding:
 
         _, kwargs = mock_client.ainvoke.call_args
         assert kwargs["response_format"] == fmt
+
+    @pytest.mark.asyncio
+    async def test_output_model_uses_with_structured_output(self, adapter: LiteLLMProviderAdapter) -> None:
+        """When output_model is set, adapter uses with_structured_output()."""
+
+        class TestOutput(BaseModel):
+            answer: str
+
+        mock_msg = _mock_ai_message()
+        parsed = TestOutput(answer="Paris")
+
+        # Mock the structured output chain
+        mock_structured = MagicMock()
+        mock_structured.ainvoke = AsyncMock(return_value={"raw": mock_msg, "parsed": parsed})
+
+        mock_client = MagicMock()
+        mock_client.with_structured_output = MagicMock(return_value=mock_structured)
+
+        request = ProviderRequest(model_name="openai/gpt-4o", output_model=TestOutput)
+
+        with patch.object(adapter, "_get_client", return_value=mock_client):
+            response = await adapter.ainvoke(request)
+
+        # Verify with_structured_output was called with the model and include_raw=True
+        mock_client.with_structured_output.assert_called_once_with(TestOutput, include_raw=True)
+        mock_structured.ainvoke.assert_called_once()
+        # Response content should be the parsed Pydantic instance
+        assert isinstance(response.content, TestOutput)
+        assert response.content.answer == "Paris"
 
     @pytest.mark.asyncio
     async def test_model_params_temperature_max_tokens(self, adapter: LiteLLMProviderAdapter) -> None:
