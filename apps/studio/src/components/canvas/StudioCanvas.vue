@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, provide } from 'vue'
 import { VueFlow, ConnectionMode } from '@vue-flow/core'
 import type { Connection, NodeDragEvent } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -7,6 +7,7 @@ import { useCanvasStore } from '../../stores/canvas'
 import { useUiStore } from '../../stores/ui'
 import { isValidConnection } from '../../composables/usePortValidation'
 import { useKeyboardShortcuts } from '../../composables/useKeyboardShortcuts'
+import { useNodeValidation } from '../../composables/useNodeValidation'
 import AgentNode from '../nodes/AgentNode.vue'
 import ExecutionUnitNode from '../nodes/ExecutionUnitNode.vue'
 import ApprovalGateNode from '../nodes/ApprovalGateNode.vue'
@@ -24,6 +25,12 @@ const uiStore = useUiStore()
 const { onDragOver, onDrop } = useDragAndDrop()
 
 useKeyboardShortcuts()
+
+const { getIssues, isValid } = useNodeValidation(
+  () => canvasStore.nodes,
+  () => canvasStore.edges
+)
+provide('nodeValidation', { getIssues, isValid })
 
 const nodeTypes = {
   agent: AgentNode,

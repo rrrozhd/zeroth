@@ -1,17 +1,27 @@
 <script setup lang="ts">
-defineProps<{
+import { inject, computed } from 'vue'
+
+const props = defineProps<{
   selected: boolean
   label: string
   metaLabel: string
+  nodeId: string
 }>()
 
 const emit = defineEmits<{
   delete: []
 }>()
+
+const nodeValidation = inject<{
+  isValid: (id: string) => boolean
+  getIssues: (id: string) => { type: string; message: string }[]
+}>('nodeValidation', { isValid: () => true, getIssues: () => [] })
+
+const hasIssues = computed(() => !nodeValidation.isValid(props.nodeId))
 </script>
 
 <template>
-  <div class="base-node" :class="{ 'base-node--selected': selected }">
+  <div class="base-node" :class="{ 'base-node--selected': selected, 'base-node--invalid': hasIssues }">
     <div class="base-node__toolbar">
       <button class="base-node__delete" @click.stop="emit('delete')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -20,6 +30,12 @@ const emit = defineEmits<{
       </button>
     </div>
     <div class="base-node__card">
+      <div v-if="hasIssues" class="base-node__warning">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1L13 12H1L7 1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          <path d="M7 5v3M7 10v.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </div>
       <div class="base-node__icon">
         <slot name="icon" />
       </div>
@@ -94,6 +110,24 @@ const emit = defineEmits<{
   box-shadow:
     0 16px 28px rgba(115, 164, 193, 0.06),
     0 0 0 4px rgba(79, 205, 255, 0.2);
+}
+
+.base-node--invalid .base-node__card {
+  border-color: rgba(255, 80, 80, 0.7);
+}
+
+.base-node--invalid.base-node--selected .base-node__card {
+  border-color: rgba(255, 80, 80, 0.9);
+  box-shadow:
+    0 16px 28px rgba(115, 164, 193, 0.06),
+    0 0 0 4px rgba(255, 80, 80, 0.2);
+}
+
+.base-node__warning {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  color: rgba(255, 80, 80, 0.8);
 }
 
 .base-node__icon {

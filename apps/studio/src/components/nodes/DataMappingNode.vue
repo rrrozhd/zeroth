@@ -7,7 +7,7 @@ defineProps<NodeProps>()
 </script>
 
 <template>
-  <BaseNode :selected="selected" :label="data.label" meta-label="DATA MAPPING">
+  <BaseNode :selected="selected" :label="data.label" meta-label="DATA MAPPING" :node-id="id">
     <template #icon>
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M3 6h4M3 10h4M3 14h4M13 6h4M13 10h4M13 14h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
