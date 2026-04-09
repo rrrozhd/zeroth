@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from fastapi import FastAPI
@@ -25,11 +27,14 @@ def _make_app(graph_repo: GraphRepository | None = None) -> FastAPI:
     return app
 
 
-def _make_repo() -> GraphRepository:
-    """Create a real in-memory GraphRepository backed by SQLite."""
+def _make_repo(tmp_path: Path | None = None) -> GraphRepository:
+    """Create a real GraphRepository backed by a temp-file SQLite database."""
     from zeroth.storage import SQLiteDatabase
 
-    db = SQLiteDatabase(":memory:")
+    if tmp_path is None:
+        tmp_path = Path(tempfile.mkdtemp())
+    db_path = tmp_path / "test_studio.db"
+    db = SQLiteDatabase(str(db_path))
     return GraphRepository(db)
 
 
