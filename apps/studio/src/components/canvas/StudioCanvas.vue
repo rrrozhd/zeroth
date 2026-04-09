@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { VueFlow, ConnectionMode } from '@vue-flow/core'
-import type { Connection } from '@vue-flow/core'
+import type { Connection, NodeDragEvent } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { useCanvasStore } from '../../stores/canvas'
 import { useUiStore } from '../../stores/ui'
 import { isValidConnection } from '../../composables/usePortValidation'
+import { useKeyboardShortcuts } from '../../composables/useKeyboardShortcuts'
 import AgentNode from '../nodes/AgentNode.vue'
 import ExecutionUnitNode from '../nodes/ExecutionUnitNode.vue'
 import ApprovalGateNode from '../nodes/ApprovalGateNode.vue'
@@ -21,6 +23,8 @@ const canvasStore = useCanvasStore()
 const uiStore = useUiStore()
 const { onDragOver, onDrop } = useDragAndDrop()
 
+useKeyboardShortcuts()
+
 const nodeTypes = {
   agent: AgentNode,
   executionUnit: ExecutionUnitNode,
@@ -30,6 +34,27 @@ const nodeTypes = {
   start: StartNode,
   end: EndNode,
   dataMapping: DataMappingNode,
+}
+
+// Node drag tracking for undo-supported moves
+const dragStartPosition = ref<{ id: string; x: number; y: number } | null>(null)
+
+function onNodeDragStart(event: NodeDragEvent) {
+  const node = event.node
+  dragStartPosition.value = { id: node.id, x: node.position.x, y: node.position.y }
+}
+
+function onNodeDragStop(event: NodeDragEvent) {
+  const node = event.node
+  if (dragStartPosition.value && dragStartPosition.value.id === node.id) {
+    const from = { x: dragStartPosition.value.x, y: dragStartPosition.value.y }
+    const to = { x: node.position.x, y: node.position.y }
+    // Only create undo entry if position actually changed
+    if (Math.abs(from.x - to.x) > 1 || Math.abs(from.y - to.y) > 1) {
+      canvasStore.moveNodeWithUndo(node.id, from, to)
+    }
+  }
+  dragStartPosition.value = null
 }
 
 function onConnect(connection: Connection) {
@@ -62,6 +87,8 @@ function onPaneClick() {
       @connect="onConnect"
       @node-click="onNodeClick"
       @pane-click="onPaneClick"
+      @node-drag-start="onNodeDragStart"
+      @node-drag-stop="onNodeDragStop"
     >
       <Background :gap="24" :size="1" pattern-color="rgba(150, 180, 200, 0.18)" />
       <CanvasMinimap />
