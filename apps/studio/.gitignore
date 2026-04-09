@@ -3,3 +3,4 @@ dist/
 src/api/schema.d.ts
 *.local
 .vite/
+tsconfig.tsbuildinfo
