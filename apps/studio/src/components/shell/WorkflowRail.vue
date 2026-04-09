@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
+import { useWorkflowStore } from '../../stores/workflow'
+import { useWorkflowPersistence } from '../../composables/useWorkflowPersistence'
+
 defineProps<{
   collapsed: boolean
 }>()
@@ -6,6 +10,26 @@ defineProps<{
 defineEmits<{
   toggle: []
 }>()
+
+const workflowStore = useWorkflowStore()
+const persistence = useWorkflowPersistence()
+
+onMounted(() => {
+  workflowStore.fetchWorkflows()
+})
+
+async function handleNewProject() {
+  const name = window.prompt('Workflow name:', 'Untitled Workflow')
+  if (!name) return
+  const result = await workflowStore.createNew(name)
+  if (result) {
+    await persistence.loadWorkflow(result.id)
+  }
+}
+
+async function handleSelectWorkflow(id: string) {
+  await persistence.loadWorkflow(id)
+}
 </script>
 
 <template>
@@ -20,14 +44,31 @@ defineEmits<{
         </button>
       </div>
 
-      <button class="new-project-btn">New Project</button>
+      <button class="new-project-btn" @click="handleNewProject">New Project</button>
 
-      <div class="empty-state">
+      <div class="workflow-list" v-if="workflowStore.workflows.length > 0">
+        <button
+          v-for="workflow in workflowStore.workflows"
+          :key="workflow.id"
+          class="workflow-item"
+          :class="{ active: workflowStore.currentWorkflowId === workflow.id }"
+          @click="handleSelectWorkflow(workflow.id)"
+        >
+          <span class="workflow-name">{{ workflow.name }}</span>
+          <span class="workflow-meta">Draft v{{ workflow.version }}</span>
+        </button>
+      </div>
+
+      <div class="empty-state" v-else>
         <h3 class="empty-heading">No workflows yet</h3>
         <p class="empty-body">
           Create your first workflow to start building governed agent pipelines.
           Click 'New Project' in the sidebar to begin.
         </p>
+      </div>
+
+      <div class="error-banner" v-if="workflowStore.error">
+        {{ workflowStore.error }}
       </div>
     </div>
 
@@ -75,6 +116,7 @@ defineEmits<{
   padding: 20px;
   gap: 16px;
   flex: 1;
+  overflow-y: auto;
 }
 
 .rail-header {
@@ -130,6 +172,50 @@ defineEmits<{
   background: rgba(79, 205, 255, 0.18);
 }
 
+.workflow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workflow-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  border-left: 3px solid transparent;
+  transition: all 120ms ease;
+}
+
+.workflow-item:hover {
+  background: rgba(79, 205, 255, 0.08);
+}
+
+.workflow-item.active {
+  border-left-color: rgba(79, 205, 255, 0.7);
+  background: rgba(79, 205, 255, 0.06);
+}
+
+.workflow-name {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-studio-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-meta {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-studio-text-tertiary);
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -148,5 +234,17 @@ defineEmits<{
   font-weight: 400;
   line-height: 1.5;
   color: var(--color-studio-text-tertiary);
+}
+
+.error-banner {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 80, 80, 0.08);
+  border: 1px solid rgba(255, 80, 80, 0.2);
+  color: rgba(220, 60, 60, 0.9);
+  margin-top: auto;
 }
 </style>
