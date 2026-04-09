@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PropertyDefinition } from '../../types/nodes'
 
-const props = defineProps<{
+defineProps<{
   definition: PropertyDefinition
   modelValue: unknown
 }>()
