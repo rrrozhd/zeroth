@@ -18,6 +18,7 @@ from typing import Any
 from zeroth.agent_runtime import AgentRunner, RepositoryThreadResolver
 from zeroth.approvals import ApprovalDecision, ApprovalRecord, ApprovalService
 from zeroth.audit import AuditRepository, NodeAuditRecord
+from zeroth.audit.models import TokenUsage
 from zeroth.conditions import NextStepPlanner
 from zeroth.conditions.models import ConditionContext, TraversalState
 from zeroth.execution_units import ExecutableUnitRunner
@@ -437,6 +438,14 @@ class RuntimeOrchestrator:
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
         if self.audit_repository is not None:
+            # Promote token_usage and cost fields from runner audit record
+            # to top-level NodeAuditRecord fields for queryability.
+            token_usage_data = redacted_audit_record.get("token_usage")
+            token_usage = (
+                TokenUsage.model_validate(token_usage_data)
+                if token_usage_data is not None
+                else None
+            )
             await self.audit_repository.write(
                 NodeAuditRecord(
                     audit_id=self._stored_audit_id(run.run_id, audit_ref),
@@ -451,6 +460,9 @@ class RuntimeOrchestrator:
                     input_snapshot=redacted_input,
                     output_snapshot=redacted_output,
                     execution_metadata=redacted_audit_record,
+                    token_usage=token_usage,
+                    cost_usd=redacted_audit_record.get("cost_usd"),
+                    cost_event_id=redacted_audit_record.get("cost_event_id"),
                 )
             )
         run.execution_history.append(
