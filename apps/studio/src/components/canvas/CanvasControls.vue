@@ -3,11 +3,13 @@ import { ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useVueFlow } from '@vue-flow/core'
 import { useCanvasActions } from '../../composables/useCanvasActions'
+import { useAutoLayout } from '../../composables/useAutoLayout'
 import { useCanvasStore } from '../../stores/canvas'
 import { NODE_TYPE_REGISTRY } from '../../types/nodes'
 
 const { zoomIn, zoomOut } = useVueFlow()
 const { addNodeAtCenter, fitToView } = useCanvasActions()
+const { applyLayout } = useAutoLayout()
 const canvasStore = useCanvasStore()
 const { canUndo, canRedo } = storeToRefs(canvasStore)
 const { undo, redo } = canvasStore
@@ -55,7 +57,7 @@ function handleAddNode(type: string) {
         <path d="M3 7h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
       </svg>
     </button>
-    <button class="canvas-controls__btn" title="Tidy up" disabled>
+    <button class="canvas-controls__btn" title="Auto Layout" @click="applyLayout('TB')">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
         <rect x="8" y="8" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
