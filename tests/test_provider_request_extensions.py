@@ -25,6 +25,7 @@ class TestProviderRequestBackwardCompat:
         assert req.tools is None
         assert req.tool_choice is None
         assert req.response_format is None
+        assert req.output_model is None
         assert req.model_params is None
 
 
@@ -59,6 +60,13 @@ class TestProviderRequestNewFields:
         )
         assert req.model_params is not None
         assert req.model_params.temperature == 0.7
+
+    def test_output_model_accepted(self) -> None:
+        class MyOutput(BaseModel):
+            value: str
+
+        req = ProviderRequest(model_name="x", output_model=MyOutput)
+        assert req.output_model is MyOutput
 
 
 # ---------------------------------------------------------------------------
