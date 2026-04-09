@@ -73,6 +73,9 @@ class RuntimeOrchestrator:
     secret_resolver: SecretResolver | None = None
     thread_resolver: RepositoryThreadResolver | None = None
     webhook_service: object | None = None  # Optional WebhookService for event emission
+    # Phase 20: Memory and budget injection for AgentRunner dispatch.
+    memory_resolver: object | None = None
+    budget_enforcer: object | None = None
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -243,20 +246,32 @@ class RuntimeOrchestrator:
             runner = self.agent_runners.get(node.node_id)
             if runner is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
-            thread_id = await self._resolve_thread(node, run)
-            enforcement_context = self._enforcement_context_for(run, node.node_id)
-            result = await self._run_agent_with_optional_enforcement(
-                runner,
-                input_payload,
-                thread_id=thread_id,
-                runtime_context={"node_id": node.node_id, "run_id": run.run_id},
-                enforcement_context=enforcement_context,
-            )
-            audit_record = dict(result.audit_record)
-            if enforcement_context:
-                audit_record["enforcement"] = enforcement_context
-                audit_record["enforcement_applied"] = True
-            return result.output_data, audit_record
+            # Phase 20: Save originals before injection so we can restore in finally.
+            original_memory_resolver = runner.memory_resolver
+            original_budget_enforcer = runner.budget_enforcer
+            if self.memory_resolver is not None:
+                runner.memory_resolver = self.memory_resolver
+            if self.budget_enforcer is not None:
+                runner.budget_enforcer = self.budget_enforcer
+            try:
+                thread_id = await self._resolve_thread(node, run)
+                enforcement_context = self._enforcement_context_for(run, node.node_id)
+                result = await self._run_agent_with_optional_enforcement(
+                    runner,
+                    input_payload,
+                    thread_id=thread_id,
+                    runtime_context={"node_id": node.node_id, "run_id": run.run_id},
+                    enforcement_context=enforcement_context,
+                )
+                audit_record = dict(result.audit_record)
+                if enforcement_context:
+                    audit_record["enforcement"] = enforcement_context
+                    audit_record["enforcement_applied"] = True
+                return result.output_data, audit_record
+            finally:
+                # Always restore originals to avoid leaking injected state.
+                runner.memory_resolver = original_memory_resolver
+                runner.budget_enforcer = original_budget_enforcer
         if isinstance(node, ExecutableUnitNode):
             enforcement_context = self._enforcement_context_for(run, node.node_id)
             if (
