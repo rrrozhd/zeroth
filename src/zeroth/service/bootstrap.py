@@ -23,7 +23,7 @@ from zeroth.guardrails.config import GuardrailConfig
 from zeroth.guardrails.dead_letter import DeadLetterManager
 from zeroth.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.memory.factory import register_memory_connectors
-from zeroth.memory.registry import InMemoryConnectorRegistry
+from zeroth.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.observability.metrics import MetricsCollector
 from zeroth.observability.queue_gauge import QueueDepthGauge
 from zeroth.orchestrator import RuntimeOrchestrator
@@ -122,6 +122,8 @@ class ServiceBootstrap:
     budget_enforcer: object | None = None
     # Phase 14: Memory connector registry (populated at bootstrap).
     memory_registry: InMemoryConnectorRegistry | None = None
+    # Phase 20: Memory resolver for dispatch-time injection.
+    memory_resolver: object | None = None
     # Phase 17: Database reference for health probes.
     database: AsyncDatabase | None = None
     # Phase 15: Webhook and SLA components (optional).
@@ -288,7 +290,19 @@ async def bootstrap_service(
     if settings.database.backend == "postgres" and settings.database.postgres_dsn:
         pg_conninfo = settings.database.postgres_dsn.get_secret_value()
 
-    register_memory_connectors(memory_registry, settings, redis_client=redis_client, pg_conninfo=pg_conninfo)
+    register_memory_connectors(
+        memory_registry, settings, redis_client=redis_client, pg_conninfo=pg_conninfo
+    )
+
+    # Phase 20: Create resolver from populated registry for AgentRunner injection.
+    memory_resolver = MemoryConnectorResolver(
+        registry=memory_registry,
+        thread_repository=thread_repository,
+    )
+
+    # Phase 20: Wire memory resolver and budget enforcer into orchestrator.
+    orchestrator.memory_resolver = memory_resolver
+    orchestrator.budget_enforcer = budget_enforcer
 
     # Phase 15: Webhook delivery and SLA enforcement.
     webhook_repository = None
@@ -366,6 +380,7 @@ async def bootstrap_service(
         regulus_client=regulus_client,
         budget_enforcer=budget_enforcer,
         memory_registry=memory_registry,
+        memory_resolver=memory_resolver,
         webhook_service=webhook_service_obj,
         webhook_repository=webhook_repository,
         delivery_worker=delivery_worker_obj,
