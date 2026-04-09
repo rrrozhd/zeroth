@@ -15,9 +15,11 @@ import EndNode from '../nodes/EndNode.vue'
 import DataMappingNode from '../nodes/DataMappingNode.vue'
 import CanvasControls from './CanvasControls.vue'
 import CanvasMinimap from './CanvasMinimap.vue'
+import { useDragAndDrop } from '../../composables/useDragAndDrop'
 
 const canvasStore = useCanvasStore()
 const uiStore = useUiStore()
+const { onDragOver, onDrop } = useDragAndDrop()
 
 const nodeTypes = {
   agent: AgentNode,
@@ -44,7 +46,7 @@ function onPaneClick() {
 </script>
 
 <template>
-  <div class="studio-canvas">
+  <div class="studio-canvas" @dragover="onDragOver" @drop="onDrop">
     <VueFlow
       v-model:nodes="canvasStore.nodes"
       v-model:edges="canvasStore.edges"
