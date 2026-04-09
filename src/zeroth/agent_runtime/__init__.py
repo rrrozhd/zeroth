@@ -14,10 +14,12 @@ from zeroth.agent_runtime.errors import (
     AgentRuntimeError,
     AgentTimeoutError,
 )
+from zeroth.agent_runtime.mcp import MCPServerConfig
 from zeroth.agent_runtime.models import (
     AgentConfig,
     AgentRunResult,
     InMemoryThreadStateStore,
+    ModelParams,
     PromptAssembly,
     PromptConfig,
     PromptMessage,
@@ -27,11 +29,13 @@ from zeroth.agent_runtime.prompt import AgentAuditSerializer, PromptAssembler
 from zeroth.agent_runtime.provider import (
     DeterministicProviderAdapter,
     GovernedLLMProviderAdapter,
+    LiteLLMProviderAdapter,
     ProviderAdapter,
     ProviderMessage,
     ProviderRequest,
     ProviderResponse,
 )
+from zeroth.agent_runtime.response_format import build_response_format
 from zeroth.agent_runtime.runner import AgentRunner
 from zeroth.agent_runtime.thread_store import (
     RepositoryThreadResolver,
@@ -65,6 +69,9 @@ __all__ = [
     "DeterministicProviderAdapter",
     "GovernedLLMProviderAdapter",
     "InMemoryThreadStateStore",
+    "LiteLLMProviderAdapter",
+    "MCPServerConfig",
+    "ModelParams",
     "OutputValidator",
     "PromptAssembly",
     "PromptAssembler",
@@ -86,5 +93,6 @@ __all__ = [
     "ToolAttachmentRegistry",
     "ToolPermissionError",
     "UndeclaredToolError",
+    "build_response_format",
     "normalize_declared_tool_refs",
 ]
