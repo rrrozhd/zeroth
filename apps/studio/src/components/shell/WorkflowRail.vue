@@ -2,6 +2,8 @@
 import { onMounted } from 'vue'
 import { useWorkflowStore } from '../../stores/workflow'
 import { useWorkflowPersistence } from '../../composables/useWorkflowPersistence'
+import { useUiStore } from '../../stores/ui'
+import NodePalette from '../palette/NodePalette.vue'
 
 defineProps<{
   collapsed: boolean
@@ -13,6 +15,7 @@ defineEmits<{
 
 const workflowStore = useWorkflowStore()
 const persistence = useWorkflowPersistence()
+const uiStore = useUiStore()
 
 onMounted(() => {
   workflowStore.fetchWorkflows()
@@ -36,7 +39,7 @@ async function handleSelectWorkflow(id: string) {
   <aside class="workflow-rail" :class="{ collapsed }">
     <div class="rail-content" v-show="!collapsed">
       <div class="rail-header">
-        <span class="rail-eyebrow">WORKFLOWS</span>
+        <span class="rail-eyebrow">{{ uiStore.currentMode === 'editor' && workflowStore.currentWorkflowId ? 'NODE PALETTE' : 'WORKFLOWS' }}</span>
         <button class="collapse-btn" @click="$emit('toggle')" title="Collapse sidebar">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M10 4L6 8L10 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -44,32 +47,36 @@ async function handleSelectWorkflow(id: string) {
         </button>
       </div>
 
-      <button class="new-project-btn" @click="handleNewProject">New Project</button>
+      <NodePalette v-if="uiStore.currentMode === 'editor' && workflowStore.currentWorkflowId" />
 
-      <div class="workflow-list" v-if="workflowStore.workflows.length > 0">
-        <button
-          v-for="workflow in workflowStore.workflows"
-          :key="workflow.id"
-          class="workflow-item"
-          :class="{ active: workflowStore.currentWorkflowId === workflow.id }"
-          @click="handleSelectWorkflow(workflow.id)"
-        >
-          <span class="workflow-name">{{ workflow.name }}</span>
-          <span class="workflow-meta">Draft v{{ workflow.version }}</span>
-        </button>
-      </div>
+      <template v-else>
+        <button class="new-project-btn" @click="handleNewProject">New Project</button>
 
-      <div class="empty-state" v-else>
-        <h3 class="empty-heading">No workflows yet</h3>
-        <p class="empty-body">
-          Create your first workflow to start building governed agent pipelines.
-          Click 'New Project' in the sidebar to begin.
-        </p>
-      </div>
+        <div class="workflow-list" v-if="workflowStore.workflows.length > 0">
+          <button
+            v-for="workflow in workflowStore.workflows"
+            :key="workflow.id"
+            class="workflow-item"
+            :class="{ active: workflowStore.currentWorkflowId === workflow.id }"
+            @click="handleSelectWorkflow(workflow.id)"
+          >
+            <span class="workflow-name">{{ workflow.name }}</span>
+            <span class="workflow-meta">Draft v{{ workflow.version }}</span>
+          </button>
+        </div>
 
-      <div class="error-banner" v-if="workflowStore.error">
-        {{ workflowStore.error }}
-      </div>
+        <div class="empty-state" v-else>
+          <h3 class="empty-heading">No workflows yet</h3>
+          <p class="empty-body">
+            Create your first workflow to start building governed agent pipelines.
+            Click 'New Project' in the sidebar to begin.
+          </p>
+        </div>
+
+        <div class="error-banner" v-if="workflowStore.error">
+          {{ workflowStore.error }}
+        </div>
+      </template>
     </div>
 
     <button
