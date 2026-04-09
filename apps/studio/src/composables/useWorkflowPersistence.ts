@@ -58,7 +58,7 @@ export function useWorkflowPersistence() {
         id: node.id,
         type: node.type,
         position: node.position,
-        data: node.data as Record<string, unknown>,
+        data: node.data as { label: string; nodeType: string; [key: string]: unknown },
       }
       canvasStore.nodes.push(canvasNode)
     }

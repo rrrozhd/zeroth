@@ -63,7 +63,7 @@ export const useCanvasStore = defineStore('canvas', () => {
   function undo() {
     if (!canUndo.value) return
     isExecutingCommand.value = true
-    history.value[historyIndex.value].undo()
+    history.value[historyIndex.value]!.undo()
     isExecutingCommand.value = false
     historyIndex.value--
   }
@@ -72,7 +72,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     if (!canRedo.value) return
     historyIndex.value++
     isExecutingCommand.value = true
-    history.value[historyIndex.value].execute()
+    history.value[historyIndex.value]!.execute()
     isExecutingCommand.value = false
   }
 
