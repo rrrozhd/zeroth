@@ -1,7 +1,33 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useUiStore } from '../../stores/ui'
 
+const props = withDefaults(
+  defineProps<{
+    isDirty?: boolean
+    isSaving?: boolean
+    version?: number
+  }>(),
+  {
+    isDirty: false,
+    isSaving: false,
+    version: 1,
+  },
+)
+
 const ui = useUiStore()
+
+const saveLabel = computed(() => {
+  if (props.isSaving) return 'Saving...'
+  if (props.isDirty) return 'Unsaved'
+  return 'Saved'
+})
+
+const saveClass = computed(() => {
+  if (props.isSaving) return 'saving'
+  if (props.isDirty) return 'dirty'
+  return 'clean'
+})
 </script>
 
 <template>
@@ -31,10 +57,10 @@ const ui = useUiStore()
 
     <div class="header-right">
       <span class="env-label">Env / Dev</span>
-      <span class="version-label">Draft v1</span>
-      <span class="save-indicator">
+      <span class="version-label">Draft v{{ version }}</span>
+      <span class="save-indicator" :class="saveClass">
         <span class="save-dot"></span>
-        Saved
+        {{ saveLabel }}
       </span>
       <button class="publish-btn" disabled>Publish</button>
     </div>
@@ -135,6 +161,25 @@ const ui = useUiStore()
   font-size: 12px;
   font-weight: 500;
   color: var(--color-studio-text-secondary);
+  transition: color 120ms ease;
+}
+
+.save-indicator.clean .save-dot {
+  background: rgba(72, 199, 142, 0.8);
+}
+
+.save-indicator.dirty .save-dot {
+  background: rgba(255, 180, 60, 0.8);
+}
+
+.save-indicator.saving .save-dot {
+  background: rgba(79, 205, 255, 0.8);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .save-dot {
@@ -142,6 +187,7 @@ const ui = useUiStore()
   height: 6px;
   border-radius: 50%;
   background: rgba(72, 199, 142, 0.8);
+  transition: background 120ms ease;
 }
 
 .publish-btn {
