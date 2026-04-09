@@ -7,7 +7,8 @@ export interface CanvasNode {
   id: string
   type: string
   position: XYPosition
-  data: { label: string; nodeType: string }
+  data: { label: string; nodeType: string; [key: string]: unknown }
+  [key: string]: unknown
 }
 
 export interface CanvasEdge {
@@ -16,6 +17,7 @@ export interface CanvasEdge {
   target: string
   sourceHandle?: string
   targetHandle?: string
+  [key: string]: unknown
 }
 
 export const useCanvasStore = defineStore('canvas', () => {
@@ -24,16 +26,21 @@ export const useCanvasStore = defineStore('canvas', () => {
 
   let nodeCounter = 0
 
-  function addNode(type: string, position: XYPosition) {
-    const typeDef = NODE_TYPE_REGISTRY[type]
-    if (!typeDef) return
-    const id = `${type}-${++nodeCounter}-${Date.now()}`
-    nodes.value.push({
-      id,
-      type,
-      position,
-      data: { label: typeDef.label, nodeType: type },
-    })
+  function addNode(nodeOrType: string | CanvasNode, position?: XYPosition) {
+    if (typeof nodeOrType === 'string') {
+      const type = nodeOrType
+      const typeDef = NODE_TYPE_REGISTRY[type]
+      if (!typeDef) return
+      const id = `${type}-${++nodeCounter}-${Date.now()}`
+      nodes.value.push({
+        id,
+        type,
+        position: position ?? { x: 0, y: 0 },
+        data: { label: typeDef.label, nodeType: type },
+      })
+    } else {
+      nodes.value.push(nodeOrType)
+    }
   }
 
   function removeNode(id: string) {
@@ -41,15 +48,20 @@ export const useCanvasStore = defineStore('canvas', () => {
     edges.value = edges.value.filter(e => e.source !== id && e.target !== id)
   }
 
-  function addEdge(connection: Connection) {
-    const id = `edge-${connection.source}-${connection.target}-${Date.now()}`
-    edges.value.push({
-      id,
-      source: connection.source,
-      target: connection.target,
-      sourceHandle: connection.sourceHandle ?? undefined,
-      targetHandle: connection.targetHandle ?? undefined,
-    })
+  function addEdge(connectionOrEdge: Connection | CanvasEdge) {
+    if ('id' in connectionOrEdge) {
+      edges.value.push(connectionOrEdge)
+    } else {
+      const connection = connectionOrEdge
+      const id = `edge-${connection.source}-${connection.target}-${Date.now()}`
+      edges.value.push({
+        id,
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle ?? undefined,
+        targetHandle: connection.targetHandle ?? undefined,
+      })
+    }
   }
 
   function removeEdge(id: string) {
