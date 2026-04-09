@@ -1,11 +1,10 @@
 <script setup lang="ts">
+import StudioCanvas from '../canvas/StudioCanvas.vue'
 </script>
 
 <template>
   <main class="canvas-area">
-    <div class="canvas-placeholder">
-      <p class="placeholder-text">Canvas will render here</p>
-    </div>
+    <StudioCanvas />
   </main>
 </template>
 
@@ -21,20 +20,7 @@
   box-shadow:
     0 18px 48px rgba(117, 160, 189, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   position: relative;
-}
-
-.canvas-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.placeholder-text {
-  font-size: 14px;
-  color: var(--color-studio-text-tertiary);
+  overflow: hidden;
 }
 </style>
