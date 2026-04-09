@@ -11,7 +11,9 @@ from fastapi.testclient import TestClient
 
 from zeroth.graph.models import Graph, GraphStatus
 from zeroth.graph.repository import GraphRepository
+from zeroth.service.bootstrap import run_migrations
 from zeroth.service.studio_api import router as studio_router
+from zeroth.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 def _make_app(graph_repo: GraphRepository | None = None) -> FastAPI:
@@ -28,13 +30,12 @@ def _make_app(graph_repo: GraphRepository | None = None) -> FastAPI:
 
 
 def _make_repo(tmp_path: Path | None = None) -> GraphRepository:
-    """Create a real GraphRepository backed by a temp-file SQLite database."""
-    from zeroth.storage import SQLiteDatabase
-
+    """Create a real GraphRepository backed by an async SQLite database."""
     if tmp_path is None:
         tmp_path = Path(tempfile.mkdtemp())
     db_path = tmp_path / "test_studio.db"
-    db = SQLiteDatabase(str(db_path))
+    run_migrations(f"sqlite:///{db_path}")
+    db = AsyncSQLiteDatabase(str(db_path))
     return GraphRepository(db)
 
 
