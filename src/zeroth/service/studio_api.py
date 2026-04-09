@@ -195,10 +195,10 @@ def _graph_to_summary(graph: Graph) -> WorkflowSummaryResponse:
 
 
 @router.get("/workflows", response_model=list[WorkflowSummaryResponse])
-def list_workflows(request: Request) -> list[WorkflowSummaryResponse]:
+async def list_workflows(request: Request) -> list[WorkflowSummaryResponse]:
     """List all workflows as summaries."""
     repo = _get_graph_repository(request)
-    graphs = repo.list()
+    graphs = await repo.list()
     # Exclude archived workflows from the list
     return [_graph_to_summary(g) for g in graphs if g.status != GraphStatus.ARCHIVED]
 
@@ -208,7 +208,7 @@ def list_workflows(request: Request) -> list[WorkflowSummaryResponse]:
     response_model=WorkflowDetailResponse,
     status_code=201,
 )
-def create_workflow(
+async def create_workflow(
     body: CreateWorkflowRequest,
     request: Request,
 ) -> WorkflowDetailResponse:
@@ -227,29 +227,29 @@ def create_workflow(
             }
         },
     )
-    saved = repo.save(graph)
+    saved = await repo.save(graph)
     return _graph_to_detail(saved)
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowDetailResponse)
-def get_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
+async def get_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
     """Get a workflow with full detail including nodes, edges, and viewport."""
     repo = _get_graph_repository(request)
-    graph = repo.get(workflow_id)
+    graph = await repo.get(workflow_id)
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return _graph_to_detail(graph)
 
 
 @router.put("/workflows/{workflow_id}", response_model=WorkflowDetailResponse)
-def update_workflow(
+async def update_workflow(
     workflow_id: str,
     body: UpdateWorkflowRequest,
     request: Request,
 ) -> WorkflowDetailResponse:
     """Update a workflow's name, nodes, edges, or viewport."""
     repo = _get_graph_repository(request)
-    graph = repo.get(workflow_id)
+    graph = await repo.get(workflow_id)
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -274,7 +274,7 @@ def update_workflow(
 
     if updates:
         updated_graph = graph.model_copy(update=updates)
-        saved = repo.save(updated_graph)
+        saved = await repo.save(updated_graph)
     else:
         saved = graph
 
@@ -282,14 +282,14 @@ def update_workflow(
 
 
 @router.delete("/workflows/{workflow_id}", status_code=204)
-def delete_workflow(workflow_id: str, request: Request) -> Response:
+async def delete_workflow(workflow_id: str, request: Request) -> Response:
     """Archive a workflow (soft delete)."""
     repo = _get_graph_repository(request)
-    graph = repo.get(workflow_id)
+    graph = await repo.get(workflow_id)
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     archived = graph.archive()
-    repo.save(archived)
+    await repo.save(archived)
     return Response(status_code=204)
 
 
