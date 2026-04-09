@@ -77,6 +77,9 @@ class RuntimeOrchestrator:
     regulus_client: object | None = None
     cost_estimator: object | None = None
     deployment_ref: str | None = None
+    # Phase 20: Memory and budget injection for AgentRunner dispatch.
+    memory_resolver: object | None = None
+    budget_enforcer: object | None = None
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -267,6 +270,14 @@ class RuntimeOrchestrator:
                 except ImportError:
                     pass
 
+            # Phase 20: Save originals before injection so we can restore in finally.
+            original_memory_resolver = runner.memory_resolver
+            original_budget_enforcer = runner.budget_enforcer
+            if self.memory_resolver is not None:
+                runner.memory_resolver = self.memory_resolver
+            if self.budget_enforcer is not None:
+                runner.budget_enforcer = self.budget_enforcer
+
             thread_id = await self._resolve_thread(node, run)
             enforcement_context = self._enforcement_context_for(run, node.node_id)
             try:
@@ -280,6 +291,9 @@ class RuntimeOrchestrator:
             finally:
                 # Always restore original provider to avoid leaking wrapped state.
                 runner.provider = original_provider
+                # Always restore originals to avoid leaking injected state.
+                runner.memory_resolver = original_memory_resolver
+                runner.budget_enforcer = original_budget_enforcer
 
             audit_record = dict(result.audit_record)
             if enforcement_context:
