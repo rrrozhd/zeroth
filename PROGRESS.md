@@ -1372,3 +1372,21 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/interrogate-baseline.txt`
 **Blockers:** none; the interrogate baseline already clears the 90% target, so Task 2 can focus on enforcing and re-verifying rather than bulk docstring writing
 **Next:** run interrogate with the real fail-under gate, run Ruff with the new docstring settings, then execute the full post-rename pytest comparison against the pre-rename baseline
+
+### 2026-04-10 21:28 — Phase 27-04 Rename Regression Repair
+**Phase/Tasks:** 27-04 Task 3
+**Status:** in-progress
+**What:** traced the two new post-rename regressions to gaps in `scripts/rename_to_zeroth_core.py`, expanded the codemod to scan `live_scenarios/`, taught it to rewrite `src/zeroth/...` file-path literals and normalize duplicate `.core` segments, excluded `tests/test_phase27_rename_scripts.py` from self-rewrites, reran the codemod, and repaired the stale live-scenario imports/path refs through the migration tool rather than one-off edits.
+**Tests:** `uv run pytest -v tests/test_phase27_rename_scripts.py::test_rename_script_scans_live_scenarios_python_files` failed red before the scan-root fix; `uv run pytest -v tests/test_phase27_rename_scripts.py::test_rename_script_rewrites_python_imports_and_importlib_calls` failed red before the idempotence fix; `uv run pytest -v tests/test_phase27_rename_scripts.py tests/test_smoke.py::test_import tests/live_scenarios/test_research_audit.py::test_research_audit_strict_policy_mode_terminates_run` passed
+**Artifacts:** none new
+**Blockers:** none; the new regressions are fixed locally and Task 3 can return to full-suite comparison
+**Next:** rerun the full Phase 27 verification commands, refresh `pytest-after-rename.log`, and compare the result set against `pytest-before-rename.log`
+
+### 2026-04-10 21:32 — Phase 27-04 Verification Complete
+**Phase/Tasks:** 27-04 Tasks 2-3
+**Status:** completed
+**What:** reran the enforceable docstring/lint/import gates, refreshed `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/interrogate-after.txt` and `pytest-after-rename.log`, diffed the post-rename pytest log against the pre-rename baseline, wrote `27-04-SUMMARY.md`, and advanced `.planning/STATE.md` plus `.planning/ROADMAP.md` to Phase 28 readiness.
+**Tests:** `uv run interrogate -v src/zeroth/core` passed at 90.1%; `uv run ruff check src tests` passed; `uv run python -c "from zeroth.core.orchestrator import RuntimeOrchestrator; print(RuntimeOrchestrator.__name__)"` passed; `uv run pytest -v --no-header -ra` finished `26 failed, 640 passed, 8 deselected, 1 warning, 4 errors`; baseline diff reported no new `FAILED`, `ERROR`, or `SKIPPED` entries
+**Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/interrogate-after.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/pytest-after-rename.log`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/27-04-SUMMARY.md`
+**Blockers:** Phase 27 complete; remaining work moves to external Phase 28 publication prerequisites
+**Next:** start Phase 28 planning for package publication and PyPI trusted-publisher setup
