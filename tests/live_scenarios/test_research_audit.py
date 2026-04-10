@@ -86,19 +86,19 @@ class ToolThenContentProvider:
                     {
                         "kind": "repo_search",
                         "title": "bootstrap_service",
-                        "location": "src/zeroth/service/bootstrap.py",
+                        "location": "src/zeroth/core/service/bootstrap.py",
                         "snippet": "bootstrap_service(...)",
                     },
                     {
                         "kind": "file_excerpt",
                         "title": "bootstrap excerpt",
-                        "location": "src/zeroth/service/bootstrap.py",
+                        "location": "src/zeroth/core/service/bootstrap.py",
                         "snippet": "def bootstrap_service(",
                     },
                 ],
                 "sources": [
-                    "src/zeroth/service/bootstrap.py",
-                    "src/zeroth/orchestrator/runtime.py",
+                    "src/zeroth/core/service/bootstrap.py",
+                    "src/zeroth/core/orchestrator/runtime.py",
                 ],
                 "confidence": 0.62,
             }
@@ -115,7 +115,7 @@ def _planner_provider(*, requires_research: bool = True):
                 "question": payload["question"],
                 "repo_path": payload.get("repo_path") or str(REPO_ROOT),
                 "repo_query": "bootstrap_service",
-                "file_path": str(REPO_ROOT / "src/zeroth/service/bootstrap.py"),
+                "file_path": str(REPO_ROOT / "src/zeroth/core/service/bootstrap.py"),
                 "use_web": bool(payload.get("use_web", False)),
                 "requires_research": requires_research,
                 "requires_approval": bool(payload.get("force_approval", False)),
@@ -178,7 +178,7 @@ async def test_research_audit_bootstrap_and_api_flow(sqlite_db) -> None:
             "plan": _planner_provider(requires_research=True),
             "research": ToolThenContentProvider(
                 repo_path=REPO_ROOT,
-                file_path=REPO_ROOT / "src/zeroth/service/bootstrap.py",
+                file_path=REPO_ROOT / "src/zeroth/core/service/bootstrap.py",
             ),
             "review": _review_provider(),
             "finalize": _final_provider(),
@@ -234,7 +234,7 @@ async def test_research_audit_approval_pause_and_resume(sqlite_db) -> None:
             "plan": _planner_provider(requires_research=True),
             "research": ToolThenContentProvider(
                 repo_path=REPO_ROOT,
-                file_path=REPO_ROOT / "src/zeroth/service/bootstrap.py",
+                file_path=REPO_ROOT / "src/zeroth/core/service/bootstrap.py",
             ),
             "review": _review_provider(),
             "finalize": _final_provider(),
@@ -333,7 +333,7 @@ async def test_research_audit_strict_policy_mode_terminates_run(sqlite_db) -> No
             "plan": _planner_provider(requires_research=True),
             "research": ToolThenContentProvider(
                 repo_path=REPO_ROOT,
-                file_path=REPO_ROOT / "src/zeroth/service/bootstrap.py",
+                file_path=REPO_ROOT / "src/zeroth/core/service/bootstrap.py",
             ),
             "review": _review_provider(),
             "finalize": _final_provider(),

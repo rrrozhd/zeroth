@@ -7,7 +7,12 @@ checks policies before a node runs.
 """
 
 from zeroth.core.policy.guard import PolicyGuard, apply_secret_policy
-from zeroth.core.policy.models import Capability, EnforcementResult, PolicyDecision, PolicyDefinition
+from zeroth.core.policy.models import (
+    Capability,
+    EnforcementResult,
+    PolicyDecision,
+    PolicyDefinition,
+)
 from zeroth.core.policy.registry import CapabilityRegistry, PolicyRegistry
 
 __all__ = [

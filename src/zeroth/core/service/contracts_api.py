@@ -12,7 +12,11 @@ from zeroth.core.contracts import ContractReference
 from zeroth.core.contracts.errors import ContractNotFoundError
 from zeroth.core.deployments import DeploymentStatus
 from zeroth.core.runs import RunFailureState
-from zeroth.core.service.authorization import Permission, require_deployment_scope, require_permission
+from zeroth.core.service.authorization import (
+    Permission,
+    require_deployment_scope,
+    require_permission,
+)
 from zeroth.core.service.run_api import RunStatusResponse
 
 

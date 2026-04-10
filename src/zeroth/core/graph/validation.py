@@ -345,8 +345,11 @@ class GraphValidator:
         adjacency: dict[str, list[str]],
         issues: list[ValidationIssue],
     ) -> None:
-        """Check all edges for duplicate IDs, unknown source/target
-        nodes, and invalid conditions or mappings."""
+        """Validate edge wiring and edge-level payloads.
+
+        This checks for duplicate IDs, unknown source or target nodes, and
+        invalid condition or mapping payloads.
+        """
         for edge in graph.edges:
             if edge.edge_id in edge_ids:
                 _append_issue(
@@ -448,8 +451,11 @@ class GraphValidator:
         adjacency: dict[str, list[str]],
         issues: list[ValidationIssue],
     ) -> None:
-        """Detect cycles in the graph and flag any that lack a
-        safeguard to prevent infinite loops."""
+        """Detect unsafe cycles in the graph.
+
+        Cycles are allowed only when the graph has a configured safeguard that
+        prevents infinite execution.
+        """
         components = self._strongly_connected_components(node_map.keys(), adjacency)
         for component in components:
             if len(component) == 1:

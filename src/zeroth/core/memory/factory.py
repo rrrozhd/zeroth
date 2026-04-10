@@ -12,12 +12,13 @@ import contextlib
 import logging
 from typing import Any
 
+from governai.memory.models import MemoryScope
+
 from zeroth.core.memory.connectors import (
     KeyValueMemoryConnector,
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,
 )
-from governai.memory.models import MemoryScope
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry
 
@@ -37,13 +38,19 @@ with contextlib.suppress(ImportError):
     from zeroth.core.memory.redis_kv import RedisKVMemoryConnector  # type: ignore[assignment]
 
 with contextlib.suppress(ImportError):
-    from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector  # type: ignore[assignment]
+    from zeroth.core.memory.redis_thread import (
+        RedisThreadMemoryConnector,  # type: ignore[assignment]
+    )
 
 with contextlib.suppress(ImportError):
-    from zeroth.core.memory.pgvector_connector import PgvectorMemoryConnector  # type: ignore[assignment]
+    from zeroth.core.memory.pgvector_connector import (
+        PgvectorMemoryConnector,  # type: ignore[assignment]
+    )
 
 with contextlib.suppress(ImportError):
-    from zeroth.core.memory.chroma_connector import ChromaDBMemoryConnector  # type: ignore[assignment]
+    from zeroth.core.memory.chroma_connector import (
+        ChromaDBMemoryConnector,  # type: ignore[assignment]
+    )
 
 with contextlib.suppress(ImportError):
     import chromadb  # type: ignore[assignment,no-redef]

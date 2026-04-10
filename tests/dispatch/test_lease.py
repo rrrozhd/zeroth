@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.dispatch.lease import LeaseManager, _HAS_PG
+from zeroth.core.dispatch.lease import _HAS_PG, LeaseManager
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
 

@@ -11,7 +11,6 @@ from governai.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

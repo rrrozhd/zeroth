@@ -8,7 +8,7 @@ from pathlib import Path
 import uvicorn
 
 from live_scenarios.research_audit.bootstrap import bootstrap_research_audit_app
-from zeroth.storage import SQLiteDatabase
+from zeroth.core.storage import SQLiteDatabase
 
 
 def main() -> int:

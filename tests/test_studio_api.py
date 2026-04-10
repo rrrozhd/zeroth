@@ -9,7 +9,6 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.core.graph.models import Graph, GraphStatus
 from zeroth.core.graph.repository import GraphRepository
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.core.service.studio_api import router as studio_router

@@ -7,16 +7,14 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from governai.memory.models import MemoryScope
 
 from zeroth.core.memory.connectors import (
     KeyValueMemoryConnector,
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,
 )
-from governai.memory.models import MemoryScope
-from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry
-
 
 # ---------------------------------------------------------------------------
 # Settings stubs -- mirrors the shape the factory expects

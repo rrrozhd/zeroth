@@ -12,7 +12,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from zeroth.core.graph import Graph, Node
-from zeroth.core.policy.models import Capability, EnforcementResult, PolicyDecision, PolicyDefinition
+from zeroth.core.policy.models import (
+    Capability,
+    EnforcementResult,
+    PolicyDecision,
+    PolicyDefinition,
+)
 from zeroth.core.policy.registry import CapabilityRegistry, PolicyRegistry
 from zeroth.core.runs import Run
 
@@ -184,7 +189,6 @@ def apply_secret_policy(
     ``allowed_secrets``.  If secret access is disabled or no secrets are
     allowed, returns an empty dictionary.
     """
-
     if not secret_access_enabled:
         return {}
     if not allowed_secrets:

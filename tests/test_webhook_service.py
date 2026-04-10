@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from zeroth.core.webhooks.models import (
     DeliveryStatus,
-    WebhookDeadLetter,
     WebhookDelivery,
     WebhookEventPayload,
     WebhookEventType,

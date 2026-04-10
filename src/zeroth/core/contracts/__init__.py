@@ -1,5 +1,4 @@
-"""Contracts package — provides tools for registering, versioning, and looking up
-data schemas (Pydantic models) used across the Zeroth platform.
+"""Contract registry exports.
 
 Think of contracts like shared agreements about what data looks like.
 This package lets you store, version, and retrieve those agreements so that

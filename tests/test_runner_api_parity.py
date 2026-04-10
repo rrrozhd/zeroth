@@ -15,7 +15,6 @@ from zeroth.core.agent_runtime import (
 from zeroth.core.agent_runtime.models import ModelParams
 from zeroth.core.agent_runtime.response_format import build_response_format
 
-
 # -- Fixtures -----------------------------------------------------------------
 
 

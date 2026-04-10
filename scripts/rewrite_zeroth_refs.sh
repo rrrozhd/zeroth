@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Explicit rewrites owned by this pass:
 # - name = "zeroth-core"
-# - packages = ["src/zeroth/core"]
+# - packages = ["src/zeroth"]
 # - python -m zeroth.core.service.entrypoint
 # - script_location = src/zeroth/core/migrations
 # - Dockerfile / docker-compose.yml / README.md / *.md / *.yml / *.yaml / *.toml
