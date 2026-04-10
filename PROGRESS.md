@@ -1336,3 +1336,30 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/archive-github-publish.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/archive-recovery-test.txt`
 **Blockers:** none for Plan 27-02; the existing GitHub repo started archived and private, which required a temporary unarchive/public-visibility fix before the mirror push succeeded
 **Next:** summarize 27-02, advance phase state to Plan 3 of 4, and begin the in-place `zeroth.*` -> `zeroth.core.*` rename in Plan 27-03
+
+### 2026-04-10 21:01 — Phase 27-03 Rename Automation Red Test
+**Phase/Tasks:** 27-03 Task 1
+**Status:** in-progress
+**What:** added `tests/test_phase27_rename_scripts.py` to pin the expected Python import rewrites, `importlib.import_module()` rewrites, and package-metadata/path rewrites before implementing the Phase 27 rename automation.
+**Tests:** `uv run pytest -v tests/test_phase27_rename_scripts.py` failed as expected because `scripts/rename_to_zeroth_core.py` does not exist yet
+**Artifacts:** none yet
+**Blockers:** the rename automation module and shell rewrite wrapper are not implemented yet
+**Next:** add `scripts/rename_to_zeroth_core.py`, make the red test pass, then move the source tree under `src/zeroth/core/`
+
+### 2026-04-10 21:07 — Phase 27-03 Rename Automation Green
+**Phase/Tasks:** 27-03 Task 1
+**Status:** in-progress
+**What:** added `libcst` to the dev dependency group, implemented `scripts/rename_to_zeroth_core.py` with import and module-path rewrite helpers, and added `scripts/rewrite_zeroth_refs.sh` as the checked-in Bash wrapper for the non-Python rewrite pass.
+**Tests:** `uv sync` passed; `uv run pytest -v tests/test_phase27_rename_scripts.py` passed
+**Artifacts:** none yet
+**Blockers:** the source tree has not been relocated under `src/zeroth/core/` yet, so the namespace-package smoke checks are still pending
+**Next:** move all top-level `src/zeroth/*` packages into `src/zeroth/core/`, delete `src/zeroth/__init__.py`, run the codemod across the repo, and start Task 3 smoke verification
+
+### 2026-04-10 21:12 — Phase 27-03 Namespace Rename Complete
+**Phase/Tasks:** 27-03 Tasks 1-3
+**Status:** completed
+**What:** moved the tracked Python package tree under `src/zeroth/core/`, deleted `src/zeroth/__init__.py`, added `src/zeroth/core/__init__.py`, ran the LibCST codemod across `src/`, `tests/`, `apps/`, and `scripts/`, and rewrote packaging/runtime module-path references to `zeroth.core.*`. The old `src/zeroth/studio/` path contained only stale `__pycache__` output and empty folders, so it was removed to keep `src/zeroth/` a clean PEP 420 namespace root.
+**Tests:** `uv run python scripts/rename_to_zeroth_core.py --help` passed; `bash -n scripts/rewrite_zeroth_refs.sh` passed; namespace smoke imports passed; `rg -nP '\\bfrom zeroth(?!\\.core)\\b|\\bimport zeroth(?!\\.core)\\b' src tests apps scripts` returned no matches; `uv run pytest -q tests/test_phase27_rename_scripts.py tests/test_retry_backoff.py tests/test_health_probes.py` passed (31 tests)
+**Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/rename-smoke-27-03.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/pytest-27-03-targeted.txt`
+**Blockers:** none for Plan 27-03; full-suite regression comparison and docstring coverage remain for Plan 27-04
+**Next:** summarize 27-03, advance phase state to Plan 4 of 4, and start the docstring/verification gate work in Plan 27-04
