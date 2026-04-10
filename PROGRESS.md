@@ -1309,3 +1309,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** none yet; runtime artifacts are produced in Task 2 when the scripts execute
 **Blockers:** none
 **Next:** run the archive scripts, capture `archive-inventory.txt` and `archive-preflight.txt`, and record the pre-rename pytest baseline
+
+### 2026-04-10 19:48 — Phase 27-01 Local Archive Baseline Captured
+**Phase/Tasks:** 27-01 Task 2
+**Status:** completed
+**What:** executed the archive-preflight and recoverability scripts, created the local tarball and bare mirror under `$HOME/archives/zeroth-monolith/`, synthesized `archive/stash-*` and `archive/detached-wt-*` refs, and recorded the pre-rename pytest baseline for the current repo state.
+**Tests:** `bash scripts/archive_monolith.sh` passed; `bash scripts/verify_monolith_archive.sh` passed; `uv run pytest -v --no-header -ra` completed with a non-green baseline: 635 passed, 26 failed, 4 errors, 8 deselected, 1 warning
+**Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/archive-inventory.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/archive-preflight.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/pytest-before-rename.log`
+**Blockers:** none for Plan 27-01; the baseline test suite is already non-green and those failures must be preserved as pre-existing when Phase 27 compares post-rename results
+**Next:** finalize the 27-01 summary, advance plan progress, and move to GitHub archive publication in Plan 27-02
