@@ -683,8 +683,8 @@ wheels = [
 
 [[package]]
 name = "governai"
-version = "0.2.2"
-source = { git = "https://github.com/rrrozhd/governai.git?rev=7452de4db144e8c92b7b5ae0a646c40314a6aa99#7452de4db144e8c92b7b5ae0a646c40314a6aa99" }
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain" },
     { name = "langchain-openai" },
@@ -692,6 +692,10 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/83/6c/d4f3f71d3ec5e94f36d2e5221070f0500529d1aca413155ca55b3ebaf3ef/governai-0.2.3.tar.gz", hash = "sha256:88878ad965c0187e894df49c91bb30077cb2e5e9c42c0f3b006445f03c36126a", size = 106710, upload-time = "2026-04-10T22:27:18.711Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/20/5c5541326ca73a1a17002321662537ddb7becc9500f9eaa42a2fa28b53f7/governai-0.2.3-py3-none-any.whl", hash = "sha256:5e78903bbb60d87bc3211dbe9c06ca51c9d45ff818409882d67aca08bd4aba78", size = 92728, upload-time = "2026-04-10T22:27:17.052Z" },
 ]
 
 [[package]]
@@ -3289,7 +3293,7 @@ requires-dist = [
     { name = "econ-instrumentation-sdk", specifier = ">=0.1.1" },
     { name = "elasticsearch", extras = ["async"], specifier = ">=8.0,<9" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "governai", git = "https://github.com/rrrozhd/governai.git?rev=7452de4db144e8c92b7b5ae0a646c40314a6aa99" },
+    { name = "governai", specifier = ">=0.2.3" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain-litellm", specifier = ">=0.3.4" },
     { name = "litellm", specifier = ">=1.83.0" },
