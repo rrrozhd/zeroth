@@ -1291,3 +1291,21 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `phases/phase-8-runtime-security/artifacts/test-phase8-full-2026-03-27.txt`, `phases/phase-8-runtime-security/artifacts/lint-phase8-full-2026-03-27.txt`
 **Blockers:** the only remaining nuance is that the "hardened by default" gate is still marked partial until every untrusted executable-unit path is forced onto hardened isolation without relying on policy/resource hints
 **Next:** if you want to fully close Phase 8, make wrapped/project executable units opt into hardened isolation even when their manifests do not declare explicit resource constraints
+
+### 2026-04-10 19:25 — Phase 27 Planning Recovery Complete
+**Phase/Tasks:** Phase 27 planning
+**Status:** completed
+**What:** recovered the stalled `gsd-next -> gsd-plan-phase` flow locally by creating `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/27-RESEARCH.md` plus four executable plan files covering archive preflight, GitHub archive publication, namespace rename, and docstring/verification gates.
+**Tests:** not run; this iteration produced planning artifacts only
+**Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/27-RESEARCH.md`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/27-01-PLAN.md`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/27-02-PLAN.md`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/27-03-PLAN.md`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/27-04-PLAN.md`
+**Blockers:** the GSD researcher subagent stalled and was shut down; planning was recovered manually in the main session
+**Next:** verify the new Phase 27 plans, then advance into execution for Plan 27-01
+
+### 2026-04-10 19:41 — Phase 27-01 Archive Automation Added
+**Phase/Tasks:** 27-01 Task 1
+**Status:** in-progress
+**What:** added `scripts/archive_monolith.sh` and `scripts/verify_monolith_archive.sh` to automate Phase 27 local archive creation, synthesized archive refs, tarball/mirror reporting, and local recoverability checks against the bare mirror.
+**Tests:** `bash -n scripts/archive_monolith.sh` passed; `bash -n scripts/verify_monolith_archive.sh` passed
+**Artifacts:** none yet; runtime artifacts are produced in Task 2 when the scripts execute
+**Blockers:** none
+**Next:** run the archive scripts, capture `archive-inventory.txt` and `archive-preflight.txt`, and record the pre-rename pytest baseline
