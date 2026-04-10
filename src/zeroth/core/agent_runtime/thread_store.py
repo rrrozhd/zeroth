@@ -198,33 +198,13 @@ class RepositoryThreadStateStore:
         return run
 
     async def _write_checkpoint(self, run: Run, *, checkpoint_id: str) -> None:
-        """Write the checkpoint record to the database."""
-        if self._database is None:
-            raise ValueError("database is required to persist checkpoints")
-        snapshot = run.model_dump(mode="json")
-        checkpoint_order = await self._checkpoint_order(run.thread_id)
-        async with self._database.transaction() as connection:
-            await connection.execute(
-                """
-                INSERT INTO run_checkpoints (
-                    checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(checkpoint_id) DO UPDATE SET
-                    run_id = excluded.run_id,
-                    thread_id = excluded.thread_id,
-                    checkpoint_order = excluded.checkpoint_order,
-                    state_json = excluded.state_json,
-                    created_at = excluded.created_at
-                """,
-                (
-                    checkpoint_id,
-                    run.run_id,
-                    run.thread_id,
-                    checkpoint_order,
-                    to_json_value(snapshot),
-                    run.updated_at.isoformat(),
-                ),
-            )
+        """Write the checkpoint record via the repository.
+
+        Delegates to RunRepository.write_checkpoint which owns the database
+        connection, so this store works when constructed with repositories
+        only (no direct database reference).
+        """
+        await self._run_repository.write_checkpoint(run)
 
     async def _checkpoint_order(self, thread_id: str) -> int:
         """Return the next sequential order number for checkpoints on this thread."""

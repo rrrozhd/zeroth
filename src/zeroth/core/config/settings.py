@@ -168,8 +168,9 @@ class ZerothSettings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
         **kwargs: Any,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Return sources in priority order: env vars > .env > YAML defaults."""
+        """Return sources in priority order: init kwargs > env > .env > YAML."""
         return (
+            init_settings,
             env_settings,
             dotenv_settings,
             YamlConfigSettingsSource(settings_cls),
