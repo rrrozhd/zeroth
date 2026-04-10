@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from tests.service.helpers import default_service_auth_config, operator_headers
 from tests.service.test_app import _deploy_test_graph
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.service.bootstrap import bootstrap_app
 
 
 async def _make_client(sqlite_db):

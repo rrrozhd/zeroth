@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from zeroth.execution_units.sandbox import (
+from zeroth.core.execution_units.sandbox import (
     DockerSandboxConfig,
     EnvironmentCacheManager,
     SandboxBackendMode,
@@ -215,8 +215,8 @@ def test_run_via_sidecar_constructs_request_and_translates_response() -> None:
     """_run_via_sidecar builds correct SidecarExecuteRequest and maps response."""
     from unittest.mock import AsyncMock
 
-    from zeroth.execution_units.constraints import ResourceConstraints
-    from zeroth.sandbox_sidecar.models import SidecarExecuteResponse
+    from zeroth.core.execution_units.constraints import ResourceConstraints
+    from zeroth.core.sandbox_sidecar.models import SidecarExecuteResponse
 
     mock_response = SidecarExecuteResponse(
         execution_id="test-id",

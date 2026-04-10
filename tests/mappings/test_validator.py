@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.mappings.errors import MappingValidationError
-from zeroth.mappings.models import (
+from zeroth.core.mappings.errors import MappingValidationError
+from zeroth.core.mappings.models import (
     ConstantMappingOperation,
     EdgeMapping,
     PassthroughMappingOperation,
     RenameMappingOperation,
 )
-from zeroth.mappings.validator import MappingValidator
+from zeroth.core.mappings.validator import MappingValidator
 
 
 def test_mapping_validator_accepts_valid_mapping() -> None:

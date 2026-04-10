@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.dispatch.worker import RunWorker
-from zeroth.runs import RunRepository, RunStatus
-from zeroth.runs.models import Run
+from zeroth.core.dispatch.worker import RunWorker
+from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.core.runs.models import Run
 
 DEPLOYMENT = "integration-test-deployment"
 
@@ -67,9 +67,9 @@ async def test_run_creation_enqueues_wakeup() -> None:
     mock_run_repo.get.return_value = persisted_run
 
     with patch(
-        "zeroth.dispatch.arq_wakeup.enqueue_wakeup", new_callable=AsyncMock
+        "zeroth.core.dispatch.arq_wakeup.enqueue_wakeup", new_callable=AsyncMock
     ) as mock_enqueue:
-        from zeroth.dispatch.arq_wakeup import enqueue_wakeup
+        from zeroth.core.dispatch.arq_wakeup import enqueue_wakeup
 
         # Simulate what run_api.py does after persisting.
         arq_pool = mock_pool
@@ -82,7 +82,7 @@ async def test_run_creation_enqueues_wakeup() -> None:
 @pytest.mark.asyncio
 async def test_run_creation_no_wakeup_when_arq_disabled() -> None:
     """When bootstrap has no arq_pool (None), no enqueue attempt should be made."""
-    from zeroth.dispatch.arq_wakeup import enqueue_wakeup
+    from zeroth.core.dispatch.arq_wakeup import enqueue_wakeup
 
     mock_pool = None
     # enqueue_wakeup guards against None pool -- should be a no-op.
@@ -117,7 +117,7 @@ async def test_graceful_shutdown_called_on_lifespan_exit() -> None:
     bootstrap.deployment.graph_version_ref = "g:v1"
     bootstrap.authenticator = MagicMock()
 
-    from zeroth.service.app import create_app
+    from zeroth.core.service.app import create_app
 
     app = create_app(bootstrap)
 
@@ -159,7 +159,7 @@ async def test_arq_consumer_started_when_pool_available() -> None:
     bootstrap.deployment.graph_version_ref = "g:v1"
     bootstrap.authenticator = MagicMock()
 
-    from zeroth.service.app import create_app
+    from zeroth.core.service.app import create_app
 
     app = create_app(bootstrap)
 
@@ -174,7 +174,7 @@ async def test_arq_consumer_started_when_pool_available() -> None:
         return task
 
     with patch("asyncio.create_task", side_effect=tracking_create_task), patch(
-        "zeroth.dispatch.arq_wakeup.run_arq_consumer",
+        "zeroth.core.dispatch.arq_wakeup.run_arq_consumer",
         new_callable=AsyncMock,
         side_effect=asyncio.CancelledError,
     ):
@@ -192,7 +192,7 @@ async def test_arq_consumer_started_when_pool_available() -> None:
 @pytest.mark.asyncio
 async def test_worker_uses_dispatch_settings() -> None:
     """RunWorker created by bootstrap should use dispatch settings for timeouts."""
-    with patch("zeroth.config.settings._settings_singleton", None), patch.dict(
+    with patch("zeroth.core.config.settings._settings_singleton", None), patch.dict(
         "os.environ",
         {
             "ZEROTH_DISPATCH__ARQ_ENABLED": "false",
@@ -200,7 +200,7 @@ async def test_worker_uses_dispatch_settings() -> None:
             "ZEROTH_DISPATCH__POLL_INTERVAL": "1.5",
         },
     ):
-        from zeroth.config.settings import ZerothSettings
+        from zeroth.core.config.settings import ZerothSettings
 
         settings = ZerothSettings()
 

@@ -14,7 +14,7 @@ from tests.service.helpers import (
     service_app,
     wait_for,
 )
-from zeroth.graph import GraphRepository
+from zeroth.core.graph import GraphRepository
 
 
 async def test_thread_api_creates_new_thread_when_thread_id_is_omitted(sqlite_db) -> None:

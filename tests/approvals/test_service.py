@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.approvals import (
+from zeroth.core.approvals import (
     ApprovalDecision,
     ApprovalRepository,
     ApprovalService,
     ApprovalStatus,
 )
-from zeroth.audit import AuditRepository
-from zeroth.graph import HumanApprovalNode, HumanApprovalNodeData
-from zeroth.identity import ActorIdentity, AuthMethod, ServiceRole
-from zeroth.runs import Run, RunRepository
+from zeroth.core.audit import AuditRepository
+from zeroth.core.graph import HumanApprovalNode, HumanApprovalNodeData
+from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.core.runs import Run, RunRepository
 
 
 def _node() -> HumanApprovalNode:

@@ -11,7 +11,7 @@ import pytest
 from governai.memory.connector import MemoryConnector as GovernAIMemoryConnector
 from governai.memory.models import MemoryEntry, MemoryScope
 
-from zeroth.memory.connectors import (
+from zeroth.core.memory.connectors import (
     KeyValueMemoryConnector,
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,

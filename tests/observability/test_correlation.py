@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from zeroth.observability.correlation import (
+from zeroth.core.observability.correlation import (
     get_correlation_id,
     new_correlation_id,
     set_correlation_id,

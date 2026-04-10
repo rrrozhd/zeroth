@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.dispatch.lease import LeaseManager, _HAS_PG
-from zeroth.runs import RunRepository, RunStatus
-from zeroth.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.core.dispatch.lease import LeaseManager, _HAS_PG
+from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
 
 DEPLOYMENT = "test-deployment"
 WORKER_A = "worker-a"
@@ -16,7 +16,7 @@ WORKER_B = "worker-b"
 
 async def _create_pending_run(run_repo: RunRepository) -> str:
     """Create a PENDING run and return its run_id."""
-    from zeroth.runs.models import Run
+    from zeroth.core.runs.models import Run
     run = Run(graph_version_ref="g:v1", deployment_ref=DEPLOYMENT)
     persisted = await run_repo.create(run)
     return persisted.run_id
@@ -187,7 +187,7 @@ def test_is_postgres_detection_with_sqlite(sqlite_db: AsyncSQLiteDatabase) -> No
 @pytest.mark.skipif(not _HAS_PG, reason="psycopg not installed")
 def test_is_postgres_detection_with_pg() -> None:
     """_is_postgres returns True for AsyncPostgresDatabase instances."""
-    from zeroth.storage.async_postgres import AsyncPostgresDatabase
+    from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 
     mock_pool = MagicMock()
     pg_db = AsyncPostgresDatabase(pool=mock_pool)
@@ -211,7 +211,7 @@ def test_is_postgres_detection_with_mock_non_pg() -> None:
 @pytest.mark.skipif(not _HAS_PG, reason="psycopg not installed")
 async def test_claim_pending_pg_uses_skip_locked() -> None:
     """When database is AsyncPostgresDatabase, _claim_pending_pg is called."""
-    from zeroth.storage.async_postgres import AsyncPostgresDatabase
+    from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 
     mock_pool = MagicMock()
     pg_db = AsyncPostgresDatabase(pool=mock_pool)
@@ -227,7 +227,7 @@ async def test_claim_pending_pg_uses_skip_locked() -> None:
 @pytest.mark.skipif(not _HAS_PG, reason="psycopg not installed")
 async def test_claim_pending_pg_returns_none_when_no_work() -> None:
     """Postgres claim returns None when no pending rows found."""
-    from zeroth.storage.async_postgres import AsyncPostgresDatabase
+    from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 
     mock_conn = AsyncMock()
     mock_conn.fetch_one = AsyncMock(return_value=None)
@@ -250,7 +250,7 @@ async def test_claim_pending_pg_returns_none_when_no_work() -> None:
 @pytest.mark.skipif(not _HAS_PG, reason="psycopg not installed")
 async def test_claim_pending_pg_returns_run_id_on_success() -> None:
     """Postgres claim returns run_id when a pending row is found."""
-    from zeroth.storage.async_postgres import AsyncPostgresDatabase
+    from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 
     mock_conn = AsyncMock()
     mock_conn.fetch_one = AsyncMock(return_value={"run_id": "test-123"})

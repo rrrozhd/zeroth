@@ -6,8 +6,8 @@ from governai.app.spec import GovernedFlowSpec, GovernedStepSpec
 from governai.tools.python_tool import tool
 from pydantic import BaseModel, Field
 
-from zeroth.contracts import ContractReference, ContractRegistry
-from zeroth.contracts.errors import ContractNotFoundError
+from zeroth.core.contracts import ContractReference, ContractRegistry
+from zeroth.core.contracts.errors import ContractNotFoundError
 
 
 class Address(BaseModel):

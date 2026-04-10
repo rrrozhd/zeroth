@@ -8,15 +8,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.approvals.models import (
+from zeroth.core.approvals.models import (
     ApprovalDecision,
     ApprovalRecord,
     ApprovalStatus,
 )
-from zeroth.approvals.repository import ApprovalRepository
-from zeroth.approvals.service import ApprovalService
-from zeroth.identity import ActorIdentity, AuthMethod, ServiceRole
-from zeroth.runs import RunRepository
+from zeroth.core.approvals.repository import ApprovalRepository
+from zeroth.core.approvals.service import ApprovalService
+from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.core.runs import RunRepository
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +315,7 @@ class TestApprovalSLAChecker:
 
     async def test_poll_loop_escalates_overdue(self):
         """poll_loop calls list_overdue and escalates each overdue approval."""
-        from zeroth.approvals.sla_checker import ApprovalSLAChecker
+        from zeroth.core.approvals.sla_checker import ApprovalSLAChecker
 
         overdue = _make_record(
             sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
@@ -345,7 +345,7 @@ class TestApprovalSLAChecker:
 
     async def test_emits_webhook_event(self):
         """SLA checker emits approval.escalated webhook event via optional WebhookService."""
-        from zeroth.approvals.sla_checker import ApprovalSLAChecker
+        from zeroth.core.approvals.sla_checker import ApprovalSLAChecker
 
         overdue = _make_record(
             sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
