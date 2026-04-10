@@ -1327,3 +1327,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** none yet; GitHub publication output is produced when the script executes
 **Blockers:** none; `gh auth status` confirms an authenticated `rrrozhd` session with `repo` scope
 **Next:** run the publication script, capture `archive-github-publish.txt`, and verify remote recoverability in `archive-recovery-test.txt`
+
+### 2026-04-10 20:09 — Phase 27-02 GitHub Archive Published
+**Phase/Tasks:** 27-02 Task 2
+**Status:** completed
+**What:** published the local mirror to `rrrozhd/zeroth-archive`, added the README archive notice, updated the repo description, verified the archive is public and archived, and captured remote recoverability by checking out `main`, `archive/stash-0`, and `archive/detached-wt-34170e0463cc` from the GitHub remote.
+**Tests:** `bash scripts/publish_monolith_archive.sh` passed after a blocking script fix; `gh repo view rrrozhd/zeroth-archive --json visibility,isArchived,description` returned `PUBLIC` + `true`; remote recovery clone/checkouts completed successfully
+**Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/archive-github-publish.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/archive-recovery-test.txt`
+**Blockers:** none for Plan 27-02; the existing GitHub repo started archived and private, which required a temporary unarchive/public-visibility fix before the mirror push succeeded
+**Next:** summarize 27-02, advance phase state to Plan 3 of 4, and begin the in-place `zeroth.*` -> `zeroth.core.*` rename in Plan 27-03
