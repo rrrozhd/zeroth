@@ -1318,3 +1318,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/archive-inventory.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/archive-preflight.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/pytest-before-rename.log`
 **Blockers:** none for Plan 27-01; the baseline test suite is already non-green and those failures must be preserved as pre-existing when Phase 27 compares post-rename results
 **Next:** finalize the 27-01 summary, advance plan progress, and move to GitHub archive publication in Plan 27-02
+
+### 2026-04-10 19:57 — Phase 27-02 GitHub Publish Automation Added
+**Phase/Tasks:** 27-02 Task 1
+**Status:** in-progress
+**What:** added `scripts/publish_monolith_archive.sh` to automate GitHub repo creation/view, mirror push, README archive-banner injection, repo description update, and GitHub archive action for `rrrozhd/zeroth-archive`.
+**Tests:** `bash -n scripts/publish_monolith_archive.sh` passed
+**Artifacts:** none yet; GitHub publication output is produced when the script executes
+**Blockers:** none; `gh auth status` confirms an authenticated `rrrozhd` session with `repo` scope
+**Next:** run the publication script, capture `archive-github-publish.txt`, and verify remote recoverability in `archive-recovery-test.txt`
