@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from zeroth.sandbox_sidecar.app import app
-from zeroth.sandbox_sidecar.models import (
+from zeroth.core.sandbox_sidecar.app import app
+from zeroth.core.sandbox_sidecar.models import (
     SidecarExecuteResponse,
     SidecarStatusResponse,
 )
@@ -23,7 +23,7 @@ def mock_executor() -> AsyncMock:
 @pytest.fixture
 async def client(mock_executor: AsyncMock):
     """Create a test client with mocked executor."""
-    with patch("zeroth.sandbox_sidecar.app.executor", mock_executor):
+    with patch("zeroth.core.sandbox_sidecar.app.executor", mock_executor):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             yield c

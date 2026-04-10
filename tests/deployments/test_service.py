@@ -4,15 +4,15 @@ import pytest
 from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
-from zeroth.contracts import ContractRegistry
-from zeroth.deployments import (
+from zeroth.core.contracts import ContractRegistry
+from zeroth.core.deployments import (
     DeploymentError,
     DeploymentService,
     DeploymentStatus,
     SQLiteDeploymentRepository,
 )
-from zeroth.graph import GraphRepository
-from zeroth.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.core.graph import GraphRepository
+from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
 
 
 class DeploymentInputContract(BaseModel):

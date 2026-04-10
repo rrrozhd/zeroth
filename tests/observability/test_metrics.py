@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from zeroth.observability.metrics import MetricsCollector
+from zeroth.core.observability.metrics import MetricsCollector
 
 
 def test_counter_increments(metrics: MetricsCollector) -> None:

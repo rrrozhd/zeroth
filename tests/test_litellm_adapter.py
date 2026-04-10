@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.agent_runtime.provider import (
+from zeroth.core.agent_runtime.provider import (
     LiteLLMProviderAdapter,
     ProviderRequest,
     ProviderResponse,
@@ -82,7 +82,7 @@ async def test_ainvoke_handles_no_usage_metadata(adapter):
 
 async def test_ainvoke_converts_prompt_messages(adapter):
     """PromptMessage objects are converted to LangChain message types."""
-    from zeroth.agent_runtime.models import PromptMessage
+    from zeroth.core.agent_runtime.models import PromptMessage
 
     mock_msg = _make_ai_message()
     with patch.object(adapter, "_get_client") as mock_get:

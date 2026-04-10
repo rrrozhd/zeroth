@@ -13,7 +13,7 @@ import pytest
 from governai.memory.connector import MemoryConnector
 from governai.memory.models import MemoryEntry, MemoryScope
 
-from zeroth.memory.chroma_connector import ChromaDBMemoryConnector
+from zeroth.core.memory.chroma_connector import ChromaDBMemoryConnector
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ def _mock_litellm():
     """Patch litellm.aembedding to return a fake embedding."""
     resp = MagicMock()
     resp.data = [{"embedding": FAKE_EMBEDDING}]
-    with patch("zeroth.memory.chroma_connector.litellm") as mock_mod:
+    with patch("zeroth.core.memory.chroma_connector.litellm") as mock_mod:
         mock_mod.aembedding = AsyncMock(return_value=resp)
         yield mock_mod
 

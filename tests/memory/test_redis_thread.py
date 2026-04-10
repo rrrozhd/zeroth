@@ -9,7 +9,7 @@ import pytest
 from governai.memory.connector import MemoryConnector
 from governai.memory.models import MemoryEntry, MemoryScope
 
-from zeroth.memory.redis_thread import RedisThreadMemoryConnector
+from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector
 
 
 # ---------------------------------------------------------------------------

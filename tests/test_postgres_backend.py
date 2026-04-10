@@ -16,7 +16,7 @@ class TestGraphRepositoryDualBackend:
 
     async def test_save_and_get_graph(self, dual_database):
         from tests.graph.test_models import build_graph
-        from zeroth.graph.repository import GraphRepository
+        from zeroth.core.graph.repository import GraphRepository
 
         repo = GraphRepository(dual_database)
         graph = build_graph()
@@ -29,8 +29,8 @@ class TestGraphRepositoryDualBackend:
 
     async def test_publish_graph(self, dual_database):
         from tests.graph.test_models import build_graph
-        from zeroth.graph.models import GraphStatus
-        from zeroth.graph.repository import GraphRepository
+        from zeroth.core.graph.models import GraphStatus
+        from zeroth.core.graph.repository import GraphRepository
 
         repo = GraphRepository(dual_database)
         graph = await repo.create(build_graph())
@@ -44,8 +44,8 @@ class TestGraphRepositoryDualBackend:
 @requires_docker
 class TestRunRepositoryDualBackend:
     async def test_put_and_get_run(self, dual_database):
-        from zeroth.runs.models import Run
-        from zeroth.runs.repository import RunRepository
+        from zeroth.core.runs.models import Run
+        from zeroth.core.runs.repository import RunRepository
 
         repo = RunRepository(dual_database)
         run = await repo.create(
@@ -62,8 +62,8 @@ class TestRunRepositoryDualBackend:
         assert loaded.deployment_ref == "deployment:v1"
 
     async def test_count_pending(self, dual_database):
-        from zeroth.runs.models import Run
-        from zeroth.runs.repository import RunRepository
+        from zeroth.core.runs.models import Run
+        from zeroth.core.runs.repository import RunRepository
 
         repo = RunRepository(dual_database)
 
@@ -88,9 +88,9 @@ class TestRunRepositoryDualBackend:
 @requires_docker
 class TestDatabaseFactory:
     async def test_factory_creates_sqlite(self, tmp_path):
-        from zeroth.config.settings import ZerothSettings
-        from zeroth.storage.async_sqlite import AsyncSQLiteDatabase
-        from zeroth.storage.factory import create_database
+        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+        from zeroth.core.storage.factory import create_database
 
         settings = ZerothSettings(
             database={"backend": "sqlite", "sqlite_path": str(tmp_path / "test.db")}
@@ -100,9 +100,9 @@ class TestDatabaseFactory:
         await db.close()
 
     async def test_factory_creates_postgres(self, postgres_container):
-        from zeroth.config.settings import ZerothSettings
-        from zeroth.storage.async_postgres import AsyncPostgresDatabase
-        from zeroth.storage.factory import create_database
+        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
+        from zeroth.core.storage.factory import create_database
 
         url = postgres_container.get_connection_url()
         dsn = url.replace("postgresql+psycopg2://", "postgresql://")
@@ -115,12 +115,12 @@ class TestDatabaseFactory:
 @requires_docker
 class TestAlembicMigrations:
     def test_migrations_run_on_postgres(self, postgres_container):
-        from zeroth.service.bootstrap import run_migrations
+        from zeroth.core.service.bootstrap import run_migrations
 
         url = postgres_container.get_connection_url().replace("psycopg2", "psycopg")
         run_migrations(url)  # Should not raise
 
     def test_migrations_run_on_sqlite(self, tmp_path):
-        from zeroth.service.bootstrap import run_migrations
+        from zeroth.core.service.bootstrap import run_migrations
 
         run_migrations(f"sqlite:///{tmp_path}/mig_test.db")  # Should not raise

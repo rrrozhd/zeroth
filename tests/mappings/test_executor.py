@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from zeroth.mappings.executor import MappingExecutor
-from zeroth.mappings.models import (
+from zeroth.core.mappings.executor import MappingExecutor
+from zeroth.core.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,

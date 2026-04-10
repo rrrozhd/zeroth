@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from zeroth.execution_units.io import (
+from zeroth.core.execution_units.io import (
     ExtractedOutput,
     InputInjectionError,
     OutputConversionError,
@@ -15,7 +15,7 @@ from zeroth.execution_units.io import (
     extract_output,
     inject_input,
 )
-from zeroth.execution_units.models import InputMode, OutputMode
+from zeroth.core.execution_units.models import InputMode, OutputMode
 
 
 class DemoInput(BaseModel):

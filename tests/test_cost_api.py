@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.service.cost_api import register_cost_routes
+from zeroth.core.service.cost_api import register_cost_routes
 
 
 def _make_app(
@@ -49,7 +49,7 @@ class TestTenantCostEndpoint:
             response_json={"total_cost_usd": 50.0, "budget_cap_usd": 100.0}
         )
 
-        with patch("zeroth.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/tenants/t1/cost")
 
@@ -64,7 +64,7 @@ class TestTenantCostEndpoint:
         app = _make_app()
         mock_client = _mock_httpx_client(error=httpx.ConnectError("connection refused"))
 
-        with patch("zeroth.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/tenants/t1/cost")
 
@@ -89,7 +89,7 @@ class TestDeploymentCostEndpoint:
         app = _make_app()
         mock_client = _mock_httpx_client(response_json={"total_cost_usd": 25.0})
 
-        with patch("zeroth.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/deployments/d1/cost")
 
@@ -103,7 +103,7 @@ class TestDeploymentCostEndpoint:
         app = _make_app()
         mock_client = _mock_httpx_client(error=httpx.ConnectError("connection refused"))
 
-        with patch("zeroth.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/deployments/d1/cost")
 

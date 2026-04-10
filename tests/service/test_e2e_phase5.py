@@ -19,9 +19,9 @@ from tests.service.helpers import (
     service_app,
     wait_for,
 )
-from zeroth.agent_runtime import AgentConfig, AgentRunner, RepositoryThreadStateStore
-from zeroth.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.execution_units import (
+from zeroth.core.agent_runtime import AgentConfig, AgentRunner, RepositoryThreadStateStore
+from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.core.execution_units import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -31,7 +31,7 @@ from zeroth.execution_units import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.graph import (
+from zeroth.core.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -41,16 +41,16 @@ from zeroth.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
 from governai.memory.models import MemoryScope
 
-from zeroth.memory import (
+from zeroth.core.memory import (
     ConnectorManifest,
     InMemoryConnectorRegistry,
     KeyValueMemoryConnector,
     MemoryConnectorResolver,
 )
-from zeroth.policy import (
+from zeroth.core.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,

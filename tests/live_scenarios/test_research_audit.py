@@ -10,9 +10,9 @@ from tests.service.helpers import (
     operator_headers,
     reviewer_headers,
 )
-from zeroth.agent_runtime import ProviderResponse
-from zeroth.agent_runtime.provider import CallableProviderAdapter
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.agent_runtime import ProviderResponse
+from zeroth.core.agent_runtime.provider import CallableProviderAdapter
+from zeroth.core.service.bootstrap import bootstrap_app
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

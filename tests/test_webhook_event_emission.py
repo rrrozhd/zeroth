@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.approvals.models import ApprovalDecision, ApprovalStatus
-from zeroth.identity import ActorIdentity, AuthMethod, ServiceRole
-from zeroth.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.runs import Run, RunRepository, RunStatus
+from zeroth.core.approvals.models import ApprovalDecision, ApprovalStatus
+from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
+from zeroth.core.runs import Run, RunRepository, RunStatus
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +134,8 @@ class TestApprovalWebhookEmission:
 
     async def test_approval_created_emits_event(self):
         """create_pending emits approval.requested webhook."""
-        from zeroth.approvals.service import ApprovalService
-        from zeroth.approvals.repository import ApprovalRepository
+        from zeroth.core.approvals.service import ApprovalService
+        from zeroth.core.approvals.repository import ApprovalRepository
 
         repo = AsyncMock(spec=ApprovalRepository)
         run_repo = AsyncMock(spec=RunRepository)
@@ -177,9 +177,9 @@ class TestApprovalWebhookEmission:
 
     async def test_approval_resolved_emits_event(self):
         """resolve emits approval.resolved webhook."""
-        from zeroth.approvals.models import ApprovalRecord
-        from zeroth.approvals.service import ApprovalService
-        from zeroth.approvals.repository import ApprovalRepository
+        from zeroth.core.approvals.models import ApprovalRecord
+        from zeroth.core.approvals.service import ApprovalService
+        from zeroth.core.approvals.repository import ApprovalRepository
 
         repo = AsyncMock(spec=ApprovalRepository)
         run_repo = AsyncMock(spec=RunRepository)
@@ -225,7 +225,7 @@ class TestServiceBootstrapWebhookWiring:
 
     async def test_bootstrap_has_webhook_fields(self):
         """ServiceBootstrap dataclass includes webhook-related fields."""
-        from zeroth.service.bootstrap import ServiceBootstrap
+        from zeroth.core.service.bootstrap import ServiceBootstrap
 
         fields = {f.name for f in ServiceBootstrap.__dataclass_fields__.values()}
         assert "webhook_service" in fields

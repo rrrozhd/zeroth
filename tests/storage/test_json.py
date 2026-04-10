@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from zeroth.storage.json import from_json_value, load_model, load_typed_value, to_json_value
+from zeroth.core.storage.json import from_json_value, load_model, load_typed_value, to_json_value
 
 
 class NestedPayload(BaseModel):

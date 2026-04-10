@@ -10,9 +10,9 @@ import pytest
 from governai.audit.emitter import AuditEmitter
 from governai.memory.models import MemoryScope
 
-from zeroth.memory.connectors import KeyValueMemoryConnector, RunEphemeralMemoryConnector
-from zeroth.memory.models import ConnectorManifest, ResolvedMemoryBinding
-from zeroth.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.core.memory.connectors import KeyValueMemoryConnector, RunEphemeralMemoryConnector
+from zeroth.core.memory.models import ConnectorManifest, ResolvedMemoryBinding
+from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 
 
 class FakeAuditEmitter(AuditEmitter):

@@ -8,7 +8,7 @@
 
 Zeroth's core engine (graph, orchestrator, contracts, runs, etc.) is currently tangled with platform code (FastAPI service, Studio, storage drivers, migrations) in a single `src/zeroth/` tree. The user now wants to build a separate application *on top of* the core and serve it as its own API service. That is blocked today because:
 
-1. `zeroth/__init__.py` re-exports from `zeroth.storage`, so any `import zeroth.*` transitively loads psycopg, SQLAlchemy, Redis, Alembic — even when the consumer only wants `Graph`.
+1. `zeroth/__init__.py` re-exports from `zeroth.core.storage`, so any `import zeroth.*` transitively loads psycopg, SQLAlchemy, Redis, Alembic — even when the consumer only wants `Graph`.
 2. `GraphRepository`, `RunRepository`, `AuditRepository` require a live `AsyncDatabase`. There is no in-memory fallback, so `RuntimeOrchestrator` cannot run without standing up storage.
 
 Good news from the coupling audit: no core module imports FastAPI or a DB driver directly, and no core module reverse-imports from `service`/`studio`/`admin`. `RuntimeOrchestrator` is a plain dataclass with all dependencies injected. The surgery is mostly mechanical.
@@ -431,7 +431,7 @@ git filter-repo --path-rename src/zeroth/:src/zeroth/platform/ --force
 
 Manually scrub and rewrite:
 - `pyproject.toml` → platform deps + `zeroth-core @ git+https://github.com/rrrozhd/zeroth-core@main`
-- Update every internal import from `zeroth.graph` → `zeroth.core.graph`, `zeroth.orchestrator` → `zeroth.core.orchestrator`, etc. (scriptable: ruff's `--fix` with import rewrite, or `sed` pass, or a small codemod script).
+- Update every internal import from `zeroth.core.graph` → `zeroth.core.graph`, `zeroth.core.orchestrator` → `zeroth.core.orchestrator`, etc. (scriptable: ruff's `--fix` with import rewrite, or `sed` pass, or a small codemod script).
 - `apps/studio/` stays in place, no path rewrite needed.
 
 **Expected complication:** a handful of files will need one-off human decisions (e.g., `runs/__init__.py` re-exports from both `models` and `repository`). Budget 1–2 iterations of the filter-repo passes to get these clean.
@@ -774,7 +774,7 @@ After first `zeroth-core` PyPI release, the git URL flips to `zeroth-core >= 0.1
 | `filter-repo` misses files or keeps junk | Run dry passes on `/tmp` clones first; diff the resulting trees against the expected module map before pushing anywhere. Two iterations budgeted. |
 | Circular internal imports surface when modules move | Ran import coupling audit already — no reverse imports found. Any that surface get fixed during the rename pass as regular import edits. |
 | `zeroth.core.*` tests import something that transitively pulls DB deps | `importlinter` catches this in CI. Pre-push, run `uv run importlinter` locally. |
-| Platform imports break because `zeroth.graph` → `zeroth.core.graph` rename missed a file | Automated codemod pass using ruff's import rewriter or a small sed script; followed by `uv run pytest` locally to confirm. |
+| Platform imports break because `zeroth.core.graph` → `zeroth.core.graph` rename missed a file | Automated codemod pass using ruff's import rewriter or a small sed script; followed by `uv run pytest` locally to confirm. |
 | PyPI name `zeroth-core` already taken | Check pypi.org before naming the GitHub repo. If taken, fall back to `zeroth-sdk` and update the design. |
 | In-flight worktree work gets stranded | Step 0 audits and commits or discards all worktree state before the split begins. User confirms clean `git status` before I proceed. |
 | Planning doc rewrites lose context | Keep full archive repo intact on disk and on GitHub (read-only). Rewrites are additive/renaming, not lossy — original paths always recoverable from the archive. |

@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from zeroth.webhooks.models import (
+from zeroth.core.webhooks.models import (
     DeliveryStatus,
     WebhookDelivery,
     WebhookEventType,
@@ -51,7 +51,7 @@ class TestMigration003:
 
     @pytest.mark.asyncio
     async def test_webhook_subscriptions_table_exists(self, async_database):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         # Should not raise - table exists
@@ -60,7 +60,7 @@ class TestMigration003:
 
     @pytest.mark.asyncio
     async def test_webhook_deliveries_table_exists(self, async_database):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         result = await repo.claim_pending_delivery()
@@ -68,7 +68,7 @@ class TestMigration003:
 
     @pytest.mark.asyncio
     async def test_webhook_dead_letters_table_exists(self, async_database):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         result = await repo.list_dead_letters()
@@ -114,7 +114,7 @@ class TestWebhookRepositorySubscriptions:
 
     @pytest.mark.asyncio
     async def test_create_subscription(self, async_database, make_subscription):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -124,7 +124,7 @@ class TestWebhookRepositorySubscriptions:
 
     @pytest.mark.asyncio
     async def test_get_subscription_exists(self, async_database, make_subscription):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -135,14 +135,14 @@ class TestWebhookRepositorySubscriptions:
 
     @pytest.mark.asyncio
     async def test_get_subscription_missing(self, async_database):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         assert await repo.get_subscription("nonexistent") is None
 
     @pytest.mark.asyncio
     async def test_list_subscriptions_for_event(self, async_database, make_subscription):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub1 = make_subscription(
@@ -162,7 +162,7 @@ class TestWebhookRepositorySubscriptions:
 
     @pytest.mark.asyncio
     async def test_deactivate_subscription(self, async_database, make_subscription):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -174,7 +174,7 @@ class TestWebhookRepositorySubscriptions:
 
     @pytest.mark.asyncio
     async def test_deactivated_excluded_from_event_list(self, async_database, make_subscription):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -189,7 +189,7 @@ class TestWebhookRepositoryDeliveries:
 
     @pytest.mark.asyncio
     async def test_enqueue_delivery(self, async_database, make_subscription, make_delivery):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -201,7 +201,7 @@ class TestWebhookRepositoryDeliveries:
 
     @pytest.mark.asyncio
     async def test_claim_pending_delivery(self, async_database, make_subscription, make_delivery):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -217,14 +217,14 @@ class TestWebhookRepositoryDeliveries:
 
     @pytest.mark.asyncio
     async def test_claim_returns_none_when_empty(self, async_database):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         assert await repo.claim_pending_delivery() is None
 
     @pytest.mark.asyncio
     async def test_mark_delivered(self, async_database, make_subscription, make_delivery):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -243,7 +243,7 @@ class TestWebhookRepositoryDeliveries:
 
     @pytest.mark.asyncio
     async def test_mark_failed_increments_attempt_count(self, async_database, make_subscription, make_delivery):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -264,7 +264,7 @@ class TestWebhookRepositoryDeliveries:
 
     @pytest.mark.asyncio
     async def test_dead_letter(self, async_database, make_subscription, make_delivery):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -296,7 +296,7 @@ class TestWebhookRepositoryDeadLetters:
 
     @pytest.mark.asyncio
     async def test_list_dead_letters_ordered_desc(self, async_database, make_subscription, make_delivery):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -317,7 +317,7 @@ class TestWebhookRepositoryDeadLetters:
 
     @pytest.mark.asyncio
     async def test_get_dead_letter(self, async_database, make_subscription, make_delivery):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         sub = make_subscription()
@@ -334,7 +334,7 @@ class TestWebhookRepositoryDeadLetters:
 
     @pytest.mark.asyncio
     async def test_get_dead_letter_missing(self, async_database):
-        from zeroth.webhooks.repository import WebhookRepository
+        from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
         assert await repo.get_dead_letter("nonexistent") is None

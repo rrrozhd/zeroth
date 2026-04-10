@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 
 from tests.graph.test_models import build_graph
-from zeroth.graph.diff import GraphDiff
-from zeroth.graph.errors import GraphLifecycleError
-from zeroth.graph.models import GraphStatus
-from zeroth.graph.repository import GraphRepository
+from zeroth.core.graph.diff import GraphDiff
+from zeroth.core.graph.errors import GraphLifecycleError
+from zeroth.core.graph.models import GraphStatus
+from zeroth.core.graph.repository import GraphRepository
 
 
 async def test_graph_repository_round_trip(sqlite_db) -> None:

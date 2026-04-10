@@ -341,7 +341,7 @@ We build the new repo contents in a scratch directory first, using a clone of th
 
 ### Task 1.5: Delete the old `src/zeroth/__init__.py`
 
-The existing `src/zeroth/__init__.py` re-exports from `zeroth.storage`, which won't exist in core and pollutes the namespace package. Delete it.
+The existing `src/zeroth/__init__.py` re-exports from `zeroth.core.storage`, which won't exist in core and pollutes the namespace package. Delete it.
 
 - [ ] **Step 1:** Delete and commit
   ```bash
@@ -611,7 +611,7 @@ Core needs `Protocol` types for every repository it imports, plus in-memory impl
 
 ### Task 1.8: Fix all internal imports in core
 
-The moved files still reference `from zeroth.graph import X`. They must become `from zeroth.core.graph import X`.
+The moved files still reference `from zeroth.core.graph import X`. They must become `from zeroth.core.graph import X`.
 
 **Files:** every `.py` file under `src/zeroth/core/` and `tests/`
 
@@ -627,7 +627,7 @@ The moved files still reference `from zeroth.graph import X`. They must become `
   git diff --stat | tail -5
   ```
 
-- [ ] **Step 2:** Sanity check — no remaining `from zeroth.graph` / `from zeroth.orchestrator` etc.
+- [ ] **Step 2:** Sanity check — no remaining `from zeroth.core.graph` / `from zeroth.core.orchestrator` etc.
   ```bash
   grep -rn "from zeroth\.graph\b\|from zeroth\.orchestrator\b\|from zeroth\.runs\b" src/ tests/ || echo "clean"
   ```
@@ -646,7 +646,7 @@ Some tests under `tests/` were for DB-backed repos. They'll fail in core. Move t
   ```bash
   cd /tmp/zeroth-split/zeroth-core-build
   grep -rln "AsyncDatabase\|PostgresDatabase\|SQLiteDatabase\|AsyncPostgres\|AsyncSQLite" tests/ || echo "none"
-  grep -rln "from zeroth.storage\|from zeroth.core.storage" tests/ || echo "none"
+  grep -rln "from zeroth.core.storage\|from zeroth.core.storage" tests/ || echo "none"
   ```
 
 - [ ] **Step 2:** Delete DB-dependent test files
@@ -879,7 +879,7 @@ Some tests under `tests/` were for DB-backed repos. They'll fail in core. Move t
       xargs -0 sed -i '' -E "s|from zeroth\.${mod}|from zeroth.core.${mod}|g; s|import zeroth\.${mod}|import zeroth.core.${mod}|g"
   done
   ```
-  **Warning:** this will incorrectly rewrite platform-side uses of `zeroth.graph.repository` etc. Those are already platform-side — we need to rewrite them back. Do step 2.
+  **Warning:** this will incorrectly rewrite platform-side uses of `zeroth.core.graph.repository` etc. Those are already platform-side — we need to rewrite them back. Do step 2.
 
 - [ ] **Step 2:** Rewrite platform-side module imports
   ```bash

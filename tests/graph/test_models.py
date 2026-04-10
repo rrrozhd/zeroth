@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from governai.app.spec import GovernedFlowSpec
 
-from zeroth.graph.models import (
+from zeroth.core.graph.models import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -16,8 +16,8 @@ from zeroth.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.graph.serialization import deserialize_graph, serialize_graph
-from zeroth.mappings.models import (
+from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.core.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,

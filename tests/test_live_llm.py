@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from zeroth.agent_runtime.provider import LiteLLMProviderAdapter, ProviderRequest
+from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter, ProviderRequest
 
 pytestmark = pytest.mark.live
 

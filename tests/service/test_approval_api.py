@@ -12,8 +12,8 @@ from tests.service.helpers import (
     reviewer_headers,
     wait_for,
 )
-from zeroth.graph import GraphRepository
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.graph import GraphRepository
+from zeroth.core.service.bootstrap import bootstrap_app
 
 
 async def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope(sqlite_db) -> None:

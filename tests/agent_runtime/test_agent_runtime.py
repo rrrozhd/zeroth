@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from pydantic import BaseModel, Field
 
-from zeroth.agent_runtime import (
+from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentOutputValidationError,
     AgentRunner,
@@ -18,7 +18,7 @@ from zeroth.agent_runtime import (
     ProviderResponse,
     RetryPolicy,
 )
-from zeroth.agent_runtime.prompt import AgentAuditSerializer
+from zeroth.core.agent_runtime.prompt import AgentAuditSerializer
 
 
 class DemoInput(BaseModel):

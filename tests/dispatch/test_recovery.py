@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from zeroth.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
-from zeroth.approvals.models import ApprovalRecord
-from zeroth.audit import AuditRepository
-from zeroth.dispatch.lease import LeaseManager
-from zeroth.identity import ActorIdentity
-from zeroth.identity.models import AuthMethod
-from zeroth.runs import RunRepository, RunStatus
-from zeroth.runs.models import Run
+from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.core.approvals.models import ApprovalRecord
+from zeroth.core.audit import AuditRepository
+from zeroth.core.dispatch.lease import LeaseManager
+from zeroth.core.identity import ActorIdentity
+from zeroth.core.identity.models import AuthMethod
+from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.core.runs.models import Run
 
 DEPLOYMENT = "recovery-test-deployment"
 

@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from zeroth.webhooks.models import (
+from zeroth.core.webhooks.models import (
     DeliveryStatus,
     WebhookDeadLetter,
     WebhookDelivery,
@@ -14,8 +14,8 @@ from zeroth.webhooks.models import (
     WebhookEventType,
     WebhookSubscription,
 )
-from zeroth.webhooks.repository import WebhookRepository
-from zeroth.webhooks.service import WebhookService
+from zeroth.core.webhooks.repository import WebhookRepository
+from zeroth.core.webhooks.service import WebhookService
 
 
 @pytest.fixture
