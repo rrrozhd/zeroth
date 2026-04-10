@@ -9,7 +9,7 @@ from tests.service.helpers import (
     deploy_service,
     operator_headers,
 )
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "guardrail-test"
 

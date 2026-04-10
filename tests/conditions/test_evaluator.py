@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.conditions import ConditionContext, ConditionEvaluator
-from zeroth.conditions.errors import ConditionEvaluationError
-from zeroth.graph.models import Condition as GraphCondition
+from zeroth.core.conditions import ConditionContext, ConditionEvaluator
+from zeroth.core.conditions.errors import ConditionEvaluationError
+from zeroth.core.graph.models import Condition as GraphCondition
 
 
 def test_condition_evaluator_handles_nested_paths_and_metadata() -> None:

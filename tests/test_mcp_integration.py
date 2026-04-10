@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.agent_runtime.mcp import MCPClientManager, MCPServerConfig
+from zeroth.core.agent_runtime.mcp import MCPClientManager, MCPServerConfig
 
 
 class TestMCPServerConfig:

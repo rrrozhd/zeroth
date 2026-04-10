@@ -14,7 +14,7 @@ import pytest
 from governai.memory.connector import MemoryConnector
 from governai.memory.models import MemoryEntry, MemoryScope
 
-from zeroth.memory.pgvector_connector import PgvectorMemoryConnector
+from zeroth.core.memory.pgvector_connector import PgvectorMemoryConnector
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ def _mock_litellm():
     """Patch litellm.aembedding to return a fake embedding."""
     resp = MagicMock()
     resp.data = [{"embedding": FAKE_EMBEDDING}]
-    with patch("zeroth.memory.pgvector_connector.litellm") as mock_mod:
+    with patch("zeroth.core.memory.pgvector_connector.litellm") as mock_mod:
         mock_mod.aembedding = AsyncMock(return_value=resp)
         yield mock_mod
 
@@ -62,7 +62,7 @@ def _mock_conn():
 @pytest.fixture
 def connector(_mock_conn, _mock_litellm):
     """Create a PgvectorMemoryConnector with mocked connection factory."""
-    with patch("zeroth.memory.pgvector_connector.register_vector_async", new=AsyncMock()):
+    with patch("zeroth.core.memory.pgvector_connector.register_vector_async", new=AsyncMock()):
         c = PgvectorMemoryConnector(
             conn_factory=AsyncMock(return_value=_mock_conn),
             table_name="test_vectors",

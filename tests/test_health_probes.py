@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.config.settings import TLSSettings
-from zeroth.service.health import (
+from zeroth.core.config.settings import TLSSettings
+from zeroth.core.service.health import (
     DependencyStatus,
     LivenessResponse,
     ReadinessResponse,
@@ -96,7 +96,7 @@ async def test_check_redis_ok():
     mock_redis.ping.return_value = True
     mock_redis.aclose = AsyncMock()
 
-    with patch("zeroth.service.health.redis_from_url", return_value=mock_redis):
+    with patch("zeroth.core.service.health.redis_from_url", return_value=mock_redis):
         result = await check_redis("redis://localhost:6379/0")
     assert result.status == "ok"
     assert result.latency_ms is not None
@@ -108,7 +108,7 @@ async def test_check_redis_error():
     mock_redis.ping.side_effect = ConnectionError("Redis down")
     mock_redis.aclose = AsyncMock()
 
-    with patch("zeroth.service.health.redis_from_url", return_value=mock_redis):
+    with patch("zeroth.core.service.health.redis_from_url", return_value=mock_redis):
         result = await check_redis("redis://localhost:6379/0")
     assert result.status == "error"
     assert "Redis down" in result.detail
@@ -129,7 +129,7 @@ async def test_check_regulus_ok():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("zeroth.service.health.httpx.AsyncClient", return_value=mock_client):
+    with patch("zeroth.core.service.health.httpx.AsyncClient", return_value=mock_client):
         result = await check_regulus("http://regulus:8000")
     assert result.status == "ok"
     assert result.latency_ms is not None
@@ -148,7 +148,7 @@ async def test_check_regulus_unavailable_on_error():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("zeroth.service.health.httpx.AsyncClient", return_value=mock_client):
+    with patch("zeroth.core.service.health.httpx.AsyncClient", return_value=mock_client):
         result = await check_regulus("http://regulus:8000")
     assert result.status == "unavailable"
 
@@ -179,7 +179,7 @@ async def test_readiness_unhealthy_when_db_down():
         "regulus": DependencyStatus(status="ok", latency_ms=3.0),
     }
     # Import the function that determines overall status
-    from zeroth.service.health import determine_readiness_status
+    from zeroth.core.service.health import determine_readiness_status
 
     status = determine_readiness_status(checks)
     assert status == "unhealthy"
@@ -193,7 +193,7 @@ async def test_readiness_degraded_when_regulus_down():
         "redis": DependencyStatus(status="ok", latency_ms=2.0),
         "regulus": DependencyStatus(status="unavailable"),
     }
-    from zeroth.service.health import determine_readiness_status
+    from zeroth.core.service.health import determine_readiness_status
 
     status = determine_readiness_status(checks)
     assert status == "degraded"

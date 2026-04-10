@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from zeroth.agent_runtime.provider import (
+from zeroth.core.agent_runtime.provider import (
     DeterministicProviderAdapter,
     ProviderRequest,
     ProviderResponse,
 )
-from zeroth.audit.models import TokenUsage
+from zeroth.core.audit.models import TokenUsage
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def mock_regulus_client():
 
 @pytest.fixture
 def cost_estimator():
-    from zeroth.econ.cost import CostEstimator
+    from zeroth.core.econ.cost import CostEstimator
 
     return CostEstimator()
 
@@ -53,7 +53,7 @@ async def test_adapter_enriches_response_with_cost(
     response_with_tokens, mock_regulus_client, cost_estimator, provider_request
 ):
     """InstrumentedProviderAdapter returns ProviderResponse with cost_usd and cost_event_id."""
-    from zeroth.econ.adapter import InstrumentedProviderAdapter
+    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
     inner = DeterministicProviderAdapter([response_with_tokens])
     adapter = InstrumentedProviderAdapter(
@@ -78,7 +78,7 @@ async def test_adapter_calls_track_execution_with_correct_event(
     """InstrumentedProviderAdapter calls track_execution with correct ExecutionEvent fields."""
     from econ_instrumentation import ExecutionEvent
 
-    from zeroth.econ.adapter import InstrumentedProviderAdapter
+    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
     inner = DeterministicProviderAdapter([response_with_tokens])
     adapter = InstrumentedProviderAdapter(
@@ -110,7 +110,7 @@ async def test_adapter_no_token_usage_defaults_to_zero(
     response_without_tokens, mock_regulus_client, cost_estimator, provider_request
 ):
     """When inner adapter returns no token_usage, cost_usd defaults to 0.0."""
-    from zeroth.econ.adapter import InstrumentedProviderAdapter
+    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
     inner = DeterministicProviderAdapter([response_without_tokens])
     adapter = InstrumentedProviderAdapter(
@@ -132,7 +132,7 @@ async def test_adapter_cost_estimator_error_defaults_to_zero(
     response_with_tokens, mock_regulus_client, provider_request
 ):
     """When CostEstimator raises, cost_usd defaults to 0.0 and event is still emitted."""
-    from zeroth.econ.adapter import InstrumentedProviderAdapter
+    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
     broken_estimator = MagicMock()
     broken_estimator.estimate = MagicMock(side_effect=RuntimeError("broken"))
@@ -154,7 +154,7 @@ async def test_adapter_cost_estimator_error_defaults_to_zero(
 
 async def test_adapter_satisfies_provider_adapter_protocol():
     """InstrumentedProviderAdapter has ainvoke with correct signature (ProviderAdapter protocol)."""
-    from zeroth.econ.adapter import InstrumentedProviderAdapter
+    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
     assert hasattr(InstrumentedProviderAdapter, "ainvoke")
     import inspect
@@ -172,7 +172,7 @@ async def test_runner_copies_cost_fields_to_audit_record(
     The runner pattern (lines ~160-162) copies token_usage from response to audit.
     Similarly, cost_usd and cost_event_id should be copyable from the enriched response.
     """
-    from zeroth.econ.adapter import InstrumentedProviderAdapter
+    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
     inner = DeterministicProviderAdapter([response_with_tokens])
     adapter = InstrumentedProviderAdapter(

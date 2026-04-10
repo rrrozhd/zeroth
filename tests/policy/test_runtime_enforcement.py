@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from zeroth.agent_runtime import (
+from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentProviderError,
     AgentRunner,
@@ -13,8 +13,8 @@ from zeroth.agent_runtime import (
     ProviderResponse,
     ToolAttachmentManifest,
 )
-from zeroth.audit import AuditRepository
-from zeroth.execution_units import (
+from zeroth.core.audit import AuditRepository
+from zeroth.core.execution_units import (
     CommandArtifactSource,
     ExecutableUnitBinding,
     ExecutableUnitRegistry,
@@ -27,7 +27,7 @@ from zeroth.execution_units import (
     SandboxStrictnessMode,
     WrappedCommandUnitManifest,
 )
-from zeroth.graph import (
+from zeroth.core.graph import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -36,10 +36,10 @@ from zeroth.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.identity import ActorIdentity, AuthMethod
-from zeroth.orchestrator import RuntimeOrchestrator
-from zeroth.policy import Capability, EnforcementResult, PolicyDecision
-from zeroth.runs import RunRepository, RunStatus
+from zeroth.core.identity import ActorIdentity, AuthMethod
+from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.core.policy import Capability, EnforcementResult, PolicyDecision
+from zeroth.core.runs import RunRepository, RunStatus
 
 
 class NumberInput(BaseModel):
@@ -206,7 +206,7 @@ async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(s
         ],
         edges=[],
     )
-    from zeroth.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+    from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
 
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
@@ -310,7 +310,7 @@ async def test_agent_runner_applies_timeout_override_and_blocks_side_effecting_t
         )
 
     monkeypatch.setattr(
-        "zeroth.agent_runtime.runner.run_provider_with_timeout",
+        "zeroth.core.agent_runtime.runner.run_provider_with_timeout",
         fake_run_provider_with_timeout,
     )
     runner = AgentRunner(

@@ -12,7 +12,7 @@ import pytest
 from governai.memory.connector import MemoryConnector
 from governai.memory.models import MemoryEntry, MemoryScope
 
-from zeroth.memory.elastic_connector import ElasticsearchMemoryConnector
+from zeroth.core.memory.elastic_connector import ElasticsearchMemoryConnector
 
 
 # ---------------------------------------------------------------------------

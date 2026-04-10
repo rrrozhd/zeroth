@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from zeroth.webhooks.delivery import WebhookDeliveryWorker, next_retry_delay
-from zeroth.webhooks.models import (
+from zeroth.core.webhooks.delivery import WebhookDeliveryWorker, next_retry_delay
+from zeroth.core.webhooks.models import (
     DeliveryStatus,
     WebhookDelivery,
     WebhookEventType,
     WebhookSubscription,
 )
-from zeroth.webhooks.repository import WebhookRepository
+from zeroth.core.webhooks.repository import WebhookRepository
 
 
 @pytest.fixture

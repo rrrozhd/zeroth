@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import approval_resume_graph, deploy_service, wait_for
-from zeroth.identity import ServiceRole
-from zeroth.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.identity import ServiceRole
+from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
+from zeroth.core.service.bootstrap import bootstrap_app
 
 
 def _scoped_auth_config() -> ServiceAuthConfig:

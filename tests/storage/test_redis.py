@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import SecretStr
 
-from zeroth.storage import (
+from zeroth.core.storage import (
     RedisConfig,
     RedisDeploymentMode,
     build_governai_redis_runtime,

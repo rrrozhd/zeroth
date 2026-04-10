@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from governai import RunStatus
 
-from zeroth.runs.models import (
+from zeroth.core.runs.models import (
     Run,
     RunFailureState,
     RunHistoryEntry,
@@ -11,7 +11,7 @@ from zeroth.runs.models import (
     ThreadMemoryBinding,
     ThreadStatus,
 )
-from zeroth.runs.repository import RunRepository, ThreadRepository
+from zeroth.core.runs.repository import RunRepository, ThreadRepository
 
 
 async def test_run_repository_crud_round_trip(runs_db) -> None:

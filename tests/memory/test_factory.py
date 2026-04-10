@@ -8,14 +8,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from zeroth.memory.connectors import (
+from zeroth.core.memory.connectors import (
     KeyValueMemoryConnector,
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,
 )
 from governai.memory.models import MemoryScope
-from zeroth.memory.models import ConnectorManifest
-from zeroth.memory.registry import InMemoryConnectorRegistry
+from zeroth.core.memory.models import ConnectorManifest
+from zeroth.core.memory.registry import InMemoryConnectorRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ class TestDefaultRegistration:
     """With all external backends disabled, only in-memory connectors register."""
 
     def test_registers_ephemeral_key_value_thread(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings()
@@ -92,7 +92,7 @@ class TestDefaultRegistration:
             assert manifest.connector_type == name
 
     def test_ephemeral_has_run_scope(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         register_memory_connectors(registry, _make_settings())
@@ -101,7 +101,7 @@ class TestDefaultRegistration:
         assert manifest.scope == MemoryScope.RUN
 
     def test_key_value_has_shared_scope(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         register_memory_connectors(registry, _make_settings())
@@ -110,7 +110,7 @@ class TestDefaultRegistration:
         assert manifest.scope == MemoryScope.SHARED
 
     def test_thread_has_thread_scope(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         register_memory_connectors(registry, _make_settings())
@@ -119,7 +119,7 @@ class TestDefaultRegistration:
         assert manifest.scope == MemoryScope.THREAD
 
     def test_external_connectors_not_registered(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         register_memory_connectors(registry, _make_settings())
@@ -129,7 +129,7 @@ class TestDefaultRegistration:
                 registry.resolve(name)
 
     def test_connector_instances_are_correct_types(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         register_memory_connectors(registry, _make_settings())
@@ -152,14 +152,14 @@ class TestRedisRegistration:
     """Redis connectors register when a redis_client is provided."""
 
     def test_registers_redis_kv_and_thread(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings()
         fake_redis = MagicMock()
 
-        with patch("zeroth.memory.factory.RedisKVMemoryConnector") as kv_cls, \
-             patch("zeroth.memory.factory.RedisThreadMemoryConnector") as th_cls:
+        with patch("zeroth.core.memory.factory.RedisKVMemoryConnector") as kv_cls, \
+             patch("zeroth.core.memory.factory.RedisThreadMemoryConnector") as th_cls:
             kv_cls.return_value = MagicMock(connector_type="redis_kv")
             th_cls.return_value = MagicMock(connector_type="redis_thread")
 
@@ -174,7 +174,7 @@ class TestRedisRegistration:
         assert manifest_th.scope == MemoryScope.THREAD
 
     def test_redis_connectors_receive_correct_config(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(
@@ -185,8 +185,8 @@ class TestRedisRegistration:
         )
         fake_redis = MagicMock()
 
-        with patch("zeroth.memory.factory.RedisKVMemoryConnector") as kv_cls, \
-             patch("zeroth.memory.factory.RedisThreadMemoryConnector") as th_cls:
+        with patch("zeroth.core.memory.factory.RedisKVMemoryConnector") as kv_cls, \
+             patch("zeroth.core.memory.factory.RedisThreadMemoryConnector") as th_cls:
             kv_cls.return_value = MagicMock(connector_type="redis_kv")
             th_cls.return_value = MagicMock(connector_type="redis_thread")
 
@@ -196,13 +196,13 @@ class TestRedisRegistration:
             th_cls.assert_called_once_with(fake_redis, key_prefix="custom:thread")
 
     def test_in_memory_connectors_still_registered_with_redis(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         fake_redis = MagicMock()
 
-        with patch("zeroth.memory.factory.RedisKVMemoryConnector") as kv_cls, \
-             patch("zeroth.memory.factory.RedisThreadMemoryConnector") as th_cls:
+        with patch("zeroth.core.memory.factory.RedisKVMemoryConnector") as kv_cls, \
+             patch("zeroth.core.memory.factory.RedisThreadMemoryConnector") as th_cls:
             kv_cls.return_value = MagicMock(connector_type="redis_kv")
             th_cls.return_value = MagicMock(connector_type="redis_thread")
 
@@ -222,12 +222,12 @@ class TestPgvectorRegistration:
     """pgvector connector registers when enabled and pg_conninfo provided."""
 
     def test_registers_pgvector(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(pgvector=_PgvectorSettings(enabled=True))
 
-        with patch("zeroth.memory.factory.PgvectorMemoryConnector") as pgv_cls:
+        with patch("zeroth.core.memory.factory.PgvectorMemoryConnector") as pgv_cls:
             pgv_cls.return_value = MagicMock(connector_type="pgvector")
 
             register_memory_connectors(
@@ -239,7 +239,7 @@ class TestPgvectorRegistration:
         assert manifest.scope == MemoryScope.SHARED
 
     def test_pgvector_not_registered_without_conninfo(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(pgvector=_PgvectorSettings(enabled=True))
@@ -250,7 +250,7 @@ class TestPgvectorRegistration:
             registry.resolve("pgvector")
 
     def test_pgvector_not_registered_when_disabled(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(pgvector=_PgvectorSettings(enabled=False))
@@ -263,7 +263,7 @@ class TestPgvectorRegistration:
             registry.resolve("pgvector")
 
     def test_pgvector_receives_correct_config(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         pgv_settings = _PgvectorSettings(
@@ -274,7 +274,7 @@ class TestPgvectorRegistration:
         )
         settings = _make_settings(pgvector=pgv_settings)
 
-        with patch("zeroth.memory.factory.PgvectorMemoryConnector") as pgv_cls:
+        with patch("zeroth.core.memory.factory.PgvectorMemoryConnector") as pgv_cls:
             pgv_cls.return_value = MagicMock(connector_type="pgvector")
 
             register_memory_connectors(
@@ -298,13 +298,13 @@ class TestChromaRegistration:
     """ChromaDB connector registers when enabled."""
 
     def test_registers_chroma(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(chroma=_ChromaSettings(enabled=True))
 
-        with patch("zeroth.memory.factory.chromadb") as mock_chromadb, \
-             patch("zeroth.memory.factory.ChromaDBMemoryConnector") as chroma_cls:
+        with patch("zeroth.core.memory.factory.chromadb") as mock_chromadb, \
+             patch("zeroth.core.memory.factory.ChromaDBMemoryConnector") as chroma_cls:
             mock_chromadb.HttpClient.return_value = MagicMock()
             chroma_cls.return_value = MagicMock(connector_type="chroma")
 
@@ -315,7 +315,7 @@ class TestChromaRegistration:
         assert manifest.scope == MemoryScope.SHARED
 
     def test_chroma_not_registered_when_disabled(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(chroma=_ChromaSettings(enabled=False))
@@ -326,15 +326,15 @@ class TestChromaRegistration:
             registry.resolve("chroma")
 
     def test_chroma_receives_correct_config(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(
             chroma=_ChromaSettings(enabled=True, host="chroma-host", port=9000, collection_prefix="my_prefix")
         )
 
-        with patch("zeroth.memory.factory.chromadb") as mock_chromadb, \
-             patch("zeroth.memory.factory.ChromaDBMemoryConnector") as chroma_cls:
+        with patch("zeroth.core.memory.factory.chromadb") as mock_chromadb, \
+             patch("zeroth.core.memory.factory.ChromaDBMemoryConnector") as chroma_cls:
             mock_chromadb.HttpClient.return_value = MagicMock()
             chroma_cls.return_value = MagicMock(connector_type="chroma")
 
@@ -355,13 +355,13 @@ class TestElasticsearchRegistration:
     """Elasticsearch connector registers when enabled."""
 
     def test_registers_elasticsearch(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(elasticsearch=_ElasticsearchSettings(enabled=True))
 
-        with patch("zeroth.memory.factory.AsyncElasticsearch") as mock_es_cls, \
-             patch("zeroth.memory.factory.ElasticsearchMemoryConnector") as es_conn_cls:
+        with patch("zeroth.core.memory.factory.AsyncElasticsearch") as mock_es_cls, \
+             patch("zeroth.core.memory.factory.ElasticsearchMemoryConnector") as es_conn_cls:
             mock_es_cls.return_value = MagicMock()
             es_conn_cls.return_value = MagicMock(connector_type="elasticsearch")
 
@@ -372,7 +372,7 @@ class TestElasticsearchRegistration:
         assert manifest.scope == MemoryScope.SHARED
 
     def test_elasticsearch_not_registered_when_disabled(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(elasticsearch=_ElasticsearchSettings(enabled=False))
@@ -383,7 +383,7 @@ class TestElasticsearchRegistration:
             registry.resolve("elasticsearch")
 
     def test_elasticsearch_receives_correct_config(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(
@@ -394,8 +394,8 @@ class TestElasticsearchRegistration:
             )
         )
 
-        with patch("zeroth.memory.factory.AsyncElasticsearch") as mock_es_cls, \
-             patch("zeroth.memory.factory.ElasticsearchMemoryConnector") as es_conn_cls:
+        with patch("zeroth.core.memory.factory.AsyncElasticsearch") as mock_es_cls, \
+             patch("zeroth.core.memory.factory.ElasticsearchMemoryConnector") as es_conn_cls:
             mock_es_cls.return_value = MagicMock()
             es_conn_cls.return_value = MagicMock(connector_type="elasticsearch")
 
@@ -416,7 +416,7 @@ class TestSingletonBehavior:
     returns the same object."""
 
     def test_same_connector_object_on_multiple_resolves(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         register_memory_connectors(registry, _make_settings())
@@ -427,7 +427,7 @@ class TestSingletonBehavior:
         assert conn_first is conn_second
 
     def test_all_in_memory_connectors_are_singletons(self) -> None:
-        from zeroth.memory.factory import register_memory_connectors
+        from zeroth.core.memory.factory import register_memory_connectors
 
         registry = InMemoryConnectorRegistry()
         register_memory_connectors(registry, _make_settings())

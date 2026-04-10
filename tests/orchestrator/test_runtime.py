@@ -5,16 +5,16 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from zeroth.agent_runtime import (
+from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )
-from zeroth.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
-from zeroth.audit import AuditRepository
-from zeroth.execution_units import (
+from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.core.audit import AuditRepository
+from zeroth.core.execution_units import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -26,7 +26,7 @@ from zeroth.execution_units import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.graph import (
+from zeroth.core.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -38,17 +38,17 @@ from zeroth.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.identity import ActorIdentity, AuthMethod
-from zeroth.mappings.models import EdgeMapping, PassthroughMappingOperation
-from zeroth.orchestrator import RuntimeOrchestrator
-from zeroth.policy import (
+from zeroth.core.identity import ActorIdentity, AuthMethod
+from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.core.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.runs import Run, RunRepository, RunStatus, ThreadRepository
+from zeroth.core.runs import Run, RunRepository, RunStatus, ThreadRepository
 
 
 class NumberInput(BaseModel):

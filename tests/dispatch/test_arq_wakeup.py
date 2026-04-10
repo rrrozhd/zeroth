@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import SecretStr
 
-from zeroth.dispatch.arq_wakeup import (
+from zeroth.core.dispatch.arq_wakeup import (
     WAKEUP_TASK_NAME,
     arq_settings_from_zeroth,
     create_arq_pool,
@@ -16,7 +16,7 @@ from zeroth.dispatch.arq_wakeup import (
 
 
 class _FakeRedisSettings:
-    """Minimal stand-in for zeroth.config.settings.RedisSettings."""
+    """Minimal stand-in for zeroth.core.config.settings.RedisSettings."""
 
     def __init__(
         self,
@@ -85,6 +85,6 @@ async def test_enqueue_wakeup_swallows_exception() -> None:
 @pytest.mark.asyncio
 async def test_create_arq_pool_failure_returns_none() -> None:
     settings = _FakeRedisSettings()
-    with patch("zeroth.dispatch.arq_wakeup.arq_settings_from_zeroth", side_effect=RuntimeError):
+    with patch("zeroth.core.dispatch.arq_wakeup.arq_settings_from_zeroth", side_effect=RuntimeError):
         result = await create_arq_pool(settings)
     assert result is None

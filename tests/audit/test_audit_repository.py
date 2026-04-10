@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from zeroth.audit import (
+from zeroth.core.audit import (
     AuditContinuityVerifier,
     AuditQuery,
     AuditRedactionConfig,
@@ -16,7 +16,7 @@ from zeroth.audit import (
     PayloadSanitizer,
     ToolCallRecord,
 )
-from zeroth.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
 
 
 def _record(

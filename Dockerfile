@@ -54,4 +54,4 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')" || exit 1
 
 # Production entrypoint: runs migrations then starts uvicorn
-CMD ["python", "-m", "zeroth.service.entrypoint"]
+CMD ["python", "-m", "zeroth.core.service.entrypoint"]

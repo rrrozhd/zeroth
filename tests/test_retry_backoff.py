@@ -1,6 +1,6 @@
 """Unit tests for retry error classification and backoff computation."""
 
-from zeroth.agent_runtime.retry import compute_backoff_delay, is_retryable_provider_error
+from zeroth.core.agent_runtime.retry import compute_backoff_delay, is_retryable_provider_error
 
 
 class TestIsRetryableProviderError:

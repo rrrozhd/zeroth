@@ -6,10 +6,10 @@ import asyncio
 
 import pytest
 
-from zeroth.dispatch.lease import LeaseManager
-from zeroth.dispatch.worker import RunWorker
-from zeroth.runs import RunRepository, RunStatus
-from zeroth.runs.models import Run
+from zeroth.core.dispatch.lease import LeaseManager
+from zeroth.core.dispatch.worker import RunWorker
+from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.core.runs.models import Run
 
 DEPLOYMENT = "worker-test-deployment"
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from zeroth.agent_runtime.thread_store import (
+from zeroth.core.agent_runtime.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )
-from zeroth.runs.repository import RunRepository, ThreadRepository
+from zeroth.core.runs.repository import RunRepository, ThreadRepository
 
 
 async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:

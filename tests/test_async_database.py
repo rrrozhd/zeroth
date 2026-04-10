@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.storage.async_postgres import _sqlite_to_psycopg
-from zeroth.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.storage.database import AsyncDatabase
+from zeroth.core.storage.async_postgres import _sqlite_to_psycopg
+from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.core.storage.database import AsyncDatabase
 
 
 class TestAsyncSQLiteDatabase:
@@ -72,8 +72,8 @@ class TestDatabaseFactory:
 
     async def test_factory_creates_sqlite_by_default(self, tmp_path):
         """create_database() should return AsyncSQLiteDatabase when backend='sqlite'."""
-        from zeroth.config.settings import ZerothSettings
-        from zeroth.storage.factory import create_database
+        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.core.storage.factory import create_database
 
         settings = ZerothSettings(
             database={"backend": "sqlite", "sqlite_path": str(tmp_path / "f.db")}

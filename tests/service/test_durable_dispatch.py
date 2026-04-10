@@ -6,9 +6,9 @@ import asyncio
 import contextlib
 
 from tests.service.helpers import agent_graph, deploy_service
-from zeroth.dispatch import LeaseManager, RunWorker
-from zeroth.runs import RunStatus
-from zeroth.runs.models import Run
+from zeroth.core.dispatch import LeaseManager, RunWorker
+from zeroth.core.runs import RunStatus
+from zeroth.core.runs.models import Run
 
 DEPLOYMENT = "durable-dispatch-test"
 

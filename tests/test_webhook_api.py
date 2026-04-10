@@ -9,15 +9,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.service.webhook_api import register_webhook_routes
-from zeroth.webhooks.models import (
+from zeroth.core.service.webhook_api import register_webhook_routes
+from zeroth.core.webhooks.models import (
     DeliveryStatus,
     WebhookDeadLetter,
     WebhookDelivery,
     WebhookEventType,
     WebhookSubscription,
 )
-from zeroth.webhooks.service import WebhookService
+from zeroth.core.webhooks.service import WebhookService
 
 
 def _make_app(webhook_service: WebhookService | None = None) -> FastAPI:
@@ -25,7 +25,7 @@ def _make_app(webhook_service: WebhookService | None = None) -> FastAPI:
     app = FastAPI()
 
     # Fake authentication middleware that always sets an admin principal.
-    from zeroth.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
+    from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
 
     @app.middleware("http")
     async def fake_auth(request, call_next):
@@ -206,7 +206,7 @@ class TestPermissionEnforcement:
 
     def test_operator_cannot_access_webhooks(self):
         """Non-admin roles should get 403."""
-        from zeroth.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
+        from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
 
         app = FastAPI()
 

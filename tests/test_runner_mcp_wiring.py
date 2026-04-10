@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from zeroth.agent_runtime.mcp import MCPClientManager, MCPServerConfig
-from zeroth.agent_runtime.models import AgentConfig
-from zeroth.agent_runtime.provider import ProviderResponse
-from zeroth.agent_runtime.runner import AgentRunner
-from zeroth.agent_runtime.tools import ToolAttachmentManifest
+from zeroth.core.agent_runtime.mcp import MCPClientManager, MCPServerConfig
+from zeroth.core.agent_runtime.models import AgentConfig
+from zeroth.core.agent_runtime.provider import ProviderResponse
+from zeroth.core.agent_runtime.runner import AgentRunner
+from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
 
 
 class SimpleInput(BaseModel):
@@ -73,7 +73,7 @@ class TestAgentRunnerMCPWiring:
         with patch.object(runner, "provider") as mock_prov:
             mock_prov.ainvoke = AsyncMock(return_value=response)
             with patch(
-                "zeroth.agent_runtime.runner.run_provider_with_timeout",
+                "zeroth.core.agent_runtime.runner.run_provider_with_timeout",
                 new=AsyncMock(return_value=response),
             ):
                 result = await runner.run(SimpleInput(text="hello"))
@@ -146,7 +146,7 @@ class TestAgentRunnerMCPWiring:
                 MCPClientManager, "stop", new=AsyncMock()
             ) as mock_stop,
             patch(
-                "zeroth.agent_runtime.runner.run_provider_with_timeout",
+                "zeroth.core.agent_runtime.runner.run_provider_with_timeout",
                 new=AsyncMock(side_effect=RuntimeError("boom")),
             ),
         ):
@@ -188,7 +188,7 @@ class TestAgentRunnerMCPWiring:
         final_response = _make_provider_response()
 
         with patch(
-            "zeroth.agent_runtime.runner.run_provider_with_timeout",
+            "zeroth.core.agent_runtime.runner.run_provider_with_timeout",
             new=AsyncMock(return_value=final_response),
         ):
             result_response, result_messages, tool_audits = await runner._resolve_tool_calls(
@@ -227,7 +227,7 @@ class TestAgentRunnerMCPWiring:
         final_response = _make_provider_response()
 
         with patch(
-            "zeroth.agent_runtime.runner.run_provider_with_timeout",
+            "zeroth.core.agent_runtime.runner.run_provider_with_timeout",
             new=AsyncMock(return_value=final_response),
         ):
             await runner._resolve_tool_calls(

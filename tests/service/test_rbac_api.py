@@ -10,7 +10,7 @@ from tests.service.helpers import (
     reviewer_headers,
     wait_for,
 )
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.service.bootstrap import bootstrap_app
 
 
 async def test_reviewer_cannot_create_runs(sqlite_db) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.agent_runtime import (
+from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,
@@ -15,7 +15,7 @@ from zeroth.agent_runtime import (
     ToolAttachmentManifest,
     ToolAttachmentRegistry,
 )
-from zeroth.execution_units import (
+from zeroth.core.execution_units import (
     ExecutableUnitBinding,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -25,7 +25,7 @@ from zeroth.execution_units import (
     OutputMode,
     PythonModuleArtifactSource,
 )
-from zeroth.runs import RunRepository, ThreadRepository
+from zeroth.core.runs import RunRepository, ThreadRepository
 
 
 class AgentInput(BaseModel):

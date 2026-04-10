@@ -13,11 +13,11 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from zeroth.agent_runtime.errors import BudgetExceededError
-from zeroth.agent_runtime.models import AgentConfig
-from zeroth.agent_runtime.provider import DeterministicProviderAdapter, ProviderResponse
-from zeroth.agent_runtime.runner import AgentRunner
-from zeroth.econ.budget import BudgetEnforcer
+from zeroth.core.agent_runtime.errors import BudgetExceededError
+from zeroth.core.agent_runtime.models import AgentConfig
+from zeroth.core.agent_runtime.provider import DeterministicProviderAdapter, ProviderResponse
+from zeroth.core.agent_runtime.runner import AgentRunner
+from zeroth.core.econ.budget import BudgetEnforcer
 
 
 class _Input(BaseModel):
