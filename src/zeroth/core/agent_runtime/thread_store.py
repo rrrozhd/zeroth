@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict
 from zeroth.core.runs.models import Run, Thread, ThreadMemoryBinding, ThreadStatus
 from zeroth.core.runs.repository import RunRepository, ThreadRepository
 from zeroth.core.storage import AsyncDatabase
-from zeroth.core.storage.json import to_json_value
 
 THREAD_STATE_CHECKPOINT_KIND = "thread_state"
 THREAD_STATE_METADATA_KEY = "thread_state"

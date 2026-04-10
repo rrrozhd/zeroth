@@ -37,6 +37,9 @@ from zeroth.core.secrets import SecretResolver
 
 logger = logging.getLogger(__name__)
 
+# Sentinel for "attribute not present" in optional runner wiring.
+_MISSING: Any = object()
+
 
 class OrchestratorError(RuntimeError):
     """Something went wrong during graph orchestration.
@@ -255,7 +258,6 @@ class RuntimeOrchestrator:
             # Phase 18: Wrap provider with cost instrumentation (per ECON-01).
             # Use getattr so lightweight test runners without a .provider
             # attribute (e.g. FunctionalRunner, RecordingAgentRunner) still work.
-            _MISSING = object()
             original_provider = getattr(runner, "provider", _MISSING)
             if (
                 original_provider is not _MISSING
