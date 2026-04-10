@@ -10,7 +10,6 @@ import pytest
 
 from zeroth.core.webhooks.delivery import WebhookDeliveryWorker, next_retry_delay
 from zeroth.core.webhooks.models import (
-    DeliveryStatus,
     WebhookDelivery,
     WebhookEventType,
     WebhookSubscription,

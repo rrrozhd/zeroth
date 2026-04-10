@@ -19,5 +19,11 @@ node_modules/
 # Generated local state for live scenarios
 live_scenarios/*.sqlite3
 zeroth.db
+zeroth.db-shm
+zeroth.db-wal
 zeroth_dev.db
+zeroth_dev.db-shm
+zeroth_dev.db-wal
 zeroth_live.db
+zeroth_live.db-shm
+zeroth_live.db-wal

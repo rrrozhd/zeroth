@@ -72,7 +72,6 @@ def compute_environment_cache_key(
     policy will always produce the same key. This lets us cache and reuse
     environments instead of rebuilding them every time.
     """
-
     payload = {
         "runtime": runtime,
         "runtime_version": runtime_version,
@@ -97,7 +96,6 @@ def build_sandbox_environment(
     adds any overlay variables on top. This prevents leaking sensitive
     environment variables into sandboxed processes.
     """
-
     source = dict(base_env or os.environ)
     environment: dict[str, str] = {}
     allowed = set(source) if allowed_env_keys is None else {key for key in allowed_env_keys}

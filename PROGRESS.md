@@ -1363,3 +1363,12 @@ Artifacts and evidence: `phases/phase-N-*/artifacts/`
 **Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/rename-smoke-27-03.txt`, `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/pytest-27-03-targeted.txt`
 **Blockers:** none for Plan 27-03; full-suite regression comparison and docstring coverage remain for Plan 27-04
 **Next:** summarize 27-03, advance phase state to Plan 4 of 4, and start the docstring/verification gate work in Plan 27-04
+
+### 2026-04-10 21:17 — Phase 27-04 Tooling Gate Added
+**Phase/Tasks:** 27-04 Task 1
+**Status:** in-progress
+**What:** added a red config-level test for the interrogate/CI requirements, fixed the editable-install regression by restoring Hatchling's wheel package root to `src/zeroth`, added `interrogate` plus Ruff pydocstyle/interrogate configuration to `pyproject.toml`, created `.github/workflows/ci.yml`, and captured the pre-gap-filling interrogate baseline.
+**Tests:** `uv run python -c "import zeroth; import zeroth.core; print(zeroth.__path__); print(zeroth.core.__path__)"` failed before the packaging fix and passed after it; `uv run pytest -v tests/test_phase27_docstring_tooling.py` passed after the config/workflow changes; `uv run interrogate -v src/zeroth/core --fail-under 0` passed with a 90.1% baseline
+**Artifacts:** `.planning/phases/27-ship-zeroth-as-pip-installable-library-zeroth-core/artifacts/interrogate-baseline.txt`
+**Blockers:** none; the interrogate baseline already clears the 90% target, so Task 2 can focus on enforcing and re-verifying rather than bulk docstring writing
+**Next:** run interrogate with the real fail-under gate, run Ruff with the new docstring settings, then execute the full post-rename pytest comparison against the pre-rename baseline

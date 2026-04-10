@@ -7,7 +7,7 @@ without requiring a real Postgres instance.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,14 +16,13 @@ from governai.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.memory.pgvector_connector import PgvectorMemoryConnector
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 FAKE_EMBEDDING = [0.1] * 1536
 FAKE_CONNINFO = "postgresql://test:test@localhost:5432/testdb"
-NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _make_row(key="doc1", value={"text": "hello"}, scope="shared", target="__shared__"):

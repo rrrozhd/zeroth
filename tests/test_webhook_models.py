@@ -6,9 +6,6 @@ import hashlib
 import hmac
 from datetime import UTC, datetime
 
-import pytest
-from pydantic import ValidationError
-
 
 class TestWebhookEventType:
     """WebhookEventType enum values."""

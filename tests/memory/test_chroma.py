@@ -15,7 +15,6 @@ from governai.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.memory.chroma_connector import ChromaDBMemoryConnector
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

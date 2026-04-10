@@ -17,19 +17,23 @@ class ContractRegistryError(Exception):
 
 
 class ContractNotFoundError(ContractRegistryError):
-    """Raised when you try to look up a contract (by name and version) that
-    doesn't exist in the registry.
+    """Raised when a requested contract version is missing.
+
+    This is raised when a lookup by contract name and version cannot find a
+    matching registry entry.
     """
 
 
 class ContractVersionExistsError(ContractRegistryError):
-    """Raised when you try to register a contract version that has already
-    been registered. Each (name, version) pair must be unique.
+    """Raised when a contract version is registered twice.
+
+    Each ``(name, version)`` pair must be unique within the registry.
     """
 
 
 class ContractTypeResolutionError(ContractRegistryError):
-    """Raised when the registry can't turn a stored contract path back into
-    an actual Python class. This usually means the module or class was moved,
-    renamed, or deleted since the contract was registered.
+    """Raised when a stored contract path cannot be resolved.
+
+    This usually means the referenced module or class was moved, renamed, or
+    deleted after the contract was registered.
     """

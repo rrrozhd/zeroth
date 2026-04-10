@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -17,7 +17,6 @@ from zeroth.core.approvals.repository import ApprovalRepository
 from zeroth.core.approvals.service import ApprovalService
 from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.core.runs import RunRepository
-
 
 # ---------------------------------------------------------------------------
 # Helpers

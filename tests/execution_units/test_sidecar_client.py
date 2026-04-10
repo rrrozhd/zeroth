@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 import httpx
+import pytest
 
 from zeroth.core.execution_units.sidecar_client import SandboxSidecarClient
 from zeroth.core.sandbox_sidecar.models import (

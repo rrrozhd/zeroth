@@ -29,7 +29,7 @@ from live_scenarios.research_audit.tools import (
     fetch_url_handler,
     web_search_handler,
 )
-from zeroth.agent_runtime import (
+from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
     GovernedLLMProviderAdapter,
@@ -40,11 +40,11 @@ from zeroth.agent_runtime import (
     ToolAttachmentManifest,
     ToolAttachmentRegistry,
 )
-from zeroth.agent_runtime.provider import CallableProviderAdapter, ProviderAdapter, ProviderResponse
-from zeroth.contracts import ContractReference, ContractRegistry
-from zeroth.contracts.errors import ContractNotFoundError, ContractVersionExistsError
-from zeroth.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.execution_units import (
+from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderAdapter, ProviderResponse
+from zeroth.core.contracts import ContractReference, ContractRegistry
+from zeroth.core.contracts.errors import ContractNotFoundError, ContractVersionExistsError
+from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.core.execution_units import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -57,7 +57,7 @@ from zeroth.execution_units import (
     RuntimeLanguage,
     WrappedCommandUnitManifest,
 )
-from zeroth.graph import (
+from zeroth.core.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -72,23 +72,23 @@ from zeroth.graph import (
 )
 from governai.memory.models import MemoryScope
 
-from zeroth.memory import (
+from zeroth.core.memory import (
     ConnectorManifest,
     InMemoryConnectorRegistry,
     KeyValueMemoryConnector,
     MemoryConnectorResolver,
 )
-from zeroth.policy import (
+from zeroth.core.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.service.app import create_app
-from zeroth.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig
-from zeroth.service.bootstrap import ServiceBootstrap, bootstrap_service
-from zeroth.storage import AsyncDatabase
+from zeroth.core.service.app import create_app
+from zeroth.core.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig
+from zeroth.core.service.bootstrap import ServiceBootstrap, bootstrap_service
+from zeroth.core.storage import AsyncDatabase
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GRAPH_ID = "live-research-audit"
@@ -145,20 +145,20 @@ class _DeterministicToolingProvider:
                 "summary": "Collected repository evidence for review.",
                 "findings": ["bootstrap path should be checked for runtime wiring gaps"],
                 "sources": [
-                    "src/zeroth/service/bootstrap.py",
-                    "src/zeroth/orchestrator/runtime.py",
+                    "src/zeroth/core/service/bootstrap.py",
+                    "src/zeroth/core/orchestrator/runtime.py",
                 ],
                 "evidence": [
                     {
                         "kind": "repo_search",
                         "title": "bootstrap_service",
-                        "location": "src/zeroth/service/bootstrap.py",
+                        "location": "src/zeroth/core/service/bootstrap.py",
                         "snippet": "bootstrap_service(...)",
                     },
                     {
                         "kind": "file_excerpt",
                         "title": "bootstrap excerpt",
-                        "location": "src/zeroth/service/bootstrap.py",
+                        "location": "src/zeroth/core/service/bootstrap.py",
                         "snippet": "def bootstrap_service(",
                     },
                 ],
@@ -761,7 +761,7 @@ def _provider_for(
     if node_id == "research":
         return _DeterministicToolingProvider(
             repo_root=repo_root,
-            file_path=repo_root / "src/zeroth/service/bootstrap.py",
+            file_path=repo_root / "src/zeroth/core/service/bootstrap.py",
         )
     if node_id == "review":
         return CallableProviderAdapter(_deterministic_review_provider)
@@ -779,7 +779,7 @@ def _deterministic_plan_provider(request) -> ProviderResponse:  # noqa: ANN001
             "question": payload["question"],
             "repo_path": payload.get("repo_path") or str(_REPO_ROOT),
             "repo_query": "bootstrap_service",
-            "file_path": str(_REPO_ROOT / "src/zeroth/service/bootstrap.py"),
+            "file_path": str(_REPO_ROOT / "src/zeroth/core/service/bootstrap.py"),
             "use_web": bool(payload.get("use_web", False)),
             "requires_research": True,
             "requires_approval": bool(payload.get("force_approval", False)),

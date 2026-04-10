@@ -14,7 +14,6 @@ from governai.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.memory.elastic_connector import ElasticsearchMemoryConnector
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

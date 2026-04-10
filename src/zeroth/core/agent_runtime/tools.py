@@ -290,7 +290,6 @@ class ToolAttachmentAction(StrEnum):
 
 def normalize_declared_tool_refs(declared_tool_refs: Sequence[str]) -> list[str]:
     """Normalize tool aliases into a stable, deduplicated order."""
-
     normalized: list[str] = []
     seen: set[str] = set()
     for alias in declared_tool_refs:
