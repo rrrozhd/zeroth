@@ -463,25 +463,15 @@ wheels = [
 [[package]]
 name = "econ-instrumentation-sdk"
 version = "0.1.1"
-source = { directory = "/Users/dondoe/coding/regulus/sdk/python" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", marker = "extra == 'integrations'", specifier = ">=0.34,<1.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "langchain", marker = "extra == 'integrations'", specifier = ">=0.2,<0.4" },
-    { name = "langgraph", marker = "extra == 'integrations'", specifier = ">=0.2,<0.4" },
-    { name = "openai", marker = "extra == 'integrations'", specifier = ">=1.40,<2.0" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.26,<2.0" },
-    { name = "pydantic", specifier = ">=2.7.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
+sdist = { url = "https://files.pythonhosted.org/packages/38/87/810ea1e227a70c32e6f6b766bdb710b1fe230aa6b327d24dc7cecde63f83/econ_instrumentation_sdk-0.1.1.tar.gz", hash = "sha256:d89454bec11f6fa67be6f565d595314a722524a343534db785aeae3a2cb15299", size = 19980, upload-time = "2026-04-10T21:56:50.606Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/0b/083d2012c70bf8c8bc86163b780f8f2a9fad9468492315600654764147c7/econ_instrumentation_sdk-0.1.1-py3-none-any.whl", hash = "sha256:04947c466bbe9fdbfc24f913e2b22acef78ea0bd9bdc014939b9ecdc4065211d", size = 31372, upload-time = "2026-04-10T21:56:52.012Z" },
 ]
-provides-extras = ["dev", "integrations", "otel"]
 
 [[package]]
 name = "elastic-transport"
@@ -3296,7 +3286,7 @@ requires-dist = [
     { name = "arq", specifier = ">=0.27" },
     { name = "cachetools", specifier = ">=5.5" },
     { name = "chromadb-client", specifier = ">=1.5.6" },
-    { name = "econ-instrumentation-sdk", directory = "/Users/dondoe/coding/regulus/sdk/python" },
+    { name = "econ-instrumentation-sdk", specifier = ">=0.1.1" },
     { name = "elasticsearch", extras = ["async"], specifier = ">=8.0,<9" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "governai", git = "https://github.com/rrrozhd/governai.git?rev=7452de4db144e8c92b7b5ae0a646c40314a6aa99" },
