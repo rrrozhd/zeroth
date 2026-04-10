@@ -18,6 +18,15 @@ run_cmd() {
   "$@"
 }
 
+ensure_repo_writable() {
+  local archived_state
+
+  archived_state=$(gh api repos/rrrozhd/zeroth-archive --jq '.archived')
+  if [ "$archived_state" = "true" ]; then
+    run_cmd gh api -X PATCH repos/rrrozhd/zeroth-archive -F archived=false
+  fi
+}
+
 prepend_banner() {
   local readme_path="$1"
   local temp_path
@@ -49,8 +58,11 @@ main() {
   if ! gh repo view rrrozhd/zeroth-archive >/dev/null 2>&1; then
     run_cmd gh repo create rrrozhd/zeroth-archive --public --description "$ARCHIVE_DESCRIPTION"
   else
-    run_cmd gh repo view rrrozhd/zeroth-archive
+    run_cmd gh repo view rrrozhd/zeroth-archive --json name,description,isArchived
   fi
+
+  ensure_repo_writable
+  run_cmd gh repo edit rrrozhd/zeroth-archive --visibility public --accept-visibility-change-consequences
 
   if git -C "$MIRROR_PATH" remote get-url origin >/dev/null 2>&1; then
     run_cmd git -C "$MIRROR_PATH" remote set-url origin "$ARCHIVE_REMOTE"
