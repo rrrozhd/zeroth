@@ -10,7 +10,7 @@ from libcst.helpers import get_full_name_for_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PYTHON_ROOTS = ("src", "tests", "apps", "scripts")
+PYTHON_ROOTS = ("src", "tests", "apps", "scripts", "live_scenarios")
 TEXT_ROOT_FILES = (
     "pyproject.toml",
     "Dockerfile",
@@ -21,7 +21,10 @@ TEXT_ROOT_FILES = (
 )
 TEXT_EXTENSIONS = (".md", ".toml", ".yaml", ".yml")
 TEXT_ROOT_DIRS = ("docs",)
-EXCLUDED_PYTHON_FILES = {Path("scripts/rename_to_zeroth_core.py")}
+EXCLUDED_PYTHON_FILES = {
+    Path("scripts/rename_to_zeroth_core.py"),
+    Path("tests/test_phase27_rename_scripts.py"),
+}
 EXCLUDED_TEXT_PATH_PARTS = {".planning"}
 EXCLUDED_ROOT_TEXT_FILES = {"PROGRESS.md"}
 TOP_LEVEL_PACKAGES = (
@@ -57,18 +60,33 @@ MODULE_PATTERN = "|".join(sorted((re.escape(name) for name in TOP_LEVEL_PACKAGES
 MODULE_PATH_RE = re.compile(
     rf"\bzeroth\.(?P<module>{MODULE_PATTERN})(?=(?:\.|\b))"
 )
+SOURCE_PATH_RE = re.compile(
+    rf"\bsrc/zeroth/(?P<module>{MODULE_PATTERN})(?=(?:/|\b))"
+)
+NORMALIZED_IMPORT_DUPLICATE_RE = re.compile(r"\bzeroth\.core\.core(?=\.|\b)")
+NORMALIZED_SOURCE_DUPLICATE_RE = re.compile(r"\bsrc/zeroth/core/core(?=/|\b)")
+
+
+def normalize_rewritten_paths(text: str) -> str:
+    rewritten = NORMALIZED_IMPORT_DUPLICATE_RE.sub("zeroth.core", text)
+    return NORMALIZED_SOURCE_DUPLICATE_RE.sub("src/zeroth/core", rewritten)
 
 
 def rewrite_python_import_path(path: str) -> str:
+    path = normalize_rewritten_paths(path)
     if path == "zeroth":
         return "zeroth.core"
-    if path.startswith("zeroth.") and not path.startswith("zeroth.core."):
+    if path == "zeroth.core" or path.startswith("zeroth.core."):
+        return path
+    if path.startswith("zeroth."):
         return f"zeroth.core.{path.removeprefix('zeroth.')}"
     return path
 
 
 def rewrite_module_path_literals(text: str) -> str:
-    return MODULE_PATH_RE.sub(r"zeroth.core.\g<module>", text)
+    rewritten = MODULE_PATH_RE.sub(r"zeroth.core.\g<module>", text)
+    rewritten = SOURCE_PATH_RE.sub(r"src/zeroth/core/\g<module>", rewritten)
+    return normalize_rewritten_paths(rewritten)
 
 
 def rewrite_text_file_contents(path: Path, text: str) -> str:
@@ -76,7 +94,7 @@ def rewrite_text_file_contents(path: Path, text: str) -> str:
 
     if path.name == "pyproject.toml":
         rewritten = rewritten.replace('name = "zeroth"', 'name = "zeroth-core"', 1)
-        rewritten = rewritten.replace('packages = ["src/zeroth"]', 'packages = ["src/zeroth/core"]', 1)
+        rewritten = rewritten.replace('packages = ["src/zeroth/core"]', 'packages = ["src/zeroth"]', 1)
 
     if path.name == "Dockerfile":
         rewritten = rewritten.replace(

@@ -43,7 +43,6 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
 
 async def require_permission(request: Request, permission: Permission) -> AuthenticatedPrincipal:
     """Require that the authenticated principal holds the requested permission."""
-
     principal = current_principal(request)
     allowed = set().union(*(ROLE_PERMISSIONS.get(role, set()) for role in principal.roles))
     if permission in allowed:
@@ -69,7 +68,6 @@ async def require_deployment_scope(
     hide_as_not_found: bool = True,
 ) -> AuthenticatedPrincipal:
     """Require that the authenticated principal can access the deployment scope."""
-
     principal = current_principal(request)
     deployment_tenant = getattr(deployment, "tenant_id", "default")
     deployment_workspace = getattr(deployment, "workspace_id", None)
@@ -104,7 +102,6 @@ async def require_resource_scope(
     not_found_detail: str,
 ) -> AuthenticatedPrincipal:
     """Require that the authenticated principal can access a scoped resource."""
-
     principal = current_principal(request)
     if principal.tenant_id == tenant_id and principal.workspace_id == workspace_id:
         return principal

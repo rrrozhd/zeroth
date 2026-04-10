@@ -258,7 +258,11 @@ class RuntimeOrchestrator:
                 try:
                     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
-                    tenant_id = run.metadata.get("tenant_id", "default") if run.metadata else "default"
+                    tenant_id = (
+                        run.metadata.get("tenant_id", "default")
+                        if run.metadata
+                        else "default"
+                    )
                     runner.provider = InstrumentedProviderAdapter(
                         inner=original_provider,
                         regulus_client=self.regulus_client,

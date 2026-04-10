@@ -83,7 +83,6 @@ def inject_input(
     as JSON and puts it in the stdin field. If the mode is "cli_args", it
     converts each key-value pair into --key value arguments.
     """
-
     input_mode = _coerce_input_mode(mode)
     data = _normalize_payload(payload)
 
@@ -118,7 +117,6 @@ def extract_output(
     line in stdout, reading a JSON file, capturing plain text, or just
     using the exit code.
     """
-
     output_mode = _coerce_output_mode(mode)
 
     if output_mode is OutputMode.JSON_STDOUT:
@@ -173,7 +171,6 @@ def convert_output(
     Takes the raw payload from extract_output and makes sure it matches
     the expected output schema. Returns a validated Pydantic model instance.
     """
-
     payload = extracted.payload if isinstance(extracted, ExtractedOutput) else extracted
     if isinstance(payload, BaseModel):
         payload = payload.model_dump(mode="json")

@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from zeroth.core.agent_runtime.thread_store import RepositoryThreadResolver, RepositoryThreadStateStore
+from zeroth.core.agent_runtime.thread_store import (
+    RepositoryThreadResolver,
+    RepositoryThreadStateStore,
+)
 from zeroth.core.audit import AuditRepository
 from zeroth.core.execution_units import EnvironmentVariable
 from zeroth.core.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph

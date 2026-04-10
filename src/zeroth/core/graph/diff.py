@@ -12,7 +12,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.graph.models import AgentNode, Edge, ExecutableUnitNode, Graph, HumanApprovalNode, Node
+from zeroth.core.graph.models import (
+    AgentNode,
+    Edge,
+    ExecutableUnitNode,
+    Graph,
+    HumanApprovalNode,
+    Node,
+)
 
 ChangeType = Literal["added", "removed", "modified"]
 
@@ -114,8 +121,11 @@ def _diff_nodes(
     left_nodes: Iterable[Node],
     right_nodes: Iterable[Node],
 ) -> tuple[list[DiffEntry], list[DiffEntry], list[DiffEntry], list[DiffEntry], list[DiffEntry]]:
-    """Compare two sets of nodes and return changes for nodes,
-    contracts, policies, memory, and executables."""
+    """Compare two sets of nodes and return categorized changes.
+
+    The returned tuple tracks node, contract, policy, memory, and executable
+    binding changes separately.
+    """
     left_map = {node.node_id: node for node in left_nodes}
     right_map = {node.node_id: node for node in right_nodes}
 

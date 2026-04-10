@@ -168,7 +168,6 @@ class ServiceAuthenticator:
 
 def current_principal(request: Request) -> AuthenticatedPrincipal:
     """Read the authenticated principal from request state."""
-
     principal = getattr(request.state, "principal", None)
     if principal is None:
         raise RuntimeError("request principal is not set")
@@ -187,7 +186,6 @@ async def record_service_denial(
     metadata: dict[str, Any] | None = None,
 ) -> None:
     """Record an authentication or authorization denial via the audit repository."""
-
     if audit_repository is None:
         return
     tenant_id = getattr(deployment, "tenant_id", "default")

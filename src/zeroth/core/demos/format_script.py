@@ -6,7 +6,7 @@ No LLM call -- pure computation.
 """
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def main():
@@ -15,7 +15,7 @@ def main():
     words = findings.split()
     formatted = (
         f"# Research Findings\n\n"
-        f"**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
+        f"**Generated:** {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}\n"
         f"**Word count:** {len(words)}\n\n"
         f"---\n\n"
         f"{findings}"

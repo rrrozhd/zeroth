@@ -6,17 +6,12 @@ trigger webhook events via the optional WebhookService.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
-from zeroth.core.approvals.models import ApprovalDecision, ApprovalStatus
-from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.core.approvals.models import ApprovalDecision
+from zeroth.core.identity import ActorIdentity, AuthMethod
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs import Run, RunRepository, RunStatus
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -134,8 +129,8 @@ class TestApprovalWebhookEmission:
 
     async def test_approval_created_emits_event(self):
         """create_pending emits approval.requested webhook."""
-        from zeroth.core.approvals.service import ApprovalService
         from zeroth.core.approvals.repository import ApprovalRepository
+        from zeroth.core.approvals.service import ApprovalService
 
         repo = AsyncMock(spec=ApprovalRepository)
         run_repo = AsyncMock(spec=RunRepository)
@@ -178,8 +173,8 @@ class TestApprovalWebhookEmission:
     async def test_approval_resolved_emits_event(self):
         """resolve emits approval.resolved webhook."""
         from zeroth.core.approvals.models import ApprovalRecord
-        from zeroth.core.approvals.service import ApprovalService
         from zeroth.core.approvals.repository import ApprovalRepository
+        from zeroth.core.approvals.service import ApprovalService
 
         repo = AsyncMock(spec=ApprovalRepository)
         run_repo = AsyncMock(spec=RunRepository)

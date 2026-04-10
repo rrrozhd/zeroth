@@ -10,6 +10,7 @@ from zeroth.core.dispatch.lease import LeaseManager
 from zeroth.core.dispatch.worker import RunWorker
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.runs.models import Run
+from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
 
 DEPLOYMENT = "worker-test-deployment"
 
@@ -236,7 +237,7 @@ async def test_worker_does_not_claim_more_runs_than_available_capacity(
 
 
 @pytest.mark.asyncio
-async def test_handle_wakeup_claims_and_dispatches(sqlite_db: SQLiteDatabase) -> None:
+async def test_handle_wakeup_claims_and_dispatches(sqlite_db: AsyncSQLiteDatabase) -> None:
     """handle_wakeup should claim a pending run and dispatch it."""
     run_repo = RunRepository(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
@@ -265,7 +266,7 @@ async def test_handle_wakeup_claims_and_dispatches(sqlite_db: SQLiteDatabase) ->
 
 @pytest.mark.asyncio
 async def test_handle_wakeup_releases_semaphore_on_no_work(
-    sqlite_db: SQLiteDatabase,
+    sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """When no work is available, handle_wakeup should release the semaphore."""
     run_repo = RunRepository(sqlite_db)
@@ -296,7 +297,7 @@ async def test_handle_wakeup_releases_semaphore_on_no_work(
 
 @pytest.mark.asyncio
 async def test_graceful_shutdown_waits_for_active_tasks(
-    sqlite_db: SQLiteDatabase,
+    sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """graceful_shutdown should wait for tasks and release leases on timeout."""
     run_repo = RunRepository(sqlite_db)
@@ -372,7 +373,7 @@ def test_extract_run_id_from_task_name() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stopping_flag_exits_poll_loop(sqlite_db: SQLiteDatabase) -> None:
+async def test_stopping_flag_exits_poll_loop(sqlite_db: AsyncSQLiteDatabase) -> None:
     """Setting _stopping = True should make poll_loop exit without claiming."""
     run_repo = RunRepository(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)

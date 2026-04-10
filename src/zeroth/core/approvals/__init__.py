@@ -1,5 +1,4 @@
-"""Approvals package — provides everything you need to create, store, and resolve
-human approval requests within agent workflows.
+"""Approval package exports.
 
 This package re-exports the key models, the database repository, and the
 high-level service so callers can simply ``from zeroth.core.approvals import ...``.
