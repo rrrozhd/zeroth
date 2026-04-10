@@ -82,8 +82,6 @@ async def postgres_database(postgres_container):
             "graph_versions",
             "contract_versions",
             "deployment_versions",
-            "rate_limit_tokens",
-            "daily_quotas",
         ]:
             await conn.execute(f"TRUNCATE TABLE {table} CASCADE")
 
@@ -122,7 +120,5 @@ async def dual_database(request, tmp_path, postgres_container):
                 "graph_versions",
                 "contract_versions",
                 "deployment_versions",
-                "rate_limit_tokens",
-                "daily_quotas",
             ]:
                 await conn.execute(f"TRUNCATE TABLE {table} CASCADE")

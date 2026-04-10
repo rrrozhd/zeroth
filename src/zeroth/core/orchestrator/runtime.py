@@ -253,8 +253,15 @@ class RuntimeOrchestrator:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
 
             # Phase 18: Wrap provider with cost instrumentation (per ECON-01).
-            original_provider = runner.provider
-            if self.regulus_client is not None and self.cost_estimator is not None:
+            # Use getattr so lightweight test runners without a .provider
+            # attribute (e.g. FunctionalRunner, RecordingAgentRunner) still work.
+            _MISSING = object()
+            original_provider = getattr(runner, "provider", _MISSING)
+            if (
+                original_provider is not _MISSING
+                and self.regulus_client is not None
+                and self.cost_estimator is not None
+            ):
                 try:
                     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
@@ -276,11 +283,23 @@ class RuntimeOrchestrator:
                     pass
 
             # Phase 20: Save originals before injection so we can restore in finally.
-            original_memory_resolver = runner.memory_resolver
-            original_budget_enforcer = runner.budget_enforcer
-            if self.memory_resolver is not None:
+            # getattr-based so mock runners without these attributes don't crash.
+            # Injection is additive: only fill in when the runner has no resolver
+            # of its own, so callers that pre-configure a runner with a specific
+            # registry (e.g. tests) are respected.
+            original_memory_resolver = getattr(runner, "memory_resolver", _MISSING)
+            original_budget_enforcer = getattr(runner, "budget_enforcer", _MISSING)
+            if (
+                self.memory_resolver is not None
+                and original_memory_resolver is not _MISSING
+                and original_memory_resolver is None
+            ):
                 runner.memory_resolver = self.memory_resolver
-            if self.budget_enforcer is not None:
+            if (
+                self.budget_enforcer is not None
+                and original_budget_enforcer is not _MISSING
+                and original_budget_enforcer is None
+            ):
                 runner.budget_enforcer = self.budget_enforcer
 
             thread_id = await self._resolve_thread(node, run)
@@ -294,11 +313,13 @@ class RuntimeOrchestrator:
                     enforcement_context=enforcement_context,
                 )
             finally:
-                # Always restore original provider to avoid leaking wrapped state.
-                runner.provider = original_provider
-                # Always restore originals to avoid leaking injected state.
-                runner.memory_resolver = original_memory_resolver
-                runner.budget_enforcer = original_budget_enforcer
+                # Restore originals only if they existed on the runner.
+                if original_provider is not _MISSING:
+                    runner.provider = original_provider
+                if original_memory_resolver is not _MISSING:
+                    runner.memory_resolver = original_memory_resolver
+                if original_budget_enforcer is not _MISSING:
+                    runner.budget_enforcer = original_budget_enforcer
 
             audit_record = dict(result.audit_record)
             if enforcement_context:
