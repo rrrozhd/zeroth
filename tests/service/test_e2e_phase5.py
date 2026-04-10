@@ -158,7 +158,16 @@ def _wait_for_status(
     *,
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    wait_for(lambda: _run_status_payload(client, run_id, headers=headers)["status"] == status)
+    try:
+        wait_for(
+            lambda: _run_status_payload(client, run_id, headers=headers)["status"] == status
+        )
+    except AssertionError:
+        payload = _run_status_payload(client, run_id, headers=headers)
+        raise AssertionError(
+            f"timeout waiting for status={status}; actual={payload.get('status')} "
+            f"error={payload.get('error')} failure_state={payload.get('failure_state')}"
+        ) from None
     return _run_status_payload(client, run_id, headers=headers)
 
 

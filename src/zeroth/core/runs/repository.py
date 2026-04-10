@@ -294,7 +294,9 @@ class _RunThreadStore:
         """Save a snapshot of the run's current state as a checkpoint.
 
         Returns the checkpoint ID. Checkpoints let you restore a run
-        to a previous point in its execution.
+        to a previous point in its execution. When the underlying database
+        was configured with an encryption_key, the serialized state_json is
+        encrypted at rest so thread-state checkpoints cannot leak secrets.
         """
         checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
         run.checkpoint_id = checkpoint_id
@@ -311,6 +313,7 @@ class _RunThreadStore:
         run.touch()
         snapshot = run.model_dump(mode="json")
         checkpoint_order = await self._next_checkpoint_order(run.thread_id)
+        state_json = self._encrypt_state_json(to_json_value(snapshot))
         async with self.database.transaction() as connection:
             await connection.execute(
                 """
@@ -328,12 +331,30 @@ class _RunThreadStore:
                     run.run_id,
                     run.thread_id,
                     checkpoint_order,
-                    to_json_value(snapshot),
+                    state_json,
                     run.updated_at.isoformat(),
                 ),
             )
         await self._record_thread_checkpoint(run.thread_id, checkpoint_id)
         return checkpoint_id
+
+    def _encrypt_state_json(self, state_json: str) -> str:
+        """Encrypt state_json at rest when the database has an encrypted_field."""
+        encrypted_field = getattr(self.database, "encrypted_field", None)
+        if encrypted_field is None:
+            return state_json
+        return encrypted_field.encrypt(state_json)
+
+    def _decrypt_state_json(self, state_json: str) -> str:
+        """Reverse of _encrypt_state_json; passthrough when no encrypted_field."""
+        encrypted_field = getattr(self.database, "encrypted_field", None)
+        if encrypted_field is None:
+            return state_json
+        try:
+            return encrypted_field.decrypt(state_json)
+        except Exception:
+            # Value was written before encryption was enabled; return as-is.
+            return state_json
 
     async def get_checkpoint(self, checkpoint_id: str) -> Run | None:
         """Load a previously saved checkpoint by its ID."""
@@ -344,7 +365,8 @@ class _RunThreadStore:
             )
         if row is None:
             return None
-        return Run.model_validate(load_typed_value(row["state_json"], dict[str, Any]))
+        state_json = self._decrypt_state_json(row["state_json"])
+        return Run.model_validate(load_typed_value(state_json, dict[str, Any]))
 
     async def get_latest_checkpoint(self, thread_id: str) -> Run | None:
         """Load the most recent checkpoint for a given thread."""
