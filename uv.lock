@@ -3243,34 +3243,53 @@ wheels = [
 
 [[package]]
 name = "zeroth-core"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
-    { name = "arq" },
     { name = "cachetools" },
-    { name = "chromadb-client" },
     { name = "econ-instrumentation-sdk" },
-    { name = "elasticsearch", extra = ["async"] },
     { name = "fastapi" },
     { name = "governai" },
     { name = "httpx" },
     { name = "langchain-litellm" },
     { name = "litellm" },
     { name = "mcp" },
-    { name = "pgvector" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "psycopg-pool" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "redis" },
     { name = "sqlalchemy" },
     { name = "tenacity" },
     { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "arq" },
+    { name = "chromadb-client" },
+    { name = "elasticsearch", extra = ["async"] },
+    { name = "pgvector" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+    { name = "redis" },
+]
+dispatch = [
+    { name = "arq" },
+    { name = "redis" },
+]
+memory-chroma = [
+    { name = "chromadb-client" },
+]
+memory-es = [
+    { name = "elasticsearch", extra = ["async"] },
+]
+memory-pg = [
+    { name = "pgvector" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
 ]
 
 [package.dev-dependencies]
@@ -3287,32 +3306,36 @@ dev = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22" },
     { name = "alembic", specifier = ">=1.18" },
-    { name = "arq", specifier = ">=0.27" },
+    { name = "arq", marker = "extra == 'dispatch'", specifier = ">=0.27" },
     { name = "cachetools", specifier = ">=5.5" },
-    { name = "chromadb-client", specifier = ">=1.5.6" },
+    { name = "chromadb-client", marker = "extra == 'memory-chroma'", specifier = ">=1.5.6" },
     { name = "econ-instrumentation-sdk", specifier = ">=0.1.1" },
-    { name = "elasticsearch", extras = ["async"], specifier = ">=8.0,<9" },
+    { name = "elasticsearch", extras = ["async"], marker = "extra == 'memory-es'", specifier = ">=8.0,<9" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "governai", specifier = ">=0.2.3" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain-litellm", specifier = ">=0.3.4" },
-    { name = "litellm", specifier = ">=1.83.0" },
     { name = "litellm", specifier = ">=1.83,<2.0" },
     { name = "mcp", specifier = ">=1.7,<2.0" },
-    { name = "pgvector", specifier = ">=0.4.2" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3" },
-    { name = "psycopg-pool", specifier = ">=3.2" },
+    { name = "pgvector", marker = "extra == 'memory-pg'", specifier = ">=0.4.2" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'memory-pg'", specifier = ">=3.3" },
+    { name = "psycopg-pool", marker = "extra == 'memory-pg'", specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.10" },
     { name = "pydantic-settings", specifier = ">=2.13" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "redis", specifier = ">=5.0.0" },
+    { name = "redis", marker = "extra == 'dispatch'", specifier = ">=5.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "tenacity", specifier = ">=8.2" },
     { name = "uvicorn", specifier = ">=0.30" },
+    { name = "zeroth-core", extras = ["dispatch"], marker = "extra == 'all'" },
+    { name = "zeroth-core", extras = ["memory-chroma"], marker = "extra == 'all'" },
+    { name = "zeroth-core", extras = ["memory-es"], marker = "extra == 'all'" },
+    { name = "zeroth-core", extras = ["memory-pg"], marker = "extra == 'all'" },
+    { name = "zeroth-core", extras = ["sandbox"], marker = "extra == 'all'" },
 ]
+provides-extras = ["memory-pg", "memory-chroma", "memory-es", "dispatch", "sandbox", "all"]
 
 [package.metadata.requires-dev]
 dev = [
