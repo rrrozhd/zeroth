@@ -38,6 +38,20 @@ theme:
 plugins:
   - search
   - section-index
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_root_toc_entry: true
+            show_source: false
+            members_order: source
+            show_signature_annotations: true
+            separate_signature: true
+            merge_init_into_class: true
 
 markdown_extensions:
   - admonition
