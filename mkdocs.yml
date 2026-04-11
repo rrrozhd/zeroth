@@ -5,10 +5,9 @@ repo_url: https://github.com/rrrozhd/zeroth-core
 repo_name: rrrozhd/zeroth-core
 edit_uri: edit/main/docs/
 
-# Pre-existing docs/specs/ and docs/superpowers/ are internal notes, not part of the public site.
+# docs/specs/ are internal design notes, not part of the public site.
 exclude_docs: |
   specs/
-  superpowers/
 
 theme:
   name: material
