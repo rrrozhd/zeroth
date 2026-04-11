@@ -11,6 +11,7 @@ import time
 from typing import TYPE_CHECKING
 
 import httpx
+from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import from_url as redis_from_url
 
@@ -126,7 +127,6 @@ async def check_regulus(
 
 def register_health_routes(app: FastAPI) -> None:
     """Register /health/ready and /health/live endpoints on the app."""
-    from fastapi import Request
 
     @app.get("/health/ready", response_model=ReadinessResponse)
     async def health_ready(request: Request) -> ReadinessResponse:
