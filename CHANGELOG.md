@@ -35,9 +35,10 @@ pipeline required for a stable PyPI presence.
   opt-in via its extra.
 - Build backend bumped to `hatchling>=1.27` for PEP 639 SPDX
   `license-expression` support.
-- Hatchling wheel target corrected to `src/zeroth/core` so the published wheel
-  reflects the PEP 420 namespace layout introduced in Phase 27 (no stray
-  top-level `zeroth/__init__.py` in the wheel).
+- Hatchling wheel target verified for the PEP 420 namespace layout introduced
+  in Phase 27. The existing `packages = ["src/zeroth"]` target was kept
+  unchanged after confirming it produces a correctly-rooted `zeroth/core/`
+  wheel with no stray top-level `zeroth/__init__.py`.
 
 [Unreleased]: https://github.com/rrrozhd/zeroth-core/compare/v0.1.1...HEAD
 [0.1.1]: https://github.com/rrrozhd/zeroth-core/releases/tag/v0.1.1
