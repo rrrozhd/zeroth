@@ -68,6 +68,12 @@ all = [
     "zeroth-core[dispatch]",
     "zeroth-core[sandbox]",
 ]
+docs = [
+    "mkdocs>=1.6,<2.0",
+    "mkdocs-material>=9.7.6,<10",
+    "pymdown-extensions>=10.8",
+    "mkdocs-section-index>=0.3.9",
+]
 
 [project.urls]
 Homepage = "https://github.com/rrrozhd/zeroth-core"
