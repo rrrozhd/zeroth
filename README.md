@@ -10,9 +10,9 @@ Zeroth is built on top of **[GovernAI](https://github.com/rrrozhd/governai)** as
 
 ## Documentation
 
-Full documentation lives at **<https://rrrozhd.github.io/zeroth/>** —
-start with the [Getting Started tutorial](https://rrrozhd.github.io/zeroth/tutorials/getting-started/)
-or the [Governance Walkthrough](https://rrrozhd.github.io/zeroth/tutorials/governance-walkthrough/).
+Full documentation lives at **<https://rrrozhd.github.io/zeroth-core/>** —
+start with the [Getting Started tutorial](https://rrrozhd.github.io/zeroth-core/tutorials/getting-started/)
+or the [Governance Walkthrough](https://rrrozhd.github.io/zeroth-core/tutorials/governance-walkthrough/).
 
 ---
 
