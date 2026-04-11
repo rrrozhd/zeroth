@@ -2,5 +2,7 @@ node_modules/
 dist/
 src/api/schema.d.ts
 *.local
+.env.local
+.env.*.local
 .vite/
 tsconfig.tsbuildinfo
