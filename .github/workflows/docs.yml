@@ -27,7 +27,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install docs dependencies
-        run: uv sync --extra docs
+        # --all-extras: the OpenAPI drift check imports zeroth.core.service.app,
+        # which transitively requires the `dispatch` extra (redis). Installing
+        # all extras is the simplest way to keep the drift gate honest in CI.
+        run: uv sync --all-extras
 
       - name: Check OpenAPI snapshot is up to date
         run: |
