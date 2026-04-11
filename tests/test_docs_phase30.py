@@ -217,6 +217,9 @@ def test_landing_tabs_link_to_getting_started() -> None:
 GOVERNANCE_PAGE = DOCS_DIR / "tutorials" / "governance-walkthrough.md"
 GOVERNANCE_EXAMPLE = REPO_ROOT / "examples" / "governance_walkthrough.py"
 
+DOCS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "docs.yml"
+README = REPO_ROOT / "README.md"
+
 
 def test_governance_walkthrough_page_shape() -> None:
     """Governance Walkthrough page must exist and name all three primitives."""
@@ -265,3 +268,65 @@ def test_governance_walkthrough_example_skips_cleanly() -> None:
         f"SKIP path must exit 0, got {result.returncode}; stderr={result.stderr!r}"
     )
     assert "SKIP" in result.stderr, f"expected SKIP notice in stderr, got {result.stderr!r}"
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-05: docs deploy workflow
+# ---------------------------------------------------------------------------
+
+
+def test_docs_workflow_exists_and_valid_yaml() -> None:
+    """docs.yml must exist, parse, declare name 'docs', and trigger on push+PR to main."""
+    assert DOCS_WORKFLOW.exists(), f"{DOCS_WORKFLOW} missing"
+    config = yaml.safe_load(DOCS_WORKFLOW.read_text(encoding="utf-8"))
+    assert config.get("name") == "docs", f"workflow name must be 'docs', got {config.get('name')!r}"
+    # PyYAML parses bare `on:` as Python True; accept both.
+    triggers = config.get("on") if "on" in config else config.get(True)
+    assert isinstance(triggers, dict), f"workflow triggers missing: {triggers!r}"
+    push = triggers.get("push") or {}
+    pr = triggers.get("pull_request") or {}
+    assert "main" in (push.get("branches") or []), "push trigger must include main"
+    assert "main" in (pr.get("branches") or []), "pull_request trigger must include main"
+
+
+def test_docs_workflow_build_is_strict() -> None:
+    """docs.yml must run mkdocs build with --strict on every trigger."""
+    body = DOCS_WORKFLOW.read_text(encoding="utf-8")
+    assert "mkdocs build --strict" in body, "strict mkdocs build step missing"
+
+
+def test_docs_workflow_deploy_is_main_only() -> None:
+    """The gh-deploy step must be gated on push to refs/heads/main only."""
+    config = yaml.safe_load(DOCS_WORKFLOW.read_text(encoding="utf-8"))
+    steps = config["jobs"]["build"]["steps"]
+    deploy_steps = [s for s in steps if "gh-deploy" in (s.get("run") or "")]
+    assert deploy_steps, "no gh-deploy step found"
+    for step in deploy_steps:
+        condition = step.get("if") or ""
+        assert "github.event_name == 'push'" in condition, (
+            f"deploy step must gate on push event, got {condition!r}"
+        )
+        assert "refs/heads/main" in condition, (
+            f"deploy step must gate on refs/heads/main, got {condition!r}"
+        )
+
+
+def test_docs_workflow_has_contents_write_permission() -> None:
+    """gh-deploy needs contents: write to push to the gh-pages branch."""
+    config = yaml.safe_load(DOCS_WORKFLOW.read_text(encoding="utf-8"))
+    perms = config.get("permissions") or {}
+    # permissions may live at workflow or job level; check both.
+    contents = perms.get("contents") if isinstance(perms, dict) else None
+    if contents is None:
+        job_perms = config["jobs"]["build"].get("permissions") or {}
+        contents = job_perms.get("contents") if isinstance(job_perms, dict) else None
+    assert contents == "write", f"contents: write permission missing, got {contents!r}"
+
+
+def test_readme_links_to_live_docs() -> None:
+    """README.md must link to the live docs URL near the top."""
+    assert README.exists(), f"{README} missing"
+    body = README.read_text(encoding="utf-8")
+    assert "https://rrrozhd.github.io/zeroth/" in body, (
+        "README.md must link to https://rrrozhd.github.io/zeroth/"
+    )

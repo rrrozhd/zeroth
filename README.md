@@ -6,6 +6,14 @@ Zeroth treats an agentic application as an **explicit executable graph** rather 
 
 ---
 
+## Documentation
+
+Full documentation lives at **<https://rrrozhd.github.io/zeroth/>** —
+start with the [Getting Started tutorial](https://rrrozhd.github.io/zeroth/tutorials/getting-started/)
+or the [Governance Walkthrough](https://rrrozhd.github.io/zeroth/tutorials/governance-walkthrough/).
+
+---
+
 ## Install
 
 ```bash
