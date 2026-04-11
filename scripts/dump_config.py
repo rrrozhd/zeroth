@@ -6,9 +6,11 @@ with columns ``Env Var | Type | Default | Secret | Description``.
 
 Usage::
 
-    uv run python scripts/dump_config.py                          # writes docs/reference/configuration.md
+    # writes docs/reference/configuration.md
+    uv run python scripts/dump_config.py
     uv run python scripts/dump_config.py --out custom/path.md
-    uv run python scripts/dump_config.py --check                  # drift gate, exits 1 if stale
+    # drift gate, exits 1 if stale
+    uv run python scripts/dump_config.py --check
 
 The script is CI-gated via ``--check``. The committed
 ``docs/reference/configuration.md`` MUST be regenerated with this script;
@@ -27,12 +29,15 @@ from typing import Any, get_args, get_origin
 from pydantic import BaseModel, SecretStr
 from pydantic_core import PydanticUndefined
 
-
 PREAMBLE = """# Configuration Reference
 
-Every Zeroth setting is loaded from (in priority order): environment variables (`ZEROTH_` prefix, nested via `__`), a local `.env` file, then `zeroth.yaml`. This reference is auto-generated from `zeroth.core.config.settings` via `scripts/dump_config.py` — **do not edit by hand**.
+Every Zeroth setting is loaded from (in priority order): environment variables
+(`ZEROTH_` prefix, nested via `__`), a local `.env` file, then `zeroth.yaml`.
+This reference is auto-generated from `zeroth.core.config.settings` via
+`scripts/dump_config.py` — **do not edit by hand**.
 
-CI runs `python scripts/dump_config.py --check` on every PR and fails if this file is stale.
+CI runs `python scripts/dump_config.py --check` on every PR and fails if this
+file is stale.
 """
 
 
