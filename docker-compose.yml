@@ -61,21 +61,9 @@ services:
     networks:
       - zeroth-net
 
-  nginx:
-    build:
-      context: ./apps/studio
-      dockerfile: Dockerfile
-    ports:
-      - "443:443"
-      - "80:80"
-    volumes:
-      - ./docker/nginx/studio.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./docker/nginx/certs:/etc/nginx/certs:ro
-    depends_on:
-      - zeroth
-    networks:
-      - zeroth-net
-    restart: unless-stopped
+  # NOTE: Studio frontend moved to https://github.com/rrrozhd/zeroth-studio
+  # in Phase 29. The nginx reverse proxy that served the built studio bundle
+  # is no longer defined here; run the studio separately against this stack.
 
 volumes:
   pgdata:
