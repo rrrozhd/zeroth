@@ -145,3 +145,63 @@ def test_reference_quadrant_stubs_are_minimal() -> None:
         body = page.read_text(encoding="utf-8")
         assert "TBD" in body or "Phase 32" in body, f"{name} missing TBD/Phase 32 marker"
         assert len(body) < 400, f"{name} is {len(body)} chars; stubs must stay <400 to block rot"
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-03: Getting Started tutorial + examples CI workflow
+# ---------------------------------------------------------------------------
+
+EXAMPLES_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "examples.yml"
+GETTING_STARTED = DOCS_DIR / "tutorials" / "getting-started"
+
+
+def test_examples_workflow_exists() -> None:
+    """The examples workflow must exist and trigger on push/PR to main."""
+    assert EXAMPLES_WORKFLOW.exists(), f"{EXAMPLES_WORKFLOW} missing"
+    config = yaml.safe_load(EXAMPLES_WORKFLOW.read_text(encoding="utf-8"))
+    # PyYAML parses the bare `on:` key as the Python bool True; accept both.
+    triggers = config.get("on") if "on" in config else config.get(True)
+    assert isinstance(triggers, dict), f"workflow triggers missing: {triggers!r}"
+    push = triggers.get("push") or {}
+    pr = triggers.get("pull_request") or {}
+    assert "main" in (push.get("branches") or []), "push trigger must include main"
+    assert "main" in (pr.get("branches") or []), "pull_request trigger must include main"
+
+
+def test_examples_workflow_runs_first_graph_and_approval() -> None:
+    """The workflow must invoke both new example scripts by path."""
+    body = EXAMPLES_WORKFLOW.read_text(encoding="utf-8")
+    assert "examples/first_graph.py" in body, "first_graph.py not wired into examples.yml"
+    assert "examples/approval_demo.py" in body, "approval_demo.py not wired into examples.yml"
+
+
+def test_first_graph_page_embeds_example() -> None:
+    """02-first-graph.md must embed examples/first_graph.py via pymdownx.snippets."""
+    page = GETTING_STARTED / "02-first-graph.md"
+    assert page.exists(), f"{page} missing"
+    body = page.read_text(encoding="utf-8")
+    assert "--8<--" in body, "snippets token missing from 02-first-graph.md"
+    assert "first_graph.py" in body, "first_graph.py reference missing from 02-first-graph.md"
+
+
+def test_approval_page_embeds_example_and_curl() -> None:
+    """03-service-and-approval.md must embed approval_demo.py and show the curl path."""
+    page = GETTING_STARTED / "03-service-and-approval.md"
+    assert page.exists(), f"{page} missing"
+    body = page.read_text(encoding="utf-8")
+    assert "--8<--" in body, "snippets token missing from 03-service-and-approval.md"
+    assert "approval_demo.py" in body, "approval_demo.py reference missing"
+    assert "/approvals/" in body and "/resolve" in body, (
+        "curl command for POST /approvals/{id}/resolve not documented"
+    )
+
+
+def test_landing_tabs_link_to_getting_started() -> None:
+    """docs/index.md Choose Your Path tabs must link to both tutorial sections."""
+    body = (DOCS_DIR / "index.md").read_text(encoding="utf-8")
+    assert "tutorials/getting-started/02-first-graph.md" in body, (
+        "landing page missing link to 02-first-graph.md"
+    )
+    assert "tutorials/getting-started/03-service-and-approval.md" in body, (
+        "landing page missing link to 03-service-and-approval.md"
+    )

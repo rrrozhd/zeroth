@@ -1,0 +1,44 @@
+name: examples
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  run-examples:
+    runs-on: ubuntu-latest
+    env:
+      # Scripts SKIP cleanly when this is unset, so forked-PR runs without
+      # access to repo secrets still exit 0.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
+
+      - name: Run examples/hello.py
+        run: uv run python examples/hello.py
+
+      - name: Run examples/first_graph.py
+        run: uv run python examples/first_graph.py
+
+      - name: Run examples/approval_demo.py
+        run: uv run python examples/approval_demo.py
+
+      - name: Run examples/governance_walkthrough.py (if present)
+        run: |
+          if [ -f examples/governance_walkthrough.py ]; then
+            uv run python examples/governance_walkthrough.py
+          else
+            echo "examples/governance_walkthrough.py not yet shipped (Plan 30-04); skipping."
+          fi
