@@ -26,8 +26,14 @@ function toggle() {
 </script>
 
 <template>
-  <div v-if="filteredTypes.length > 0" class="palette-category">
-    <button class="category-header" @click="toggle">
+  <div
+    v-if="filteredTypes.length > 0"
+    class="palette-category"
+  >
+    <button
+      class="category-header"
+      @click="toggle"
+    >
       <span class="category-label">{{ label }}</span>
       <svg
         class="category-chevron"
@@ -46,7 +52,10 @@ function toggle() {
         />
       </svg>
     </button>
-    <div v-show="expanded" class="category-body">
+    <div
+      v-show="expanded"
+      class="category-body"
+    >
       <PaletteItem
         v-for="type in filteredTypes"
         :key="type"

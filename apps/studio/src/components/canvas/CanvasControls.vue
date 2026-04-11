@@ -29,50 +29,193 @@ function handleAddNode(type: string) {
 
 <template>
   <div class="canvas-controls">
-    <button class="canvas-controls__btn" title="Undo (Ctrl+Z)" :disabled="!canUndo" @click="undo()">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M3 7h7a3 3 0 1 1 0 6H8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M5.5 4.5 3 7l2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <button
+      class="canvas-controls__btn"
+      title="Undo (Ctrl+Z)"
+      :disabled="!canUndo"
+      @click="undo()"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+      >
+        <path
+          d="M3 7h7a3 3 0 1 1 0 6H8"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M5.5 4.5 3 7l2.5 2.5"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </button>
-    <button class="canvas-controls__btn" title="Redo (Ctrl+Shift+Z)" :disabled="!canRedo" @click="redo()">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M11 7H4a3 3 0 1 0 0 6h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M8.5 4.5 11 7l-2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <button
+      class="canvas-controls__btn"
+      title="Redo (Ctrl+Shift+Z)"
+      :disabled="!canRedo"
+      @click="redo()"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+      >
+        <path
+          d="M11 7H4a3 3 0 1 0 0 6h2"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M8.5 4.5 11 7l-2.5 2.5"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </button>
     <div class="canvas-controls__divider" />
-    <button class="canvas-controls__btn" title="Fit to view" @click="fitToView()">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <button
+      class="canvas-controls__btn"
+      title="Fit to view"
+      @click="fitToView()"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+      >
+        <path
+          d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </button>
-    <button class="canvas-controls__btn" title="Zoom in" @click="zoomIn()">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M7 3v8M3 7h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+    <button
+      class="canvas-controls__btn"
+      title="Zoom in"
+      @click="zoomIn()"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+      >
+        <path
+          d="M7 3v8M3 7h8"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+        />
       </svg>
     </button>
-    <button class="canvas-controls__btn" title="Zoom out" @click="zoomOut()">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M3 7h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+    <button
+      class="canvas-controls__btn"
+      title="Zoom out"
+      @click="zoomOut()"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+      >
+        <path
+          d="M3 7h8"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+        />
       </svg>
     </button>
-    <button class="canvas-controls__btn" title="Auto Layout" @click="applyLayout('TB')">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
-        <rect x="8" y="8" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
-        <path d="M3.5 6v2.5H6M10.5 8V5.5H8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <button
+      class="canvas-controls__btn"
+      title="Auto Layout"
+      @click="applyLayout('TB')"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+      >
+        <rect
+          x="1"
+          y="1"
+          width="5"
+          height="5"
+          rx="1"
+          stroke="currentColor"
+          stroke-width="1.2"
+        />
+        <rect
+          x="8"
+          y="8"
+          width="5"
+          height="5"
+          rx="1"
+          stroke="currentColor"
+          stroke-width="1.2"
+        />
+        <path
+          d="M3.5 6v2.5H6M10.5 8V5.5H8"
+          stroke="currentColor"
+          stroke-width="1.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </button>
     <div class="canvas-controls__divider" />
     <div class="canvas-controls__add-wrapper">
-      <button class="canvas-controls__btn" title="Add node" @click="showNodeMenu = !showNodeMenu">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/>
-          <path d="M7 4v6M4 7h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <button
+        class="canvas-controls__btn"
+        title="Add node"
+        @click="showNodeMenu = !showNodeMenu"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+        >
+          <rect
+            x="1"
+            y="1"
+            width="12"
+            height="12"
+            rx="2"
+            stroke="currentColor"
+            stroke-width="1.2"
+          />
+          <path
+            d="M7 4v6M4 7h6"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+          />
         </svg>
       </button>
-      <div v-if="showNodeMenu" class="canvas-controls__menu">
+      <div
+        v-if="showNodeMenu"
+        class="canvas-controls__menu"
+      >
         <button
           v-for="nt in nodeTypes"
           :key="nt.key"

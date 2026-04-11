@@ -7,16 +7,51 @@ defineProps<NodeProps>()
 </script>
 
 <template>
-  <BaseNode :selected="selected" :label="data.label" meta-label="CONDITION" :node-id="id">
+  <BaseNode
+    :selected="selected"
+    :label="data.label"
+    meta-label="CONDITION"
+    :node-id="id"
+  >
     <template #icon>
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M10 2l6 8-6 8-6-8 6-8z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-        <path d="M8 10h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 20 20"
+        fill="none"
+      >
+        <path
+          d="M10 2l6 8-6 8-6-8 6-8z"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M8 10h4"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+        />
       </svg>
     </template>
-    <Handle type="target" :position="Position.Left" id="input-data" class="studio-handle" />
-    <Handle type="source" :position="Position.Right" id="output-true" class="studio-handle studio-handle--true" />
-    <Handle type="source" :position="Position.Right" id="output-false" class="studio-handle studio-handle--false" />
+    <Handle
+      id="input-data"
+      type="target"
+      :position="Position.Left"
+      class="studio-handle"
+    />
+    <Handle
+      id="output-true"
+      type="source"
+      :position="Position.Right"
+      class="studio-handle studio-handle--true"
+    />
+    <Handle
+      id="output-false"
+      type="source"
+      :position="Position.Right"
+      class="studio-handle studio-handle--false"
+    />
   </BaseNode>
 </template>
 
