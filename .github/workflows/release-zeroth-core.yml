@@ -1,0 +1,205 @@
+name: Release zeroth-core
+
+# Trusted-publisher OIDC release pipeline for zeroth-core.
+# Triggered by GitHub Release `published` event. PKG-02/PKG-05/PKG-06.
+#
+# Stage order (per Phase 28 plan 03, D-12):
+#   build -> smoke-install -> test-wheel -> publish-testpypi ->
+#   smoke-from-testpypi -> publish-pypi
+#
+# Trusted publishers must be registered on pypi.org (env=pypi) AND
+# test.pypi.org (env=testpypi) before this workflow can publish.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Assert git tag matches pyproject.toml version (D-07)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYPROJ_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "pyproject version: ${PYPROJ_VERSION}"
+          echo "git tag version:   ${TAG_VERSION}"
+          if [ "${PYPROJ_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match pyproject.toml [project].version=${PYPROJ_VERSION}"
+            exit 1
+          fi
+
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
+      - name: Build sdist + wheel
+        run: uv build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  smoke-install:
+    name: Smoke-install built wheel
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Clean-venv install and import check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/smoke-venv
+          source /tmp/smoke-venv/bin/activate
+          pip install --upgrade pip
+          pip install dist/*.whl
+          python -c "import zeroth.core; print('zeroth.core path:', zeroth.core.__path__)"
+
+  test-wheel:
+    name: Run pytest against built wheel
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for tests/)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install wheel + test deps and run pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/test-venv
+          source /tmp/test-venv/bin/activate
+          pip install --upgrade pip
+          # Install the built wheel with [all] so backend-dependent tests can import their deps
+          pip install "$(ls dist/zeroth_core-*.whl)[all]" pytest pytest-asyncio
+          # Run the suite against the INSTALLED wheel, not src mode
+          # -m "not live" respects the pyproject.toml marker convention
+          pytest tests/ -v --no-header -ra -m "not live"
+
+  publish-testpypi:
+    name: Publish to TestPyPI (trusted publisher)
+    needs: [smoke-install, test-wheel]
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # Sigstore attestations are default-on in v1.14+ (D-13)
+
+  smoke-from-testpypi:
+    name: Smoke-install from TestPyPI + run examples/hello.py
+    needs: [publish-testpypi]
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Checkout (for examples/hello.py)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install from TestPyPI (retry loop for indexing lag) and run example
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "Target version: ${VERSION}"
+          python -m venv /tmp/testpypi-venv
+          source /tmp/testpypi-venv/bin/activate
+          pip install --upgrade pip
+          # Retry loop — TestPyPI indexing can lag ~30-60s after publish (pitfall #4)
+          INSTALLED=0
+          for i in 1 2 3 4 5; do
+            if pip install \
+                --index-url https://test.pypi.org/simple/ \
+                --extra-index-url https://pypi.org/simple/ \
+                "zeroth-core==${VERSION}"; then
+              INSTALLED=1
+              break
+            fi
+            echo "TestPyPI install attempt ${i} failed; sleeping 15s..."
+            sleep 15
+          done
+          if [ "${INSTALLED}" -ne 1 ]; then
+            echo "::error::TestPyPI install failed after 5 attempts"
+            exit 1
+          fi
+          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "ANTHROPIC_API_KEY present — running examples/hello.py end-to-end"
+            python examples/hello.py
+          else
+            echo "SKIP: no ANTHROPIC_API_KEY available (pitfall #6); skipping examples/hello.py"
+          fi
+
+  publish-pypi:
+    name: Publish to PyPI (trusted publisher)
+    needs: [smoke-from-testpypi]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Default index, Sigstore attestations default-on in v1.14+ (D-13)
