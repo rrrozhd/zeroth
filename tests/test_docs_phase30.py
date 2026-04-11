@@ -8,6 +8,9 @@ means downstream plans add assertions rather than creating it from scratch.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -205,3 +208,60 @@ def test_landing_tabs_link_to_getting_started() -> None:
     assert "tutorials/getting-started/03-service-and-approval.md" in body, (
         "landing page missing link to 03-service-and-approval.md"
     )
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-04: Governance Walkthrough tutorial + example
+# ---------------------------------------------------------------------------
+
+GOVERNANCE_PAGE = DOCS_DIR / "tutorials" / "governance-walkthrough.md"
+GOVERNANCE_EXAMPLE = REPO_ROOT / "examples" / "governance_walkthrough.py"
+
+
+def test_governance_walkthrough_page_shape() -> None:
+    """Governance Walkthrough page must exist and name all three primitives."""
+    assert GOVERNANCE_PAGE.exists(), f"{GOVERNANCE_PAGE} missing"
+    body = GOVERNANCE_PAGE.read_text(encoding="utf-8")
+    assert body.lstrip().startswith("# Governance Walkthrough"), (
+        "page must begin with H1 'Governance Walkthrough'"
+    )
+    lowered = body.lower()
+    for keyword in ("approval", "audit", "policy"):
+        assert keyword in lowered, f"Governance Walkthrough page missing keyword {keyword!r}"
+
+
+def test_governance_walkthrough_embeds_example() -> None:
+    """Governance Walkthrough page must embed governance_walkthrough.py via snippets."""
+    body = GOVERNANCE_PAGE.read_text(encoding="utf-8")
+    assert "--8<--" in body, "pymdownx.snippets token missing from governance-walkthrough.md"
+    assert "governance_walkthrough.py" in body, (
+        "governance_walkthrough.py snippet reference missing"
+    )
+
+
+def test_governance_walkthrough_example_covers_three_scenarios() -> None:
+    """Example must reference the approval, timeline, and capability surfaces."""
+    assert GOVERNANCE_EXAMPLE.exists(), f"{GOVERNANCE_EXAMPLE} missing"
+    body = GOVERNANCE_EXAMPLE.read_text(encoding="utf-8")
+    lowered = body.lower()
+    assert "approval" in lowered, "example missing 'approval' surface"
+    assert "timeline" in lowered, "example missing '/timeline' surface"
+    assert "Capability" in body, "example missing Capability enum reference"
+    assert "NETWORK_WRITE" in body, "example missing NETWORK_WRITE denial"
+
+
+def test_governance_walkthrough_example_skips_cleanly() -> None:
+    """Running the example without OPENAI_API_KEY must exit 0 with a SKIP notice."""
+    env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+    result = subprocess.run(  # noqa: S603 — trusted local example script
+        [sys.executable, str(GOVERNANCE_EXAMPLE)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"SKIP path must exit 0, got {result.returncode}; stderr={result.stderr!r}"
+    )
+    assert "SKIP" in result.stderr, f"expected SKIP notice in stderr, got {result.stderr!r}"
