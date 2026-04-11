@@ -6,6 +6,27 @@ Zeroth treats an agentic application as an **explicit executable graph** rather 
 
 ---
 
+## Install
+
+```bash
+pip install zeroth-core
+```
+
+Optional extras pull in swappable backends (base install stays minimal):
+
+```bash
+pip install "zeroth-core[memory-pg]"     # Postgres + pgvector memory backend
+pip install "zeroth-core[memory-chroma]" # Chroma memory backend
+pip install "zeroth-core[memory-es]"     # Elasticsearch memory backend
+pip install "zeroth-core[dispatch]"      # Distributed worker (redis + arq)
+pip install "zeroth-core[sandbox]"       # Sandbox sidecar marker
+pip install "zeroth-core[all]"           # Everything above
+```
+
+Available extras: `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `all`.
+
+---
+
 ## Why Zeroth?
 
 Most agent frameworks prioritize getting something working quickly. Zeroth prioritizes getting something **working correctly** — with governance, auditability, and operational control built in from day one.
