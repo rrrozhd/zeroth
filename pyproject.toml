@@ -115,7 +115,6 @@ ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D", "B006", "B017", "E501", "F401", "F841", "I001", "SIM117"]
 "scripts/*.py" = ["D"]
-"apps/**/*.py" = ["D"]
 "src/zeroth/core/migrations/**/*.py" = ["D"]
 
 [tool.ruff.lint.pydocstyle]
@@ -126,4 +125,4 @@ fail-under = 90
 ignore-init-method = true
 ignore-init-module = true
 ignore-nested-functions = true
-exclude = ["src/zeroth/core/migrations", "tests", "scripts", "apps"]
+exclude = ["src/zeroth/core/migrations", "tests", "scripts"]
