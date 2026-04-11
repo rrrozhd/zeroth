@@ -7,6 +7,7 @@ requiring a running uvicorn process.
 Usage:
     uv run python scripts/dump_openapi.py --out openapi/zeroth-core-openapi.json
     uv run python scripts/dump_openapi.py  # writes to stdout
+    uv run python scripts/dump_openapi.py --check --out openapi/zeroth-core-openapi.json
 """
 
 from __future__ import annotations
@@ -26,6 +27,14 @@ def main() -> int:
         type=Path,
         default=None,
         help="Output file (default: stdout)",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Exit 1 if --out file is missing or differs from freshly generated "
+            "spec (drift check for CI)."
+        ),
     )
     args = parser.parse_args()
 
@@ -55,6 +64,23 @@ def main() -> int:
     app = create_app(stub_bootstrap)  # type: ignore[arg-type]
     spec = app.openapi()
     text = json.dumps(spec, indent=2, sort_keys=True) + "\n"
+
+    if args.check:
+        if args.out is None:
+            sys.stderr.write("--check requires --out\n")
+            return 1
+        if not args.out.exists():
+            sys.stderr.write(f"DRIFT: {args.out} does not exist\n")
+            return 1
+        existing = args.out.read_text()
+        if existing != text:
+            sys.stderr.write(
+                f"DRIFT: {args.out} is stale. Run "
+                f"`python scripts/dump_openapi.py --out {args.out}` to update.\n"
+            )
+            return 1
+        sys.stdout.write(f"OK: {args.out} is up to date.\n")
+        return 0
 
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
