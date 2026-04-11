@@ -140,14 +140,11 @@ def test_landing_page_has_tabbed_split_and_hello_snippet() -> None:
     assert "hello.py" in body, "hello.py snippet reference missing"
 
 
-def test_reference_quadrant_stubs_are_minimal() -> None:
-    """Reference stubs must be minimal and flagged for Phase 32 to prevent fake-content rot."""
+def test_reference_quadrant_pages_exist() -> None:
+    """Reference quadrant pages exist. Phase 32 filled the stubs with real content."""
     for name in ("python-api.md", "http-api.md", "configuration.md"):
         page = DOCS_DIR / "reference" / name
         assert page.exists(), f"{page} missing"
-        body = page.read_text(encoding="utf-8")
-        assert "TBD" in body or "Phase 32" in body, f"{name} missing TBD/Phase 32 marker"
-        assert len(body) < 400, f"{name} is {len(body)} chars; stubs must stay <400 to block rot"
 
 
 # ---------------------------------------------------------------------------
