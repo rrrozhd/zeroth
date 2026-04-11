@@ -52,5 +52,6 @@ Bind the policy to the graph or node by adding its `policy_id` to `graph.policy_
 
 ## Reference cross-link
 
-- Python API: [`zeroth.core.policy`](../reference/python-api.md#policy)
-- Related: [Concept: policy](../concepts/policy.md), [Usage Guide: approvals](approvals.md), [Usage Guide: audit](audit.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).
+See the [Python API reference for `zeroth.core.policy`](../reference/python-api/policy.md).
+
+Related: [Concept: policy](../concepts/policy.md), [Usage Guide: approvals](approvals.md), [Usage Guide: audit](audit.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

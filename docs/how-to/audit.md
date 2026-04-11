@@ -53,6 +53,7 @@ for entry in timeline.json()["entries"]:
 
 ## Reference cross-link
 
-- Python API: [`zeroth.core.audit`](../reference/python-api.md#audit)
+See the [Python API reference for `zeroth.core.audit`](../reference/python-api/audit.md).
+
 - HTTP API: `GET /runs/{run_id}/timeline`, `GET /deployments/{ref}/audits?run_id=...`
 - Related: [Concept: audit](../concepts/audit.md), [Usage Guide: policy](policy.md), [Usage Guide: approvals](approvals.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

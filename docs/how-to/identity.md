@@ -67,5 +67,6 @@ Once the service is bootstrapped, every request must send either `X-API-Key: dem
 
 ## Reference cross-link
 
-- Python API: [`zeroth.core.identity`](../reference/python-api.md#identity), [`zeroth.core.service.auth`](../reference/python-api.md#service-auth)
-- Related: [Concept: identity](../concepts/identity.md), [Concept: service](../concepts/service.md), [Usage Guide: approvals](approvals.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).
+See the [Python API reference for `zeroth.core.identity`](../reference/python-api/identity.md). The related `zeroth.core.service.auth` module is documented under the [Service reference page](../reference/python-api/service.md).
+
+Related: [Concept: identity](../concepts/identity.md), [Concept: service](../concepts/service.md), [Usage Guide: approvals](approvals.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

@@ -73,4 +73,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.graph`](../reference/python-api.md#zerothcoregraph) (generated in Phase 32).
+See the [Python API reference for `zeroth.core.graph`](../reference/python-api/graph.md).

@@ -56,4 +56,4 @@ In a real graph you attach the `EdgeMapping` to the edge definition; the orchest
 
 ## Reference cross-link
 
-- [Python API reference — `zeroth.core.mappings`](../reference/python-api.md)
+See the [Python API reference for `zeroth.core.mappings`](../reference/python-api/mappings.md).

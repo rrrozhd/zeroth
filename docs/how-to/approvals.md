@@ -60,6 +60,7 @@ That is the full pattern: **enqueue** (the orchestrator creates the pending reco
 
 ## Reference cross-link
 
-- Python API: [`zeroth.core.approvals`](../reference/python-api.md#approvals)
+See the [Python API reference for `zeroth.core.approvals`](../reference/python-api/approvals.md).
+
 - Example source: `examples/approval_demo.py` (full runnable version).
 - Related: [Concept: approvals](../concepts/approvals.md), [Usage Guide: policy](policy.md), [Usage Guide: audit](audit.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).
