@@ -7,15 +7,45 @@ defineProps<NodeProps>()
 </script>
 
 <template>
-  <BaseNode :selected="selected" :label="data.label" meta-label="AGENT" :node-id="id">
+  <BaseNode
+    :selected="selected"
+    :label="data.label"
+    meta-label="AGENT"
+    :node-id="id"
+  >
     <template #icon>
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M10 2l1.5 3.5L15 7l-3.5 1.5L10 12l-1.5-3.5L5 7l3.5-1.5L10 2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-        <path d="M15 12l.8 1.8L18 15l-2.2.8L15 18l-.8-2.2L12 15l2.2-.8L15 12z" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 20 20"
+        fill="none"
+      >
+        <path
+          d="M10 2l1.5 3.5L15 7l-3.5 1.5L10 12l-1.5-3.5L5 7l3.5-1.5L10 2z"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M15 12l.8 1.8L18 15l-2.2.8L15 18l-.8-2.2L12 15l2.2-.8L15 12z"
+          stroke="currentColor"
+          stroke-width="1"
+          stroke-linejoin="round"
+        />
       </svg>
     </template>
-    <Handle type="target" :position="Position.Left" id="input-data" class="studio-handle" />
-    <Handle type="source" :position="Position.Right" id="output-data" class="studio-handle" />
+    <Handle
+      id="input-data"
+      type="target"
+      :position="Position.Left"
+      class="studio-handle"
+    />
+    <Handle
+      id="output-data"
+      type="source"
+      :position="Position.Right"
+      class="studio-handle"
+    />
   </BaseNode>
 </template>
 

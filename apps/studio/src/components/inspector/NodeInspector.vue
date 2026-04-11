@@ -34,18 +34,46 @@ function updateProperty(key: string, value: unknown) {
 </script>
 
 <template>
-  <aside class="node-inspector" v-if="selectedNode && typeDef">
+  <aside
+    v-if="selectedNode && typeDef"
+    class="node-inspector"
+  >
     <div class="inspector-header">
       <span class="inspector-eyebrow">INSPECTOR</span>
       <span class="inspector-type">{{ typeDef.label }}</span>
     </div>
     <div class="inspector-body">
-      <div v-if="currentIssues.length > 0" class="inspector-validation">
-        <div class="inspector-validation__header">Validation Issues</div>
-        <div v-for="(issue, i) in currentIssues" :key="i" class="inspector-validation__item">
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" class="inspector-validation__icon">
-            <path d="M7 1L13 12H1L7 1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-            <path d="M7 5v3M7 10v.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <div
+        v-if="currentIssues.length > 0"
+        class="inspector-validation"
+      >
+        <div class="inspector-validation__header">
+          Validation Issues
+        </div>
+        <div
+          v-for="(issue, i) in currentIssues"
+          :key="i"
+          class="inspector-validation__item"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 14 14"
+            fill="none"
+            class="inspector-validation__icon"
+          >
+            <path
+              d="M7 1L13 12H1L7 1Z"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M7 5v3M7 10v.5"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linecap="round"
+            />
           </svg>
           <span>{{ issue.message }}</span>
         </div>

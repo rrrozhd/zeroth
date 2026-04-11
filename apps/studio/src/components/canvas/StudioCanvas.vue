@@ -78,7 +78,11 @@ function onPaneClick() {
 </script>
 
 <template>
-  <div class="studio-canvas" @dragover="onDragOver" @drop="onDrop">
+  <div
+    class="studio-canvas"
+    @dragover="onDragOver"
+    @drop="onDrop"
+  >
     <VueFlow
       v-model:nodes="canvasStore.nodes"
       v-model:edges="canvasStore.edges"
@@ -97,7 +101,11 @@ function onPaneClick() {
       @node-drag-start="onNodeDragStart"
       @node-drag-stop="onNodeDragStop"
     >
-      <Background :gap="24" :size="1" pattern-color="rgba(150, 180, 200, 0.18)" />
+      <Background
+        :gap="24"
+        :size="1"
+        pattern-color="rgba(150, 180, 200, 0.18)"
+      />
       <CanvasMinimap />
       <CanvasControls />
     </VueFlow>

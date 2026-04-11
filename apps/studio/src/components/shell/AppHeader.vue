@@ -58,11 +58,19 @@ const saveClass = computed(() => {
     <div class="header-right">
       <span class="env-label">Env / Dev</span>
       <span class="version-label">Draft v{{ version }}</span>
-      <span class="save-indicator" :class="saveClass">
-        <span class="save-dot"></span>
+      <span
+        class="save-indicator"
+        :class="saveClass"
+      >
+        <span class="save-dot" />
         {{ saveLabel }}
       </span>
-      <button class="publish-btn" disabled>Publish</button>
+      <button
+        class="publish-btn"
+        disabled
+      >
+        Publish
+      </button>
     </div>
   </header>
 </template>

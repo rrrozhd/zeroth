@@ -21,26 +21,65 @@ const hasIssues = computed(() => !nodeValidation.isValid(props.nodeId))
 </script>
 
 <template>
-  <div class="base-node" :class="{ 'base-node--selected': selected, 'base-node--invalid': hasIssues }">
+  <div
+    class="base-node"
+    :class="{ 'base-node--selected': selected, 'base-node--invalid': hasIssues }"
+  >
     <div class="base-node__toolbar">
-      <button class="base-node__delete" @click.stop="emit('delete')">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M3 3.5h8M5.5 3.5V2.5a1 1 0 011-1h1a1 1 0 011 1v1M9.5 6v4.5a1 1 0 01-1 1h-3a1 1 0 01-1-1V6M6 8v2M8 8v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <button
+        class="base-node__delete"
+        @click.stop="emit('delete')"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+        >
+          <path
+            d="M3 3.5h8M5.5 3.5V2.5a1 1 0 011-1h1a1 1 0 011 1v1M9.5 6v4.5a1 1 0 01-1 1h-3a1 1 0 01-1-1V6M6 8v2M8 8v2"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
     </div>
     <div class="base-node__card">
-      <div v-if="hasIssues" class="base-node__warning">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M7 1L13 12H1L7 1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-          <path d="M7 5v3M7 10v.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <div
+        v-if="hasIssues"
+        class="base-node__warning"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+        >
+          <path
+            d="M7 1L13 12H1L7 1Z"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M7 5v3M7 10v.5"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+          />
         </svg>
       </div>
       <div class="base-node__icon">
         <slot name="icon" />
       </div>
-      <div class="base-node__title">{{ label }}</div>
-      <div class="base-node__meta">{{ metaLabel }}</div>
+      <div class="base-node__title">
+        {{ label }}
+      </div>
+      <div class="base-node__meta">
+        {{ metaLabel }}
+      </div>
     </div>
   </div>
 </template>

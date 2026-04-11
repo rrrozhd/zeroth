@@ -7,16 +7,51 @@ defineProps<NodeProps>()
 </script>
 
 <template>
-  <BaseNode :selected="selected" :label="data.label" meta-label="MEMORY" :node-id="id">
+  <BaseNode
+    :selected="selected"
+    :label="data.label"
+    meta-label="MEMORY"
+    :node-id="id"
+  >
     <template #icon>
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <ellipse cx="10" cy="5" rx="6" ry="2.5" stroke="currentColor" stroke-width="1.3"/>
-        <path d="M4 5v4c0 1.38 2.69 2.5 6 2.5s6-1.12 6-2.5V5" stroke="currentColor" stroke-width="1.3"/>
-        <path d="M4 9v4c0 1.38 2.69 2.5 6 2.5s6-1.12 6-2.5V9" stroke="currentColor" stroke-width="1.3"/>
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 20 20"
+        fill="none"
+      >
+        <ellipse
+          cx="10"
+          cy="5"
+          rx="6"
+          ry="2.5"
+          stroke="currentColor"
+          stroke-width="1.3"
+        />
+        <path
+          d="M4 5v4c0 1.38 2.69 2.5 6 2.5s6-1.12 6-2.5V5"
+          stroke="currentColor"
+          stroke-width="1.3"
+        />
+        <path
+          d="M4 9v4c0 1.38 2.69 2.5 6 2.5s6-1.12 6-2.5V9"
+          stroke="currentColor"
+          stroke-width="1.3"
+        />
       </svg>
     </template>
-    <Handle type="target" :position="Position.Top" id="input-data" class="studio-handle" />
-    <Handle type="source" :position="Position.Right" id="output-data" class="studio-handle" />
+    <Handle
+      id="input-data"
+      type="target"
+      :position="Position.Top"
+      class="studio-handle"
+    />
+    <Handle
+      id="output-data"
+      type="source"
+      :position="Position.Right"
+      class="studio-handle"
+    />
   </BaseNode>
 </template>
 
