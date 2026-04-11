@@ -36,7 +36,7 @@ integrate the runtime with your existing stack.
   `ZEROTH_*` env var, default, and secret flag.
 - [HTTP API Reference](../../reference/http-api.md) — the REST surface exposed
   by the service layer.
-- [Python API Reference](../../reference/python-api/index.md) — the importable
+- [Python API Reference](../../reference/python-api.md) — the importable
   surface for embedded use.
 
 Regardless of the mode you pick, the service honors the same settings
