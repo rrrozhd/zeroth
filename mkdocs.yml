@@ -1,0 +1,78 @@
+site_name: Zeroth
+site_url: https://rrrozhd.github.io/zeroth/
+site_description: Governed medium-code platform for production-grade multi-agent systems
+repo_url: https://github.com/rrrozhd/zeroth-core
+repo_name: rrrozhd/zeroth-core
+edit_uri: edit/main/docs/
+
+# Pre-existing docs/specs/ and docs/superpowers/ are internal notes, not part of the public site.
+exclude_docs: |
+  specs/
+  superpowers/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - section-index
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: [".", "examples"]
+      check_paths: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Tutorials:
+    - tutorials/index.md
+    - Getting Started:
+      - tutorials/getting-started/index.md
+      - Install: tutorials/getting-started/01-install.md
+      - First graph: tutorials/getting-started/02-first-graph.md
+      - Service mode & approval: tutorials/getting-started/03-service-and-approval.md
+    - Governance Walkthrough: tutorials/governance-walkthrough.md
+  - How-to Guides:
+    - how-to/index.md
+  - Concepts:
+    - concepts/index.md
+  - Reference:
+    - reference/index.md
+    - Python API: reference/python-api.md
+    - HTTP API: reference/http-api.md
+    - Configuration: reference/configuration.md
