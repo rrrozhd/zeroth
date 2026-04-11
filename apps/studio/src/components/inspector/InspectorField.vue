@@ -15,7 +15,10 @@ const emit = defineEmits<{
   <div class="inspector-field">
     <label class="inspector-field__label">
       {{ definition.label }}
-      <span v-if="definition.required" class="inspector-field__required">*</span>
+      <span
+        v-if="definition.required"
+        class="inspector-field__required"
+      >*</span>
     </label>
 
     <input
@@ -26,7 +29,7 @@ const emit = defineEmits<{
       :required="definition.required"
       class="inspector-field__input"
       @change="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-    />
+    >
 
     <textarea
       v-else-if="definition.type === 'textarea'"
@@ -43,7 +46,7 @@ const emit = defineEmits<{
       :value="modelValue"
       class="inspector-field__input"
       @change="emit('update:modelValue', Number(($event.target as HTMLInputElement).value))"
-    />
+    >
 
     <select
       v-else-if="definition.type === 'select'"
@@ -51,17 +54,24 @@ const emit = defineEmits<{
       class="inspector-field__select"
       @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
     >
-      <option v-for="opt in definition.options" :key="opt.value" :value="opt.value">
+      <option
+        v-for="opt in definition.options"
+        :key="opt.value"
+        :value="opt.value"
+      >
         {{ opt.label }}
       </option>
     </select>
 
-    <label v-else-if="definition.type === 'toggle'" class="inspector-field__toggle">
+    <label
+      v-else-if="definition.type === 'toggle'"
+      class="inspector-field__toggle"
+    >
       <input
         type="checkbox"
         :checked="!!modelValue"
         @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
-      />
+      >
       <span>{{ modelValue ? 'Enabled' : 'Disabled' }}</span>
     </label>
   </div>

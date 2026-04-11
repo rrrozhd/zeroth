@@ -7,15 +7,47 @@ defineProps<NodeProps>()
 </script>
 
 <template>
-  <BaseNode :selected="selected" :label="data.label" meta-label="EXECUTION UNIT" :node-id="id">
+  <BaseNode
+    :selected="selected"
+    :label="data.label"
+    meta-label="EXECUTION UNIT"
+    :node-id="id"
+  >
     <template #icon>
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M4 10h8M12 10l-3-3M12 10l-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="15" cy="10" r="2" stroke="currentColor" stroke-width="1.5"/>
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 20 20"
+        fill="none"
+      >
+        <path
+          d="M4 10h8M12 10l-3-3M12 10l-3 3"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle
+          cx="15"
+          cy="10"
+          r="2"
+          stroke="currentColor"
+          stroke-width="1.5"
+        />
       </svg>
     </template>
-    <Handle type="target" :position="Position.Left" id="input-data" class="studio-handle" />
-    <Handle type="source" :position="Position.Right" id="output-data" class="studio-handle" />
+    <Handle
+      id="input-data"
+      type="target"
+      :position="Position.Left"
+      class="studio-handle"
+    />
+    <Handle
+      id="output-data"
+      type="source"
+      :position="Position.Right"
+      class="studio-handle"
+    />
   </BaseNode>
 </template>
 

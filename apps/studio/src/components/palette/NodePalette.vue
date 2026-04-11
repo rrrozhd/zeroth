@@ -15,7 +15,7 @@ const searchQuery = ref('')
       class="palette-search"
       type="text"
       placeholder="Search nodes..."
-    />
+    >
 
     <div class="palette-categories">
       <PaletteCategory

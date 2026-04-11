@@ -7,15 +7,45 @@ defineProps<NodeProps>()
 </script>
 
 <template>
-  <BaseNode :selected="selected" :label="data.label" meta-label="DATA MAPPING" :node-id="id">
+  <BaseNode
+    :selected="selected"
+    :label="data.label"
+    meta-label="DATA MAPPING"
+    :node-id="id"
+  >
     <template #icon>
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M3 6h4M3 10h4M3 14h4M13 6h4M13 10h4M13 14h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-        <path d="M7 6l6 4M7 10l6 0M7 14l6-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 20 20"
+        fill="none"
+      >
+        <path
+          d="M3 6h4M3 10h4M3 14h4M13 6h4M13 10h4M13 14h4"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+        />
+        <path
+          d="M7 6l6 4M7 10l6 0M7 14l6-4"
+          stroke="currentColor"
+          stroke-width="1.2"
+          stroke-linecap="round"
+        />
       </svg>
     </template>
-    <Handle type="target" :position="Position.Left" id="input-data" class="studio-handle" />
-    <Handle type="source" :position="Position.Right" id="output-data" class="studio-handle" />
+    <Handle
+      id="input-data"
+      type="target"
+      :position="Position.Left"
+      class="studio-handle"
+    />
+    <Handle
+      id="output-data"
+      type="source"
+      :position="Position.Right"
+      class="studio-handle"
+    />
   </BaseNode>
 </template>
 

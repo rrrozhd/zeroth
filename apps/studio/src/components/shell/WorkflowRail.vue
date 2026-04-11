@@ -36,13 +36,34 @@ async function handleSelectWorkflow(id: string) {
 </script>
 
 <template>
-  <aside class="workflow-rail" :class="{ collapsed }">
-    <div class="rail-content" v-show="!collapsed">
+  <aside
+    class="workflow-rail"
+    :class="{ collapsed }"
+  >
+    <div
+      v-show="!collapsed"
+      class="rail-content"
+    >
       <div class="rail-header">
         <span class="rail-eyebrow">{{ uiStore.currentMode === 'editor' && workflowStore.currentWorkflowId ? 'NODE PALETTE' : 'WORKFLOWS' }}</span>
-        <button class="collapse-btn" @click="$emit('toggle')" title="Collapse sidebar">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M10 4L6 8L10 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <button
+          class="collapse-btn"
+          title="Collapse sidebar"
+          @click="$emit('toggle')"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+          >
+            <path
+              d="M10 4L6 8L10 12"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
       </div>
@@ -50,9 +71,17 @@ async function handleSelectWorkflow(id: string) {
       <NodePalette v-if="uiStore.currentMode === 'editor' && workflowStore.currentWorkflowId" />
 
       <template v-else>
-        <button class="new-project-btn" @click="handleNewProject">New Project</button>
+        <button
+          class="new-project-btn"
+          @click="handleNewProject"
+        >
+          New Project
+        </button>
 
-        <div class="workflow-list" v-if="workflowStore.workflows.length > 0">
+        <div
+          v-if="workflowStore.workflows.length > 0"
+          class="workflow-list"
+        >
           <button
             v-for="workflow in workflowStore.workflows"
             :key="workflow.id"
@@ -65,15 +94,23 @@ async function handleSelectWorkflow(id: string) {
           </button>
         </div>
 
-        <div class="empty-state" v-else>
-          <h3 class="empty-heading">No workflows yet</h3>
+        <div
+          v-else
+          class="empty-state"
+        >
+          <h3 class="empty-heading">
+            No workflows yet
+          </h3>
           <p class="empty-body">
             Create your first workflow to start building governed agent pipelines.
             Click 'New Project' in the sidebar to begin.
           </p>
         </div>
 
-        <div class="error-banner" v-if="workflowStore.error">
+        <div
+          v-if="workflowStore.error"
+          class="error-banner"
+        >
           {{ workflowStore.error }}
         </div>
       </template>
@@ -82,11 +119,22 @@ async function handleSelectWorkflow(id: string) {
     <button
       v-if="collapsed"
       class="expand-btn"
-      @click="$emit('toggle')"
       title="Expand sidebar"
+      @click="$emit('toggle')"
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+      >
+        <path
+          d="M6 4L10 8L6 12"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </button>
   </aside>
