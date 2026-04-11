@@ -116,6 +116,14 @@ nav:
       - Hand off between agents: how-to/cookbook/agent-handoff.md
       - Branch on a condition: how-to/cookbook/condition-branch.md
       - Inject a secret: how-to/cookbook/secret-injection.md
+    - Deployment:
+      - how-to/deployment/index.md
+      - Local development: how-to/deployment/local-dev.md
+      - Docker Compose: how-to/deployment/docker-compose.md
+      - Standalone service: how-to/deployment/standalone-service.md
+      - Embedded library: how-to/deployment/embedded-library.md
+      - With Regulus: how-to/deployment/with-regulus.md
+    - Migration from monolith: how-to/migration-from-monolith.md
   - Concepts:
     - concepts/index.md
     - Graph: concepts/graph.md
