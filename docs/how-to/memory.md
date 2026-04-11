@@ -66,4 +66,4 @@ For a durable, multi-run memory, swap the connector for a `KeyValueMemoryConnect
 
 ## Reference cross-link
 
-- [Python API reference — `zeroth.core.memory`](../reference/python-api.md)
+See the [Python API reference for `zeroth.core.memory`](../reference/python-api/memory.md).

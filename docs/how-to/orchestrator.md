@@ -65,4 +65,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.orchestrator`](../reference/python-api.md#zerothcoreorchestrator) (generated in Phase 32).
+See the [Python API reference for `zeroth.core.orchestrator`](../reference/python-api/orchestrator.md).

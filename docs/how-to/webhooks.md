@@ -84,7 +84,6 @@ assert hmac.compare_digest(sig, expected)
 
 ## Reference cross-link
 
-API reference for `zeroth.core.webhooks` will live under the
-Reference quadrant (Phase 32). Related guides:
-[concepts/webhooks](../concepts/webhooks.md) ·
-[dispatch how-to](dispatch.md) · [secrets how-to](secrets.md).
+See the [Python API reference for `zeroth.core.webhooks`](../reference/python-api/webhooks.md).
+
+Related guides: [concepts/webhooks](../concepts/webhooks.md) · [dispatch how-to](dispatch.md) · [secrets how-to](secrets.md).

@@ -140,6 +140,27 @@ nav:
     - Webhooks: concepts/webhooks.md
   - Reference:
     - reference/index.md
-    - Python API: reference/python-api.md
+    - Python API:
+      - reference/python-api.md
+      - Graph: reference/python-api/graph.md
+      - Orchestrator: reference/python-api/orchestrator.md
+      - Agents: reference/python-api/agents.md
+      - Execution units: reference/python-api/execution-units.md
+      - Conditions: reference/python-api/conditions.md
+      - Mappings: reference/python-api/mappings.md
+      - Memory: reference/python-api/memory.md
+      - Storage: reference/python-api/storage.md
+      - Contracts: reference/python-api/contracts.md
+      - Runs: reference/python-api/runs.md
+      - Policy: reference/python-api/policy.md
+      - Approvals: reference/python-api/approvals.md
+      - Audit: reference/python-api/audit.md
+      - Guardrails: reference/python-api/guardrails.md
+      - Identity: reference/python-api/identity.md
+      - Secrets: reference/python-api/secrets.md
+      - Dispatch: reference/python-api/dispatch.md
+      - Economics: reference/python-api/econ.md
+      - Service: reference/python-api/service.md
+      - Webhooks: reference/python-api/webhooks.md
     - HTTP API: reference/http-api.md
     - Configuration: reference/configuration.md

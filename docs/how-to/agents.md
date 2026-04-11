@@ -58,4 +58,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.agent_runtime`](../reference/python-api.md#zerothcoreagent_runtime) (generated in Phase 32).
+See the [Python API reference for `zeroth.core.agent_runtime`](../reference/python-api/agents.md).

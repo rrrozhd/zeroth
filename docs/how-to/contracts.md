@@ -70,4 +70,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-- [Python API reference — `zeroth.core.contracts`](../reference/python-api.md)
+See the [Python API reference for `zeroth.core.contracts`](../reference/python-api/contracts.md).
