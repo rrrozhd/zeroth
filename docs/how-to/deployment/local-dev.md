@@ -7,7 +7,7 @@ tutorials, or exercising the examples shipped with the repository.
 ## Use case
 
 - Exploring the runtime for the first time
-- Running the [Getting Started tutorial](../../tutorials/getting-started.md)
+- Running the [Getting Started tutorial](../../tutorials/getting-started/index.md)
 - Iterating on graph authoring without spinning up Postgres or Redis
 - Smoke-testing changes against the local checkout before pushing
 
