@@ -69,8 +69,61 @@ nav:
     - Governance Walkthrough: tutorials/governance-walkthrough.md
   - How-to Guides:
     - how-to/index.md
+    - Subsystems:
+      - Graph: how-to/graph.md
+      - Orchestrator: how-to/orchestrator.md
+      - Agents: how-to/agents.md
+      - Execution units: how-to/execution-units.md
+      - Conditions: how-to/conditions.md
+      - Mappings: how-to/mappings.md
+      - Memory: how-to/memory.md
+      - Storage: how-to/storage.md
+      - Contracts: how-to/contracts.md
+      - Runs: how-to/runs.md
+      - Policy: how-to/policy.md
+      - Approvals: how-to/approvals.md
+      - Audit: how-to/audit.md
+      - Guardrails: how-to/guardrails.md
+      - Identity: how-to/identity.md
+      - Secrets: how-to/secrets.md
+      - Dispatch: how-to/dispatch.md
+      - Economics: how-to/econ.md
+      - Service: how-to/service.md
+      - Webhooks: how-to/webhooks.md
+    - Cookbook:
+      - how-to/cookbook/index.md
+      - Add an approval step: how-to/cookbook/approval-step.md
+      - Attach memory to an agent: how-to/cookbook/attach-memory.md
+      - Cap a run's cost budget: how-to/cookbook/budget-cap.md
+      - Sandbox a tool call: how-to/cookbook/sandbox-tool.md
+      - Retry a failing webhook: how-to/cookbook/webhook-retry.md
+      - Block a tool call via policy: how-to/cookbook/policy-block.md
+      - Query the audit trail: how-to/cookbook/audit-query.md
+      - Hand off between agents: how-to/cookbook/agent-handoff.md
+      - Branch on a condition: how-to/cookbook/condition-branch.md
+      - Inject a secret: how-to/cookbook/secret-injection.md
   - Concepts:
     - concepts/index.md
+    - Graph: concepts/graph.md
+    - Orchestrator: concepts/orchestrator.md
+    - Agents: concepts/agents.md
+    - Execution units: concepts/execution-units.md
+    - Conditions: concepts/conditions.md
+    - Mappings: concepts/mappings.md
+    - Memory: concepts/memory.md
+    - Storage: concepts/storage.md
+    - Contracts: concepts/contracts.md
+    - Runs: concepts/runs.md
+    - Policy: concepts/policy.md
+    - Approvals: concepts/approvals.md
+    - Audit: concepts/audit.md
+    - Guardrails: concepts/guardrails.md
+    - Identity: concepts/identity.md
+    - Secrets: concepts/secrets.md
+    - Dispatch: concepts/dispatch.md
+    - Economics: concepts/econ.md
+    - Service: concepts/service.md
+    - Webhooks: concepts/webhooks.md
   - Reference:
     - reference/index.md
     - Python API: reference/python-api.md

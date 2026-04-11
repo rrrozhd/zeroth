@@ -42,3 +42,33 @@ jobs:
           else
             echo "examples/governance_walkthrough.py not yet shipped (Plan 30-04); skipping."
           fi
+
+      - name: Run examples/approval_step.py
+        run: uv run python examples/approval_step.py
+
+      - name: Run examples/attach_memory.py
+        run: uv run python examples/attach_memory.py
+
+      - name: Run examples/budget_cap.py
+        run: uv run python examples/budget_cap.py
+
+      - name: Run examples/sandbox_tool.py
+        run: uv run python examples/sandbox_tool.py
+
+      - name: Run examples/webhook_retry.py
+        run: uv run python examples/webhook_retry.py
+
+      - name: Run examples/policy_block.py
+        run: uv run python examples/policy_block.py
+
+      - name: Run examples/audit_query.py
+        run: uv run python examples/audit_query.py
+
+      - name: Run examples/agent_handoff.py
+        run: uv run python examples/agent_handoff.py
+
+      - name: Run examples/condition_branch.py
+        run: uv run python examples/condition_branch.py
+
+      - name: Run examples/secret_injection.py
+        run: uv run python examples/secret_injection.py
