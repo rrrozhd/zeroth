@@ -204,6 +204,16 @@ Zeroth optimizes for:
 
 ---
 
+## Studio
+
+Zeroth's canvas UI for authoring and inspecting workflows lives in a separate repo:
+
+**[rrrozhd/zeroth-studio](https://github.com/rrrozhd/zeroth-studio)** — Vue 3 + Vue Flow frontend that speaks to `zeroth-core` over HTTP.
+
+The studio was split out in v3.0 Phase 29 to let the two projects ship on independent release cadences. A cross-repo [compatibility matrix](https://github.com/rrrozhd/zeroth-studio#compatibility) documents which studio versions pair with which core versions.
+
+---
+
 ## License
 
 See the [LICENSE](LICENSE) file for details.
