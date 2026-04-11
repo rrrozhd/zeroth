@@ -67,5 +67,6 @@ That's the complete guardrail check: a run is only handed to the orchestrator if
 
 ## Reference cross-link
 
-- Python API: [`zeroth.core.guardrails`](../reference/python-api.md#guardrails)
-- Related: [Concept: guardrails](../concepts/guardrails.md), [Concept: policy](../concepts/policy.md), [Concept: dispatch](../concepts/dispatch.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).
+See the [Python API reference for `zeroth.core.guardrails`](../reference/python-api/guardrails.md).
+
+Related: [Concept: guardrails](../concepts/guardrails.md), [Concept: policy](../concepts/policy.md), [Concept: dispatch](../concepts/dispatch.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

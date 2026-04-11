@@ -61,7 +61,6 @@ print(redactor.redact("calling LLM with sk-test-123"))  # -> "calling LLM with *
 
 ## Reference cross-link
 
-Full API reference for `zeroth.core.secrets` will live under the Reference
-quadrant (Phase 32). Related guides:
-[service how-to](service.md) ·
-[concepts/secrets](../concepts/secrets.md).
+See the [Python API reference for `zeroth.core.secrets`](../reference/python-api/secrets.md).
+
+Related guides: [service how-to](service.md) · [concepts/secrets](../concepts/secrets.md).

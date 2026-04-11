@@ -60,4 +60,4 @@ The pattern is always the same: `connect → initialise repositories → use the
 
 ## Reference cross-link
 
-- [Python API reference — `zeroth.core.storage`](../reference/python-api.md)
+See the [Python API reference for `zeroth.core.storage`](../reference/python-api/storage.md).

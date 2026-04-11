@@ -69,6 +69,6 @@ response = await adapter.complete(prompt="hello")
 
 ## Reference cross-link
 
-API reference for `zeroth.core.econ` will live under the Reference
-quadrant (Phase 32). Related guides:
-[concepts/econ](../concepts/econ.md) · [runs](../concepts/runs.md).
+See the [Python API reference for `zeroth.core.econ`](../reference/python-api/econ.md).
+
+Related guides: [concepts/econ](../concepts/econ.md) · [runs](../concepts/runs.md).

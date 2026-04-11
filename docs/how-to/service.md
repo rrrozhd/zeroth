@@ -78,6 +78,6 @@ app = asyncio.run(make_app())
 
 ## Reference cross-link
 
-API reference will live under the Reference quadrant (Phase 32).
-Related: [concepts/service](../concepts/service.md) ·
-[dispatch how-to](dispatch.md) · [secrets how-to](secrets.md).
+See the [Python API reference for `zeroth.core.service`](../reference/python-api/service.md).
+
+Related: [concepts/service](../concepts/service.md) · [dispatch how-to](dispatch.md) · [secrets how-to](secrets.md).

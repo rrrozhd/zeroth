@@ -78,7 +78,6 @@ if arq_pool is not None:
 
 ## Reference cross-link
 
-API reference for `zeroth.core.dispatch` will live under the Reference
-quadrant (Phase 32). Related guides:
-[concepts/dispatch](../concepts/dispatch.md) ·
-[service how-to](service.md) · [webhooks how-to](webhooks.md).
+See the [Python API reference for `zeroth.core.dispatch`](../reference/python-api/dispatch.md).
+
+Related guides: [concepts/dispatch](../concepts/dispatch.md) · [service how-to](service.md) · [webhooks how-to](webhooks.md).

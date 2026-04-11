@@ -64,4 +64,4 @@ After any graph execution, loading a `Run` by its ID gives you everything the or
 
 ## Reference cross-link
 
-- [Python API reference — `zeroth.core.runs`](../reference/python-api.md)
+See the [Python API reference for `zeroth.core.runs`](../reference/python-api/runs.md).

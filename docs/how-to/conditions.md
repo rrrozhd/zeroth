@@ -83,4 +83,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.conditions`](../reference/python-api.md#zerothcoreconditions) (generated in Phase 32).
+See the [Python API reference for `zeroth.core.conditions`](../reference/python-api/conditions.md).

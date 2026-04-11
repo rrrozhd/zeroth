@@ -62,4 +62,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.execution_units`](../reference/python-api.md#zerothcoreexecution_units) (generated in Phase 32).
+See the [Python API reference for `zeroth.core.execution_units`](../reference/python-api/execution-units.md).
