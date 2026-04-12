@@ -83,7 +83,7 @@ committed at `openapi/zeroth-core-openapi.json`. Passing
 
 ## Service mode vs library mode
 
-| Aspect | Library (`first_graph.py`) | Service (`approval_demo.py`) |
+| Aspect | Library (`01_first_graph.py`) | Service (`20_approval_gate.py`) |
 | --- | --- | --- |
 | Transport | In-process Python calls | HTTP (FastAPI + uvicorn) |
 | Approval gate | Blocks the awaited coroutine | Returns a `paused_for_approval` run; resolved out-of-band |
