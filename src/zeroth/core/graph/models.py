@@ -23,6 +23,7 @@ from governai.app.spec import (
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.core.mappings.models import EdgeMapping
+from zeroth.core.templates.models import TemplateReference
 
 
 def _utc_now() -> datetime:
@@ -123,6 +124,8 @@ class AgentNodeData(BaseModel):
     thread_participation: Literal["none", "read", "write", "full"] = "none"
     model_params: dict[str, Any] = Field(default_factory=dict)
     mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
+    # Phase 36: Optional reference to a prompt template for dynamic instruction rendering.
+    template_ref: TemplateReference | None = None
 
 
 class ExecutableUnitNodeData(BaseModel):
