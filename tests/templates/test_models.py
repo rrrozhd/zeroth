@@ -31,7 +31,7 @@ class TestPromptTemplate:
         assert tpl.created_at == now
 
     def test_rejects_unknown_fields(self):
-        with pytest.raises(ValidationError, match="extra_fields_not_permitted"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             PromptTemplate(
                 name="t",
                 version=1,
