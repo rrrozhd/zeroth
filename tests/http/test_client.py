@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -429,10 +429,10 @@ class TestAclose:
         settings = HttpClientSettings()
         client = ResilientHttpClient(settings)
         mock_inner = MagicMock()
-        mock_inner.aclose = MagicMock(return_value=asyncio.coroutine(lambda: None)())
+        mock_inner.aclose = AsyncMock()
         client._client = mock_inner
         await client.aclose()
-        mock_inner.aclose.assert_called_once()
+        mock_inner.aclose.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

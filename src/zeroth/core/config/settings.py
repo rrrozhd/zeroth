@@ -19,6 +19,7 @@ from pydantic_settings import (
 )
 
 from zeroth.core.econ.models import RegulusSettings
+from zeroth.core.http.models import HttpClientSettings
 
 
 class DatabaseSettings(BaseModel):
@@ -157,6 +158,7 @@ class ZerothSettings(BaseSettings):
     approval_sla: ApprovalSLASettings = Field(default_factory=ApprovalSLASettings)
     dispatch: DispatchSettings = Field(default_factory=DispatchSettings)
     tls: TLSSettings = Field(default_factory=TLSSettings)
+    http_client: HttpClientSettings = Field(default_factory=HttpClientSettings)
 
     @classmethod
     def settings_customise_sources(
