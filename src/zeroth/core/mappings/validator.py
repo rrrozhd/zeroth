@@ -131,6 +131,8 @@ class MappingValidator:
             ast.BinOp,
             ast.Compare,
             ast.IfExp,
+            ast.Call,
+            ast.keyword,
         }
         # Structural child nodes (operators, context markers) that appear inside
         # the expression nodes above but are not visited independently

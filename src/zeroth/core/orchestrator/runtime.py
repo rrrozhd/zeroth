@@ -437,7 +437,18 @@ class RuntimeOrchestrator:
             payload = dict(output_data)
             if edge is not None and edge.mapping is not None:
                 # Edge mappings reshape one node's output into the next node's expected input.
-                payload = self.mapping_executor.execute(output_data, edge.mapping)
+                context_ns = {
+                    "payload": dict(output_data),
+                    "state": dict(run.metadata.get("state", {})),
+                    "variables": dict(run.metadata.get("variables", {})),
+                    "node_visit_counts": dict(run.node_visit_counts),
+                    "edge_visit_counts": dict(run.metadata.get("edge_visit_counts", {})),
+                    "path": list(run.metadata.get("path", [])),
+                    "metadata": {"run_id": run.run_id},
+                }
+                payload = self.mapping_executor.execute(
+                    output_data, edge.mapping, context=context_ns
+                )
             payloads[target_node_id] = payload
             run.pending_node_ids.append(target_node_id)
         run.metadata["node_payloads"] = payloads
