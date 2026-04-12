@@ -13,7 +13,7 @@ with a real human-in-the-loop approval gate resolved over HTTP.
 ## Sections
 
 1. [**Install**](01-install.md) — `pip install zeroth-core`, set
-   `ANTHROPIC_API_KEY`, run `examples/hello.py`, see a real LLM call
+   `ANTHROPIC_API_KEY`, run `examples/00_hello.py`, see a real LLM call
    complete. This is the <5 minute gate.
 2. [**First graph**](02-first-graph.md) — build a minimal graph with one
    agent, one tool, and one LLM call using the

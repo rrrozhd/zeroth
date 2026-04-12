@@ -22,7 +22,7 @@ fully offline.
 
 ## Recipe
 ```python
---8<-- "budget_cap.py"
+--8<-- "22_budget_cap.py"
 ```
 
 ## How it works

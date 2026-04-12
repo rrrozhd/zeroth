@@ -21,7 +21,7 @@ and evaluates `PolicyGuard` against a graph node whose
 
 ## Recipe
 ```python
---8<-- "policy_block.py"
+--8<-- "21_policy_block.py"
 ```
 
 ## How it works

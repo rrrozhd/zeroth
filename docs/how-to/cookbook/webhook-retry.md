@@ -23,7 +23,7 @@ every delivery.
 
 ## Recipe
 ```python
---8<-- "webhook_retry.py"
+--8<-- "25_webhook_delivery.py"
 ```
 
 ## How it works

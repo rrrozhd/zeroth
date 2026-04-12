@@ -22,7 +22,7 @@ payload before it's persisted.
 
 ## Recipe
 ```python
---8<-- "secret_injection.py"
+--8<-- "23_secrets_and_sandbox.py"
 ```
 
 ## How it works

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide shows how to declare a `PolicyDefinition` that denies a specific [capability](../concepts/policy.md) and wire it into the [orchestrator](../concepts/orchestrator.md) via `PolicyGuard` so that a tool node which requires that capability is **blocked before it executes**. The pattern mirrors the policy-block scenario in `examples/governance_walkthrough.py`.
+This guide shows how to declare a `PolicyDefinition` that denies a specific [capability](../concepts/policy.md) and wire it into the [orchestrator](../concepts/orchestrator.md) via `PolicyGuard` so that a tool node which requires that capability is **blocked before it executes**. The pattern mirrors the policy-block scenario in `examples/26_governance_walkthrough.py`.
 
 ## Minimal example
 

@@ -5,11 +5,13 @@ end-to-end run: an **approval gate** that pauses execution for human
 review, an **auditor** that makes every node's decisions inspectable,
 and a **policy** that blocks a tool call before it executes.
 
-All three scenarios are driven by one runnable script —
-[`examples/governance_walkthrough.py`](#full-example) — against an
-in-process Zeroth service. No uvicorn daemon, no external database,
-no mocks: the example talks to the real FastAPI app over
-`httpx.ASGITransport` and the real orchestrator drives the runs.
+All three scenarios are driven by focused, single-purpose scripts
+([`examples/20_approval_gate.py`](#scenario-1--approval-gate),
+[`examples/21_policy_block.py`](#scenario-3--policy-block),
+[`examples/24_audit_query.py`](#scenario-2--auditor)) plus an umbrella
+runner [`examples/26_governance_walkthrough.py`](#full-example) that
+sequences them. No mocks: each script talks to the real orchestrator
+and, in the approval case, a real uvicorn instance.
 
 ## Why this matters
 
@@ -49,11 +51,11 @@ together on one graph.
 ## Running the walkthrough
 
 ```bash
-uv run python examples/governance_walkthrough.py
+uv run python examples/26_governance_walkthrough.py
 ```
 
-With a real key set, you should see three sections of output — one per
-scenario — ending with `All three governance scenarios passed.`
+You should see three labelled sections — approval gate, policy block,
+audit query — ending with `all governance scenarios passed.`
 
 ## Scenario 1 — Approval gate
 

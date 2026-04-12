@@ -42,6 +42,7 @@ dependencies = [
     "langchain-litellm>=0.3.4",
     "uvicorn>=0.30",
     "mcp>=1.7,<2.0",
+    "redis>=5.3.1",
 ]
 
 [project.optional-dependencies]
@@ -123,6 +124,12 @@ ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 "tests/**/*.py" = ["D", "B006", "B017", "E501", "F401", "F841", "I001", "SIM117"]
 "scripts/*.py" = ["D"]
 "src/zeroth/core/migrations/**/*.py" = ["D"]
+# Examples use numeric-prefix filenames (``00_hello.py`` …) for reading
+# order. They are runnable scripts, not importable modules, so the
+# ``N999`` "invalid module name" rule does not apply. The minor
+# pydocstyle / line-length / unused-var rules are muted to keep the
+# tutorials focused on the topic instead of lint gymnastics.
+"examples/**/*.py" = ["D205", "D301", "E501", "F841", "N999", "SIM105", "SIM115"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
