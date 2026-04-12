@@ -86,6 +86,8 @@ class RuntimeOrchestrator:
     budget_enforcer: object | None = None
     # Phase 34: Artifact store for large payload externalization.
     artifact_store: Any | None = None
+    # Phase 35: Resilient HTTP client for managed external calls.
+    http_client: Any | None = None
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
