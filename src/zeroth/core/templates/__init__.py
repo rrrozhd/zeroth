@@ -19,6 +19,7 @@ from zeroth.core.templates.models import (
     TemplateRenderResult,
 )
 from zeroth.core.templates.registry import TemplateRegistry
+from zeroth.core.templates.renderer import TemplateRenderer
 
 __all__ = [
     "PromptTemplate",
@@ -27,6 +28,7 @@ __all__ = [
     "TemplateReference",
     "TemplateRegistry",
     "TemplateRenderError",
+    "TemplateRenderer",
     "TemplateRenderResult",
     "TemplateSyntaxValidationError",
     "TemplateVersionExistsError",
