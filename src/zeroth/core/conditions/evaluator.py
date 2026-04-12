@@ -17,6 +17,24 @@ from zeroth.core.conditions.models import ConditionContext
 from zeroth.core.graph.models import Condition as GraphCondition
 from zeroth.core.runs.models import RunConditionResult
 
+_SAFE_BUILTINS: frozenset[str] = frozenset({
+    "len", "str", "int", "float", "bool",
+    "abs", "min", "max", "round", "sorted",
+})
+
+_SAFE_BUILTIN_MAP: dict[str, Any] = {
+    "len": len,
+    "str": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "abs": abs,
+    "min": min,
+    "max": max,
+    "round": round,
+    "sorted": sorted,
+}
+
 
 def _is_truthy(value: Any) -> bool:
     """Check whether a value is truthy using standard Python truthiness rules."""
@@ -66,6 +84,8 @@ class _SafeEvaluator:
             case ast.Constant():
                 return node.value
             case ast.Name():
+                if node.id in _SAFE_BUILTIN_MAP:
+                    return _SAFE_BUILTIN_MAP[node.id]
                 return self._namespace.get(node.id)
             case ast.Attribute():
                 value = self._visit(node.value)
@@ -157,6 +177,24 @@ class _SafeEvaluator:
                 if _is_truthy(test_value):
                     return self._visit(node.body)
                 return self._visit(node.orelse)
+            case ast.Call():
+                func = self._visit(node.func)
+                if func not in _SAFE_BUILTIN_MAP.values():
+                    if isinstance(node.func, ast.Name):
+                        func_name = node.func.id
+                    else:
+                        func_name = ast.dump(node.func)
+                    raise ConditionEvaluationError(
+                        f"'{func_name}' is not an allowed safe builtin"
+                    )
+                args = [self._visit(arg) for arg in node.args]
+                kwargs = {kw.arg: self._visit(kw.value) for kw in node.keywords}
+                try:
+                    return func(*args, **kwargs)
+                except Exception as exc:
+                    raise ConditionEvaluationError(
+                        f"safe builtin call failed: {exc}"
+                    ) from exc
             case _:
                 raise ConditionEvaluationError(
                     f"unsupported expression node: {type(node).__name__}"
