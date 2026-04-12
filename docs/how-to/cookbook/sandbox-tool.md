@@ -21,7 +21,7 @@ backend needs no Docker, so the demo runs anywhere Python does.
 
 ## Recipe
 ```python
---8<-- "sandbox_tool.py"
+--8<-- "23_secrets_and_sandbox.py"
 ```
 
 ## How it works

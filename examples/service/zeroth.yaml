@@ -1,0 +1,39 @@
+# Example zeroth.yaml — the config file picked up by
+# ``zeroth.core.config.settings.get_settings`` on service startup.
+#
+# Environment variables with the ``ZEROTH_`` prefix override these
+# values (e.g. ``ZEROTH_DATABASE__BACKEND=postgres``). In production
+# the file is baked into the Docker image and the env vars are set
+# by the orchestrator (see ``examples/12_docker_compose.md``).
+
+database:
+  # SQLite is fine for dev and CI. For production set
+  # ZEROTH_DATABASE__BACKEND=postgres and
+  # ZEROTH_DATABASE__POSTGRES_DSN=postgresql://...
+  backend: sqlite
+  sqlite_path: examples_service.sqlite
+  postgres_pool_min: 2
+  postgres_pool_max: 10
+
+redis:
+  # ``disabled`` keeps Redis-backed features (memory connectors,
+  # ARQ dispatch, rate limit persistence) off for the local example.
+  # Use ``local`` or ``production`` when Redis is actually reachable.
+  mode: disabled
+  host: 127.0.0.1
+  port: 6379
+  key_prefix: zeroth
+
+auth: {}
+
+regulus:
+  enabled: false
+
+webhook:
+  enabled: false
+
+approval_sla:
+  enabled: false
+
+dispatch:
+  arq_enabled: false

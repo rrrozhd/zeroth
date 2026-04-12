@@ -2,12 +2,12 @@
 
 ## Overview
 
-This guide shows how to attach a human-approval gate to a graph node and resolve it programmatically. The shape matches `examples/approval_demo.py`: a `HumanApprovalNode` on the graph pauses the [run](../concepts/runs.md) into `RunStatus.WAITING_APPROVAL`, a reviewer calls `POST /deployments/{ref}/approvals/{id}/resolve` (or the in-process `ApprovalService.resolve(...)`), and the [orchestrator](../concepts/orchestrator.md) resumes from the exact pause point.
+This guide shows how to attach a human-approval gate to a graph node and resolve it programmatically. The shape matches `examples/20_approval_gate.py`: a `HumanApprovalNode` on the graph pauses the [run](../concepts/runs.md) into `RunStatus.WAITING_APPROVAL`, a reviewer calls `POST /deployments/{ref}/approvals/{id}/resolve` (or the in-process `ApprovalService.resolve(...)`), and the [orchestrator](../concepts/orchestrator.md) resumes from the exact pause point.
 
 ## Minimal example
 
 ```python
-# Slice from examples/approval_demo.py — approval gate, resolved in-process.
+# Slice from examples/20_approval_gate.py — approval gate, resolved in-process.
 from zeroth.core.examples.quickstart import build_demo_graph
 from zeroth.core.graph import GraphRepository
 
@@ -62,5 +62,5 @@ That is the full pattern: **enqueue** (the orchestrator creates the pending reco
 
 See the [Python API reference for `zeroth.core.approvals`](../reference/python-api/approvals.md).
 
-- Example source: `examples/approval_demo.py` (full runnable version).
+- Example source: `examples/20_approval_gate.py` (full runnable version).
 - Related: [Concept: approvals](../concepts/approvals.md), [Usage Guide: policy](policy.md), [Usage Guide: audit](audit.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

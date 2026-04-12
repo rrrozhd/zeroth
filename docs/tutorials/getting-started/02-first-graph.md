@@ -29,28 +29,30 @@ the run surface.
 
 ## The example script
 
-`examples/first_graph.py` is the full, runnable implementation. It
+`examples/01_first_graph.py` is the full, runnable implementation. It
 boots Zeroth in-process against a temporary SQLite database, registers
-the demo contracts, persists and deploys the quickstart graph, injects
-a minimal `litellm`-backed agent runner plus a stub tool runner, and
+two contracts, persists and deploys an agent→executable-unit graph,
+wires a real `AgentRunner` backed by `LiteLLMProviderAdapter`, and
 drives the graph to completion via `orchestrator.run_graph(...)`.
 
-```python title="examples/first_graph.py"
---8<-- "first_graph.py"
+```python title="examples/01_first_graph.py"
+--8<-- "01_first_graph.py"
 ```
 
 Run it (OpenAI this time, so Section 3 can reuse the same key):
 
 ```bash
 export OPENAI_API_KEY=sk-...
-python examples/first_graph.py
+python examples/01_first_graph.py
 ```
 
 ## Expected output
 
 ```text
-Run <uuid> finished with status: completed
-Final output: {'message': '<one-line greeting from the LLM>'}
+── first-graph summary ─────────────────────────────
+  run_id : <uuid>
+  status : COMPLETED
+  output : {'formatted': '# <Topic>\n\n<body>\n', 'topic': '<topic>'}
 ```
 
 Without `OPENAI_API_KEY` the script prints a `SKIP` line to stderr and

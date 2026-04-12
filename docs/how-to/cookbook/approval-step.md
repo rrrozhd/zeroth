@@ -21,7 +21,7 @@ pauses the run when it reaches the gate, and resolves the approval via
 
 ## Recipe
 ```python
---8<-- "approval_step.py"
+--8<-- "20_approval_gate.py"
 ```
 
 ## How it works

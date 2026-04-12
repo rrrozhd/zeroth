@@ -22,7 +22,7 @@ no LLM credentials are required.
 
 ## Recipe
 ```python
---8<-- "agent_handoff.py"
+--8<-- "02_multi_agent.py"
 ```
 
 ## How it works
