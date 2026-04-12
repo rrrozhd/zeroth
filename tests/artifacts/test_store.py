@@ -52,32 +52,47 @@ class TestRedisArtifactStore:
     """Tests for the Redis-backed artifact store."""
 
     @pytest.fixture()
-    def mock_redis(self) -> AsyncMock:
-        """Create a mock Redis async client."""
-        client = AsyncMock()
-        # Pipeline mock
-        pipeline = AsyncMock()
+    def mock_redis(self) -> MagicMock:
+        """Create a mock Redis async client.
+
+        Uses MagicMock for the top level because redis.asyncio.Redis.pipeline()
+        is a synchronous call returning an async context manager, not a coroutine.
+        Individual async methods (get, exists, delete) are set up as AsyncMock.
+        """
+        client = MagicMock()
+
+        # Pipeline mock as async context manager
+        pipeline = MagicMock()
+        pipeline.setex = MagicMock()
+        pipeline.set = MagicMock()
+        pipeline.delete = MagicMock()
+        pipeline.expire = MagicMock()
+        pipeline.execute = AsyncMock(return_value=[True, True])
         pipeline.__aenter__ = AsyncMock(return_value=pipeline)
         pipeline.__aexit__ = AsyncMock(return_value=False)
         client.pipeline.return_value = pipeline
-        # Default exists returns 0 (not found)
-        client.exists.return_value = 0
+
+        # Async methods on the client
+        client.get = AsyncMock(return_value=None)
+        client.exists = AsyncMock(return_value=0)
+        client.delete = AsyncMock(return_value=1)
+        client.scan_iter = MagicMock()
+
         return client
 
     @pytest.fixture()
-    def store(self, mock_redis: AsyncMock) -> RedisArtifactStore:
+    def store(self, mock_redis: MagicMock) -> RedisArtifactStore:
         """Create a RedisArtifactStore with mocked client."""
-        s = RedisArtifactStore(
+        return RedisArtifactStore(
             redis_url="redis://localhost:6379/0",
             prefix="zeroth:artifact",
             default_ttl=3600,
             max_size=104857600,
+            client=mock_redis,
         )
-        s._client = mock_redis
-        return s
 
     @pytest.mark.asyncio()
-    async def test_store_with_ttl(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_store_with_ttl(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """store() with TTL calls pipeline with two setex operations."""
         pipeline = mock_redis.pipeline.return_value
         pipeline.execute.return_value = [True, True]
@@ -96,7 +111,7 @@ class TestRedisArtifactStore:
         assert pipeline.setex.call_count == 2
 
     @pytest.mark.asyncio()
-    async def test_store_without_ttl(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_store_without_ttl(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """store() without TTL calls pipeline with two set operations (no TTL)."""
         pipeline = mock_redis.pipeline.return_value
         pipeline.execute.return_value = [True, True]
@@ -117,7 +132,7 @@ class TestRedisArtifactStore:
             await store.store("run1/node1/abc", b"x" * 11, "text/plain")
 
     @pytest.mark.asyncio()
-    async def test_retrieve_existing(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_retrieve_existing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """retrieve() returns bytes for existing key."""
         mock_redis.get.return_value = b"file-contents"
 
@@ -127,7 +142,7 @@ class TestRedisArtifactStore:
         mock_redis.get.assert_called_once_with("zeroth:artifact:run1/node1/abc123")
 
     @pytest.mark.asyncio()
-    async def test_retrieve_missing(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_retrieve_missing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """retrieve() raises ArtifactNotFoundError for missing key."""
         mock_redis.get.return_value = None
 
@@ -135,7 +150,7 @@ class TestRedisArtifactStore:
             await store.retrieve("run1/node1/missing")
 
     @pytest.mark.asyncio()
-    async def test_delete_existing(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_delete_existing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """delete() returns True for existing key."""
         pipeline = mock_redis.pipeline.return_value
         pipeline.execute.return_value = [1, 1]
@@ -145,7 +160,7 @@ class TestRedisArtifactStore:
         assert result is True
 
     @pytest.mark.asyncio()
-    async def test_delete_missing(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_delete_missing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """delete() returns False for missing key."""
         pipeline = mock_redis.pipeline.return_value
         pipeline.execute.return_value = [0, 0]
@@ -156,7 +171,7 @@ class TestRedisArtifactStore:
 
     @pytest.mark.asyncio()
     async def test_refresh_ttl_existing(
-        self, store: RedisArtifactStore, mock_redis: AsyncMock
+        self, store: RedisArtifactStore, mock_redis: MagicMock
     ) -> None:
         """refresh_ttl() pipelines expire on both keys, returns True if key exists."""
         mock_redis.exists.return_value = 1
@@ -171,7 +186,7 @@ class TestRedisArtifactStore:
 
     @pytest.mark.asyncio()
     async def test_refresh_ttl_missing(
-        self, store: RedisArtifactStore, mock_redis: AsyncMock
+        self, store: RedisArtifactStore, mock_redis: MagicMock
     ) -> None:
         """refresh_ttl() raises ArtifactTTLError when key does not exist."""
         mock_redis.exists.return_value = 0
@@ -180,7 +195,7 @@ class TestRedisArtifactStore:
             await store.refresh_ttl("run1/node1/missing", 600)
 
     @pytest.mark.asyncio()
-    async def test_exists_true(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_exists_true(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """exists() returns True based on redis exists command."""
         mock_redis.exists.return_value = 1
 
@@ -189,7 +204,7 @@ class TestRedisArtifactStore:
         assert result is True
 
     @pytest.mark.asyncio()
-    async def test_exists_false(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_exists_false(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """exists() returns False when key missing."""
         mock_redis.exists.return_value = 0
 
@@ -198,7 +213,7 @@ class TestRedisArtifactStore:
         assert result is False
 
     @pytest.mark.asyncio()
-    async def test_cleanup_run(self, store: RedisArtifactStore, mock_redis: AsyncMock) -> None:
+    async def test_cleanup_run(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """cleanup_run() uses scan_iter with prefix pattern, deletes matching keys."""
         mock_redis.scan_iter.return_value = self._async_iter(
             [b"zeroth:artifact:run1/a", b"zeroth:artifact:run1/b"]
