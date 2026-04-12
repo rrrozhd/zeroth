@@ -138,13 +138,13 @@ jobs:
           # Sigstore attestations are default-on in v1.14+ (D-13)
 
   smoke-from-testpypi:
-    name: Smoke-install from TestPyPI + run examples/hello.py
+    name: Smoke-install from TestPyPI + run examples/00_hello.py
     needs: [publish-testpypi]
     runs-on: ubuntu-latest
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
-      - name: Checkout (for examples/hello.py)
+      - name: Checkout (for examples/00_hello.py)
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -178,11 +178,11 @@ jobs:
             echo "::error::TestPyPI install failed after 5 attempts"
             exit 1
           fi
-          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-            echo "ANTHROPIC_API_KEY present — running examples/hello.py end-to-end"
-            python examples/hello.py
+          if [ -n "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_API_KEY present — running examples/00_hello.py end-to-end"
+            python examples/00_hello.py
           else
-            echo "SKIP: no ANTHROPIC_API_KEY available (pitfall #6); skipping examples/hello.py"
+            echo "SKIP: no OPENAI_API_KEY available; skipping examples/00_hello.py"
           fi
 
   publish-pypi:

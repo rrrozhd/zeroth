@@ -23,13 +23,13 @@ If you only need the base runtime (no optional backends), drop
 
 ## Running the example
 
-The repository ships a minimal end-to-end fixture at `examples/hello.py`:
+The repository ships a minimal end-to-end fixture at `examples/00_hello.py`:
 
 ```bash
-python examples/hello.py
+python examples/00_hello.py
 ```
 
-The example requires an `ANTHROPIC_API_KEY` environment variable to talk to
+The example requires an `OPENAI_API_KEY` environment variable to talk to
 a real LLM. If the variable is not set, the script prints a skip notice and
 exits cleanly — so you can verify it runs without secrets, and CI jobs on
 forked pull requests will not fail for missing credentials.
