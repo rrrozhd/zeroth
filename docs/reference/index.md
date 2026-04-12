@@ -1,6 +1,6 @@
 # Reference
 
-Reference material is **information-oriented**. Phase 30 stubs the three subsections; Phase 32 populates them from source.
+Reference material is **information-oriented**. Each subsection is auto-generated from source.
 
 - [Python API](python-api.md)
 - [HTTP API](http-api.md)

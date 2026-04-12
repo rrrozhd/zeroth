@@ -34,4 +34,4 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 
 ## How this is generated
 
-Pages are rendered at build time from Python docstrings. See `mkdocs.yml` (`mkdocstrings` plugin) for configuration. Docstring coverage is gated at ≥90% via `interrogate` (see Phase 27).
+Pages are rendered at build time from Python docstrings. See `mkdocs.yml` (`mkdocstrings` plugin) for configuration. Docstring coverage is gated at ≥90% via `interrogate`.

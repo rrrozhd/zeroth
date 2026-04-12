@@ -140,9 +140,9 @@ real runtime without mocks.
 
 ## Where to next
 
-The subsystem concept pages for Approvals, Audit, and Policy ship in
-Phase 31 and will live under [Concepts](../concepts/index.md). Until
-then, the source of truth for each subsystem is:
+For deeper reading, see the subsystem concept pages under
+[Concepts](../concepts/index.md). The source of truth for each
+subsystem is:
 
 - **Approvals** — `zeroth.core.approvals.service.ApprovalService`
   and `zeroth.core.service.approval_api`.
