@@ -136,8 +136,6 @@ class ServiceBootstrap:
     cost_estimator: object | None = None
     arq_pool: object | None = None
     redis_client: object | None = None
-    # Phase 34: Artifact store for large payload externalization.
-    artifact_store: object | None = None
 
 
 async def bootstrap_service(
@@ -311,34 +309,6 @@ async def bootstrap_service(
     orchestrator.memory_resolver = memory_resolver
     orchestrator.budget_enforcer = budget_enforcer
 
-    # Phase 34: Artifact store construction and wiring.
-    artifact_store: object | None = None
-    artifact_settings = settings.artifact_store
-    if artifact_settings.backend == "filesystem":
-        from zeroth.core.artifacts.store import FilesystemArtifactStore
-
-        artifact_store = FilesystemArtifactStore(
-            base_dir=artifact_settings.filesystem_base_dir,
-            default_ttl=artifact_settings.default_ttl_seconds,
-            max_size=artifact_settings.max_artifact_size_bytes,
-        )
-    elif artifact_settings.backend == "redis" and redis_client is not None:
-        from zeroth.core.artifacts.store import RedisArtifactStore
-
-        artifact_store = RedisArtifactStore(
-            redis_url="",  # not used when client is provided
-            prefix=artifact_settings.redis_key_prefix,
-            default_ttl=artifact_settings.default_ttl_seconds,
-            max_size=artifact_settings.max_artifact_size_bytes,
-            client=redis_client,
-        )
-    elif artifact_settings.backend not in ("filesystem", "redis"):
-        raise ValueError(
-            f"Unknown artifact store backend: {artifact_settings.backend!r}. "
-            "Must be 'filesystem' or 'redis'."
-        )
-    orchestrator.artifact_store = artifact_store
-
     # Phase 15: Webhook delivery and SLA enforcement.
     webhook_repository = None
     webhook_service_obj = None
@@ -424,7 +394,6 @@ async def bootstrap_service(
         cost_estimator=cost_estimator,
         arq_pool=arq_pool,
         redis_client=redis_client,
-        artifact_store=artifact_store,
     )
 
 

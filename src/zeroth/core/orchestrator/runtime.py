@@ -84,8 +84,6 @@ class RuntimeOrchestrator:
     # Phase 20: Memory and budget injection for AgentRunner dispatch.
     memory_resolver: object | None = None
     budget_enforcer: object | None = None
-    # Phase 34: Artifact store for large payload externalization.
-    artifact_store: Any | None = None
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -132,30 +130,6 @@ class RuntimeOrchestrator:
             raise OrchestratorError(f"run {run_id} is not resumable from status {run.status}")
         return await self._drive(graph, run)
 
-    async def _refresh_artifact_ttls(self, run: Run) -> None:
-        """Refresh TTLs on all artifact references found in run state.
-
-        Scans execution history output_snapshots and final_output for
-        ArtifactReference-shaped dicts, then refreshes each one's TTL
-        on the configured artifact store. This is a no-op when
-        artifact_store is None (backward compatibility).
-
-        Never raises -- failures are logged but do not affect the run.
-        """
-        if self.artifact_store is None:
-            return
-        try:
-            from zeroth.core.artifacts.helpers import refresh_artifact_ttls
-
-            combined: dict[str, Any] = {}
-            for i, entry in enumerate(run.execution_history):
-                combined[f"_history_{i}"] = entry.output_snapshot
-            if run.final_output is not None:
-                combined["_final_output"] = run.final_output
-            await refresh_artifact_ttls(self.artifact_store, combined, ttl=3600)
-        except Exception:
-            logger.exception("artifact TTL refresh failed (non-fatal)")
-
     async def _drive(self, graph: Graph, run: Run) -> Run:
         """Main loop that processes nodes one at a time until done.
 
@@ -176,7 +150,6 @@ class RuntimeOrchestrator:
                 run.touch()
                 persisted = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(persisted)
-                await self._refresh_artifact_ttls(persisted)
                 await self._emit_webhook(
                     "run.completed",
                     persisted,
@@ -230,7 +203,9 @@ class RuntimeOrchestrator:
                             "run_id": run.run_id,
                             "node_id": node.node_id,
                             "sla_deadline": (
-                                approval.sla_deadline.isoformat() if approval.sla_deadline else None
+                                approval.sla_deadline.isoformat()
+                                if approval.sla_deadline
+                                else None
                             ),
                         },
                     )
@@ -245,7 +220,6 @@ class RuntimeOrchestrator:
                 run.touch()
                 persisted = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(persisted)
-                await self._refresh_artifact_ttls(persisted)
                 return persisted
 
             try:
@@ -263,7 +237,6 @@ class RuntimeOrchestrator:
             run.touch()
             run = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(run)
-            await self._refresh_artifact_ttls(run)
 
     async def _dispatch_node(
         self,
@@ -295,7 +268,9 @@ class RuntimeOrchestrator:
                     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
                     tenant_id = (
-                        run.metadata.get("tenant_id", "default") if run.metadata else "default"
+                        run.metadata.get("tenant_id", "default")
+                        if run.metadata
+                        else "default"
                     )
                     runner.provider = InstrumentedProviderAdapter(
                         inner=original_provider,
@@ -462,18 +437,7 @@ class RuntimeOrchestrator:
             payload = dict(output_data)
             if edge is not None and edge.mapping is not None:
                 # Edge mappings reshape one node's output into the next node's expected input.
-                context_ns = {
-                    "payload": dict(output_data),
-                    "state": dict(run.metadata.get("state", {})),
-                    "variables": dict(run.metadata.get("variables", {})),
-                    "node_visit_counts": dict(run.node_visit_counts),
-                    "edge_visit_counts": dict(run.metadata.get("edge_visit_counts", {})),
-                    "path": list(run.metadata.get("path", [])),
-                    "metadata": {"run_id": run.run_id},
-                }
-                payload = self.mapping_executor.execute(
-                    output_data, edge.mapping, context=context_ns
-                )
+                payload = self.mapping_executor.execute(output_data, edge.mapping)
             payloads[target_node_id] = payload
             run.pending_node_ids.append(target_node_id)
         run.metadata["node_payloads"] = payloads
@@ -719,7 +683,6 @@ class RuntimeOrchestrator:
         run.touch()
         persisted = await self.run_repository.put(run)
         await self.run_repository.write_checkpoint(persisted)
-        await self._refresh_artifact_ttls(persisted)
         return persisted
 
     async def _consume_side_effect_approval(
@@ -740,7 +703,6 @@ class RuntimeOrchestrator:
             run.pending_node_ids.insert(0, node.node_id)
             persisted = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(persisted)
-            await self._refresh_artifact_ttls(persisted)
             return persisted
         record = await self.approval_service.get(approval_id)
         if record is None or record.resolution is None:
@@ -748,7 +710,6 @@ class RuntimeOrchestrator:
             run.pending_node_ids.insert(0, node.node_id)
             persisted = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(persisted)
-            await self._refresh_artifact_ttls(persisted)
             return persisted
         run.metadata.pop("pending_approval", None)
         if record.resolution.decision is ApprovalDecision.REJECT:
@@ -876,7 +837,6 @@ class RuntimeOrchestrator:
         run.touch()
         run = await self.run_repository.put(run)
         await self.run_repository.write_checkpoint(run)
-        await self._refresh_artifact_ttls(run)
         return run
 
     async def _fail_run(self, run: Run, reason: str, message: str) -> Run:
@@ -887,7 +847,6 @@ class RuntimeOrchestrator:
         run.touch()
         persisted = await self.run_repository.put(run)
         await self.run_repository.write_checkpoint(persisted)
-        await self._refresh_artifact_ttls(persisted)
         await self._emit_webhook(
             "run.failed",
             persisted,
