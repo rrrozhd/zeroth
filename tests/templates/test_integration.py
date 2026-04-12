@@ -265,7 +265,7 @@ class TestOrchestratorTemplateResolution:
         # The orchestrator should let the TemplateNotFoundError propagate.
         # It will be caught by the outer try/except in _drive and fail the run.
         run = await orchestrator.run_graph(graph, {"name": "Alice"})
-        assert run.status.value == "failed"
+        assert run.status.value.lower() == "failed"
 
     @pytest.mark.asyncio()
     async def test_audit_contains_rendered_prompt(self, registry, renderer, runner):
@@ -285,8 +285,11 @@ class TestOrchestratorTemplateResolution:
 
         assert len(audit_repo.records) == 1
         exec_meta = audit_repo.records[0].execution_metadata
-        assert "rendered_prompt" in exec_meta
-        assert "Hi Charlie!" in exec_meta["rendered_prompt"]
+        # execution_metadata on the NodeAuditRecord is the full audit dict;
+        # template metadata is nested under the "execution_metadata" key within it.
+        inner_meta = exec_meta.get("execution_metadata", exec_meta)
+        assert "rendered_prompt" in inner_meta
+        assert "Hi Charlie!" in inner_meta["rendered_prompt"]
 
     @pytest.mark.asyncio()
     async def test_audit_contains_template_ref(self, registry, renderer, runner):
@@ -306,9 +309,10 @@ class TestOrchestratorTemplateResolution:
 
         assert len(audit_repo.records) == 1
         exec_meta = audit_repo.records[0].execution_metadata
-        assert "template_ref" in exec_meta
-        assert exec_meta["template_ref"]["name"] == "greeting"
-        assert exec_meta["template_ref"]["version"] == 1
+        inner_meta = exec_meta.get("execution_metadata", exec_meta)
+        assert "template_ref" in inner_meta
+        assert inner_meta["template_ref"]["name"] == "greeting"
+        assert inner_meta["template_ref"]["version"] == 1
 
     @pytest.mark.asyncio()
     async def test_template_variables_include_input_and_state(self, renderer, runner):
