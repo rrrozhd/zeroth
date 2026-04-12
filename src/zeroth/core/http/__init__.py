@@ -5,6 +5,8 @@ backoff with jitter, per-endpoint circuit breaking, in-memory rate limiting,
 connection pooling, and call-record auditing.
 """
 
+from __future__ import annotations
+
 from zeroth.core.http.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerRegistry,
@@ -38,5 +40,16 @@ __all__ = [
     "HttpRateLimitError",
     "HttpRetryExhaustedError",
     "InMemoryTokenBucket",
+    "ResilientHttpClient",
     "redact_url",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Lazy-import ResilientHttpClient to avoid circular import with settings."""
+    if name == "ResilientHttpClient":
+        from zeroth.core.http.client import ResilientHttpClient
+
+        return ResilientHttpClient
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
