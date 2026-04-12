@@ -7,6 +7,8 @@ This module contains the logic that performs those checks.
 
 from __future__ import annotations
 
+import ast
+
 from zeroth.core.mappings.errors import MappingValidationError
 from zeroth.core.mappings.models import (
     ConstantMappingOperation,
@@ -15,6 +17,7 @@ from zeroth.core.mappings.models import (
     MappingOperation,
     PassthroughMappingOperation,
     RenameMappingOperation,
+    TransformMappingOperation,
 )
 
 
@@ -76,6 +79,10 @@ class MappingValidator:
                     _validate_path(operation.source_path, label="source_path")
                 _validate_path(operation.target_path, label="target_path")
                 self._check_target_path(operation.target_path, target_paths)
+            case TransformMappingOperation():
+                _validate_path(operation.target_path, label="target_path")
+                self._check_target_path(operation.target_path, target_paths)
+                self._validate_expression(operation.expression)
             case _:
                 msg = f"unsupported mapping operation: {type(operation)!r}"
                 raise MappingValidationError(msg)
@@ -91,3 +98,70 @@ class MappingValidator:
             msg = f"duplicate target path: {target_path}"
             raise MappingValidationError(msg)
         target_paths.add(target_path)
+
+    def _validate_expression(self, expression: str) -> None:
+        """Check that a transform expression is syntactically valid and uses only safe AST nodes."""
+        if not expression or not expression.strip():
+            raise MappingValidationError("transform expression must not be empty")
+        try:
+            tree = ast.parse(expression, mode="eval")
+        except SyntaxError as exc:
+            raise MappingValidationError(
+                f"invalid transform expression syntax: {expression!r}"
+            ) from exc
+        self._check_ast_safety(tree.body, expression)
+
+    def _check_ast_safety(self, node: ast.AST, expression: str) -> None:
+        """Walk the AST tree and verify all nodes are in the set supported by _SafeEvaluator.
+
+        Raises ``MappingValidationError`` for any node type not in the allowed set.
+        """
+        # Node types that _SafeEvaluator._visit handles directly
+        _allowed_expression_nodes: set[type] = {
+            ast.Constant,
+            ast.Name,
+            ast.Attribute,
+            ast.Subscript,
+            ast.List,
+            ast.Tuple,
+            ast.Dict,
+            ast.Set,
+            ast.BoolOp,
+            ast.UnaryOp,
+            ast.BinOp,
+            ast.Compare,
+            ast.IfExp,
+        }
+        # Structural child nodes (operators, context markers) that appear inside
+        # the expression nodes above but are not visited independently
+        _allowed_structural_nodes: set[type] = {
+            ast.And,
+            ast.Or,
+            ast.Add,
+            ast.Sub,
+            ast.Mult,
+            ast.Div,
+            ast.Mod,
+            ast.Not,
+            ast.UAdd,
+            ast.USub,
+            ast.Eq,
+            ast.NotEq,
+            ast.Lt,
+            ast.LtE,
+            ast.Gt,
+            ast.GtE,
+            ast.In,
+            ast.NotIn,
+            ast.Is,
+            ast.IsNot,
+            ast.Load,
+            ast.Index,
+            ast.Expression,
+        }
+        allowed = _allowed_expression_nodes | _allowed_structural_nodes
+
+        for child in ast.walk(node):
+            if type(child) not in allowed:
+                msg = f"unsupported expression node: {type(child).__name__} in {expression!r}"
+                raise MappingValidationError(msg)
