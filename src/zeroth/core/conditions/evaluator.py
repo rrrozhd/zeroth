@@ -17,10 +17,20 @@ from zeroth.core.conditions.models import ConditionContext
 from zeroth.core.graph.models import Condition as GraphCondition
 from zeroth.core.runs.models import RunConditionResult
 
-_SAFE_BUILTINS: frozenset[str] = frozenset({
-    "len", "str", "int", "float", "bool",
-    "abs", "min", "max", "round", "sorted",
-})
+_SAFE_BUILTINS: frozenset[str] = frozenset(
+    {
+        "len",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "abs",
+        "min",
+        "max",
+        "round",
+        "sorted",
+    }
+)
 
 _SAFE_BUILTIN_MAP: dict[str, Any] = {
     "len": len,
@@ -184,17 +194,13 @@ class _SafeEvaluator:
                         func_name = node.func.id
                     else:
                         func_name = ast.dump(node.func)
-                    raise ConditionEvaluationError(
-                        f"'{func_name}' is not an allowed safe builtin"
-                    )
+                    raise ConditionEvaluationError(f"'{func_name}' is not an allowed safe builtin")
                 args = [self._visit(arg) for arg in node.args]
                 kwargs = {kw.arg: self._visit(kw.value) for kw in node.keywords}
                 try:
                     return func(*args, **kwargs)
                 except Exception as exc:
-                    raise ConditionEvaluationError(
-                        f"safe builtin call failed: {exc}"
-                    ) from exc
+                    raise ConditionEvaluationError(f"safe builtin call failed: {exc}") from exc
             case _:
                 raise ConditionEvaluationError(
                     f"unsupported expression node: {type(node).__name__}"

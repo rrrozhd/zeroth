@@ -203,9 +203,7 @@ class RuntimeOrchestrator:
                             "run_id": run.run_id,
                             "node_id": node.node_id,
                             "sla_deadline": (
-                                approval.sla_deadline.isoformat()
-                                if approval.sla_deadline
-                                else None
+                                approval.sla_deadline.isoformat() if approval.sla_deadline else None
                             ),
                         },
                     )
@@ -268,9 +266,7 @@ class RuntimeOrchestrator:
                     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
                     tenant_id = (
-                        run.metadata.get("tenant_id", "default")
-                        if run.metadata
-                        else "default"
+                        run.metadata.get("tenant_id", "default") if run.metadata else "default"
                     )
                     runner.provider = InstrumentedProviderAdapter(
                         inner=original_provider,
