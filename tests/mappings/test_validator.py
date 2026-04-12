@@ -164,18 +164,19 @@ class TestTransformValidation:
         with pytest.raises(MappingValidationError, match="invalid transform expression syntax"):
             validator.validate(mapping)
 
-    def test_rejects_unsupported_ast_node_call(self) -> None:
+    def test_allows_call_nodes_in_static_validation(self) -> None:
+        """ast.Call is now allowed by the validator since safe builtins are enforced at runtime."""
         validator = MappingValidator()
         mapping = EdgeMapping(
             operations=[
                 TransformMappingOperation(
-                    expression="__import__('os')",
+                    expression="len(payload.items)",
                     target_path="result.x",
                 ),
             ]
         )
-        with pytest.raises(MappingValidationError, match="unsupported expression node"):
-            validator.validate(mapping)
+        # Should not raise -- ast.Call is permitted; runtime evaluator enforces the allowlist
+        validator.validate(mapping)
 
     def test_rejects_unsupported_ast_node_lambda(self) -> None:
         validator = MappingValidator()
