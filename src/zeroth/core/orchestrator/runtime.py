@@ -311,6 +311,29 @@ class RuntimeOrchestrator:
                 render_result = renderer.render(template, render_vars)
                 effective_instruction = render_result.rendered
                 rendered_prompt_for_audit = render_result.rendered
+
+                # Phase 36: Redact secret variable values before audit storage.
+                from zeroth.core.templates.redaction import (
+                    identify_secret_variables,
+                    redact_rendered_prompt,
+                )
+
+                # Flatten nested render_vars for redaction matching.
+                render_vars_flat: dict[str, object] = {}
+                for _ns, _vals in render_vars.items():
+                    if isinstance(_vals, dict):
+                        for k, v in _vals.items():
+                            render_vars_flat[k] = v
+                secret_vars = identify_secret_variables(
+                    list(render_vars_flat.keys()),
+                )
+                if secret_vars:
+                    rendered_prompt_for_audit = redact_rendered_prompt(
+                        render_result.rendered,
+                        render_vars_flat,
+                        secret_vars,
+                    )
+
                 template_ref_for_audit = {
                     "name": template.name,
                     "version": template.version,

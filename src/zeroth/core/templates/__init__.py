@@ -18,10 +18,16 @@ from zeroth.core.templates.models import (
     TemplateReference,
     TemplateRenderResult,
 )
+from zeroth.core.templates.redaction import (
+    DEFAULT_SECRET_PATTERNS,
+    identify_secret_variables,
+    redact_rendered_prompt,
+)
 from zeroth.core.templates.registry import TemplateRegistry
 from zeroth.core.templates.renderer import TemplateRenderer
 
 __all__ = [
+    "DEFAULT_SECRET_PATTERNS",
     "PromptTemplate",
     "TemplateError",
     "TemplateNotFoundError",
@@ -32,4 +38,6 @@ __all__ = [
     "TemplateRenderResult",
     "TemplateSyntaxValidationError",
     "TemplateVersionExistsError",
+    "identify_secret_variables",
+    "redact_rendered_prompt",
 ]
