@@ -88,6 +88,9 @@ class RuntimeOrchestrator:
     artifact_store: Any | None = None
     # Phase 35: Resilient HTTP client for managed external calls.
     http_client: Any | None = None
+    # Phase 36: Template registry and renderer for prompt template resolution.
+    template_registry: Any | None = None
+    template_renderer: Any | None = None
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -284,6 +287,42 @@ class RuntimeOrchestrator:
             if runner is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
 
+            # Phase 36: Template resolution -- resolve and render before agent execution.
+            effective_instruction: str | None = None
+            rendered_prompt_for_audit: str | None = None
+            template_ref_for_audit: dict[str, Any] | None = None
+            agent_template_ref = getattr(node.agent, "template_ref", None)
+            if (
+                self.template_registry is not None
+                and self.template_renderer is not None
+                and agent_template_ref is not None
+            ):
+                from zeroth.core.templates import TemplateRegistry, TemplateRenderer
+
+                template_ref = node.agent.template_ref
+                registry: TemplateRegistry = self.template_registry
+                renderer: TemplateRenderer = self.template_renderer
+                template = registry.get(template_ref.name, template_ref.version)
+                render_vars: dict[str, Any] = {
+                    "input": dict(input_payload),
+                    "state": dict(run.metadata) if run.metadata else {},
+                    "memory": {},
+                }
+                render_result = renderer.render(template, render_vars)
+                effective_instruction = render_result.rendered
+                rendered_prompt_for_audit = render_result.rendered
+                template_ref_for_audit = {
+                    "name": template.name,
+                    "version": template.version,
+                }
+
+            # Phase 36: Override runner config instruction with rendered template.
+            original_config = getattr(runner, "config", _MISSING)
+            if effective_instruction is not None and original_config is not _MISSING:
+                runner.config = original_config.model_copy(
+                    update={"instruction": effective_instruction}
+                )
+
             # Phase 18: Wrap provider with cost instrumentation (per ECON-01).
             # Use getattr so lightweight test runners without a .provider
             # attribute (e.g. FunctionalRunner, RecordingAgentRunner) still work.
@@ -349,11 +388,21 @@ class RuntimeOrchestrator:
                     runner.memory_resolver = original_memory_resolver
                 if original_budget_enforcer is not _MISSING:
                     runner.budget_enforcer = original_budget_enforcer
+                # Phase 36: Restore original config after template-based override.
+                if effective_instruction is not None and original_config is not _MISSING:
+                    runner.config = original_config
 
             audit_record = dict(result.audit_record)
             if enforcement_context:
                 audit_record["enforcement"] = enforcement_context
                 audit_record["enforcement_applied"] = True
+            # Phase 36: Record template metadata in audit.
+            if rendered_prompt_for_audit is not None:
+                audit_record.setdefault("execution_metadata", {})
+                audit_record["execution_metadata"]["rendered_prompt"] = rendered_prompt_for_audit
+            if template_ref_for_audit is not None:
+                audit_record.setdefault("execution_metadata", {})
+                audit_record["execution_metadata"]["template_ref"] = template_ref_for_audit
             return result.output_data, audit_record
         if isinstance(node, ExecutableUnitNode):
             enforcement_context = self._enforcement_context_for(run, node.node_id)

@@ -140,6 +140,8 @@ class ServiceBootstrap:
     artifact_store: object | None = None
     # Phase 35: Resilient HTTP client.
     http_client: object | None = None
+    # Phase 36: Template registry for prompt template management.
+    template_registry: object | None = None
 
 
 async def bootstrap_service(
@@ -356,6 +358,14 @@ async def bootstrap_service(
     )
     orchestrator.http_client = http_client_instance
 
+    # Phase 36: Template registry and renderer.
+    from zeroth.core.templates import TemplateRegistry, TemplateRenderer  # noqa: PLC0415
+
+    template_registry = TemplateRegistry()
+    template_renderer = TemplateRenderer()
+    orchestrator.template_registry = template_registry
+    orchestrator.template_renderer = template_renderer
+
     # Phase 15: Webhook delivery and SLA enforcement.
     webhook_repository = None
     webhook_service_obj = None
@@ -443,6 +453,7 @@ async def bootstrap_service(
         redis_client=redis_client,
         artifact_store=artifact_store,
         http_client=http_client_instance,
+        template_registry=template_registry,
     )
 
 
