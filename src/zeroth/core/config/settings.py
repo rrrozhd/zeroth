@@ -18,7 +18,6 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from zeroth.core.artifacts.models import ArtifactStoreSettings
 from zeroth.core.econ.models import RegulusSettings
 
 
@@ -145,7 +144,6 @@ class ZerothSettings(BaseSettings):
         extra="ignore",
     )
 
-    artifact_store: ArtifactStoreSettings = Field(default_factory=ArtifactStoreSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
