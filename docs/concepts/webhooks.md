@@ -1,13 +1,5 @@
 # Webhooks
 
-> **Note on this page.** The Phase 31 content spec originally listed
-> `threads` as the 20th subsystem. No `zeroth.core.threads` module
-> exists in the current tree, so — with the planner's explicit
-> discretion — this slot is filled by `zeroth.core.webhooks`, a
-> concrete user-facing async integration surface that would otherwise
-> have no documentation coverage. The substitution is also recorded in
-> the plan frontmatter for auditability.
-
 ## What it is
 
 The `zeroth.core.webhooks` subsystem is Zeroth's **outbound webhook

@@ -100,8 +100,7 @@ curl -s http://regulus:8080/healthz
   and Regulus is unreachable, cost-checked nodes fail closed. Disable the
   integration or fix connectivity before running production traffic.
 - **Version pinning:** confirm `econ-instrumentation-sdk>=0.1.1` is resolved
-  in your lockfile. This is the pin set in Phase 28 when the SDK moved from
-  a local path dep to PyPI.
+  in your lockfile.
 - **Clock skew:** Regulus uses signed budget windows. Keep NTP running on
   both hosts or you will see spurious "budget expired" halts.
 - **API key leakage:** `ZEROTH_REGULUS__API_KEY` is a secret. Put it in your
