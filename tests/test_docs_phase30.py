@@ -137,7 +137,7 @@ def test_landing_page_has_tabbed_split_and_hello_snippet() -> None:
     assert '=== "Embed as library"' in body, "Embed as library tab missing"
     assert '=== "Run as service"' in body, "Run as service tab missing"
     assert "--8<--" in body, "pymdownx.snippets scissors token missing"
-    assert "hello.py" in body, "hello.py snippet reference missing"
+    assert "00_hello.py" in body, "00_hello.py snippet reference missing"
 
 
 def test_reference_quadrant_pages_exist() -> None:

@@ -135,7 +135,7 @@ real runtime without mocks.
 ## Full example
 
 ```python
---8<-- "governance_walkthrough.py"
+--8<-- "26_governance_walkthrough.py"
 ```
 
 ## Where to next
