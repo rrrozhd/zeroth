@@ -30,3 +30,14 @@ zeroth_dev.db-wal
 zeroth_live.db
 zeroth_live.db-shm
 zeroth_live.db-wal
+
+# Generated local state for runnable examples
+examples/*.sqlite
+examples/*.sqlite-shm
+examples/*.sqlite-wal
+examples/service/*.sqlite
+examples/service/*.sqlite-shm
+examples/service/*.sqlite-wal
+examples_serve.sqlite
+examples_approval.sqlite
+examples_service.sqlite

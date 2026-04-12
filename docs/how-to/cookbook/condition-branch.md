@@ -21,7 +21,7 @@ reject) guarded by expressions on the payload, and uses
 
 ## Recipe
 ```python
---8<-- "condition_branch.py"
+--8<-- "03_conditional_branches.py"
 ```
 
 ## How it works

@@ -38,9 +38,9 @@ walks both paths end-to-end in under 30 minutes.
 ## Hello, Zeroth
 
 The smallest possible smoke test — install the package, set
-`ANTHROPIC_API_KEY`, and run the script below. You should see a one-line
+`OPENAI_API_KEY`, and run the script below. You should see a one-line
 LLM greeting in under 5 minutes.
 
-```python title="examples/hello.py"
---8<-- "hello.py"
+```python title="examples/00_hello.py"
+--8<-- "00_hello.py"
 ```

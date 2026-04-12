@@ -27,23 +27,21 @@ Postgres, and calls `uvicorn.run(...)` against the
 `bootstrap_service(...)` — the same function the library-mode example
 calls.
 
-For the tutorial, `examples/approval_demo.py` boots the same service
-**in-process** using `httpx.ASGITransport`, so you do not need to run a
-separate uvicorn daemon, install anything extra, or juggle ports.
-Production and the tutorial use the exact same code path below the
-transport boundary.
+For the tutorial, `examples/20_approval_gate.py` boots the same service
+**in-process** on a real uvicorn instance, so the curl command it
+prints is the actual command an operator would run in another
+terminal. Production and the tutorial use the exact same code path.
 
 ## The example script
 
-```python title="examples/approval_demo.py"
---8<-- "approval_demo.py"
+```python title="examples/20_approval_gate.py"
+--8<-- "20_approval_gate.py"
 ```
 
 Run it:
 
 ```bash
-export OPENAI_API_KEY=sk-...
-python examples/approval_demo.py
+python examples/20_approval_gate.py
 ```
 
 ## Expected output

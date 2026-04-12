@@ -21,7 +21,7 @@ Writes three `NodeAuditRecord` rows against a SQLite-backed
 
 ## Recipe
 ```python
---8<-- "audit_query.py"
+--8<-- "24_audit_query.py"
 ```
 
 ## How it works

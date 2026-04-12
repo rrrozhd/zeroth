@@ -50,7 +50,7 @@ asyncio.run(main())
 
 ## Pitfalls
 
-1. **Calling a provider without credentials** — `LiteLLMProviderAdapter` will raise `AgentProviderError`; gate your example with an env check like `examples/first_graph.py` does.
+1. **Calling a provider without credentials** — `LiteLLMProviderAdapter` will raise `AgentProviderError`; gate your example with an env check like `examples/01_first_graph.py` does.
 2. **Unvalidated model output** — skipping `OutputValidator` lets malformed LLM responses propagate into downstream nodes, where they will fail mapping or contract checks far away from the cause.
 3. **Thread state leakage** — reusing the same `thread_id` across unrelated runs bleeds history between them; mint a fresh thread per logical conversation.
 4. **Declaring tools the runtime can't bind** — undeclared refs raise `UndeclaredToolError`. Register every tool in the `ToolAttachmentRegistry` before starting the run.

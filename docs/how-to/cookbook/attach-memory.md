@@ -20,7 +20,7 @@ scratch state across turns without a database.
 
 ## Recipe
 ```python
---8<-- "attach_memory.py"
+--8<-- "05_memory.py"
 ```
 
 ## How it works

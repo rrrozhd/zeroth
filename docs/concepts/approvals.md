@@ -33,7 +33,7 @@ A human (authenticated by [identity](identity.md) and scoped by role) later POST
 
 ## See also
 
-- [Usage Guide: approvals](../how-to/approvals.md) — attach an approval gate to a node the way `examples/approval_demo.py` does.
+- [Usage Guide: approvals](../how-to/approvals.md) — attach an approval gate to a node the way `examples/20_approval_gate.py` does.
 - [Concept: policy](policy.md) — what runs *before* the approval check.
 - [Concept: audit](audit.md) — where every approval action is recorded.
 - [Concept: identity](identity.md) — how reviewers are authenticated and role-scoped.

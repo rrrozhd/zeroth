@@ -169,28 +169,28 @@ def test_examples_workflow_exists() -> None:
 
 
 def test_examples_workflow_runs_first_graph_and_approval() -> None:
-    """The workflow must invoke both new example scripts by path."""
+    """The workflow must invoke the core + approval example scripts by path."""
     body = EXAMPLES_WORKFLOW.read_text(encoding="utf-8")
-    assert "examples/first_graph.py" in body, "first_graph.py not wired into examples.yml"
-    assert "examples/approval_demo.py" in body, "approval_demo.py not wired into examples.yml"
+    assert "examples/01_first_graph.py" in body, "01_first_graph.py not wired into examples.yml"
+    assert "examples/20_approval_gate.py" in body, "20_approval_gate.py not wired into examples.yml"
 
 
 def test_first_graph_page_embeds_example() -> None:
-    """02-first-graph.md must embed examples/first_graph.py via pymdownx.snippets."""
+    """02-first-graph.md must embed examples/01_first_graph.py via pymdownx.snippets."""
     page = GETTING_STARTED / "02-first-graph.md"
     assert page.exists(), f"{page} missing"
     body = page.read_text(encoding="utf-8")
     assert "--8<--" in body, "snippets token missing from 02-first-graph.md"
-    assert "first_graph.py" in body, "first_graph.py reference missing from 02-first-graph.md"
+    assert "01_first_graph.py" in body, "01_first_graph.py reference missing from 02-first-graph.md"
 
 
 def test_approval_page_embeds_example_and_curl() -> None:
-    """03-service-and-approval.md must embed approval_demo.py and show the curl path."""
+    """03-service-and-approval.md must embed 20_approval_gate.py and show the curl path."""
     page = GETTING_STARTED / "03-service-and-approval.md"
     assert page.exists(), f"{page} missing"
     body = page.read_text(encoding="utf-8")
     assert "--8<--" in body, "snippets token missing from 03-service-and-approval.md"
-    assert "approval_demo.py" in body, "approval_demo.py reference missing"
+    assert "20_approval_gate.py" in body, "20_approval_gate.py reference missing"
     assert "/approvals/" in body and "/resolve" in body, (
         "curl command for POST /approvals/{id}/resolve not documented"
     )
@@ -212,7 +212,7 @@ def test_landing_tabs_link_to_getting_started() -> None:
 # ---------------------------------------------------------------------------
 
 GOVERNANCE_PAGE = DOCS_DIR / "tutorials" / "governance-walkthrough.md"
-GOVERNANCE_EXAMPLE = REPO_ROOT / "examples" / "governance_walkthrough.py"
+GOVERNANCE_EXAMPLE = REPO_ROOT / "examples" / "26_governance_walkthrough.py"
 
 DOCS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "docs.yml"
 README = REPO_ROOT / "README.md"
@@ -231,40 +231,53 @@ def test_governance_walkthrough_page_shape() -> None:
 
 
 def test_governance_walkthrough_embeds_example() -> None:
-    """Governance Walkthrough page must embed governance_walkthrough.py via snippets."""
+    """Governance Walkthrough page must reference the umbrella walkthrough file."""
     body = GOVERNANCE_PAGE.read_text(encoding="utf-8")
-    assert "--8<--" in body, "pymdownx.snippets token missing from governance-walkthrough.md"
-    assert "governance_walkthrough.py" in body, (
-        "governance_walkthrough.py snippet reference missing"
+    assert "26_governance_walkthrough.py" in body, (
+        "26_governance_walkthrough.py reference missing"
     )
 
 
 def test_governance_walkthrough_example_covers_three_scenarios() -> None:
-    """Example must reference the approval, timeline, and capability surfaces."""
+    """Umbrella walkthrough + its focused files must cover approval, policy, and audit."""
     assert GOVERNANCE_EXAMPLE.exists(), f"{GOVERNANCE_EXAMPLE} missing"
-    body = GOVERNANCE_EXAMPLE.read_text(encoding="utf-8")
-    lowered = body.lower()
-    assert "approval" in lowered, "example missing 'approval' surface"
-    assert "timeline" in lowered, "example missing '/timeline' surface"
-    assert "Capability" in body, "example missing Capability enum reference"
-    assert "NETWORK_WRITE" in body, "example missing NETWORK_WRITE denial"
+    # The umbrella now delegates to focused files; merge them for the check.
+    focused = [
+        REPO_ROOT / "examples" / "20_approval_gate.py",
+        REPO_ROOT / "examples" / "21_policy_block.py",
+        REPO_ROOT / "examples" / "24_audit_query.py",
+        GOVERNANCE_EXAMPLE,
+    ]
+    merged = "\n".join(f.read_text(encoding="utf-8") for f in focused if f.exists())
+    lowered = merged.lower()
+    assert "approval" in lowered, "governance surface missing 'approval' reference"
+    assert "audit" in lowered, "governance surface missing 'audit' reference"
+    assert "Capability" in merged, "governance surface missing Capability enum reference"
+    assert "NETWORK_WRITE" in merged, "governance surface missing NETWORK_WRITE denial"
 
 
-def test_governance_walkthrough_example_skips_cleanly() -> None:
-    """Running the example without OPENAI_API_KEY must exit 0 with a SKIP notice."""
+def test_governance_walkthrough_example_runs_without_llm_credentials() -> None:
+    """The umbrella walkthrough is now hermetic: it must exit 0 without OPENAI_API_KEY.
+
+    The individual scenarios use ``DeterministicProviderAdapter`` (approval,
+    policy) or raw library primitives (audit query), so no LLM call is
+    needed for any of them.
+    """
     env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
     result = subprocess.run(  # noqa: S603 — trusted local example script
         [sys.executable, str(GOVERNANCE_EXAMPLE)],
         env=env,
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=180,
         check=False,
     )
     assert result.returncode == 0, (
-        f"SKIP path must exit 0, got {result.returncode}; stderr={result.stderr!r}"
+        f"walkthrough must exit 0, got {result.returncode}; stderr={result.stderr!r}"
     )
-    assert "SKIP" in result.stderr, f"expected SKIP notice in stderr, got {result.stderr!r}"
+    assert "all governance scenarios passed" in result.stdout.lower(), (
+        f"expected success banner in stdout, got {result.stdout!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

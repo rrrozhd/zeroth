@@ -39,18 +39,19 @@ script — any litellm-supported provider works.
 
 ## Run the hello example
 
-The canonical smoke test lives at `examples/hello.py`. It imports the
-`zeroth.core` namespace, makes one LLM call, and prints the response.
-If this runs end-to-end your install is healthy.
+The canonical smoke test lives at `examples/00_hello.py`. It builds a
+one-node graph, wires a real `AgentRunner` through
+`LiteLLMProviderAdapter`, and runs it through the orchestrator. If
+this runs end-to-end your install is healthy.
 
-```python title="examples/hello.py"
---8<-- "hello.py"
+```python title="examples/00_hello.py"
+--8<-- "00_hello.py"
 ```
 
 Run it:
 
 ```bash
-python examples/hello.py
+python examples/00_hello.py
 ```
 
 Expected output: a single short greeting sentence from the LLM.
