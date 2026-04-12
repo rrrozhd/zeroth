@@ -71,11 +71,25 @@ class DefaultMappingOperation(MappingOperationBase):
     default_value: Any
 
 
+class TransformMappingOperation(MappingOperationBase):
+    """Evaluate an expression and write the computed result to target_path.
+
+    The expression is evaluated using the safe AST-based evaluator against a
+    namespace containing ``payload``, ``state``, ``variables``, and other
+    runtime context. This enables side-effect-free data transformation
+    between nodes.
+    """
+
+    operation: Literal["transform"] = "transform"
+    expression: str
+
+
 MappingOperation = Annotated[
     PassthroughMappingOperation
     | RenameMappingOperation
     | ConstantMappingOperation
-    | DefaultMappingOperation,
+    | DefaultMappingOperation
+    | TransformMappingOperation,
     Field(discriminator="operation"),
 ]
 
