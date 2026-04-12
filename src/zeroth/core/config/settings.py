@@ -18,8 +18,14 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from zeroth.core.artifacts.models import ArtifactStoreSettings
 from zeroth.core.econ.models import RegulusSettings
 from zeroth.core.http.models import HttpClientSettings
+
+# Default embedding model used across memory connectors. Centralized here so a
+# single upgrade flows into pgvector, chroma, and bootstrap wiring.
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+DEFAULT_EMBEDDING_DIMENSIONS = 1536
 
 
 class DatabaseSettings(BaseModel):
@@ -65,8 +71,8 @@ class PgvectorSettings(BaseModel):
 
     enabled: bool = False
     table_name: str = "zeroth_memory_vectors"
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dimensions: int = 1536
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS
 
 
 class ChromaSettings(BaseModel):
@@ -158,6 +164,7 @@ class ZerothSettings(BaseSettings):
     approval_sla: ApprovalSLASettings = Field(default_factory=ApprovalSLASettings)
     dispatch: DispatchSettings = Field(default_factory=DispatchSettings)
     tls: TLSSettings = Field(default_factory=TLSSettings)
+    artifact_store: ArtifactStoreSettings = Field(default_factory=ArtifactStoreSettings)
     http_client: HttpClientSettings = Field(default_factory=HttpClientSettings)
 
     @classmethod
