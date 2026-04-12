@@ -455,4 +455,4 @@ class TestAuditRedaction:
         exec_meta = audit_repo.records[0].execution_metadata
         inner_meta = exec_meta.get("execution_metadata", exec_meta)
         rendered = inner_meta["rendered_prompt"]
-        assert "Hello Bob!" == rendered
+        assert rendered == "Hello Bob!"
