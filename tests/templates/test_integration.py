@@ -350,3 +350,109 @@ class TestOrchestratorTemplateResolution:
         run = await orchestrator.run_graph(graph, {"name": "Eve"})
         # After execution completes, runner config should be restored.
         assert runner.config.instruction == "raw instruction"
+
+
+# ---------------------------------------------------------------------------
+# Audit redaction integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestAuditRedaction:
+    @pytest.fixture()
+    def renderer(self):
+        from zeroth.core.templates.renderer import TemplateRenderer
+
+        return TemplateRenderer()
+
+    @pytest.fixture()
+    def runner(self):
+        runner = _RecordingRunner()
+        runner.config = _FakeConfig("raw instruction")
+        return runner
+
+    def _make_graph(self, *, template_ref: TemplateReference | None = None) -> Graph:
+        agent_data = AgentNodeData(
+            instruction="raw instruction",
+            model_provider="test:model",
+            template_ref=template_ref,
+        )
+        return Graph(
+            graph_id="g1",
+            name="test-graph",
+            entry_step="agent1",
+            nodes=[
+                AgentNode(
+                    node_id="agent1",
+                    graph_version_ref="g1:v1",
+                    agent=agent_data,
+                ),
+            ],
+            edges=[],
+        )
+
+    @pytest.mark.asyncio()
+    async def test_secret_variable_redacted_in_audit(self, renderer, runner):
+        """When template has a secret-patterned variable, audit rendered_prompt is redacted."""
+        from zeroth.core.orchestrator import RuntimeOrchestrator
+        from zeroth.core.templates.registry import TemplateRegistry
+
+        reg = TemplateRegistry()
+        reg.register(
+            "secret_test",
+            1,
+            "Hello {{ input.name }}! Key={{ input.api_key }}",
+            variables=["input"],
+        )
+        graph = self._make_graph(
+            template_ref=TemplateReference(name="secret_test", version=1),
+        )
+        audit_repo = _FakeAuditRepository()
+        orchestrator = RuntimeOrchestrator(
+            run_repository=_FakeRunRepository(),
+            agent_runners={"agent1": runner},
+            executable_unit_runner=None,
+            audit_repository=audit_repo,
+            template_registry=reg,
+            template_renderer=renderer,
+        )
+        run = await orchestrator.run_graph(
+            graph, {"name": "Alice", "api_key": "sk-secret-123"},
+        )
+
+        assert len(audit_repo.records) == 1
+        exec_meta = audit_repo.records[0].execution_metadata
+        inner_meta = exec_meta.get("execution_metadata", exec_meta)
+        rendered = inner_meta["rendered_prompt"]
+        # The secret value should be redacted.
+        assert "sk-secret-123" not in rendered
+        assert "***REDACTED***" in rendered
+        # Non-secret values should remain.
+        assert "Alice" in rendered
+
+    @pytest.mark.asyncio()
+    async def test_no_secret_variables_unredacted_in_audit(self, renderer, runner):
+        """When template variables have no secret names, rendered_prompt is unredacted."""
+        from zeroth.core.orchestrator import RuntimeOrchestrator
+        from zeroth.core.templates.registry import TemplateRegistry
+
+        reg = TemplateRegistry()
+        reg.register("safe_test", 1, "Hello {{ input.name }}!")
+        graph = self._make_graph(
+            template_ref=TemplateReference(name="safe_test", version=1),
+        )
+        audit_repo = _FakeAuditRepository()
+        orchestrator = RuntimeOrchestrator(
+            run_repository=_FakeRunRepository(),
+            agent_runners={"agent1": runner},
+            executable_unit_runner=None,
+            audit_repository=audit_repo,
+            template_registry=reg,
+            template_renderer=renderer,
+        )
+        run = await orchestrator.run_graph(graph, {"name": "Bob"})
+
+        assert len(audit_repo.records) == 1
+        exec_meta = audit_repo.records[0].execution_metadata
+        inner_meta = exec_meta.get("execution_metadata", exec_meta)
+        rendered = inner_meta["rendered_prompt"]
+        assert "Hello Bob!" == rendered
