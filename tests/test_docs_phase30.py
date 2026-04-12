@@ -306,31 +306,26 @@ def test_docs_workflow_build_is_strict() -> None:
 
 
 def test_docs_workflow_deploy_is_main_only() -> None:
-    """The gh-deploy step must be gated on push to refs/heads/main only."""
+    """The deploy job must be gated on push to refs/heads/main only."""
     config = yaml.safe_load(DOCS_WORKFLOW.read_text(encoding="utf-8"))
-    steps = config["jobs"]["build"]["steps"]
-    deploy_steps = [s for s in steps if "gh-deploy" in (s.get("run") or "")]
-    assert deploy_steps, "no gh-deploy step found"
-    for step in deploy_steps:
-        condition = step.get("if") or ""
-        assert "github.event_name == 'push'" in condition, (
-            f"deploy step must gate on push event, got {condition!r}"
-        )
-        assert "refs/heads/main" in condition, (
-            f"deploy step must gate on refs/heads/main, got {condition!r}"
-        )
+    deploy_job = config["jobs"].get("deploy")
+    assert deploy_job, "no deploy job found"
+    condition = deploy_job.get("if") or ""
+    assert "github.event_name == 'push'" in condition, (
+        f"deploy job must gate on push event, got {condition!r}"
+    )
+    assert "refs/heads/main" in condition, (
+        f"deploy job must gate on refs/heads/main, got {condition!r}"
+    )
 
 
-def test_docs_workflow_has_contents_write_permission() -> None:
-    """gh-deploy needs contents: write to push to the gh-pages branch."""
+def test_docs_workflow_has_pages_permission() -> None:
+    """Docs workflow needs pages: write and id-token: write for actions/deploy-pages."""
     config = yaml.safe_load(DOCS_WORKFLOW.read_text(encoding="utf-8"))
     perms = config.get("permissions") or {}
-    # permissions may live at workflow or job level; check both.
-    contents = perms.get("contents") if isinstance(perms, dict) else None
-    if contents is None:
-        job_perms = config["jobs"]["build"].get("permissions") or {}
-        contents = job_perms.get("contents") if isinstance(job_perms, dict) else None
-    assert contents == "write", f"contents: write permission missing, got {contents!r}"
+    assert isinstance(perms, dict), f"permissions block missing: {perms!r}"
+    assert perms.get("pages") == "write", f"pages: write permission missing, got {perms!r}"
+    assert perms.get("id-token") == "write", f"id-token: write permission missing, got {perms!r}"
 
 
 def test_readme_links_to_live_docs() -> None:
