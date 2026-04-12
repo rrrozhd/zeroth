@@ -72,11 +72,3 @@ webhooks.
 - [Webhooks](webhooks.md) — `WebhookService`, delivery worker, and
   HMAC-SHA256 signing.
 
-## A note on substitution
-
-The Phase 31 content spec originally listed a `threads` module as the
-20th subsystem. The current tree does not contain a top-level
-`zeroth.core.threads` package — threading is modeled directly on
-[`Run`](runs.md) and `Thread` inside the runs subsystem. The Platform
-quadrant slot was filled with [Webhooks](webhooks.md) instead, because
-it is a real user-facing subsystem that would otherwise be undocumented.

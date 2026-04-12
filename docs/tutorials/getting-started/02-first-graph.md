@@ -23,9 +23,8 @@ the run surface.
 
     `zeroth.core.examples.quickstart` is a **tutorial helper only**. It
     is not a stable public API and may change without a deprecation
-    cycle. For real graph authoring, follow the Phase 31+ graph
-    authoring guide (once it lands) and build your graph with the
-    public `zeroth.core.graph` models directly.
+    cycle. For real graph authoring, build your graph with the public
+    `zeroth.core.graph` models directly.
 
 ## The example script
 

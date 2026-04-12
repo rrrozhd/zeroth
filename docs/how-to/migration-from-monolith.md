@@ -2,7 +2,7 @@
 
 If you have a codebase that imports from the pre-split monolithic `zeroth.*` namespace, this guide walks you through the one-time upgrade to the published `zeroth-core` package under `zeroth.core.*`. The change is a pure rename — no runtime semantics change, no API breaks.
 
-The rename was introduced in Phase 27 of the v3.0 milestone and formalized on PyPI in Phase 28.
+The rename was introduced in the v3.0 milestone.
 
 ## TL;DR
 
@@ -185,7 +185,7 @@ For a ready-made compose file, see the [docker-compose deployment guide](deploym
 
 ## 6. Verify the migration
 
-Run your existing test suite. Because the rename is pure (Phase 27 guaranteed zero functional changes), all passing tests on the monolith should still pass on `zeroth-core` without edits:
+Run your existing test suite. The rename is purely structural with zero functional changes, so all passing tests on the monolith should still pass on `zeroth-core` without edits:
 
 ```bash
 uv run pytest

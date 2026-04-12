@@ -94,7 +94,7 @@ committed at `openapi/zeroth-core-openapi.json`. Passing
 The auth configuration used here is a minimal
 `StaticApiKeyCredential` for the tutorial. Production deployments
 should wire OAuth/JWT via `ServiceAuthConfig.from_env()`; see the
-service auth documentation (Phase 32) for the full story.
+[service auth documentation](../../how-to/identity.md) for the full story.
 
 ## You made it
 
