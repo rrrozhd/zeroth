@@ -138,6 +138,8 @@ class ServiceBootstrap:
     redis_client: object | None = None
     # Phase 34: Artifact store for large payload externalization.
     artifact_store: object | None = None
+    # Phase 35: Resilient HTTP client.
+    http_client: object | None = None
 
 
 async def bootstrap_service(
@@ -339,6 +341,21 @@ async def bootstrap_service(
         )
     orchestrator.artifact_store = artifact_store
 
+    # Phase 35: Resilient HTTP client construction.
+    http_client_instance: object | None = None
+    http_settings = settings.http_client
+    import os  # noqa: PLC0415
+
+    from zeroth.core.http import ResilientHttpClient  # noqa: PLC0415
+    from zeroth.core.secrets import EnvSecretProvider  # noqa: PLC0415
+
+    env_secret_provider = EnvSecretProvider(os.environ)
+    http_client_instance = ResilientHttpClient(
+        settings=http_settings,
+        secret_provider=env_secret_provider,
+    )
+    orchestrator.http_client = http_client_instance
+
     # Phase 15: Webhook delivery and SLA enforcement.
     webhook_repository = None
     webhook_service_obj = None
@@ -425,6 +442,7 @@ async def bootstrap_service(
         arq_pool=arq_pool,
         redis_client=redis_client,
         artifact_store=artifact_store,
+        http_client=http_client_instance,
     )
 
 
