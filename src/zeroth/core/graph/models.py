@@ -22,6 +22,7 @@ from governai.app.spec import (
 )
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.core.context_window.models import ContextWindowSettings
 from zeroth.core.mappings.models import EdgeMapping
 from zeroth.core.templates.models import TemplateReference
 
@@ -126,6 +127,8 @@ class AgentNodeData(BaseModel):
     mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
     # Phase 36: Optional reference to a prompt template for dynamic instruction rendering.
     template_ref: TemplateReference | None = None
+    # Phase 37: Per-node context window management settings.
+    context_window: ContextWindowSettings | None = None
 
 
 class ExecutableUnitNodeData(BaseModel):

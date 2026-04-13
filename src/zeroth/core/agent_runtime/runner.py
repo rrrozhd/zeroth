@@ -137,7 +137,8 @@ class AgentRunner:
         compaction_result: Any = None
         if self.context_tracker is not None:
             messages, compaction_result = await self.context_tracker.maybe_compact(
-                messages, self.config.model_name,
+                messages,
+                self.config.model_name,
             )
 
         # Pre-execution budget check (per D-10, ECON-03)
@@ -216,10 +217,15 @@ class AgentRunner:
                     # Phase 37: Pass compacted and archived messages to thread checkpoint.
                     _compacted_msgs = list(messages) if compaction_result is not None else None
                     _archived_msgs = None
-                    if compaction_result is not None and hasattr(compaction_result, "archived_messages"):
+                    if compaction_result is not None and hasattr(
+                        compaction_result, "archived_messages"
+                    ):
                         _archived_msgs = compaction_result.archived_messages
                     await self._checkpoint_thread_state(
-                        thread_id, validated_input, output, record,
+                        thread_id,
+                        validated_input,
+                        output,
+                        record,
                         compacted_messages=_compacted_msgs,
                         archived_messages=_archived_msgs,
                     )
@@ -343,9 +349,7 @@ class AgentRunner:
                         binding.executable_unit_ref.startswith("mcp://")
                         and self._mcp_manager is not None
                     ):
-                        result = await self._mcp_manager.call_tool(
-                            call["name"], call["args"]
-                        )
+                        result = await self._mcp_manager.call_tool(call["name"], call["args"])
                     else:
                         result = self.tool_executor(binding, call["args"])
                         if asyncio.iscoroutine(result):
@@ -384,7 +388,8 @@ class AgentRunner:
             # Phase 37: Compact between tool call re-invocations if needed.
             if self.context_tracker is not None:
                 current_messages, _ = await self.context_tracker.maybe_compact(
-                    current_messages, self.config.model_name,
+                    current_messages,
+                    self.config.model_name,
                 )
             current_response = await run_provider_with_timeout(
                 self.provider,

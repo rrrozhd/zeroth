@@ -91,6 +91,8 @@ class RuntimeOrchestrator:
     # Phase 36: Template registry and renderer for prompt template resolution.
     template_registry: Any | None = None
     template_renderer: Any | None = None
+    # Phase 37: Context window management flag (enables tracker injection).
+    context_window_enabled: bool = True
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -393,6 +395,37 @@ class RuntimeOrchestrator:
             ):
                 runner.budget_enforcer = self.budget_enforcer
 
+            # Phase 37: Context window tracker injection (per D-09, D-11).
+            original_context_tracker = getattr(runner, "context_tracker", _MISSING)
+            if (
+                self.context_window_enabled
+                and original_context_tracker is not _MISSING
+                and original_context_tracker is None
+                and hasattr(node.agent, "context_window")
+                and node.agent.context_window is not None
+            ):
+                from zeroth.core.context_window import (
+                    ContextWindowTracker,
+                    LLMSummarizationStrategy,
+                    ObservationMaskingStrategy,
+                    TruncationStrategy,
+                )
+
+                cw_settings = node.agent.context_window
+                strategy_name = cw_settings.compaction_strategy
+                if strategy_name == "truncation":
+                    strategy = TruncationStrategy()
+                elif strategy_name == "llm_summarization":
+                    # Use the runner's own provider for summarization calls
+                    strategy = LLMSummarizationStrategy(provider=runner.provider)
+                else:
+                    # Default: observation_masking
+                    strategy = ObservationMaskingStrategy()
+                runner.context_tracker = ContextWindowTracker(
+                    settings=cw_settings,
+                    strategy=strategy,
+                )
+
             thread_id = await self._resolve_thread(node, run)
             enforcement_context = self._enforcement_context_for(run, node.node_id)
             try:
@@ -404,6 +437,17 @@ class RuntimeOrchestrator:
                     enforcement_context=enforcement_context,
                 )
             finally:
+                # Phase 37: Record context window state in audit before restoring.
+                _ctx_tracker = getattr(runner, "context_tracker", None)
+                if _ctx_tracker is not None and hasattr(_ctx_tracker, "state"):
+                    _cw_state = _ctx_tracker.state
+                    # Store for audit enrichment after the finally block.
+                    _context_window_audit = {
+                        "accumulated_tokens": _cw_state.accumulated_tokens,
+                        "compaction_count": _cw_state.compaction_count,
+                    }
+                else:
+                    _context_window_audit = None
                 # Restore originals only if they existed on the runner.
                 if original_provider is not _MISSING:
                     runner.provider = original_provider
@@ -411,6 +455,9 @@ class RuntimeOrchestrator:
                     runner.memory_resolver = original_memory_resolver
                 if original_budget_enforcer is not _MISSING:
                     runner.budget_enforcer = original_budget_enforcer
+                # Phase 37: Restore original context tracker.
+                if original_context_tracker is not _MISSING:
+                    runner.context_tracker = original_context_tracker
                 # Phase 36: Restore original config after template-based override.
                 if effective_instruction is not None and original_config is not _MISSING:
                     runner.config = original_config
@@ -426,6 +473,10 @@ class RuntimeOrchestrator:
             if template_ref_for_audit is not None:
                 audit_record.setdefault("execution_metadata", {})
                 audit_record["execution_metadata"]["template_ref"] = template_ref_for_audit
+            # Phase 37: Record context window state in audit.
+            if _context_window_audit is not None:
+                audit_record.setdefault("execution_metadata", {})
+                audit_record["execution_metadata"]["context_window"] = _context_window_audit
             return result.output_data, audit_record
         if isinstance(node, ExecutableUnitNode):
             enforcement_context = self._enforcement_context_for(run, node.node_id)
