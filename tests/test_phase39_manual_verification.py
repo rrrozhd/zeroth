@@ -204,7 +204,9 @@ class _CatchAllRunners(dict):
         return True
 
 
-async def _setup_orchestrator(graph_repo, deployment_service, run_repository, child_graph, parent_graph, child_deploy_ref=None):
+async def _setup_orchestrator(
+    graph_repo, deployment_service, run_repository, child_graph, parent_graph, child_deploy_ref=None
+):
     """Deploy graphs and wire orchestrator with real repos."""
     await graph_repo.save(child_graph)
     await graph_repo.publish(child_graph.graph_id, child_graph.version)
@@ -278,7 +280,7 @@ class TestBootstrapToCompletion:
 
         print(f"\n  [ITEM 1] Parent run {result.run_id}: COMPLETED")
         print(f"  [ITEM 1] Output: {sub_entry.output_snapshot}")
-        print(f"  [ITEM 1] SQLite persistence: VERIFIED (get by ID returns correct state)")
+        print("  [ITEM 1] SQLite persistence: VERIFIED (get by ID returns correct state)")
         print(f"  [ITEM 1] History entries: {len(history)}")
 
 
@@ -297,8 +299,12 @@ class TestApprovalPropagation:
         child_graph = _make_child_with_approval()
         parent_graph = _make_parent_graph(child_ref="child-approval")
         orchestrator = await _setup_orchestrator(
-            graph_repo, deployment_service, run_repository,
-            child_graph, parent_graph, child_deploy_ref="child-approval"
+            graph_repo,
+            deployment_service,
+            run_repository,
+            child_graph,
+            parent_graph,
+            child_deploy_ref="child-approval",
         )
 
         # Run parent — should pause when child hits approval gate
@@ -328,7 +334,7 @@ class TestApprovalPropagation:
 
         print(f"\n  [ITEM 2] Parent paused: {result.run_id} -> WAITING_APPROVAL")
         print(f"  [ITEM 2] Child paused: {child_run.run_id} -> WAITING_APPROVAL")
-        print(f"  [ITEM 2] pending_subgraph metadata persisted: YES")
+        print("  [ITEM 2] pending_subgraph metadata persisted: YES")
 
         # Resume without ApprovalService — the approval gate re-pauses
         # (by design: HumanApprovalNode always pauses unless ApprovalService
@@ -343,9 +349,9 @@ class TestApprovalPropagation:
         assert roundtrip.status == RunStatus.WAITING_APPROVAL
         assert roundtrip.metadata.get("pending_subgraph") is not None
 
-        print(f"  [ITEM 2] Resume re-pauses (no ApprovalService): CORRECT")
-        print(f"  [ITEM 2] State survives SQLite round-trip: VERIFIED")
-        print(f"  [ITEM 2] Note: Full resume-to-completion requires ApprovalService")
+        print("  [ITEM 2] Resume re-pauses (no ApprovalService): CORRECT")
+        print("  [ITEM 2] State survives SQLite round-trip: VERIFIED")
+        print("  [ITEM 2] Note: Full resume-to-completion requires ApprovalService")
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +400,7 @@ class TestAuditTrailReadability:
 
             # Check if output contains subgraph info (from the child's output)
             if "subgraph:" in entry.node_id or "sub-" in entry.node_id:
-                print(f"         (subgraph node detected)")
+                print("         (subgraph node detected)")
 
         # Verify parent history records the subgraph execution
         assert len(result.execution_history) >= 1
@@ -411,10 +417,10 @@ class TestAuditTrailReadability:
         assert len(result.audit_refs) >= 1, "No audit refs recorded"
 
         print(f"\n  Audit Refs: {result.audit_refs}")
-        print(f"  Output propagation: child -> parent VERIFIED")
-        print(f"\n  Traceability Assessment:")
-        print(f"    - Parent history records subgraph node execution: YES")
-        print(f"    - Child output propagates to parent output_snapshot: YES")
+        print("  Output propagation: child -> parent VERIFIED")
+        print("\n  Traceability Assessment:")
+        print("    - Parent history records subgraph node execution: YES")
+        print("    - Child output propagates to parent output_snapshot: YES")
         print(f"    - Audit refs linkable to NodeAuditRecords: YES ({len(result.audit_refs)} refs)")
         print(f"    - Node IDs clearly identify subgraph context: {'sub-' in sub_entry.node_id}")
         print("=" * 70)
