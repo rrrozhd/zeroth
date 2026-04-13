@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from zeroth.core.mappings.errors import MappingExecutionError
 from zeroth.core.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
@@ -18,7 +17,6 @@ from zeroth.core.mappings.models import (
     MappingOperation,
     PassthroughMappingOperation,
     RenameMappingOperation,
-    TransformMappingOperation,
 )
 from zeroth.core.mappings.validator import MappingValidator
 
@@ -65,26 +63,16 @@ class MappingExecutor:
     def __init__(self, validator: MappingValidator | None = None):
         self._validator = validator or MappingValidator()
 
-    def execute(
-        self,
-        payload: Mapping[str, Any],
-        mapping: EdgeMapping,
-        *,
-        context: Mapping[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    def execute(self, payload: Mapping[str, Any], mapping: EdgeMapping) -> dict[str, Any]:
         """Run all mapping operations against the given payload and return the result.
 
         The payload is the input data (read-only). A brand-new dictionary is
         built up by applying each operation and then returned.
-
-        An optional ``context`` keyword argument provides the full namespace
-        for transform expressions (payload, state, variables, etc.). When
-        omitted, a minimal namespace is built from ``payload`` alone.
         """
         self._validator.validate(mapping)
         output: dict[str, Any] = {}
         for operation in mapping.operations:
-            self._apply_operation(operation, payload, output, context)
+            self._apply_operation(operation, payload, output)
         return output
 
     def _apply_operation(
@@ -92,13 +80,12 @@ class MappingExecutor:
         operation: MappingOperation,
         payload: Mapping[str, Any],
         output: dict[str, Any],
-        context: Mapping[str, Any] | None = None,
     ) -> None:
         """Apply a single mapping operation, reading from payload and writing to output.
 
         Handles each operation type: passthrough (copy as-is), rename (copy to a
-        different key), constant (set a fixed value), default (use a fallback
-        if the source is missing), and transform (evaluate an expression).
+        different key), constant (set a fixed value), and default (use a fallback
+        if the source is missing).
         """
         match operation:
             case PassthroughMappingOperation():
@@ -121,35 +108,3 @@ class MappingExecutor:
                     operation.target_path,
                     value if exists else operation.default_value,
                 )
-            case TransformMappingOperation():
-                # Lazy import to avoid circular dependency
-                # (mappings -> conditions -> graph.models -> mappings)
-                from zeroth.core.conditions.evaluator import _SafeEvaluator
-
-                namespace = self._build_namespace(payload, context)
-                evaluator = _SafeEvaluator(namespace)
-                try:
-                    result = evaluator.evaluate(operation.expression)
-                except Exception as exc:
-                    raise MappingExecutionError(
-                        f"transform expression failed on '{operation.expression}': {exc}"
-                    ) from exc
-                _set_path(output, operation.target_path, result)
-
-    def _build_namespace(
-        self,
-        payload: Mapping[str, Any],
-        context: Mapping[str, Any] | None,
-    ) -> dict[str, Any]:
-        """Build the expression namespace from payload and optional context."""
-        if context is not None:
-            return dict(context)
-        return {
-            "payload": dict(payload),
-            "state": {},
-            "variables": {},
-            "node_visit_counts": {},
-            "edge_visit_counts": {},
-            "path": [],
-            "metadata": {},
-        }
