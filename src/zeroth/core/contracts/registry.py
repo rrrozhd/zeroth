@@ -29,6 +29,34 @@ from zeroth.core.storage.json import from_json_value, to_json_value
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
+# Required fields and their expected types for ArtifactReference structural validation.
+_ARTIFACT_REF_REQUIRED: dict[str, type] = {
+    "store": str,
+    "key": str,
+    "content_type": str,
+    "size": int,
+}
+
+
+def validate_artifact_reference(data: dict[str, Any]) -> bool:
+    """Validate that a dict has valid ArtifactReference structure.
+
+    Performs structural validation only -- checks that all required fields
+    (store, key, content_type, size) are present with correct types.
+    Does NOT retrieve the actual payload from any store.
+
+    Args:
+        data: Dict to validate as an ArtifactReference shape.
+
+    Returns:
+        True if the dict has valid ArtifactReference structure, False otherwise.
+    """
+    for field_name, expected_type in _ARTIFACT_REF_REQUIRED.items():
+        value = data.get(field_name)
+        if value is None or not isinstance(value, expected_type):
+            return False
+    return True
+
 
 class ContractReference(BaseModel):
     """A lightweight pointer to a contract by name and optional version.
