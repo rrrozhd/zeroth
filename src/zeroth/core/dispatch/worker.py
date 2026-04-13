@@ -16,10 +16,17 @@ import contextlib
 import logging
 import socket
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from zeroth.core.dispatch.lease import LeaseManager
 from zeroth.core.runs import RunFailureState, RunRepository, RunStatus
+
+if TYPE_CHECKING:
+    from zeroth.core.graph import Graph
+    from zeroth.core.guardrails.dead_letter import DeadLetterManager
+    from zeroth.core.observability.metrics import MetricsCollector
+    from zeroth.core.orchestrator import RuntimeOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +54,14 @@ class RunWorker:
 
     deployment_ref: str
     run_repository: RunRepository
-    orchestrator: object
-    graph: object
+    orchestrator: RuntimeOrchestrator
+    graph: Graph
     lease_manager: LeaseManager
     max_concurrency: int = 8
     poll_interval: float = 0.5
     worker_id: str = field(default_factory=_new_worker_id)
-    dead_letter_manager: object | None = None  # DeadLetterManager
-    metrics_collector: object | None = None    # MetricsCollector
+    dead_letter_manager: DeadLetterManager | None = None
+    metrics_collector: MetricsCollector | None = None
     shutdown_timeout: float = 30.0
 
     def __post_init__(self) -> None:
@@ -176,7 +183,7 @@ class RunWorker:
             return
 
         # A recovering run may already be in RUNNING state; only transition if PENDING.
-        if run.status is RunStatus.PENDING:
+        if run.status == RunStatus.PENDING:
             try:
                 run = await self.run_repository.transition(run_id, RunStatus.RUNNING)
             except (ValueError, KeyError):

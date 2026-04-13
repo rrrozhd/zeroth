@@ -82,14 +82,27 @@ class WebhookDeadLetterListResponse(BaseModel):
     total: int
 
 
-def _serialize_subscription(sub: WebhookSubscription) -> WebhookSubscriptionResponse:
-    """Convert a WebhookSubscription model to an API response."""
+def _mask_secret(secret: str) -> str:
+    """Return a redacted secret preview safe to include in API responses."""
+    tail = secret[-4:] if len(secret) >= 4 else ""
+    return f"••••{tail}"
+
+
+def _serialize_subscription(
+    sub: WebhookSubscription, *, reveal_secret: bool = False
+) -> WebhookSubscriptionResponse:
+    """Convert a WebhookSubscription to an API response.
+
+    The raw signing secret is only ever returned on creation (`reveal_secret=True`);
+    list/get responses return a masked preview so the secret cannot be re-read
+    after its initial hand-off.
+    """
     return WebhookSubscriptionResponse(
         subscription_id=sub.subscription_id,
         deployment_ref=sub.deployment_ref,
         tenant_id=sub.tenant_id,
         target_url=sub.target_url,
-        secret=sub.secret,
+        secret=sub.secret if reveal_secret else _mask_secret(sub.secret),
         event_types=[e.value for e in sub.event_types],
         active=sub.active,
         created_at=sub.created_at.isoformat(),
@@ -118,7 +131,7 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
             event_types=[WebhookEventType(e) for e in payload.event_types],
         )
         created = await webhook_service.create_subscription(sub)
-        return _serialize_subscription(created)
+        return _serialize_subscription(created, reveal_secret=True)
 
     @app.get(
         "/webhooks/subscriptions",

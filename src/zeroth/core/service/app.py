@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import signal
 from contextlib import asynccontextmanager
 from typing import Protocol
@@ -24,6 +25,8 @@ from zeroth.core.service.contracts_api import register_contract_routes
 from zeroth.core.service.cost_api import register_cost_routes
 from zeroth.core.service.run_api import register_run_routes
 from zeroth.core.service.webhook_api import register_webhook_routes
+
+logger = logging.getLogger(__name__)
 
 
 class ServiceBootstrapLike(Protocol):
@@ -103,7 +106,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         # Phase 16: SIGTERM / SIGINT graceful shutdown signal handler.
         shutdown_event = asyncio.Event()
 
-        def _handle_shutdown_signal():
+        def _handle_shutdown_signal() -> None:
             shutdown_event.set()
 
         loop = asyncio.get_running_loop()
@@ -113,7 +116,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         except (NotImplementedError, RuntimeError):
             pass  # Signal handlers not supported on this platform (e.g., Windows)
 
-        async def _shutdown_watcher():
+        async def _shutdown_watcher() -> None:
             await shutdown_event.wait()
             if worker is not None:
                 await worker.graceful_shutdown()
@@ -220,6 +223,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         try:
             request.state.principal = bootstrap.authenticator.authenticate_headers(request.headers)
         except AuthenticationError as exc:
+            logger.info("authentication failed: %s", exc)
             await record_service_denial(
                 audit_repository=getattr(bootstrap, "audit_repository", None),
                 deployment=getattr(bootstrap, "deployment", None),

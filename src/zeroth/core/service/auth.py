@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 from collections.abc import Mapping
@@ -84,7 +85,7 @@ class JWTBearerTokenVerifier:
 
     def verify(self, token: str) -> AuthenticatedPrincipal:
         if jwt is None:
-            raise AuthenticationError("bearer auth dependency is not installed")
+            raise AuthenticationError("invalid bearer token")
         try:
             header = jwt.get_unverified_header(token)
         except Exception as exc:  # pragma: no cover - dependency-specific details
@@ -116,7 +117,7 @@ class JWTBearerTokenVerifier:
 
     def _resolve_signing_key(self, kid: str | None, jwks: dict[str, Any]) -> Any:
         if jwt is None:  # pragma: no cover - defensive guard
-            raise AuthenticationError("bearer auth dependency is not installed")
+            raise AuthenticationError("invalid bearer token")
         jwk_set = jwt.PyJWKSet.from_dict(jwks)
         for jwk in jwk_set.keys:
             if kid is None or jwk.key_id == kid:
@@ -134,15 +135,25 @@ class ServiceAuthenticator:
         bearer_verifier: JWTBearerTokenVerifier | None = None,
     ) -> None:
         self._config = config or ServiceAuthConfig()
-        self._api_keys = {credential.secret: credential for credential in self._config.api_keys}
+        self._api_keys: tuple[StaticApiKeyCredential, ...] = tuple(self._config.api_keys)
         self._bearer_verifier = bearer_verifier or (
             JWTBearerTokenVerifier(self._config.bearer) if self._config.bearer else None
         )
 
+    def _match_api_key(self, presented: str) -> StaticApiKeyCredential | None:
+        """Constant-time lookup of a stored API key credential by presented secret."""
+        presented_bytes = presented.encode("utf-8")
+        match: StaticApiKeyCredential | None = None
+        for credential in self._api_keys:
+            stored_bytes = credential.secret.encode("utf-8")
+            if hmac.compare_digest(stored_bytes, presented_bytes) and match is None:
+                match = credential
+        return match
+
     def authenticate_headers(self, headers: Mapping[str, str]) -> AuthenticatedPrincipal:
         api_key = headers.get("X-API-Key")
         if api_key:
-            credential = self._api_keys.get(api_key)
+            credential = self._match_api_key(api_key)
             if credential is None:
                 raise AuthenticationError("authentication required")
             return AuthenticatedPrincipal(
