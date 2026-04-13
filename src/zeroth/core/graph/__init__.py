@@ -18,8 +18,10 @@ from zeroth.core.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
     Node,
+    SubgraphNode,
 )
 from zeroth.core.graph.repository import GraphRepository
+from zeroth.core.subgraph.models import SubgraphNodeData
 
 __all__ = [
     "AgentNode",
@@ -36,4 +38,6 @@ __all__ = [
     "HumanApprovalNode",
     "HumanApprovalNodeData",
     "Node",
+    "SubgraphNode",
+    "SubgraphNodeData",
 ]

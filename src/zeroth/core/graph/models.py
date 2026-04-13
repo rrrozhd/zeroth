@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from zeroth.core.context_window.models import ContextWindowSettings
 from zeroth.core.mappings.models import EdgeMapping
 from zeroth.core.parallel.models import ParallelConfig
+from zeroth.core.subgraph.models import SubgraphNodeData
 from zeroth.core.templates.models import TemplateReference
 
 
@@ -241,8 +242,38 @@ class HumanApprovalNode(NodeBase):
         )
 
 
+class SubgraphNode(NodeBase):
+    """A graph node that invokes another published graph as a child workflow.
+
+    Wraps a SubgraphNodeData with the shared node fields.  The child
+    graph is resolved at execution time via the SubgraphResolver.
+    """
+
+    node_type: Literal["subgraph"] = "subgraph"
+    subgraph: SubgraphNodeData
+
+    @model_validator(mode="after")
+    def _reject_parallel_config(self) -> SubgraphNode:
+        """Subgraph nodes cannot have parallel_config — design later."""
+        if self.parallel_config is not None:
+            msg = "SubgraphNode does not support parallel_config"
+            raise ValueError(msg)
+        return self
+
+    def to_governed_step_spec(self) -> GovernedStepSpec:
+        """Convert this subgraph node into a spec the execution engine understands."""
+        return GovernedStepSpec(
+            name=self.node_id,
+            agent={
+                "kind": "subgraph_ref",
+                "graph_ref": self.subgraph.graph_ref,
+                "version": self.subgraph.version,
+            },
+        )
+
+
 Node = Annotated[
-    AgentNode | ExecutableUnitNode | HumanApprovalNode,
+    AgentNode | ExecutableUnitNode | HumanApprovalNode | SubgraphNode,
     Field(discriminator="node_type"),
 ]
 
