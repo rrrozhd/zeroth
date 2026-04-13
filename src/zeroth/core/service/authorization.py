@@ -22,6 +22,7 @@ class Permission(StrEnum):
     RUN_ADMIN = "run:admin"
     METRICS_READ = "metrics:read"
     WEBHOOK_ADMIN = "webhook:admin"
+    TEMPLATE_ADMIN = "template:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
