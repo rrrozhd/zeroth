@@ -11,11 +11,3 @@ class MappingValidationError(ValueError):
     target, or no operations at all. It inherits from ValueError so you can
     catch it with a broad ``except ValueError`` if needed.
     """
-
-
-class MappingExecutionError(ValueError):
-    """Raised when a mapping operation fails during execution.
-
-    For example, this is raised when a transform expression encounters a
-    division by zero, type error, or references an unsupported AST construct.
-    """

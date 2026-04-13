@@ -66,7 +66,6 @@ class AgentRunner:
         granted_tool_permissions: list[str] | None = None,
         memory_resolver: MemoryConnectorResolver | None = None,
         budget_enforcer: Any | None = None,
-        context_tracker: Any | None = None,
     ) -> None:
         self.config = config
         self.provider = provider
@@ -82,7 +81,6 @@ class AgentRunner:
         self.granted_tool_permissions = granted_tool_permissions or []
         self.memory_resolver = memory_resolver
         self.budget_enforcer = budget_enforcer
-        self.context_tracker: Any | None = context_tracker
         self._mcp_manager: MCPClientManager | None = None
 
     async def run(
@@ -128,18 +126,6 @@ class AgentRunner:
             runtime_context=resolved_runtime_context,
         )
         messages: list[Any] = list(prompt.messages)
-
-        # Phase 37: Restore compacted messages from thread state if available.
-        if thread_state is not None and "compacted_messages" in thread_state:
-            messages = list(thread_state["compacted_messages"])
-
-        # Phase 37: Context window compaction before first LLM invocation (per D-09).
-        compaction_result: Any = None
-        if self.context_tracker is not None:
-            messages, compaction_result = await self.context_tracker.maybe_compact(
-                messages,
-                self.config.model_name,
-            )
 
         # Pre-execution budget check (per D-10, ECON-03)
         if self.budget_enforcer is not None:
@@ -194,15 +180,6 @@ class AgentRunner:
                     # Copy token usage from provider response to audit record (per D-11)
                     if response.token_usage is not None:
                         record["token_usage"] = response.token_usage.model_dump(mode="json")
-                    # Phase 37: Record compaction metadata in audit.
-                    if compaction_result is not None:
-                        record["context_window"] = {
-                            "strategy": compaction_result.strategy_name,
-                            "tokens_before": compaction_result.tokens_before,
-                            "tokens_after": compaction_result.tokens_after,
-                            "messages_before": compaction_result.original_count,
-                            "messages_after": compaction_result.compacted_count,
-                        }
                     memory_interactions.extend(
                         await self._store_memory(
                             output.model_dump(mode="json"),
@@ -214,20 +191,8 @@ class AgentRunner:
                     record["extra"]["memory_interactions"] = [
                         item.model_dump(mode="json") for item in memory_interactions
                     ]
-                    # Phase 37: Pass compacted and archived messages to thread checkpoint.
-                    _compacted_msgs = list(messages) if compaction_result is not None else None
-                    _archived_msgs = None
-                    if compaction_result is not None and hasattr(
-                        compaction_result, "archived_messages"
-                    ):
-                        _archived_msgs = compaction_result.archived_messages
                     await self._checkpoint_thread_state(
-                        thread_id,
-                        validated_input,
-                        output,
-                        record,
-                        compacted_messages=_compacted_msgs,
-                        archived_messages=_archived_msgs,
+                        thread_id, validated_input, output, record
                     )
                     return AgentRunResult(
                         input_data=validated_input.model_dump(mode="json"),
@@ -349,7 +314,9 @@ class AgentRunner:
                         binding.executable_unit_ref.startswith("mcp://")
                         and self._mcp_manager is not None
                     ):
-                        result = await self._mcp_manager.call_tool(call["name"], call["args"])
+                        result = await self._mcp_manager.call_tool(
+                            call["name"], call["args"]
+                        )
                     else:
                         result = self.tool_executor(binding, call["args"])
                         if asyncio.iscoroutine(result):
@@ -385,12 +352,6 @@ class AgentRunner:
                         )
                     )
                 tool_audits.append(audit)
-            # Phase 37: Compact between tool call re-invocations if needed.
-            if self.context_tracker is not None:
-                current_messages, _ = await self.context_tracker.maybe_compact(
-                    current_messages,
-                    self.config.model_name,
-                )
             current_response = await run_provider_with_timeout(
                 self.provider,
                 self._build_provider_request(current_messages, {}),
@@ -466,24 +427,18 @@ class AgentRunner:
         input_payload: BaseModel,
         output_payload: BaseModel,
         record: dict[str, Any],
-        *,
-        compacted_messages: list[Any] | None = None,
-        archived_messages: list[Any] | None = None,
     ) -> None:
         """Save the current input, output, and audit record as thread state."""
         if thread_id is None or self.thread_state_store is None:
             return
-        state: dict[str, Any] = {
-            "input": input_payload.model_dump(mode="json"),
-            "output": output_payload.model_dump(mode="json"),
-            "audit": record,
-        }
-        # Phase 37: Persist compacted messages for cross-run continuity.
-        if compacted_messages is not None:
-            state["compacted_messages"] = compacted_messages
-        if archived_messages is not None:
-            state["archived_messages"] = archived_messages
-        await self.thread_state_store.checkpoint(thread_id, state)
+        await self.thread_state_store.checkpoint(
+            thread_id,
+            {
+                "input": input_payload.model_dump(mode="json"),
+                "output": output_payload.model_dump(mode="json"),
+                "audit": record,
+            },
+        )
 
     async def _load_memory(
         self,
