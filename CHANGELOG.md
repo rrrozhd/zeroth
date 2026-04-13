@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-13
+
+v4.0 Platform Extensions — production-grade agentic workflow capabilities.
+
+### Added
+
+- **Subgraph composition** — nest published graphs as SubgraphNodes with governance inheritance, thread participation modes, approval propagation, and cycle detection (90 tests).
+- **Parallel fan-out/fan-in** — split execution across branches with budget isolation, configurable merge strategies, and SubgraphNode-in-parallel guard (55 tests).
+- **Template registry** — CRUD REST API for prompt templates with audit-safe secret redaction, `TemplateRegistry.delete()` method (59 tests).
+- **Context window management** — token tracking with pluggable compaction strategies and thread persistence (68 tests).
+- **Resilient HTTP client** — retry with exponential backoff, circuit breaker, rate limiting, and connection pooling (62 tests).
+- **Artifact store** — content-addressed storage with TTL refresh, GET REST endpoint (auth-protected).
+- v4.0 concept documentation pages for all six new subsystems.
+- OpenAPI spec synced with v4.0 endpoints (artifact GET, template CRUD).
+- Phase 39 manual verification tests with real SQLite persistence.
+
+### Changed
+
+- README updated with v4.0 capabilities section and architecture diagram.
+- `TemplateRegistry` DELETE endpoint now uses `registry.delete()` instead of accessing private `_templates` dict.
+- REQUIREMENTS.md traceability table populated with all 36 v4.0 requirement IDs.
+- Configuration reference docs regenerated for new settings.
+
+### Fixed
+
+- E501 line-too-long in `parallel/executor.py`.
+- I001 unsorted imports in `service/app.py`.
+
 ## [0.1.1] - 2026-04-11
 
 First public PyPI release of `zeroth-core`, the governed multi-agent runtime
