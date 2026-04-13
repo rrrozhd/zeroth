@@ -12,6 +12,7 @@ from zeroth.core.contracts.registry import (
     ContractVersion,
     StepContractBinding,
     ToolContractBinding,
+    validate_artifact_reference,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "ContractVersion",
     "StepContractBinding",
     "ToolContractBinding",
+    "validate_artifact_reference",
 ]

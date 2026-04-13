@@ -8,7 +8,6 @@ from pathlib import Path
 import libcst as cst
 from libcst.helpers import get_full_name_for_node
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_ROOTS = ("src", "tests", "apps", "scripts", "live_scenarios")
 TEXT_ROOT_FILES = (

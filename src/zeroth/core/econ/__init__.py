@@ -17,7 +17,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):  # noqa: N807
+def __getattr__(name: str) -> object:  # noqa: N807
     """Lazy import for InstrumentedProviderAdapter to avoid circular imports."""
     if name == "InstrumentedProviderAdapter":
         from zeroth.core.econ.adapter import InstrumentedProviderAdapter

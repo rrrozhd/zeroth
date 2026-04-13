@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from zeroth.core.graph import GraphRepository
 from zeroth.core.graph.models import Graph, GraphStatus
 from zeroth.core.service.studio_schemas import (
     CreateWorkflowRequest,
@@ -128,7 +129,7 @@ _NODE_TYPES: list[NodeTypeResponse] = [
 # ---------------------------------------------------------------------------
 
 
-def _get_graph_repository(request: Request):
+def _get_graph_repository(request: Request) -> GraphRepository:
     """Retrieve the GraphRepository from app state."""
     return request.app.state.bootstrap.graph_repository
 

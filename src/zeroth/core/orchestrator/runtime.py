@@ -84,6 +84,15 @@ class RuntimeOrchestrator:
     # Phase 20: Memory and budget injection for AgentRunner dispatch.
     memory_resolver: object | None = None
     budget_enforcer: object | None = None
+    # Phase 34: Artifact store for large payload externalization.
+    artifact_store: Any | None = None
+    # Phase 35: Resilient HTTP client for managed external calls.
+    http_client: Any | None = None
+    # Phase 36: Template registry and renderer for prompt template resolution.
+    template_registry: Any | None = None
+    template_renderer: Any | None = None
+    # Phase 37: Context window management flag (enables tracker injection).
+    context_window_enabled: bool = True
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -130,6 +139,30 @@ class RuntimeOrchestrator:
             raise OrchestratorError(f"run {run_id} is not resumable from status {run.status}")
         return await self._drive(graph, run)
 
+    async def _refresh_artifact_ttls(self, run: Run) -> None:
+        """Refresh TTLs on all artifact references found in run state.
+
+        Scans execution history output_snapshots and final_output for
+        ArtifactReference-shaped dicts, then refreshes each one's TTL
+        on the configured artifact store. This is a no-op when
+        artifact_store is None (backward compatibility).
+
+        Never raises -- failures are logged but do not affect the run.
+        """
+        if self.artifact_store is None:
+            return
+        try:
+            from zeroth.core.artifacts.helpers import refresh_artifact_ttls
+
+            combined: dict[str, Any] = {}
+            for i, entry in enumerate(run.execution_history):
+                combined[f"_history_{i}"] = entry.output_snapshot
+            if run.final_output is not None:
+                combined["_final_output"] = run.final_output
+            await refresh_artifact_ttls(self.artifact_store, combined, ttl=3600)
+        except Exception:
+            logger.exception("artifact TTL refresh failed (non-fatal)")
+
     async def _drive(self, graph: Graph, run: Run) -> Run:
         """Main loop that processes nodes one at a time until done.
 
@@ -150,6 +183,7 @@ class RuntimeOrchestrator:
                 run.touch()
                 persisted = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(persisted)
+                await self._refresh_artifact_ttls(persisted)
                 await self._emit_webhook(
                     "run.completed",
                     persisted,
@@ -203,9 +237,7 @@ class RuntimeOrchestrator:
                             "run_id": run.run_id,
                             "node_id": node.node_id,
                             "sla_deadline": (
-                                approval.sla_deadline.isoformat()
-                                if approval.sla_deadline
-                                else None
+                                approval.sla_deadline.isoformat() if approval.sla_deadline else None
                             ),
                         },
                     )
@@ -220,6 +252,7 @@ class RuntimeOrchestrator:
                 run.touch()
                 persisted = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(persisted)
+                await self._refresh_artifact_ttls(persisted)
                 return persisted
 
             try:
@@ -237,6 +270,7 @@ class RuntimeOrchestrator:
             run.touch()
             run = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(run)
+            await self._refresh_artifact_ttls(run)
 
     async def _dispatch_node(
         self,
@@ -255,6 +289,65 @@ class RuntimeOrchestrator:
             if runner is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
 
+            # Phase 36: Template resolution -- resolve and render before agent execution.
+            effective_instruction: str | None = None
+            rendered_prompt_for_audit: str | None = None
+            template_ref_for_audit: dict[str, Any] | None = None
+            agent_template_ref = getattr(node.agent, "template_ref", None)
+            if (
+                self.template_registry is not None
+                and self.template_renderer is not None
+                and agent_template_ref is not None
+            ):
+                from zeroth.core.templates import TemplateRegistry, TemplateRenderer
+
+                template_ref = node.agent.template_ref
+                registry: TemplateRegistry = self.template_registry
+                renderer: TemplateRenderer = self.template_renderer
+                template = registry.get(template_ref.name, template_ref.version)
+                render_vars: dict[str, Any] = {
+                    "input": dict(input_payload),
+                    "state": dict(run.metadata) if run.metadata else {},
+                    "memory": {},
+                }
+                render_result = renderer.render(template, render_vars)
+                effective_instruction = render_result.rendered
+                rendered_prompt_for_audit = render_result.rendered
+
+                # Phase 36: Redact secret variable values before audit storage.
+                from zeroth.core.templates.redaction import (
+                    identify_secret_variables,
+                    redact_rendered_prompt,
+                )
+
+                # Flatten nested render_vars for redaction matching.
+                render_vars_flat: dict[str, object] = {}
+                for _ns, _vals in render_vars.items():
+                    if isinstance(_vals, dict):
+                        for k, v in _vals.items():
+                            render_vars_flat[k] = v
+                secret_vars = identify_secret_variables(
+                    list(render_vars_flat.keys()),
+                )
+                if secret_vars:
+                    rendered_prompt_for_audit = redact_rendered_prompt(
+                        render_result.rendered,
+                        render_vars_flat,
+                        secret_vars,
+                    )
+
+                template_ref_for_audit = {
+                    "name": template.name,
+                    "version": template.version,
+                }
+
+            # Phase 36: Override runner config instruction with rendered template.
+            original_config = getattr(runner, "config", _MISSING)
+            if effective_instruction is not None and original_config is not _MISSING:
+                runner.config = original_config.model_copy(
+                    update={"instruction": effective_instruction}
+                )
+
             # Phase 18: Wrap provider with cost instrumentation (per ECON-01).
             # Use getattr so lightweight test runners without a .provider
             # attribute (e.g. FunctionalRunner, RecordingAgentRunner) still work.
@@ -268,9 +361,7 @@ class RuntimeOrchestrator:
                     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
                     tenant_id = (
-                        run.metadata.get("tenant_id", "default")
-                        if run.metadata
-                        else "default"
+                        run.metadata.get("tenant_id", "default") if run.metadata else "default"
                     )
                     runner.provider = InstrumentedProviderAdapter(
                         inner=original_provider,
@@ -304,6 +395,37 @@ class RuntimeOrchestrator:
             ):
                 runner.budget_enforcer = self.budget_enforcer
 
+            # Phase 37: Context window tracker injection (per D-09, D-11).
+            original_context_tracker = getattr(runner, "context_tracker", _MISSING)
+            if (
+                self.context_window_enabled
+                and original_context_tracker is not _MISSING
+                and original_context_tracker is None
+                and hasattr(node.agent, "context_window")
+                and node.agent.context_window is not None
+            ):
+                from zeroth.core.context_window import (
+                    ContextWindowTracker,
+                    LLMSummarizationStrategy,
+                    ObservationMaskingStrategy,
+                    TruncationStrategy,
+                )
+
+                cw_settings = node.agent.context_window
+                strategy_name = cw_settings.compaction_strategy
+                if strategy_name == "truncation":
+                    strategy = TruncationStrategy()
+                elif strategy_name == "llm_summarization":
+                    # Use the runner's own provider for summarization calls
+                    strategy = LLMSummarizationStrategy(provider=runner.provider)
+                else:
+                    # Default: observation_masking
+                    strategy = ObservationMaskingStrategy()
+                runner.context_tracker = ContextWindowTracker(
+                    settings=cw_settings,
+                    strategy=strategy,
+                )
+
             thread_id = await self._resolve_thread(node, run)
             enforcement_context = self._enforcement_context_for(run, node.node_id)
             try:
@@ -315,6 +437,17 @@ class RuntimeOrchestrator:
                     enforcement_context=enforcement_context,
                 )
             finally:
+                # Phase 37: Record context window state in audit before restoring.
+                _ctx_tracker = getattr(runner, "context_tracker", None)
+                if _ctx_tracker is not None and hasattr(_ctx_tracker, "state"):
+                    _cw_state = _ctx_tracker.state
+                    # Store for audit enrichment after the finally block.
+                    _context_window_audit = {
+                        "accumulated_tokens": _cw_state.accumulated_tokens,
+                        "compaction_count": _cw_state.compaction_count,
+                    }
+                else:
+                    _context_window_audit = None
                 # Restore originals only if they existed on the runner.
                 if original_provider is not _MISSING:
                     runner.provider = original_provider
@@ -322,11 +455,28 @@ class RuntimeOrchestrator:
                     runner.memory_resolver = original_memory_resolver
                 if original_budget_enforcer is not _MISSING:
                     runner.budget_enforcer = original_budget_enforcer
+                # Phase 37: Restore original context tracker.
+                if original_context_tracker is not _MISSING:
+                    runner.context_tracker = original_context_tracker
+                # Phase 36: Restore original config after template-based override.
+                if effective_instruction is not None and original_config is not _MISSING:
+                    runner.config = original_config
 
             audit_record = dict(result.audit_record)
             if enforcement_context:
                 audit_record["enforcement"] = enforcement_context
                 audit_record["enforcement_applied"] = True
+            # Phase 36: Record template metadata in audit.
+            if rendered_prompt_for_audit is not None:
+                audit_record.setdefault("execution_metadata", {})
+                audit_record["execution_metadata"]["rendered_prompt"] = rendered_prompt_for_audit
+            if template_ref_for_audit is not None:
+                audit_record.setdefault("execution_metadata", {})
+                audit_record["execution_metadata"]["template_ref"] = template_ref_for_audit
+            # Phase 37: Record context window state in audit.
+            if _context_window_audit is not None:
+                audit_record.setdefault("execution_metadata", {})
+                audit_record["execution_metadata"]["context_window"] = _context_window_audit
             return result.output_data, audit_record
         if isinstance(node, ExecutableUnitNode):
             enforcement_context = self._enforcement_context_for(run, node.node_id)
@@ -437,7 +587,18 @@ class RuntimeOrchestrator:
             payload = dict(output_data)
             if edge is not None and edge.mapping is not None:
                 # Edge mappings reshape one node's output into the next node's expected input.
-                payload = self.mapping_executor.execute(output_data, edge.mapping)
+                context_ns = {
+                    "payload": dict(output_data),
+                    "state": dict(run.metadata.get("state", {})),
+                    "variables": dict(run.metadata.get("variables", {})),
+                    "node_visit_counts": dict(run.node_visit_counts),
+                    "edge_visit_counts": dict(run.metadata.get("edge_visit_counts", {})),
+                    "path": list(run.metadata.get("path", [])),
+                    "metadata": {"run_id": run.run_id},
+                }
+                payload = self.mapping_executor.execute(
+                    output_data, edge.mapping, context=context_ns
+                )
             payloads[target_node_id] = payload
             run.pending_node_ids.append(target_node_id)
         run.metadata["node_payloads"] = payloads
@@ -683,6 +844,7 @@ class RuntimeOrchestrator:
         run.touch()
         persisted = await self.run_repository.put(run)
         await self.run_repository.write_checkpoint(persisted)
+        await self._refresh_artifact_ttls(persisted)
         return persisted
 
     async def _consume_side_effect_approval(
@@ -703,6 +865,7 @@ class RuntimeOrchestrator:
             run.pending_node_ids.insert(0, node.node_id)
             persisted = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(persisted)
+            await self._refresh_artifact_ttls(persisted)
             return persisted
         record = await self.approval_service.get(approval_id)
         if record is None or record.resolution is None:
@@ -710,6 +873,7 @@ class RuntimeOrchestrator:
             run.pending_node_ids.insert(0, node.node_id)
             persisted = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(persisted)
+            await self._refresh_artifact_ttls(persisted)
             return persisted
         run.metadata.pop("pending_approval", None)
         if record.resolution.decision is ApprovalDecision.REJECT:
@@ -837,6 +1001,7 @@ class RuntimeOrchestrator:
         run.touch()
         run = await self.run_repository.put(run)
         await self.run_repository.write_checkpoint(run)
+        await self._refresh_artifact_ttls(run)
         return run
 
     async def _fail_run(self, run: Run, reason: str, message: str) -> Run:
@@ -847,6 +1012,7 @@ class RuntimeOrchestrator:
         run.touch()
         persisted = await self.run_repository.put(run)
         await self.run_repository.write_checkpoint(persisted)
+        await self._refresh_artifact_ttls(persisted)
         await self._emit_webhook(
             "run.failed",
             persisted,

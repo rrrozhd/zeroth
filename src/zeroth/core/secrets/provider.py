@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from zeroth.core.execution_units.models import EnvironmentVariable
 from zeroth.core.secrets.redaction import SecretRedactor
+
+if TYPE_CHECKING:
+    # Typed against execution_units.EnvironmentVariable without importing it at
+    # runtime — execution_units.runner imports SecretResolver from here, so a
+    # concrete import would create an import-time cycle.
+    from zeroth.core.execution_units.models import EnvironmentVariable
 
 
 class SecretProvider(Protocol):

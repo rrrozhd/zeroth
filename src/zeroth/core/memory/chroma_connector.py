@@ -10,11 +10,14 @@ Per D-10, D-12, D-14 from Phase 14 planning.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import chromadb
 import litellm
 from governai.memory.models import MemoryEntry, MemoryScope
 from governai.models.common import JSONValue
+
+from zeroth.core.config.settings import DEFAULT_EMBEDDING_MODEL
 
 
 class ChromaDBMemoryConnector:
@@ -32,7 +35,7 @@ class ChromaDBMemoryConnector:
         client: chromadb.HttpClient,
         *,
         collection_prefix: str = "zeroth_memory",
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     ) -> None:
         self._client = client
         self._collection_prefix = collection_prefix
@@ -43,7 +46,7 @@ class ChromaDBMemoryConnector:
         safe_target = (target or "default").replace("-", "_").replace(":", "_")
         return f"{self._collection_prefix}_{scope.value}_{safe_target}"
 
-    def _get_collection(self, scope: MemoryScope, target: str | None):
+    def _get_collection(self, scope: MemoryScope, target: str | None) -> Any:
         """Get or create a ChromaDB collection for this scope+target."""
         return self._client.get_or_create_collection(
             name=self._collection_name(scope, target),

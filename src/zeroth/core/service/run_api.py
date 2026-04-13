@@ -274,17 +274,17 @@ def _serialize_run(run: Run) -> RunStatusResponse:
 
 
 def _public_status(run: Run) -> RunPublicStatus:
-    if run.status is RunStatus.PENDING:
+    if run.status == RunStatus.PENDING:
         return RunPublicStatus.QUEUED
-    if run.status is RunStatus.RUNNING:
+    if run.status == RunStatus.RUNNING:
         return RunPublicStatus.RUNNING
-    if run.status is RunStatus.WAITING_APPROVAL:
+    if run.status == RunStatus.WAITING_APPROVAL:
         return RunPublicStatus.PAUSED_FOR_APPROVAL
-    if run.status is RunStatus.COMPLETED:
+    if run.status == RunStatus.COMPLETED:
         return RunPublicStatus.SUCCEEDED
-    if run.status is RunStatus.FAILED:
+    if run.status == RunStatus.FAILED:
         return _failed_status(run.failure_state)
-    if run.status is RunStatus.WAITING_INTERRUPT:
+    if run.status == RunStatus.WAITING_INTERRUPT:
         return RunPublicStatus.WAITING_INTERRUPT
     return RunPublicStatus.FAILED
 

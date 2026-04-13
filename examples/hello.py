@@ -37,14 +37,14 @@ def main() -> int:
     # Import-smoke for PKG-06: prove the zeroth.core namespace actually loads
     # from the installed wheel. If this import fails in the release-workflow
     # clean-venv step, the wheel is broken.
-    import zeroth.core  # noqa: F401
-
     # Phase 28 intentionally uses the ``litellm`` direct-call fallback described
     # in 28-02-PLAN §interfaces: the full orchestrator/graph builder requires
     # service bootstrap that does not belong in a 30-line example. ``litellm``
     # is a base dependency of zeroth-core, so importing it here does not require
     # any extras. Phase 30 will replace this with a proper graph walkthrough.
     from litellm import completion
+
+    import zeroth.core  # noqa: F401
 
     response = completion(
         model="anthropic/claude-3-haiku-20240307",
