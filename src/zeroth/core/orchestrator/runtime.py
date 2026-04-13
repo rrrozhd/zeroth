@@ -33,7 +33,7 @@ from zeroth.core.graph import (
 from zeroth.core.mappings import MappingExecutor
 from zeroth.core.parallel.errors import FanOutValidationError, ParallelExecutionError
 from zeroth.core.parallel.executor import ParallelExecutor
-from zeroth.core.parallel.models import BranchContext, BranchResult, FanInResult, GlobalStepTracker
+from zeroth.core.parallel.models import BranchContext, FanInResult, GlobalStepTracker
 from zeroth.core.policy import PolicyDecision, PolicyGuard
 from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
 from zeroth.core.secrets import SecretResolver
@@ -271,14 +271,25 @@ class RuntimeOrchestrator:
             if parallel_config is not None:
                 try:
                     fan_in_result = await self._execute_parallel_fan_out(
-                        graph, run, node, node_id, input_payload,
-                        output_data, audit_record, parallel_config,
+                        graph,
+                        run,
+                        node,
+                        node_id,
+                        input_payload,
+                        output_data,
+                        audit_record,
+                        parallel_config,
                     )
                 except (FanOutValidationError, ParallelExecutionError) as exc:
                     return await self._fail_run(run, "parallel_execution_failed", str(exc))
                 # Record the source node's own history (the node that triggered fan-out)
                 await self._record_history(
-                    run, node, node_id, input_payload, output_data, audit_record,
+                    run,
+                    node,
+                    node_id,
+                    input_payload,
+                    output_data,
+                    audit_record,
                 )
                 self._increment_node_visit(run, node_id)
                 # Merge branch histories and audit refs into parent run
@@ -331,15 +342,24 @@ class RuntimeOrchestrator:
         Budget is checked before spawning. A GlobalStepTracker enforces the
         aggregate step limit across all branches.
         """
-        from zeroth.core.parallel.models import ParallelConfig as _PC
+        from zeroth.core.parallel.models import ParallelConfig as _ParallelConfig
 
-        config = parallel_config if isinstance(parallel_config, _PC) else _PC.model_validate(
-            parallel_config if isinstance(parallel_config, dict) else parallel_config.model_dump()
+        config = (
+            parallel_config
+            if isinstance(parallel_config, _ParallelConfig)
+            else _ParallelConfig.model_validate(
+                parallel_config
+                if isinstance(parallel_config, dict)
+                else parallel_config.model_dump()
+            )
         )
 
         # Split output into branch contexts
         branch_contexts = self.parallel_executor.split_fan_out(
-            run.run_id, output_data, config, node,
+            run.run_id,
+            output_data,
+            config,
+            node,
         )
 
         # Budget pre-reservation before spawning branches
@@ -371,7 +391,10 @@ class RuntimeOrchestrator:
 
                 # Per-branch policy enforcement
                 policy_result = await self._enforce_policy_for_branch(
-                    graph, run, ds_node, branch_output,
+                    graph,
+                    run,
+                    ds_node,
+                    branch_output,
                 )
                 if policy_result is not None:
                     raise RuntimeError(
@@ -391,7 +414,8 @@ class RuntimeOrchestrator:
                 ds_audit_with_branch["branch_index"] = ctx.branch_index
 
                 # Record to branch-isolated state
-                audit_ref = f"{run.run_id}:branch:{ctx.branch_index}:audit:{len(ctx.audit_refs) + 1}"
+                audit_seq = len(ctx.audit_refs) + 1
+                audit_ref = f"{run.run_id}:branch:{ctx.branch_index}:audit:{audit_seq}"
                 ctx.audit_refs.append(audit_ref)
 
                 # Write audit record if audit repo available
@@ -425,9 +449,7 @@ class RuntimeOrchestrator:
                 )
 
                 # Track branch visit counts (isolated from parent)
-                ctx.node_visit_counts[ds_node_id] = (
-                    ctx.node_visit_counts.get(ds_node_id, 0) + 1
-                )
+                ctx.node_visit_counts[ds_node_id] = ctx.node_visit_counts.get(ds_node_id, 0) + 1
 
                 branch_output = ds_output
 
@@ -435,7 +457,9 @@ class RuntimeOrchestrator:
 
         # Execute all branches via the parallel executor
         branch_results = await self.parallel_executor.execute_branches(
-            branch_contexts, branch_coro_factory, config,
+            branch_contexts,
+            branch_coro_factory,
+            config,
         )
 
         # Enrich results with branch state
