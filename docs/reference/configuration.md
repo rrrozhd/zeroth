@@ -150,3 +150,34 @@ TLS configuration for direct uvicorn SSL.
 | --- | --- | --- | --- | --- |
 | `ZEROTH_TLS__CERTFILE` | `str \| None` | `None` |  |  |
 | `ZEROTH_TLS__KEYFILE` | `str \| None` | `None` |  |  |
+
+## Artifact Store
+
+Configuration for the artifact storage subsystem.
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_ARTIFACT_STORE__BACKEND` | `str` | `"filesystem"` |  |  |
+| `ZEROTH_ARTIFACT_STORE__DEFAULT_TTL_SECONDS` | `int` | `3600` |  |  |
+| `ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR` | `str` | `".zeroth/artifacts"` |  |  |
+| `ZEROTH_ARTIFACT_STORE__REDIS_KEY_PREFIX` | `str` | `"zeroth:artifact"` |  |  |
+| `ZEROTH_ARTIFACT_STORE__MAX_ARTIFACT_SIZE_BYTES` | `int` | `104857600` |  |  |
+
+## Http Client
+
+Global resilient-HTTP-client configuration.
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_HTTP_CLIENT__MAX_RETRIES` | `int` | `3` |  |  |
+| `ZEROTH_HTTP_CLIENT__RETRY_BACKOFF_BASE` | `float` | `0.5` |  |  |
+| `ZEROTH_HTTP_CLIENT__RETRY_MAX_DELAY` | `float` | `60.0` |  |  |
+| `ZEROTH_HTTP_CLIENT__RETRYABLE_STATUS_CODES` | `set[int]` | `{500, 408, 502, 503, 504, 429}` |  |  |
+| `ZEROTH_HTTP_CLIENT__CIRCUIT_BREAKER_THRESHOLD` | `int` | `5` |  |  |
+| `ZEROTH_HTTP_CLIENT__CIRCUIT_BREAKER_RESET_TIMEOUT` | `float` | `30.0` |  |  |
+| `ZEROTH_HTTP_CLIENT__POOL_MAX_CONNECTIONS` | `int` | `100` |  |  |
+| `ZEROTH_HTTP_CLIENT__POOL_MAX_KEEPALIVE` | `int` | `20` |  |  |
+| `ZEROTH_HTTP_CLIENT__POOL_KEEPALIVE_EXPIRY` | `float` | `5.0` |  |  |
+| `ZEROTH_HTTP_CLIENT__DEFAULT_TIMEOUT` | `float` | `30.0` |  |  |
+| `ZEROTH_HTTP_CLIENT__DEFAULT_RATE_LIMIT_RATE` | `float` | `10.0` |  |  |
+| `ZEROTH_HTTP_CLIENT__DEFAULT_RATE_LIMIT_BURST` | `int` | `20` |  |  |
