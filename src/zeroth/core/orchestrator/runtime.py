@@ -29,6 +29,7 @@ from zeroth.core.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
     Node,
+    SubgraphNode,
 )
 from zeroth.core.mappings import MappingExecutor
 from zeroth.core.parallel.errors import FanOutValidationError, ParallelExecutionError
@@ -37,6 +38,12 @@ from zeroth.core.parallel.models import BranchContext, FanInResult, GlobalStepTr
 from zeroth.core.policy import PolicyDecision, PolicyGuard
 from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
 from zeroth.core.secrets import SecretResolver
+from zeroth.core.subgraph.errors import (
+    SubgraphCycleError,
+    SubgraphDepthLimitError,
+    SubgraphExecutionError,
+    SubgraphResolutionError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +107,8 @@ class RuntimeOrchestrator:
     parallel_executor: ParallelExecutor = ParallelExecutor()
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
+    # Phase 39: Subgraph composition executor (typed as Any to avoid circular import).
+    subgraph_executor: Any | None = None
 
     async def run_graph(
         self,
@@ -259,6 +268,58 @@ class RuntimeOrchestrator:
                 await self.run_repository.write_checkpoint(persisted)
                 await self._refresh_artifact_ttls(persisted)
                 return persisted
+
+            # Phase 39: Subgraph composition -- delegate to SubgraphExecutor.
+            if isinstance(node, SubgraphNode):
+                if self.subgraph_executor is None:
+                    return await self._fail_run(
+                        run,
+                        "subgraph_not_configured",
+                        "SubgraphExecutor not configured -- cannot execute SubgraphNode. "
+                        "Wire SubgraphExecutor at bootstrap to enable subgraph composition.",
+                    )
+                try:
+                    child_run = await self.subgraph_executor.execute(
+                        orchestrator=self,
+                        parent_graph=graph,
+                        parent_run=run,
+                        node=node,
+                        node_id=node_id,
+                        input_payload=input_payload,
+                    )
+                except (
+                    SubgraphDepthLimitError,
+                    SubgraphResolutionError,
+                    SubgraphExecutionError,
+                    SubgraphCycleError,
+                ) as exc:
+                    return await self._fail_run(run, "subgraph_execution_failed", str(exc))
+
+                # Use child run's final_output as this node's output.
+                output_data = child_run.final_output or {}
+                if not isinstance(output_data, dict):
+                    output_data = {"result": output_data}
+
+                audit_record = {
+                    "subgraph_run_id": child_run.run_id,
+                    "subgraph_graph_ref": node.subgraph.graph_ref,
+                    "subgraph_status": child_run.status.value,
+                    "subgraph_depth": child_run.metadata.get("subgraph_depth", 0),
+                }
+
+                # Record history and plan next nodes (same post-node flow as normal nodes).
+                await self._record_history(
+                    run, node, node_id, input_payload, output_data, audit_record
+                )
+                self._increment_node_visit(run, node_id)
+                next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
+                self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
+                run.metadata["last_output"] = output_data
+                run.touch()
+                persisted = await self.run_repository.put(run)
+                await self.run_repository.write_checkpoint(persisted)
+                await self._refresh_artifact_ttls(persisted)
+                continue
 
             try:
                 output_data, audit_record = await self._dispatch_node(node, run, input_payload)
