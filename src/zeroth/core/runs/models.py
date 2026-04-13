@@ -124,6 +124,7 @@ class Run(RunState):
     deployment_ref: str
     tenant_id: str = "default"
     workspace_id: str | None = None
+    parent_run_id: str | None = None
     submitted_by: ActorIdentity | None = None
     current_node_ids: list[str] = Field(default_factory=list)
     pending_node_ids: list[str] = Field(default_factory=list)
