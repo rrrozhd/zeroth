@@ -145,6 +145,8 @@ class ServiceBootstrap:
     # Phase 37: Context window management is enabled by default.
     # Per-node settings on AgentNodeData control whether compaction is active.
     # No explicit bootstrap wiring needed -- orchestrator.context_window_enabled defaults True.
+    # Phase 39: Subgraph composition executor.
+    subgraph_executor: object | None = None
 
 
 async def bootstrap_service(
@@ -369,6 +371,14 @@ async def bootstrap_service(
     orchestrator.template_registry = template_registry
     orchestrator.template_renderer = template_renderer
 
+    # Phase 39: Subgraph composition.
+    from zeroth.core.subgraph.executor import SubgraphExecutor  # noqa: PLC0415
+    from zeroth.core.subgraph.resolver import SubgraphResolver  # noqa: PLC0415
+
+    subgraph_resolver = SubgraphResolver(deployment_service=deployment_service)
+    subgraph_executor = SubgraphExecutor(resolver=subgraph_resolver)
+    orchestrator.subgraph_executor = subgraph_executor
+
     # Phase 15: Webhook delivery and SLA enforcement.
     webhook_repository = None
     webhook_service_obj = None
@@ -457,6 +467,7 @@ async def bootstrap_service(
         artifact_store=artifact_store,
         http_client=http_client_instance,
         template_registry=template_registry,
+        subgraph_executor=subgraph_executor,
     )
 
 
