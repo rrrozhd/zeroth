@@ -60,6 +60,8 @@ def main() -> int:
         audit_repository=None,
         authenticator=None,
         regulus_client=None,
+        artifact_store=None,       # Phase 40
+        template_registry=None,    # Phase 40
     )
     app = create_app(stub_bootstrap)  # type: ignore[arg-type]
     spec = app.openapi()

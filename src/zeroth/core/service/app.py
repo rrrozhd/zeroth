@@ -24,6 +24,8 @@ from zeroth.core.service.auth import AuthenticationError, record_service_denial
 from zeroth.core.service.contracts_api import register_contract_routes
 from zeroth.core.service.cost_api import register_cost_routes
 from zeroth.core.service.run_api import register_run_routes
+from zeroth.core.service.artifact_api import register_artifact_routes
+from zeroth.core.service.template_api import register_template_routes
 from zeroth.core.service.webhook_api import register_webhook_routes
 
 logger = logging.getLogger(__name__)
@@ -265,6 +267,8 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_admin_routes(v1_router)
     register_cost_routes(v1_router)
     register_webhook_routes(v1_router)
+    register_artifact_routes(v1_router)
+    register_template_routes(v1_router)
 
     app.include_router(v1_router)
 
@@ -278,6 +282,8 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_admin_routes(compat_router)
     register_cost_routes(compat_router)
     register_webhook_routes(compat_router)
+    register_artifact_routes(compat_router)
+    register_template_routes(compat_router)
 
     app.include_router(compat_router)
 
