@@ -66,7 +66,10 @@ class ParallelExecutor:
 
         # Validate node type -- SubgraphNode cannot be fanned out
         if hasattr(node, "node_type") and node.node_type == "subgraph":
-            msg = "parallel fan-out is not supported on SubgraphNode -- subgraph composition inside parallel branches is not yet supported"
+            msg = (
+                "parallel fan-out is not supported on SubgraphNode"
+                " -- subgraph composition inside parallel branches is not yet supported"
+            )
             raise FanOutValidationError(msg)
 
         # Extract the list at split_path
