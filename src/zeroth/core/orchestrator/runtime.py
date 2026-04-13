@@ -31,6 +31,9 @@ from zeroth.core.graph import (
     Node,
 )
 from zeroth.core.mappings import MappingExecutor
+from zeroth.core.parallel.errors import FanOutValidationError, ParallelExecutionError
+from zeroth.core.parallel.executor import ParallelExecutor
+from zeroth.core.parallel.models import BranchContext, BranchResult, FanInResult, GlobalStepTracker
 from zeroth.core.policy import PolicyDecision, PolicyGuard
 from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
 from zeroth.core.secrets import SecretResolver
@@ -93,6 +96,8 @@ class RuntimeOrchestrator:
     template_renderer: Any | None = None
     # Phase 37: Context window management flag (enables tracker injection).
     context_window_enabled: bool = True
+    # Phase 38: Parallel fan-out/fan-in executor.
+    parallel_executor: ParallelExecutor = ParallelExecutor()
     branch_planner: NextStepPlanner = NextStepPlanner()
     mapping_executor: MappingExecutor = MappingExecutor()
 
@@ -260,6 +265,42 @@ class RuntimeOrchestrator:
             except Exception as exc:
                 await self._record_failed_execution_audit(run, node, node_id, input_payload, exc)
                 return await self._fail_run(run, "node_execution_failed", str(exc))
+
+            # Phase 38: Parallel fan-out detection.
+            parallel_config = getattr(node, "parallel_config", None)
+            if parallel_config is not None:
+                try:
+                    fan_in_result = await self._execute_parallel_fan_out(
+                        graph, run, node, node_id, input_payload,
+                        output_data, audit_record, parallel_config,
+                    )
+                except (FanOutValidationError, ParallelExecutionError) as exc:
+                    return await self._fail_run(run, "parallel_execution_failed", str(exc))
+                # Record the source node's own history (the node that triggered fan-out)
+                await self._record_history(
+                    run, node, node_id, input_payload, output_data, audit_record,
+                )
+                self._increment_node_visit(run, node_id)
+                # Merge branch histories and audit refs into parent run
+                self._merge_fan_in_state(run, fan_in_result)
+                # Use merged output for downstream planning.
+                # The downstream nodes (one hop from source) were already executed
+                # inside branches. Plan next from those downstream nodes instead.
+                merged_output = fan_in_result.merged_output
+                downstream_ids = self._plan_next_nodes(graph, run, node_id, output_data)
+                for ds_id in downstream_ids:
+                    self._increment_node_visit(run, ds_id)
+                    post_fan_in_ids = self._plan_next_nodes(graph, run, ds_id, merged_output)
+                    self._queue_next_nodes(graph, run, ds_id, merged_output, post_fan_in_ids)
+                run.metadata["last_output"] = merged_output
+                run.status = RunStatus.RUNNING
+                run.current_node_ids = []
+                run.touch()
+                run = await self.run_repository.put(run)
+                await self.run_repository.write_checkpoint(run)
+                await self._refresh_artifact_ttls(run)
+                continue
+
             await self._record_history(run, node, node_id, input_payload, output_data, audit_record)
             self._increment_node_visit(run, node_id)
             next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
@@ -271,6 +312,169 @@ class RuntimeOrchestrator:
             run = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(run)
             await self._refresh_artifact_ttls(run)
+
+    async def _execute_parallel_fan_out(
+        self,
+        graph: Graph,
+        run: Run,
+        node: Node,
+        node_id: str,
+        input_payload: Mapping[str, Any],
+        output_data: dict[str, Any],
+        audit_record: dict[str, Any],
+        parallel_config: Any,
+    ) -> FanInResult:
+        """Execute parallel fan-out for a node with parallel_config.
+
+        Splits the node's output into N branches, executes downstream nodes
+        for each branch concurrently, and collects results into a FanInResult.
+        Budget is checked before spawning. A GlobalStepTracker enforces the
+        aggregate step limit across all branches.
+        """
+        from zeroth.core.parallel.models import ParallelConfig as _PC
+
+        config = parallel_config if isinstance(parallel_config, _PC) else _PC.model_validate(
+            parallel_config if isinstance(parallel_config, dict) else parallel_config.model_dump()
+        )
+
+        # Split output into branch contexts
+        branch_contexts = self.parallel_executor.split_fan_out(
+            run.run_id, output_data, config, node,
+        )
+
+        # Budget pre-reservation before spawning branches
+        if self.budget_enforcer is not None:
+            allowed, current_spend, budget_cap = await self.budget_enforcer.check_budget(
+                run.tenant_id,
+            )
+            if not allowed:
+                raise FanOutValidationError(
+                    f"budget exceeded for tenant {run.tenant_id}: "
+                    f"spend=${current_spend:.4f} >= cap=${budget_cap:.4f}"
+                )
+
+        # Global step tracker: current steps + max from execution settings
+        step_tracker = GlobalStepTracker(
+            current_steps=len(run.execution_history),
+            max_steps=graph.execution_settings.max_total_steps,
+        )
+
+        # Determine downstream nodes from the fan-out source node
+        downstream_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
+
+        async def branch_coro_factory(ctx: BranchContext) -> dict[str, Any]:
+            """Execute downstream nodes for a single branch."""
+            branch_output: dict[str, Any] = dict(ctx.input_payload)
+
+            for ds_node_id in downstream_node_ids:
+                ds_node = self._node_by_id(graph, ds_node_id)
+
+                # Per-branch policy enforcement
+                policy_result = await self._enforce_policy_for_branch(
+                    graph, run, ds_node, branch_output,
+                )
+                if policy_result is not None:
+                    raise RuntimeError(
+                        f"policy denied branch {ctx.branch_index} node {ds_node_id}: "
+                        f"{policy_result}"
+                    )
+
+                # Dispatch the downstream node with branch-isolated payload
+                ds_output, ds_audit = await self._dispatch_node(ds_node, run, branch_output)
+
+                # Increment global step tracker
+                await step_tracker.increment()
+
+                # Add branch_id to audit metadata
+                ds_audit_with_branch = dict(ds_audit)
+                ds_audit_with_branch["branch_id"] = ctx.branch_id
+                ds_audit_with_branch["branch_index"] = ctx.branch_index
+
+                # Record to branch-isolated state
+                audit_ref = f"{run.run_id}:branch:{ctx.branch_index}:audit:{len(ctx.audit_refs) + 1}"
+                ctx.audit_refs.append(audit_ref)
+
+                # Write audit record if audit repo available
+                if self.audit_repository is not None:
+                    await self.audit_repository.write(
+                        NodeAuditRecord(
+                            audit_id=audit_ref,
+                            run_id=run.run_id,
+                            thread_id=run.thread_id,
+                            node_id=ds_node_id,
+                            node_version=ds_node.node_version,
+                            graph_version_ref=run.graph_version_ref,
+                            deployment_ref=run.deployment_ref,
+                            attempt=1,
+                            status="completed",
+                            input_snapshot=dict(branch_output),
+                            output_snapshot=dict(ds_output),
+                            execution_metadata=ds_audit_with_branch,
+                        )
+                    )
+
+                # Append to branch execution history
+                ctx.execution_history.append(
+                    RunHistoryEntry(
+                        node_id=ds_node_id,
+                        status="completed",
+                        input_snapshot=dict(branch_output),
+                        output_snapshot=dict(ds_output),
+                        audit_ref=audit_ref,
+                    )
+                )
+
+                # Track branch visit counts (isolated from parent)
+                ctx.node_visit_counts[ds_node_id] = (
+                    ctx.node_visit_counts.get(ds_node_id, 0) + 1
+                )
+
+                branch_output = ds_output
+
+            return branch_output
+
+        # Execute all branches via the parallel executor
+        branch_results = await self.parallel_executor.execute_branches(
+            branch_contexts, branch_coro_factory, config,
+        )
+
+        # Enrich results with branch state
+        for ctx, result in zip(branch_contexts, branch_results, strict=False):
+            if result.error is None:
+                result.audit_refs = list(ctx.audit_refs)
+                result.execution_history = list(ctx.execution_history)
+
+        # Collect fan-in
+        return self.parallel_executor.collect_fan_in(branch_results, config, output_data)
+
+    async def _enforce_policy_for_branch(
+        self,
+        graph: Graph,
+        run: Run,
+        node: Node,
+        input_payload: Mapping[str, Any],
+    ) -> str | None:
+        """Check policy for a branch node dispatch. Returns denial reason or None."""
+        guard = self.policy_guard
+        if guard is None:
+            return None
+        result = guard.evaluate(graph, node, run, input_payload)
+        if result.decision is PolicyDecision.ALLOW:
+            return None
+        return result.reason or "policy denied execution"
+
+    def _merge_fan_in_state(self, run: Run, fan_in_result: FanInResult) -> None:
+        """Merge branch execution state back into the parent Run.
+
+        Appends all branch execution_history entries and audit_refs to the
+        parent run so that the full trace is visible in the run record.
+        """
+        for branch_result in fan_in_result.results:
+            for entry in branch_result.execution_history:
+                run.execution_history.append(entry)
+            for ref in branch_result.audit_refs:
+                run.audit_refs.append(ref)
+        run.completed_steps = [entry.node_id for entry in run.execution_history]
 
     async def _dispatch_node(
         self,
