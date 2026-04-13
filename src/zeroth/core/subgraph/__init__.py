@@ -1,12 +1,16 @@
 """Subgraph composition for governed workflows.
 
-This package provides data models, error hierarchy, and resolution logic
-for composing workflows by embedding published graphs as child nodes.
+This package provides data models, error hierarchy, resolution logic,
+and the execution engine for composing workflows by embedding published
+graphs as child nodes.
 
 Public API
 ----------
 Models:
     SubgraphNodeData
+
+Executor:
+    SubgraphExecutor
 
 Errors:
     SubgraphError, SubgraphDepthLimitError, SubgraphResolutionError,
@@ -30,6 +34,16 @@ __all__ = [
     "SubgraphDepthLimitError",
     "SubgraphError",
     "SubgraphExecutionError",
+    "SubgraphExecutor",
     "SubgraphNodeData",
     "SubgraphResolutionError",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Lazy import for SubgraphExecutor to avoid circular import with graph.models."""
+    if name == "SubgraphExecutor":
+        from zeroth.core.subgraph.executor import SubgraphExecutor
+
+        return SubgraphExecutor
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
