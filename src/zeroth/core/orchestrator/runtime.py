@@ -44,6 +44,7 @@ from zeroth.core.subgraph.errors import (
     SubgraphExecutionError,
     SubgraphResolutionError,
 )
+from zeroth.core.subgraph.resolver import merge_governance, namespace_subgraph
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +279,74 @@ class RuntimeOrchestrator:
                         "SubgraphExecutor not configured -- cannot execute SubgraphNode. "
                         "Wire SubgraphExecutor at bootstrap to enable subgraph composition.",
                     )
+
+                # Path B: Resume after approval -- pending_subgraph metadata exists
+                # for this node_id. Re-resolve the subgraph, then resume the child
+                # run instead of creating a new one.
+                pending_subgraph = run.metadata.get("pending_subgraph")
+                if pending_subgraph and pending_subgraph.get("node_id") == node_id:
+                    child_run_id = pending_subgraph["child_run_id"]
+                    graph_ref = pending_subgraph["graph_ref"]
+                    version = pending_subgraph.get("version")
+
+                    # Re-resolve, re-namespace, re-merge governance (Graph objects
+                    # are not persisted in metadata -- too large).
+                    try:
+                        subgraph, _ = await self.subgraph_executor.resolver.resolve(
+                            graph_ref, version
+                        )
+                    except SubgraphResolutionError as exc:
+                        return await self._fail_run(
+                            run, "subgraph_resume_failed", str(exc)
+                        )
+
+                    depth = run.metadata.get("subgraph_depth", 0) + 1
+                    subgraph = namespace_subgraph(subgraph, graph_ref, depth)
+                    subgraph = merge_governance(graph, subgraph)
+
+                    # Resume the child run (not create a new one).
+                    child_run = await self.resume_graph(subgraph, child_run_id)
+
+                    if child_run.status == RunStatus.WAITING_APPROVAL:
+                        # Still waiting (nested approval or another gate in subgraph).
+                        # Stay paused -- pending_subgraph metadata already correct.
+                        run.status = RunStatus.WAITING_APPROVAL
+                        run.pending_node_ids.insert(0, node_id)
+                        run.touch()
+                        persisted = await self.run_repository.put(run)
+                        await self.run_repository.write_checkpoint(persisted)
+                        await self._refresh_artifact_ttls(persisted)
+                        return persisted
+
+                    # Child completed -- clear pending state, use output.
+                    del run.metadata["pending_subgraph"]
+                    run.status = RunStatus.RUNNING
+                    output_data = child_run.final_output or {}
+                    if not isinstance(output_data, dict):
+                        output_data = {"result": output_data}
+
+                    audit_record = {
+                        "subgraph_run_id": child_run.run_id,
+                        "subgraph_graph_ref": graph_ref,
+                        "subgraph_status": child_run.status.value,
+                        "subgraph_resumed": True,
+                    }
+
+                    # Continue normal post-node flow.
+                    await self._record_history(
+                        run, node, node_id, input_payload, output_data, audit_record
+                    )
+                    self._increment_node_visit(run, node_id)
+                    next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
+                    self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
+                    run.metadata["last_output"] = output_data
+                    run.touch()
+                    persisted = await self.run_repository.put(run)
+                    await self.run_repository.write_checkpoint(persisted)
+                    await self._refresh_artifact_ttls(persisted)
+                    continue
+
+                # Path A: First encounter -- no pending_subgraph for this node.
                 try:
                     child_run = await self.subgraph_executor.execute(
                         orchestrator=self,
@@ -294,6 +363,22 @@ class RuntimeOrchestrator:
                     SubgraphCycleError,
                 ) as exc:
                     return await self._fail_run(run, "subgraph_execution_failed", str(exc))
+
+                # Check if child paused for approval -- propagate up.
+                if child_run.status == RunStatus.WAITING_APPROVAL:
+                    run.status = RunStatus.WAITING_APPROVAL
+                    run.metadata["pending_subgraph"] = {
+                        "child_run_id": child_run.run_id,
+                        "node_id": node_id,
+                        "graph_ref": node.subgraph.graph_ref,
+                        "version": node.subgraph.version,
+                    }
+                    run.pending_node_ids.insert(0, node_id)  # Re-queue for resume
+                    run.touch()
+                    persisted = await self.run_repository.put(run)
+                    await self.run_repository.write_checkpoint(persisted)
+                    await self._refresh_artifact_ttls(persisted)
+                    return persisted
 
                 # Use child run's final_output as this node's output.
                 output_data = child_run.final_output or {}
