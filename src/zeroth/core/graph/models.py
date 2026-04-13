@@ -23,6 +23,7 @@ from governai.app.spec import (
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.core.mappings.models import EdgeMapping
+from zeroth.core.parallel.models import ParallelConfig
 
 
 def _utc_now() -> datetime:
@@ -100,6 +101,7 @@ class NodeBase(BaseModel):
     policy_bindings: list[str] = Field(default_factory=list)
     capability_bindings: list[str] = Field(default_factory=list)
     audit_config: dict[str, Any] = Field(default_factory=dict)
+    parallel_config: ParallelConfig | None = None
 
     def to_governed_step_spec(self) -> GovernedStepSpec:
         """Convert this node into a GovernedStepSpec for the execution engine."""
