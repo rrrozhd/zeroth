@@ -16,14 +16,24 @@ from zeroth.core.context_window.models import (
     CompactionState,
     ContextWindowSettings,
 )
+from zeroth.core.context_window.strategies import (
+    CompactionStrategy,
+    LLMSummarizationStrategy,
+    ObservationMaskingStrategy,
+    TruncationStrategy,
+)
 from zeroth.core.context_window.tracker import ContextWindowTracker
 
 __all__ = [
     "CompactionError",
     "CompactionResult",
     "CompactionState",
+    "CompactionStrategy",
     "ContextWindowError",
     "ContextWindowSettings",
     "ContextWindowTracker",
+    "LLMSummarizationStrategy",
+    "ObservationMaskingStrategy",
     "TokenCountError",
+    "TruncationStrategy",
 ]
