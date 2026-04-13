@@ -22,8 +22,10 @@ from governai.app.spec import (
 )
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.core.context_window.models import ContextWindowSettings
 from zeroth.core.mappings.models import EdgeMapping
 from zeroth.core.parallel.models import ParallelConfig
+from zeroth.core.templates.models import TemplateReference
 
 
 def _utc_now() -> datetime:
@@ -125,6 +127,8 @@ class AgentNodeData(BaseModel):
     thread_participation: Literal["none", "read", "write", "full"] = "none"
     model_params: dict[str, Any] = Field(default_factory=dict)
     mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
+    template_ref: TemplateReference | None = None
+    context_window: ContextWindowSettings | None = None
 
 
 class ExecutableUnitNodeData(BaseModel):

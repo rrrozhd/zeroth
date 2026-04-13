@@ -165,7 +165,7 @@ class TestGlobalStepTracker:
 
     @pytest.mark.asyncio
     async def test_increment_raises_at_limit(self) -> None:
-        tracker = GlobalStepTracker(current_steps=4, max_steps=5)
+        tracker = GlobalStepTracker(current_steps=5, max_steps=5)
         with pytest.raises(ParallelStepLimitError):
             await tracker.increment()
 
