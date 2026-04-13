@@ -19,12 +19,12 @@ from zeroth.core.observability.correlation import (
     set_correlation_id,
 )
 from zeroth.core.service.approval_api import register_approval_routes
+from zeroth.core.service.artifact_api import register_artifact_routes
 from zeroth.core.service.audit_api import register_audit_routes
 from zeroth.core.service.auth import AuthenticationError, record_service_denial
 from zeroth.core.service.contracts_api import register_contract_routes
 from zeroth.core.service.cost_api import register_cost_routes
 from zeroth.core.service.run_api import register_run_routes
-from zeroth.core.service.artifact_api import register_artifact_routes
 from zeroth.core.service.template_api import register_template_routes
 from zeroth.core.service.webhook_api import register_webhook_routes
 
@@ -85,9 +85,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         # Start approval SLA checker if configured.
         sla_checker = getattr(app.state.bootstrap, "sla_checker", None)
         if sla_checker is not None:
-            sla_checker_task = asyncio.create_task(
-                sla_checker.poll_loop(), name="sla-checker"
-            )
+            sla_checker_task = asyncio.create_task(sla_checker.poll_loop(), name="sla-checker")
 
         # Phase 16: ARQ wakeup consumer task.
         arq_consumer_task: asyncio.Task | None = None
@@ -175,9 +173,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
                 await sla_checker_task
 
         # Close webhook HTTP client.
-        webhook_http_client = getattr(
-            app.state.bootstrap, "webhook_http_client", None
-        )
+        webhook_http_client = getattr(app.state.bootstrap, "webhook_http_client", None)
         if webhook_http_client is not None:
             await webhook_http_client.aclose()
 
@@ -260,6 +256,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     # Studio graph authoring API
     from zeroth.core.service.studio_api import router as studio_router
+
     app.include_router(studio_router)
 
     from zeroth.core.service.admin_api import register_admin_routes
