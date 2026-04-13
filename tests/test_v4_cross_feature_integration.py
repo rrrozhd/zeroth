@@ -165,9 +165,7 @@ async def test_parallel_branches_with_artifact_store(sqlite_db, tmp_path) -> Non
 
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": 2}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}]}),
     )
     sink_runner = _make_agent_runner(
         input_model=BranchItemInput,
@@ -214,9 +212,7 @@ async def test_parallel_branches_respect_context_window(sqlite_db) -> None:
     """Parallel fan-out with context_window_enabled and per-node settings completes."""
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": 2}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}]}),
     )
     sink_runner = _make_agent_runner(
         input_model=BranchItemInput,
@@ -269,9 +265,7 @@ async def test_subgraph_node_in_parallel_rejected(sqlite_db) -> None:
     # Source produces items for fan-out
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": 2}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}]}),
     )
 
     source_node = _make_agent_node(
@@ -332,9 +326,7 @@ async def test_template_resolution_in_parallel_branches(sqlite_db) -> None:
     sink_runner = _make_agent_runner(
         input_model=BranchValueInput,
         output_model=ProcessedOutput,
-        handler=lambda req: ProviderResponse(
-            content={"result": 42}
-        ),
+        handler=lambda req: ProviderResponse(content={"result": 42}),
     )
 
     source_node = _make_agent_node(
@@ -470,9 +462,7 @@ async def test_concurrent_branch_runner_isolation(sqlite_db) -> None:
 
     def source_handler(req):
         """Source produces 4 items for fan-out."""
-        return ProviderResponse(
-            content={"items": [{"x": i} for i in range(4)]}
-        )
+        return ProviderResponse(content={"items": [{"x": i} for i in range(4)]})
 
     def sink_handler(req):
         """Each branch records its input and returns branch-specific output."""
