@@ -84,6 +84,19 @@ Zeroth enforces governance at multiple layers:
 - **Approvals** — human-in-the-loop gates with decision tracking
 - **Secrets** — resolved from secure providers and automatically redacted from logs
 
+### v4.0 Platform Extensions
+
+Zeroth v4.0 adds six subsystems for production agentic workflows:
+
+- **Resilient HTTP Client** — Platform-provided async HTTP with retry, circuit breaking, and connection pooling for external API calls
+- **Prompt Templates** — Versioned prompt template registry with Jinja2 sandboxed rendering and automatic secret redaction in audit records
+- **Context Window Management** — Per-agent token tracking with automatic compaction (truncation, observation masking, or LLM summarization) when thresholds are reached
+- **Parallel Fan-Out/Fan-In** — Spawn N concurrent branches from a node's output with isolated execution contexts, deterministic merge, and per-branch cost attribution
+- **Subgraph Composition** — Reference published graphs as nested nodes with inherited governance, configurable thread sharing, and approval propagation
+- **Artifact Store** — Externalize large binary outputs from nodes; retrieve via `GET /v1/artifacts/{id}`
+
+REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template management (`GET/POST/DELETE /v1/templates`) are available under `/v1/`.
+
 ---
 
 ## Architecture Overview
@@ -100,6 +113,11 @@ Zeroth enforces governance at multiple layers:
 │  Runtime   │   Units    │ Approvals  │  & Branching  │
 ├────────────┴────────────┴────────────┴───────────────┤
 │  Contracts │  Mappings  │  Memory    │    Policy     │
+├────────────┬────────────┬────────────┬───────────────┤
+│  Parallel  │  Subgraph  │ Templates  │   Artifacts   │
+│  Execution │ Composition│            │               │
+├────────────┴────────────┼────────────┴───────────────┤
+│  Context Window Mgmt    │  Resilient HTTP Client     │
 ├──────────────────────────────────────────────────────┤
 │  Audit  │  Guardrails  │  Secrets  │  Observability │
 ├──────────────────────────────────────────────────────┤
@@ -163,24 +181,30 @@ uv run ruff format src/
 src/zeroth/
 ├── agent_runtime/      # Agent execution, LLM providers, tool attachments
 ├── approvals/          # Human approval workflows and decision tracking
+├── artifacts/          # Artifact externalization and retrieval
 ├── audit/              # Per-node event tracking, redaction, evidence
 ├── conditions/         # Branch evaluation and traversal logging
+├── context_window/     # Token tracking and context compaction
 ├── contracts/          # Pydantic-based schema registration and versioning
 ├── deployments/        # Immutable graph snapshots and version management
 ├── dispatch/           # Durable run dispatch and worker supervision
 ├── execution_units/    # Sandboxed code execution (Docker, Python, shell)
 ├── graph/              # Workflow DAG structure and persistence
 ├── guardrails/         # Rate limiting, quotas, dead-letter queues
+├── http/               # Resilient async HTTP client (http_client) with retry and circuit breaking
 ├── identity/           # Authentication, principals, roles, scoping
 ├── mappings/           # Data flow definitions between graph nodes
 ├── memory/             # Persistent agent memory connectors
 ├── observability/      # Metrics, correlation IDs, structured logging
 ├── orchestrator/       # Core workflow execution engine
+├── parallel/           # Fan-out/fan-in concurrent branch execution
 ├── policy/             # Capability-based access control
 ├── runs/               # Run and thread state persistence
 ├── secrets/            # Secret resolution and redaction
 ├── service/            # FastAPI HTTP API and bootstrap
-└── storage/            # SQLite, Redis, migrations, encryption
+├── storage/            # SQLite, Redis, migrations, encryption
+├── subgraph/           # Nested graph composition and resolution
+└── templates/          # Versioned prompt template registry
 ```
 
 ---
