@@ -129,16 +129,13 @@ def register_template_routes(app: FastAPI | APIRouter) -> None:
     ) -> None:
         await require_permission(request, Permission.TEMPLATE_ADMIN)
         registry = _template_registry(request)
-        # TemplateRegistry has no delete method; perform direct dict manipulation.
-        versions = registry._templates.get(name)
-        if versions is None or version not in versions:
+        try:
+            registry.delete(name, version)
+        except TemplateNotFoundError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="template version not found",
-            )
-        del versions[version]
-        if not versions:
-            del registry._templates[name]
+            ) from exc
 
 
 def _template_registry(request: Request) -> Any:

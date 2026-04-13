@@ -109,6 +109,20 @@ class TemplateRegistry:
         latest_version = max(versions)
         return versions[latest_version]
 
+    def delete(self, name: str, version: int) -> None:
+        """Remove a specific template version.
+
+        Raises TemplateNotFoundError if the template name or version does
+        not exist.
+        """
+        versions = self._templates.get(name)
+        if versions is None or version not in versions:
+            msg = f"Template {name!r} version {version} not found"
+            raise TemplateNotFoundError(msg)
+        del versions[version]
+        if not versions:
+            del self._templates[name]
+
     def list(self) -> list[PromptTemplate]:
         """Return all templates sorted by (name, version)."""
         result: list[PromptTemplate] = []
