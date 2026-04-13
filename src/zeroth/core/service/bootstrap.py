@@ -142,6 +142,9 @@ class ServiceBootstrap:
     http_client: object | None = None
     # Phase 36: Template registry for prompt template management.
     template_registry: object | None = None
+    # Phase 37: Context window management is enabled by default.
+    # Per-node settings on AgentNodeData control whether compaction is active.
+    # No explicit bootstrap wiring needed -- orchestrator.context_window_enabled defaults True.
 
 
 async def bootstrap_service(
