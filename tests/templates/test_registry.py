@@ -126,3 +126,38 @@ class TestRegistryList:
         latest = registry.get_latest("t")
         assert latest.version == 3
         assert latest.template_str == "v3"
+
+
+class TestRegistryDelete:
+    def test_delete_removes_version(self):
+        registry = TemplateRegistry()
+        registry.register(name="t", version=1, template_str="v1")
+        registry.delete("t", 1)
+        with pytest.raises(TemplateNotFoundError):
+            registry.get("t", 1)
+
+    def test_delete_preserves_other_versions(self):
+        registry = TemplateRegistry()
+        registry.register(name="t", version=1, template_str="v1")
+        registry.register(name="t", version=2, template_str="v2")
+        registry.delete("t", 1)
+        tpl = registry.get("t", 2)
+        assert tpl.version == 2
+        assert tpl.template_str == "v2"
+
+    def test_delete_nonexistent_name_raises(self):
+        registry = TemplateRegistry()
+        with pytest.raises(TemplateNotFoundError):
+            registry.delete("nope", 1)
+
+    def test_delete_nonexistent_version_raises(self):
+        registry = TemplateRegistry()
+        registry.register(name="t", version=1, template_str="v1")
+        with pytest.raises(TemplateNotFoundError):
+            registry.delete("t", 99)
+
+    def test_delete_last_version_cleans_name(self):
+        registry = TemplateRegistry()
+        registry.register(name="t", version=1, template_str="v1")
+        registry.delete("t", 1)
+        assert registry.list() == []
