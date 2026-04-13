@@ -46,6 +46,10 @@ class ItemsInput(BaseModel):
     value: int = 0
 
 
+class BranchItemInput(BaseModel):
+    x: int = 0
+
+
 class ItemsOutput(BaseModel):
     items: list[dict[str, Any]] = []
 
@@ -62,6 +66,7 @@ def _make_agent_runner(
     *,
     output_model: type[BaseModel],
     handler,
+    input_model: type[BaseModel] = ItemsInput,
 ) -> AgentRunner:
     """Create an AgentRunner with a callable provider adapter."""
     return AgentRunner(
@@ -69,7 +74,7 @@ def _make_agent_runner(
             name="test-agent",
             instruction="test",
             model_name="governai:test",
-            input_model=ItemsInput,
+            input_model=input_model,
             output_model=output_model,
         ),
         CallableProviderAdapter(handler),
@@ -174,6 +179,7 @@ async def test_fan_out_basic(sqlite_db) -> None:
     )
     # The downstream runner processes each item from the fan-out
     sink_runner = _make_agent_runner(
+        input_model=BranchItemInput,
         output_model=ProcessedOutput,
         handler=lambda req: ProviderResponse(
             content={"result": req.metadata["input_payload"].get("x", 0) * 10}
@@ -216,6 +222,7 @@ async def test_fan_out_fan_in_ordering(sqlite_db) -> None:
     )
     # Each branch multiplies x by 10 -- ordering should be preserved
     sink_runner = _make_agent_runner(
+        input_model=BranchItemInput,
         output_model=ProcessedOutput,
         handler=lambda req: ProviderResponse(
             content={"result": req.metadata["input_payload"].get("x", 0) * 10}
@@ -260,17 +267,14 @@ async def test_fan_out_best_effort(sqlite_db) -> None:
         ),
     )
 
-    call_count = 0
-
     def sink_handler(req):
-        nonlocal call_count
-        call_count += 1
         x = req.metadata["input_payload"].get("x", 0)
         if x == -1:
             raise RuntimeError("branch failure")
         return ProviderResponse(content={"result": x * 10})
 
     sink_runner = _make_agent_runner(
+        input_model=BranchItemInput,
         output_model=ProcessedOutput,
         handler=sink_handler,
     )
@@ -320,6 +324,7 @@ async def test_fan_out_fail_fast(sqlite_db) -> None:
         return ProviderResponse(content={"result": x * 10})
 
     sink_runner = _make_agent_runner(
+        input_model=BranchItemInput,
         output_model=ProcessedOutput,
         handler=sink_handler,
     )
@@ -389,6 +394,7 @@ async def test_fan_out_history_merged(sqlite_db) -> None:
         ),
     )
     sink_runner = _make_agent_runner(
+        input_model=BranchItemInput,
         output_model=ProcessedOutput,
         handler=lambda req: ProviderResponse(
             content={"result": req.metadata["input_payload"].get("x", 0) * 10}
@@ -434,6 +440,7 @@ async def test_fan_out_audit_refs_merged(sqlite_db) -> None:
         ),
     )
     sink_runner = _make_agent_runner(
+        input_model=BranchItemInput,
         output_model=ProcessedOutput,
         handler=lambda req: ProviderResponse(
             content={"result": req.metadata["input_payload"].get("x", 0) * 10}
