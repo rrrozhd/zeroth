@@ -9,6 +9,7 @@ Per D-10, D-11, D-14 from Phase 14 planning.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -17,6 +18,13 @@ import psycopg
 from governai.memory.models import MemoryEntry, MemoryScope
 from governai.models.common import JSONValue
 from pgvector.psycopg import register_vector_async
+
+from zeroth.core.config.settings import DEFAULT_EMBEDDING_DIMENSIONS, DEFAULT_EMBEDDING_MODEL
+
+# Unquoted PostgreSQL identifiers: letter/underscore followed by word chars, max 63.
+# Restricting to this subset lets us embed self._table directly in DDL/DML without
+# quoting while rejecting anything that could carry a SQL injection payload.
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 
 class PgvectorMemoryConnector:
@@ -34,9 +42,13 @@ class PgvectorMemoryConnector:
         conn_factory: Callable[[], Awaitable[psycopg.AsyncConnection]],
         *,
         table_name: str = "zeroth_memory_vectors",
-        embedding_model: str = "text-embedding-3-small",
-        embedding_dimensions: int = 1536,
+        embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+        embedding_dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
     ) -> None:
+        if not _IDENT_RE.match(table_name):
+            raise ValueError(
+                f"invalid pgvector table_name {table_name!r}: must match {_IDENT_RE.pattern}"
+            )
         self._conn_factory = conn_factory
         self._table = table_name
         self._embedding_model = embedding_model

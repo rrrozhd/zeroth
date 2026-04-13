@@ -686,8 +686,7 @@ class RunRepository:
 
     async def create(self, run: Run) -> Run:
         """Save a new run and return the persisted version."""
-        await self.put(run)
-        return await self.get(run.run_id)
+        return await self.put(run)
 
     async def put(self, run: Run) -> Run:
         """Save (insert or update) a run, including its checkpoint and thread."""

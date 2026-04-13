@@ -136,6 +136,15 @@ class ServiceBootstrap:
     cost_estimator: object | None = None
     arq_pool: object | None = None
     redis_client: object | None = None
+    # Phase 34: Artifact store for large payload externalization.
+    artifact_store: object | None = None
+    # Phase 35: Resilient HTTP client.
+    http_client: object | None = None
+    # Phase 36: Template registry for prompt template management.
+    template_registry: object | None = None
+    # Phase 37: Context window management is enabled by default.
+    # Per-node settings on AgentNodeData control whether compaction is active.
+    # No explicit bootstrap wiring needed -- orchestrator.context_window_enabled defaults True.
 
 
 async def bootstrap_service(
@@ -309,6 +318,57 @@ async def bootstrap_service(
     orchestrator.memory_resolver = memory_resolver
     orchestrator.budget_enforcer = budget_enforcer
 
+    # Phase 34: Artifact store construction and wiring.
+    artifact_store: object | None = None
+    artifact_settings = settings.artifact_store
+    if artifact_settings.backend == "filesystem":
+        from zeroth.core.artifacts.store import FilesystemArtifactStore
+
+        artifact_store = FilesystemArtifactStore(
+            base_dir=artifact_settings.filesystem_base_dir,
+            default_ttl=artifact_settings.default_ttl_seconds,
+            max_size=artifact_settings.max_artifact_size_bytes,
+        )
+    elif artifact_settings.backend == "redis" and redis_client is not None:
+        from zeroth.core.artifacts.store import RedisArtifactStore
+
+        artifact_store = RedisArtifactStore(
+            redis_url="",  # not used when client is provided
+            prefix=artifact_settings.redis_key_prefix,
+            default_ttl=artifact_settings.default_ttl_seconds,
+            max_size=artifact_settings.max_artifact_size_bytes,
+            client=redis_client,
+        )
+    elif artifact_settings.backend not in ("filesystem", "redis"):
+        raise ValueError(
+            f"Unknown artifact store backend: {artifact_settings.backend!r}. "
+            "Must be 'filesystem' or 'redis'."
+        )
+    orchestrator.artifact_store = artifact_store
+
+    # Phase 35: Resilient HTTP client construction.
+    http_client_instance: object | None = None
+    http_settings = settings.http_client
+    import os  # noqa: PLC0415
+
+    from zeroth.core.http import ResilientHttpClient  # noqa: PLC0415
+    from zeroth.core.secrets import EnvSecretProvider  # noqa: PLC0415
+
+    env_secret_provider = EnvSecretProvider(os.environ)
+    http_client_instance = ResilientHttpClient(
+        settings=http_settings,
+        secret_provider=env_secret_provider,
+    )
+    orchestrator.http_client = http_client_instance
+
+    # Phase 36: Template registry and renderer.
+    from zeroth.core.templates import TemplateRegistry, TemplateRenderer  # noqa: PLC0415
+
+    template_registry = TemplateRegistry()
+    template_renderer = TemplateRenderer()
+    orchestrator.template_registry = template_registry
+    orchestrator.template_renderer = template_renderer
+
     # Phase 15: Webhook delivery and SLA enforcement.
     webhook_repository = None
     webhook_service_obj = None
@@ -394,6 +454,9 @@ async def bootstrap_service(
         cost_estimator=cost_estimator,
         arq_pool=arq_pool,
         redis_client=redis_client,
+        artifact_store=artifact_store,
+        http_client=http_client_instance,
+        template_registry=template_registry,
     )
 
 

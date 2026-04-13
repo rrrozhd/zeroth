@@ -108,7 +108,7 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
         run = await bootstrap.run_repository.get(run_id)
         if run is None or run.deployment_ref != bootstrap.deployment.deployment_ref:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-        if run.status is not RunStatus.FAILED:
+        if run.status != RunStatus.FAILED:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="only failed runs can be replayed",
@@ -141,7 +141,7 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
         run = await bootstrap.run_repository.get(run_id)
         if run is None or run.deployment_ref != bootstrap.deployment.deployment_ref:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-        if run.status is not RunStatus.RUNNING:
+        if run.status != RunStatus.RUNNING:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="only running runs can be interrupted",

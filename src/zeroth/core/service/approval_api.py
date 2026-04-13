@@ -252,4 +252,4 @@ def _approval_matches_filters(
 
 
 def _run_is_waiting_for_approval(run: object) -> bool:
-    return getattr(run, "status", None) is RunStatus.WAITING_APPROVAL
+    return getattr(run, "status", None) == RunStatus.WAITING_APPROVAL

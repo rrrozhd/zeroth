@@ -15,7 +15,7 @@ from zeroth.core.deployments.provenance import (
     compute_settings_snapshot_digest,
 )
 from zeroth.core.deployments.repository import SQLiteDeploymentRepository
-from zeroth.core.graph import Graph, GraphRepository, GraphStatus
+from zeroth.core.graph import Graph, GraphRepository, GraphStatus, Node
 from zeroth.core.graph.serialization import serialize_graph
 from zeroth.core.graph.versioning import graph_version_ref
 
@@ -146,7 +146,7 @@ class DeploymentService:
         )
         raise DeploymentError(msg)
 
-    def _entry_node(self, graph: Graph):
+    def _entry_node(self, graph: Graph) -> Node | None:
         """Resolve the entry node for contract snapshotting."""
         if not graph.nodes:
             return None

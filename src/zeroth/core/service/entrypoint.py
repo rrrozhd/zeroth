@@ -7,9 +7,12 @@ and starts uvicorn.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 import uvicorn
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -22,10 +25,11 @@ def main() -> None:
     if settings.database.backend == "postgres" and settings.database.postgres_dsn:
         from zeroth.core.service.bootstrap import run_migrations
 
+        logging.basicConfig(level=logging.INFO)
         dsn = settings.database.postgres_dsn.get_secret_value()
-        print("Running Alembic migrations against Postgres...", flush=True)
+        logger.info("Running Alembic migrations against Postgres...")
         run_migrations(dsn)
-        print("Migrations complete.", flush=True)
+        logger.info("Migrations complete.")
 
     # Determine TLS settings
     ssl_certfile = settings.tls.certfile if settings.tls.certfile else None
