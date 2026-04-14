@@ -10,10 +10,13 @@ Depth tracking and cycle detection prevent infinite recursion.
 
 from __future__ import annotations
 
+import contextlib
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from zeroth.core.graph.models import Graph, SubgraphNode
+from zeroth.core.parallel.models import BranchContext, GlobalStepTracker
 from zeroth.core.runs.models import Run, RunStatus
 from zeroth.core.subgraph.errors import (
     SubgraphCycleError,
@@ -28,6 +31,31 @@ from zeroth.core.subgraph.resolver import (
 
 if TYPE_CHECKING:
     from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
+
+logger = logging.getLogger(__name__)
+
+
+def _sum_audit_cost(history: list) -> float:
+    """Aggregate per-step cost from a Run's execution history (W-4).
+
+    Walks the execution history records and sums any ``cost_usd`` field
+    present on each entry. Used by ``SubgraphExecutor.execute`` to write
+    a single ``total_cost_usd`` key on the child Run's metadata before
+    returning — the ONLY place this key is written (D-09). ``_drive``
+    stays cost-agnostic to avoid polluting every non-parallel run with
+    parallel-specific behavior.
+    """
+    total = 0.0
+    for entry in history or []:
+        cost: Any = None
+        if isinstance(entry, dict):
+            cost = entry.get("cost_usd")
+        else:
+            cost = getattr(entry, "cost_usd", None)
+        if cost:
+            with contextlib.suppress(TypeError, ValueError):
+                total += float(cost)
+    return total
 
 
 @dataclass(slots=True)
@@ -54,6 +82,9 @@ class SubgraphExecutor:
         node: SubgraphNode,
         node_id: str,
         input_payload: dict[str, Any],
+        *,
+        branch_context: BranchContext | None = None,
+        step_tracker: GlobalStepTracker | None = None,
     ) -> Run:
         """Execute a subgraph node by creating a child Run and driving it.
 
@@ -109,14 +140,31 @@ class SubgraphExecutor:
         # --- Resolve child graph ---
         subgraph, deployment = await self.resolver.resolve(graph_ref, subgraph_data.version)
 
-        # --- Namespace node IDs (T-39-09 mitigation) ---
-        namespaced = namespace_subgraph(subgraph, graph_ref, new_depth)
+        # --- Namespace node IDs (T-39-09 + D-10) ---
+        namespaced = namespace_subgraph(
+            subgraph,
+            graph_ref,
+            new_depth,
+            branch_index=(
+                branch_context.branch_index if branch_context is not None else None
+            ),
+        )
 
         # --- Merge governance (parent-ceiling) ---
         merged = merge_governance(parent_graph, namespaced)
 
-        # --- Determine thread_id ---
-        if subgraph_data.thread_participation == "inherit":
+        # --- Determine thread_id (D-06: force isolated inside parallel branch) ---
+        if branch_context is not None:
+            # D-06: regardless of SubgraphNodeData.thread_participation,
+            # subgraphs invoked from a parallel branch always get a fresh
+            # thread so concurrent branches cannot corrupt a shared thread.
+            logger.debug(
+                "forcing isolated thread for subgraph %s inside branch %d",
+                graph_ref,
+                branch_context.branch_index,
+            )
+            child_thread_id = ""
+        elif subgraph_data.thread_participation == "inherit":
             child_thread_id = parent_run.thread_id
         else:
             # "isolated" -- empty string triggers auto-generation via Run model validator
@@ -155,10 +203,61 @@ class SubgraphExecutor:
         child_run = await orchestrator.run_repository.put(child_run)
         await orchestrator.run_repository.write_checkpoint(child_run)
 
-        # --- Recursive execution ---
+        # --- Recursive execution (D-08/D-12: share parent's step_tracker) ---
         try:
-            result = await orchestrator._drive(merged, child_run)
+            result = await orchestrator._drive(merged, child_run, step_tracker=step_tracker)
         except Exception as exc:
             raise SubgraphExecutionError(f"subgraph '{graph_ref}' execution failed: {exc}") from exc
 
+        # --- D-09 / W-4: cost rollup at child-return path ONLY ---
+        # This is the sole writer of `total_cost_usd` on a Run's metadata.
+        # `_drive()` stays cost-agnostic; `BranchResult.cost_usd` reads
+        # this field downstream via `_sum_run_cost`.
+        result.metadata["total_cost_usd"] = _sum_audit_cost(result.execution_history)
+
+        return result
+
+    async def resume(
+        self,
+        orchestrator: RuntimeOrchestrator,
+        parent_graph: Graph,
+        parent_run: Run,
+        paused_child_run_id: str,
+        *,
+        branch_index: int | None = None,
+        step_tracker: GlobalStepTracker | None = None,
+    ) -> Run:
+        """Resume a paused child subgraph Run in place (D-11 literal).
+
+        Used by ``_execute_parallel_fan_out_resume`` to re-drive ONLY
+        the branch that hit WAITING_APPROVAL. Re-namespaces the child
+        graph using the SAME ``branch_index`` as the original
+        execution so audit IDs remain byte-identical (T-43-01
+        mitigation).
+        """
+        child_run = await orchestrator.run_repository.get(paused_child_run_id)
+        if child_run is None:
+            raise SubgraphExecutionError(
+                f"paused child run {paused_child_run_id} not found"
+            )
+
+        graph_ref = child_run.deployment_ref
+        depth = child_run.metadata.get("subgraph_depth", 1)
+
+        subgraph, _ = await self.resolver.resolve(graph_ref, None)
+        namespaced = namespace_subgraph(
+            subgraph, graph_ref, depth, branch_index=branch_index
+        )
+        merged = merge_governance(parent_graph, namespaced)
+
+        try:
+            result = await orchestrator._drive(
+                merged, child_run, step_tracker=step_tracker
+            )
+        except Exception as exc:
+            raise SubgraphExecutionError(
+                f"subgraph resume for '{graph_ref}' failed: {exc}"
+            ) from exc
+
+        result.metadata["total_cost_usd"] = _sum_audit_cost(result.execution_history)
         return result

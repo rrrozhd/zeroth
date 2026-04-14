@@ -8,6 +8,7 @@ so that executions can be resumed if interrupted.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import logging
 from collections.abc import Mapping
@@ -32,9 +33,18 @@ from zeroth.core.graph import (
     SubgraphNode,
 )
 from zeroth.core.mappings import MappingExecutor
-from zeroth.core.parallel.errors import FanOutValidationError, ParallelExecutionError
+from zeroth.core.parallel.errors import (
+    BranchApprovalPauseSignal,
+    FanOutValidationError,
+    ParallelExecutionError,
+)
 from zeroth.core.parallel.executor import ParallelExecutor
-from zeroth.core.parallel.models import BranchContext, FanInResult, GlobalStepTracker
+from zeroth.core.parallel.models import (
+    BranchContext,
+    BranchResult,
+    FanInResult,
+    GlobalStepTracker,
+)
 from zeroth.core.policy import PolicyDecision, PolicyGuard
 from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
 from zeroth.core.secrets import SecretResolver
@@ -50,6 +60,33 @@ logger = logging.getLogger(__name__)
 
 # Sentinel for "attribute not present" in optional runner wiring.
 _MISSING: Any = object()
+
+
+def _sum_run_cost(run: Run) -> float:
+    """Return the child Run's aggregated cost_usd for BranchResult rollup.
+
+    Reads the `total_cost_usd` key written by `SubgraphExecutor.execute`
+    on the child run's metadata at return-time (W-4 cost-rollup
+    location). Falls back to walking `execution_history` entries for
+    any `cost_usd` field if the explicit aggregation key is absent.
+    `_drive()` does NOT write this key — the only writer is
+    `SubgraphExecutor.execute`.
+    """
+    explicit = run.metadata.get("total_cost_usd")
+    if explicit is not None:
+        with contextlib.suppress(TypeError, ValueError):
+            return float(explicit)
+    total = 0.0
+    for entry in run.execution_history or []:
+        cost: Any = None
+        if isinstance(entry, dict):
+            cost = entry.get("cost_usd")
+        else:
+            cost = getattr(entry, "cost_usd", None)
+        if cost:
+            with contextlib.suppress(TypeError, ValueError):
+                total += float(cost)
+    return total
 
 
 class OrchestratorError(RuntimeError):
@@ -178,7 +215,13 @@ class RuntimeOrchestrator:
         except Exception:
             logger.exception("artifact TTL refresh failed (non-fatal)")
 
-    async def _drive(self, graph: Graph, run: Run) -> Run:
+    async def _drive(
+        self,
+        graph: Graph,
+        run: Run,
+        *,
+        step_tracker: GlobalStepTracker | None = None,
+    ) -> Run:
         """Main loop that processes nodes one at a time until done.
 
         Keeps popping the next pending node, running it, planning the
@@ -218,6 +261,38 @@ class RuntimeOrchestrator:
             run.current_step = node_id
             run.touch()
             run = await self.run_repository.put(run)
+
+            # D-11 literal: resume path for a parallel fan-out that was
+            # paused due to an approval inside a subgraph branch.
+            pending_psg = run.metadata.get("pending_parallel_subgraph")
+            if pending_psg and pending_psg.get("node_id") == node_id:
+                fan_in_resume = await self._execute_parallel_fan_out_resume(
+                    graph,
+                    run,
+                    node,
+                    node_id,
+                    pending_psg,
+                    step_tracker=step_tracker,
+                )
+                if fan_in_resume.pause_state is not None:
+                    # Still waiting (nested approval in the resumed branch).
+                    run.pending_node_ids.insert(0, node_id)
+                    return run
+                del run.metadata["pending_parallel_subgraph"]
+                run.status = RunStatus.RUNNING
+                # Merge branch state and continue post-fan-in flow.
+                self._merge_fan_in_state(run, fan_in_resume)
+                merged_output = fan_in_resume.merged_output
+                downstream_ids = self._plan_next_nodes(graph, run, node_id, merged_output)
+                for ds_id in downstream_ids:
+                    self._increment_node_visit(run, ds_id)
+                    post_fan_in_ids = self._plan_next_nodes(graph, run, ds_id, merged_output)
+                    self._queue_next_nodes(graph, run, ds_id, merged_output, post_fan_in_ids)
+                run.metadata["last_output"] = merged_output
+                run.touch()
+                run = await self.run_repository.put(run)
+                await self.run_repository.write_checkpoint(run)
+                continue
 
             pending_approval = await self._consume_side_effect_approval(run, node, input_payload)
             if pending_approval is not None:
@@ -355,6 +430,7 @@ class RuntimeOrchestrator:
                         node=node,
                         node_id=node_id,
                         input_payload=input_payload,
+                        step_tracker=step_tracker,
                     )
                 except (
                     SubgraphDepthLimitError,
@@ -425,9 +501,20 @@ class RuntimeOrchestrator:
                         output_data,
                         audit_record,
                         parallel_config,
+                        step_tracker=step_tracker,
                     )
                 except (FanOutValidationError, ParallelExecutionError) as exc:
                     return await self._fail_run(run, "parallel_execution_failed", str(exc))
+                # D-11: Check for run-wide approval pause from a branch's subgraph.
+                if fan_in_result.pause_state is not None:
+                    return await self._handle_parallel_subgraph_pause(
+                        run,
+                        node,
+                        node_id,
+                        input_payload,
+                        output_data,
+                        fan_in_result,
+                    )
                 # Record the source node's own history (the node that triggered fan-out)
                 await self._record_history(
                     run,
@@ -480,6 +567,8 @@ class RuntimeOrchestrator:
         output_data: dict[str, Any],
         audit_record: dict[str, Any],
         parallel_config: Any,
+        *,
+        step_tracker: GlobalStepTracker | None = None,
     ) -> FanInResult:
         """Execute parallel fan-out for a node with parallel_config.
 
@@ -519,11 +608,15 @@ class RuntimeOrchestrator:
                     f"spend=${current_spend:.4f} >= cap=${budget_cap:.4f}"
                 )
 
-        # Global step tracker: current steps + max from execution settings
-        step_tracker = GlobalStepTracker(
-            current_steps=len(run.execution_history),
-            max_steps=graph.execution_settings.max_total_steps,
-        )
+        # Global step tracker: reuse parent composition's tracker when
+        # provided (D-08, D-12) so nested fan-out inside a subgraph
+        # decrements the same shared budget. Only construct a fresh
+        # tracker at the top-level fan-out invocation.
+        if step_tracker is None:
+            step_tracker = GlobalStepTracker(
+                current_steps=len(run.execution_history),
+                max_steps=graph.execution_settings.max_total_steps,
+            )
 
         # Determine downstream nodes from the fan-out source node
         downstream_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
@@ -548,8 +641,51 @@ class RuntimeOrchestrator:
                         f"{policy_result}"
                     )
 
-                # Dispatch the downstream node with branch-isolated payload
-                ds_output, ds_audit = await self._dispatch_node(ds_node, run, branch_output)
+                # D-05/D-23: SubgraphNode dispatch inside a fan-out branch.
+                # Invokes SubgraphExecutor.execute with branch_context +
+                # shared step_tracker; on approval pause, raises
+                # BranchApprovalPauseSignal (BaseException subclass) to
+                # propagate run-wide pause semantics (D-11).
+                if isinstance(ds_node, SubgraphNode):
+                    if self.subgraph_executor is None:
+                        raise RuntimeError(
+                            f"branch {ctx.branch_index}: SubgraphExecutor not configured"
+                        )
+                    child_run = await self.subgraph_executor.execute(
+                        orchestrator=self,
+                        parent_graph=graph,
+                        parent_run=run,
+                        node=ds_node,
+                        node_id=ds_node_id,
+                        input_payload=dict(branch_output),
+                        branch_context=ctx,
+                        step_tracker=step_tracker,
+                    )
+                    if child_run.status == RunStatus.WAITING_APPROVAL:
+                        # D-11: propagate via BaseException so fail-fast
+                        # gather re-raises, and best-effort inspects results.
+                        raise BranchApprovalPauseSignal(
+                            branch_index=ctx.branch_index,
+                            child_run_id=child_run.run_id,
+                            graph_ref=ds_node.subgraph.graph_ref,
+                            version=ds_node.subgraph.version,
+                            node_id=ds_node_id,
+                        )
+                    child_output = child_run.final_output or {}
+                    if not isinstance(child_output, dict):
+                        child_output = {"result": child_output}
+                    ds_output = child_output
+                    ds_audit = {
+                        "subgraph_run_id": child_run.run_id,
+                        "subgraph_graph_ref": ds_node.subgraph.graph_ref,
+                        "subgraph_status": child_run.status.value,
+                        "cost_usd": _sum_run_cost(child_run),
+                    }
+                else:
+                    # Dispatch the downstream node with branch-isolated payload
+                    ds_output, ds_audit = await self._dispatch_node(
+                        ds_node, run, branch_output
+                    )
 
                 # Increment global step tracker
                 await step_tracker.increment()
@@ -602,20 +738,277 @@ class RuntimeOrchestrator:
             return branch_output
 
         # Execute all branches via the parallel executor
-        branch_results = await self.parallel_executor.execute_branches(
-            branch_contexts,
-            branch_coro_factory,
-            config,
-        )
+        try:
+            branch_results = await self.parallel_executor.execute_branches(
+                branch_contexts,
+                branch_coro_factory,
+                config,
+            )
+        except BranchApprovalPauseSignal as pause:
+            # D-11 literal: build a pause_state FanInResult so the
+            # runtime can stash pending_parallel_subgraph metadata and
+            # return the parent run in WAITING_APPROVAL.
+            paused_ctx = next(
+                (c for c in branch_contexts if c.branch_index == pause.branch_index),
+                None,
+            )
+            pause_state: dict[str, Any] = {
+                "paused": {
+                    "branch_index": pause.branch_index,
+                    "child_run_id": pause.child_run_id,
+                    "graph_ref": pause.graph_ref,
+                    "version": pause.version,
+                    "node_id": pause.node_id,
+                    "branch_context": (
+                        {
+                            "branch_index": paused_ctx.branch_index,
+                            "branch_id": paused_ctx.branch_id,
+                            "input_payload": dict(paused_ctx.input_payload),
+                        }
+                        if paused_ctx is not None
+                        else None
+                    ),
+                },
+                "completed_branch_results": list(
+                    getattr(pause, "completed_branch_results", []) or []
+                ),
+                "cancelled_branch_contexts": [
+                    {
+                        "branch_index": cctx.branch_index,
+                        "branch_id": cctx.branch_id,
+                        "input_payload": dict(cctx.input_payload),
+                    }
+                    for cctx in getattr(pause, "cancelled_branch_contexts", []) or []
+                ],
+                "split_input": dict(output_data),
+            }
+            return FanInResult(results=[], pause_state=pause_state)
 
-        # Enrich results with branch state
+        # Enrich results with branch state + per-branch cost rollup (D-09)
         for ctx, result in zip(branch_contexts, branch_results, strict=False):
             if result.error is None:
                 result.audit_refs = list(ctx.audit_refs)
                 result.execution_history = list(ctx.execution_history)
+                # Cost rollup: the SubgraphNode branch path stashed per-step
+                # cost in the audit metadata; sum the entries on ctx to get
+                # the per-branch cost (read from ds_audit["cost_usd"] fields
+                # that the factory wrote into the branch history).
+                branch_cost = 0.0
+                for entry in ctx.execution_history:
+                    audit = getattr(entry, "execution_metadata", None)
+                    if isinstance(audit, dict) and "cost_usd" in audit:
+                        with contextlib.suppress(TypeError, ValueError):
+                            branch_cost += float(audit["cost_usd"])
+                result.cost_usd = branch_cost
 
         # Collect fan-in
         return self.parallel_executor.collect_fan_in(branch_results, config, output_data)
+
+    async def _handle_parallel_subgraph_pause(
+        self,
+        run: Run,
+        node: Node,
+        node_id: str,
+        input_payload: Mapping[str, Any],
+        output_data: dict[str, Any],
+        fan_in_result: FanInResult,
+    ) -> Run:
+        """Stash pending_parallel_subgraph and return run in WAITING_APPROVAL.
+
+        D-11 literal: when a branch inside a fan-out raised
+        BranchApprovalPauseSignal, the parent run must persist enough
+        state to resume byte-identically. Stashes:
+
+        * ``node_id`` — the fan-out source node to resume.
+        * ``split_input`` — snapshot of the fan-out input so downstream
+          branches can be reconstructed if needed.
+        * ``completed_branches`` — already-finished BranchResults that
+          are rehydrated as-is on resume (NOT re-executed).
+        * ``paused_branch`` — the branch + child_run_id that hit
+          WAITING_APPROVAL; resumed via
+          ``SubgraphExecutor.resume(paused_child_run_id, ...)``.
+        * ``cancelled_branches`` — in-flight BranchContexts when the
+          pause fired; recorded as None-output BranchResults on resume
+          per D-19 (NOT re-executed).
+        """
+        assert fan_in_result.pause_state is not None
+        pause_state = fan_in_result.pause_state
+        completed_dumps = [
+            {
+                "branch_index": br.branch_index,
+                "output": br.output,
+                "error": br.error,
+                "cost_usd": br.cost_usd,
+                "audit_refs": list(br.audit_refs),
+                "execution_history": [
+                    e.model_dump() if hasattr(e, "model_dump") else e
+                    for e in br.execution_history
+                ],
+            }
+            for br in pause_state.get("completed_branch_results", [])
+        ]
+        run.metadata["pending_parallel_subgraph"] = {
+            "node_id": node_id,
+            "split_input": pause_state.get("split_input", dict(output_data)),
+            "completed_branches": completed_dumps,
+            "paused_branch": pause_state["paused"],
+            "cancelled_branches": pause_state.get("cancelled_branch_contexts", []),
+        }
+        run.status = RunStatus.WAITING_APPROVAL
+        run.pending_node_ids.insert(0, node_id)
+        run.touch()
+        persisted = await self.run_repository.put(run)
+        await self.run_repository.write_checkpoint(persisted)
+        await self._refresh_artifact_ttls(persisted)
+        return persisted
+
+    async def _execute_parallel_fan_out_resume(
+        self,
+        graph: Graph,
+        run: Run,
+        node: Node,
+        node_id: str,
+        pending: dict[str, Any],
+        *,
+        step_tracker: GlobalStepTracker | None,
+    ) -> FanInResult:
+        """D-11 literal resume: reuse completed, resume paused, None-out cancelled.
+
+        * Completed siblings are rehydrated byte-identically from the
+          stash (NOT re-executed).
+        * The paused branch is resumed via
+          ``SubgraphExecutor.resume(paused_child_run_id, ...)`` — this
+          is the ONLY re-entry into any child Run. If that call is
+          missing, fall back to ``orchestrator.resume_graph`` directly.
+        * Cancelled siblings are recorded as
+          ``BranchResult(output=None, error="cancelled_by_approval_pause")``
+          per D-19.
+        * The assembled branch-index-ordered results are passed through
+          ``collect_fan_in`` with the node's merge strategy (collect
+          preserves None entries).
+        """
+        from zeroth.core.parallel.models import ParallelConfig as _ParallelConfig
+
+        parallel_config = getattr(node, "parallel_config", None)
+        assert parallel_config is not None
+        config = (
+            parallel_config
+            if isinstance(parallel_config, _ParallelConfig)
+            else _ParallelConfig.model_validate(
+                parallel_config
+                if isinstance(parallel_config, dict)
+                else parallel_config.model_dump()
+            )
+        )
+
+        # 1. Rehydrate completed BranchResults from the stash.
+        completed_results: list[BranchResult] = []
+        for d in pending.get("completed_branches", []):
+            history = d.get("execution_history", [])
+            # History entries may be dicts — rebuild RunHistoryEntry where
+            # possible, else keep as dict for downstream consumption.
+            rebuilt_history: list[Any] = []
+            for e in history:
+                if isinstance(e, dict):
+                    try:
+                        rebuilt_history.append(RunHistoryEntry.model_validate(e))
+                    except Exception:
+                        rebuilt_history.append(e)
+                else:
+                    rebuilt_history.append(e)
+            completed_results.append(
+                BranchResult(
+                    branch_index=d["branch_index"],
+                    output=d.get("output"),
+                    error=d.get("error"),
+                    audit_refs=list(d.get("audit_refs", [])),
+                    execution_history=rebuilt_history,
+                    cost_usd=float(d.get("cost_usd", 0.0)),
+                )
+            )
+
+        # 2. Resume paused branch via SubgraphExecutor.resume (or fallback).
+        paused_info = pending["paused_branch"]
+        paused_branch_index = paused_info["branch_index"]
+        paused_child_run_id = paused_info["child_run_id"]
+        paused_graph_ref = paused_info["graph_ref"]
+        paused_version = paused_info.get("version")
+
+        if self.subgraph_executor is None:
+            raise OrchestratorError(
+                "cannot resume pending_parallel_subgraph without SubgraphExecutor"
+            )
+
+        resume_fn = getattr(self.subgraph_executor, "resume", None)
+        if resume_fn is not None:
+            resumed_child_run = await resume_fn(
+                orchestrator=self,
+                parent_graph=graph,
+                parent_run=run,
+                paused_child_run_id=paused_child_run_id,
+                branch_index=paused_branch_index,
+                step_tracker=step_tracker,
+            )
+        else:
+            # Fallback: re-resolve + re-namespace with SAME branch_index for
+            # D-11 idempotency, then resume_graph directly on the child run.
+            subgraph, _ = await self.subgraph_executor.resolver.resolve(
+                paused_graph_ref, paused_version
+            )
+            child_run = await self.run_repository.get(paused_child_run_id)
+            depth = child_run.metadata.get("subgraph_depth", 1) if child_run else 1
+            namespaced = namespace_subgraph(
+                subgraph,
+                paused_graph_ref,
+                depth,
+                branch_index=paused_branch_index,
+            )
+            merged = merge_governance(graph, namespaced)
+            resumed_child_run = await self.resume_graph(merged, paused_child_run_id)
+
+        if resumed_child_run.status == RunStatus.WAITING_APPROVAL:
+            # Still waiting on a nested approval — keep parent paused.
+            return FanInResult(
+                results=[],
+                pause_state={
+                    "paused": paused_info,
+                    "completed_branch_results": completed_results,
+                    "cancelled_branch_contexts": pending.get("cancelled_branches", []),
+                    "split_input": pending.get("split_input", {}),
+                },
+            )
+
+        resumed_output = resumed_child_run.final_output or {}
+        if not isinstance(resumed_output, dict):
+            resumed_output = {"result": resumed_output}
+        paused_result = BranchResult(
+            branch_index=paused_branch_index,
+            output=resumed_output,
+            error=None,
+            audit_refs=[],
+            execution_history=[],
+            cost_usd=_sum_run_cost(resumed_child_run),
+        )
+
+        # 3. Record cancelled siblings as None-output BranchResults (D-19).
+        cancelled_results: list[BranchResult] = [
+            BranchResult(
+                branch_index=int(ctx.get("branch_index", -1)),
+                output=None,
+                error="cancelled_by_approval_pause",
+                audit_refs=[],
+                execution_history=[],
+                cost_usd=0.0,
+            )
+            for ctx in pending.get("cancelled_branches", [])
+        ]
+
+        # 4. Merge into branch-index order and run through collect_fan_in.
+        all_results = completed_results + [paused_result] + cancelled_results
+        all_results.sort(key=lambda br: br.branch_index)
+        return self.parallel_executor.collect_fan_in(
+            all_results, config, pending.get("split_input", {})
+        )
 
     async def _enforce_policy_for_branch(
         self,

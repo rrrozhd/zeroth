@@ -62,11 +62,20 @@ class SubgraphResolver:
         return graph, deployment
 
 
-def namespace_subgraph(graph: Graph, graph_ref: str, depth: int) -> Graph:
+def namespace_subgraph(
+    graph: Graph,
+    graph_ref: str,
+    depth: int,
+    *,
+    branch_index: int | None = None,
+) -> Graph:
     """Prefix all node and edge IDs to prevent collisions across nesting levels.
 
     Returns a new Graph with all identifiers prefixed with
-    ``subgraph:{graph_ref}:{depth}:``.  The original graph is never modified.
+    ``subgraph:{graph_ref}:{depth}:`` by default, or
+    ``branch:{branch_index}:subgraph:{graph_ref}:{depth}:`` when invoked
+    from inside a parallel fan-out branch (D-10). The original graph is
+    never modified.
 
     Parameters
     ----------
@@ -76,13 +85,22 @@ def namespace_subgraph(graph: Graph, graph_ref: str, depth: int) -> Graph:
         The deployment reference used as part of the prefix.
     depth:
         The nesting depth (0-based) used as part of the prefix.
+    branch_index:
+        Optional parallel-branch index. When set, produces a branch-
+        prefixed variant so audit traces from parallel subgraph
+        branches are grep-distinguishable (D-10). Resume-path
+        idempotency (D-11 literal) relies on passing the SAME
+        branch_index on the second namespacing pass.
 
     Returns:
     -------
     Graph:
         A copy of the graph with all IDs prefixed.
     """
-    prefix = f"subgraph:{graph_ref}:{depth}:"
+    if branch_index is None:
+        prefix = f"subgraph:{graph_ref}:{depth}:"
+    else:
+        prefix = f"branch:{branch_index}:subgraph:{graph_ref}:{depth}:"
 
     namespaced_nodes = [
         node.model_copy(update={"node_id": f"{prefix}{node.node_id}"}) for node in graph.nodes

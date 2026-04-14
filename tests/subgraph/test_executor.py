@@ -124,7 +124,7 @@ def _make_orchestrator(
         orch._drive = AsyncMock(return_value=child_run_result)
     else:
         # Default: return a completed child run
-        async def _drive_side_effect(graph, run):
+        async def _drive_side_effect(graph, run, *, step_tracker=None):
             run.status = RunStatus.COMPLETED
             run.final_output = {"result": "child-done"}
             return run

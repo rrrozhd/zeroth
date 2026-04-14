@@ -255,14 +255,18 @@ async def test_parallel_branches_respect_context_window(sqlite_db) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. SubgraphNode in parallel rejected (end-to-end)
+# 3. SubgraphNode in parallel: fails ONLY when SubgraphExecutor not wired
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_subgraph_node_in_parallel_rejected(sqlite_db) -> None:
-    """Graph with parallel fan-out targeting SubgraphNode fails with clear error."""
-    # Source produces items for fan-out
+async def test_subgraph_node_in_parallel_without_executor_fails(sqlite_db) -> None:
+    """Phase 43 (D-05/D-23): SubgraphNode inside fan-out is supported
+    composition when ``SubgraphExecutor`` is wired on the orchestrator.
+    When the executor is NOT wired (the bootstrap under test here),
+    the branch factory raises a clear error so the run still fails —
+    but the fan-out validator no longer rejects the graph outright.
+    """
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
         handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}]}),
@@ -273,7 +277,6 @@ async def test_subgraph_node_in_parallel_rejected(sqlite_db) -> None:
         parallel_config=ParallelConfig(split_path="items"),
     )
 
-    # Downstream is a SubgraphNode (should be rejected by the guard)
     subgraph_node = SubgraphNode(
         node_id="sub-step",
         graph_version_ref="test-cross-feature:v1",
@@ -295,10 +298,13 @@ async def test_subgraph_node_in_parallel_rejected(sqlite_db) -> None:
 
     run = await orchestrator.run_graph(graph, {"value": 1})
 
-    # The run should fail because SubgraphNode is not allowed in parallel branches
     assert run.status is RunStatus.FAILED
     assert run.failure_state is not None
-    assert "SubgraphNode" in (run.failure_state.message or "")
+    # When SubgraphExecutor is not configured, branches raise
+    # "SubgraphExecutor not configured". The important property is that
+    # the failure happens at branch dispatch time, NOT at fan-out
+    # validation time.
+    assert "SubgraphExecutor" in (run.failure_state.message or "")
 
 
 # ---------------------------------------------------------------------------
