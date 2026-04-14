@@ -252,14 +252,6 @@ class SubgraphNode(NodeBase):
     node_type: Literal["subgraph"] = "subgraph"
     subgraph: SubgraphNodeData
 
-    @model_validator(mode="after")
-    def _reject_parallel_config(self) -> SubgraphNode:
-        """Subgraph nodes cannot have parallel_config — design later."""
-        if self.parallel_config is not None:
-            msg = "SubgraphNode does not support parallel_config"
-            raise ValueError(msg)
-        return self
-
     def to_governed_step_spec(self) -> GovernedStepSpec:
         """Convert this subgraph node into a spec the execution engine understands."""
         return GovernedStepSpec(
