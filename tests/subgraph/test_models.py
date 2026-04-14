@@ -123,19 +123,24 @@ class TestSubgraphNode:
         node = adapter.validate_python(raw)
         assert isinstance(node, SubgraphNode)
 
-    def test_subgraph_node_parallel_config_rejected(self) -> None:
-        """SubgraphNode must reject parallel_config being set."""
-        from zeroth.core.graph.models import SubgraphNode
+    def test_subgraph_node_accepts_parallel_config(self) -> None:
+        """Phase 43 (D-05, D-23): SubgraphNode now accepts parallel_config.
 
-        # parallel_config is not a field on NodeBase in this version,
-        # so extra="forbid" should reject it
-        with pytest.raises(ValidationError):
-            SubgraphNode(
-                node_id="sub-1",
-                graph_version_ref="g1@1",
-                subgraph=SubgraphNodeData(graph_ref="child-wf"),
-                parallel_config={"split_path": "$.items"},
-            )
+        The prior Phase 41 ``_reject_parallel_config`` model validator was
+        removed unconditionally — SubgraphNode inside a parallel fan-out
+        branch is supported composition.
+        """
+        from zeroth.core.graph.models import SubgraphNode
+        from zeroth.core.parallel.models import ParallelConfig
+
+        node = SubgraphNode(
+            node_id="sub-1",
+            graph_version_ref="g1@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+            parallel_config=ParallelConfig(split_path="items"),
+        )
+        assert node.parallel_config is not None
+        assert node.parallel_config.split_path == "items"
 
 
 # ---------------------------------------------------------------------------

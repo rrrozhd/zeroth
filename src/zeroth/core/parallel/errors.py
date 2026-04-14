@@ -69,3 +69,40 @@ class ReducerRefValidationError(MergeStrategyValidationError):
     Raised when a dotted import path is malformed, points to a missing
     module or attribute, or resolves to a non-callable object.
     """
+
+
+class BranchApprovalPauseSignal(BaseException):
+    """Pause propagation from a subgraph child inside a parallel branch.
+
+    Subclasses ``BaseException`` (NOT ``Exception``) so:
+
+    * ``asyncio.gather(return_exceptions=True)`` does NOT swallow it —
+      it escapes as a raised ``BaseException`` and the outer
+      fail-fast/best-effort path can catch it explicitly.
+    * Cancellation of sibling branches propagates through the task
+      group even in best-effort mode.
+
+    Carries the metadata needed by ``_execute_parallel_fan_out`` to
+    stash ``pending_parallel_subgraph`` on the parent Run so the paused
+    branch can be resumed later via ``SubgraphExecutor.resume`` without
+    re-executing any sibling.
+    """
+
+    def __init__(
+        self,
+        *,
+        branch_index: int,
+        child_run_id: str,
+        graph_ref: str,
+        version: int | None,
+        node_id: str,
+    ) -> None:
+        super().__init__(
+            f"branch {branch_index} paused on subgraph "
+            f"{graph_ref}@{version} (child_run={child_run_id})"
+        )
+        self.branch_index = branch_index
+        self.child_run_id = child_run_id
+        self.graph_ref = graph_ref
+        self.version = version
+        self.node_id = node_id

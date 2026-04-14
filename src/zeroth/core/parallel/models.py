@@ -108,12 +108,31 @@ class FanInResult:
 
     Contains the ordered list of branch results, the merged output dict,
     and aggregate cost/step metrics.
+
+    When ``pause_state`` is not None, a branch raised
+    ``BranchApprovalPauseSignal`` mid-execution. In that case
+    ``results``/``merged_output`` should NOT be consumed by downstream
+    logic — the parent orchestrator must instead stash
+    ``pending_parallel_subgraph`` metadata carrying the completed,
+    paused, and cancelled branch state so resume can reconstruct the
+    fan-in byte-identically (D-11 literal).
+
+    Expected ``pause_state`` key set (documented, not enforced):
+
+    * ``"paused"``: dict with ``branch_index``, ``child_run_id``,
+      ``graph_ref``, ``version``, ``node_id``, ``branch_context``.
+    * ``"completed_branch_results"``: ``list[BranchResult]`` finished
+      BEFORE the pause — reused as-is on resume.
+    * ``"cancelled_branch_contexts"``: ``list[BranchContext]`` in-flight
+      when the pause fired — recorded as None-output BranchResults on
+      resume per D-19.
     """
 
     results: list[BranchResult]
     merged_output: dict[str, Any] = field(default_factory=dict)
     total_cost_usd: float = 0.0
     total_steps: int = 0
+    pause_state: dict[str, Any] | None = None
 
 
 class GlobalStepTracker:
