@@ -18,6 +18,7 @@ from zeroth.core.econ.client import RegulusClient
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.graph import Graph, GraphRepository
 from zeroth.core.graph.serialization import deserialize_graph
+from zeroth.core.graph.validation import GraphValidator
 from zeroth.core.graph.versioning import graph_version_ref
 from zeroth.core.guardrails.config import GuardrailConfig
 from zeroth.core.guardrails.dead_letter import DeadLetterManager
@@ -161,12 +162,17 @@ async def bootstrap_service(
     enable_durable_worker: bool = True,
 ) -> ServiceBootstrap:
     """Build the service wrapper wiring for a specific deployment."""
-    graph_repository = GraphRepository(database)
+    # Phase 43-02 (D-15): wire GraphValidator into GraphRepository so
+    # publish() rejects graphs with invalid parallel configs BEFORE the
+    # DRAFT -> PUBLISHED state transition.
+    _contract_registry = ContractRegistry(database)
+    _graph_validator = GraphValidator(contract_registry=_contract_registry)
+    graph_repository = GraphRepository(database, validator=_graph_validator)
     deployment_repository = SQLiteDeploymentRepository(database)
     deployment_service = DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=deployment_repository,
-        contract_registry=ContractRegistry(database),
+        contract_registry=_contract_registry,
     )
     deployment = await deployment_service.get(deployment_ref)
     if deployment is None:

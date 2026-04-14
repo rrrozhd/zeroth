@@ -12,6 +12,7 @@ from zeroth.core.graph.errors import GraphLifecycleError
 from zeroth.core.graph.models import Graph, GraphStatus
 from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.core.graph.storage import GRAPH_SCHEMA_VERSION
+from zeroth.core.graph.validation import GraphValidator
 from zeroth.core.graph.versioning import clone_graph_version
 from zeroth.core.storage import AsyncDatabase
 
@@ -19,8 +20,13 @@ from zeroth.core.storage import AsyncDatabase
 class GraphRepository:
     """Persistence layer for versioned graph documents."""
 
-    def __init__(self, database: AsyncDatabase):
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        validator: GraphValidator | None = None,
+    ):
         self._database: AsyncDatabase = database
+        self._validator: GraphValidator | None = validator
 
     async def save(self, graph: Graph) -> Graph:
         """Insert or update a draft graph version."""
@@ -79,11 +85,19 @@ class GraphRepository:
         return [deserialize_graph(row["payload"]) for row in rows]
 
     async def publish(self, graph_id: str, version: int | None = None) -> Graph:
-        """Move a draft graph to published status so it can be executed."""
+        """Move a draft graph to published status so it can be executed.
+
+        Phase 43-02 (D-15): if a ``GraphValidator`` is wired, run
+        ``validate_or_raise`` BEFORE the DRAFT -> PUBLISHED state transition.
+        A validation failure raises and leaves the graph in DRAFT with its
+        persisted state unchanged.
+        """
         graph = await self._require(graph_id, version)
         if graph.status is not GraphStatus.DRAFT:
             msg = f"graph version {graph.graph_id}@{graph.version} is not draft"
             raise GraphLifecycleError(msg)
+        if self._validator is not None:
+            await self._validator.validate_or_raise(graph)
         return await self.save(graph.publish())
 
     async def archive(self, graph_id: str, version: int | None = None) -> Graph:
