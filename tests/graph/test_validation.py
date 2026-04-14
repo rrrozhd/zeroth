@@ -148,8 +148,8 @@ def validation_codes(report) -> set[ValidationCode]:
     return {issue.code for issue in report.issues}
 
 
-def test_validator_accepts_well_formed_cyclic_graph_with_safeguard() -> None:
-    report = GraphValidator().validate(build_valid_graph(cycle_safeguard=True))
+async def test_validator_accepts_well_formed_cyclic_graph_with_safeguard() -> None:
+    report = await GraphValidator().validate(build_valid_graph(cycle_safeguard=True))
 
     assert report.is_valid
     assert report.summary() == {"errors": 0, "warnings": 0, "total": 0}
@@ -157,15 +157,15 @@ def test_validator_accepts_well_formed_cyclic_graph_with_safeguard() -> None:
     assert report.warnings == []
 
 
-def test_validator_rejects_cyclic_graph_without_safeguard() -> None:
-    report = GraphValidator().validate(build_valid_graph(cycle_safeguard=False))
+async def test_validator_rejects_cyclic_graph_without_safeguard() -> None:
+    report = await GraphValidator().validate(build_valid_graph(cycle_safeguard=False))
 
     assert not report.is_valid
     assert ValidationCode.UNSAFE_CYCLE in validation_codes(report)
     assert report.summary()["errors"] == 1
 
 
-def test_validator_reports_entrypoint_and_edge_errors() -> None:
+async def test_validator_reports_entrypoint_and_edge_errors() -> None:
     graph = build_valid_graph().model_copy(
         update={
             "entry_step": "missing-step",
@@ -184,7 +184,7 @@ def test_validator_reports_entrypoint_and_edge_errors() -> None:
         }
     )
 
-    report = GraphValidator().validate(graph)
+    report = await GraphValidator().validate(graph)
 
     assert ValidationCode.UNKNOWN_ENTRYPOINT in validation_codes(report)
     assert ValidationCode.UNKNOWN_EDGE_SOURCE in validation_codes(report)
@@ -192,7 +192,7 @@ def test_validator_reports_entrypoint_and_edge_errors() -> None:
     assert ValidationCode.DUPLICATE_EDGE_ID in validation_codes(report)
 
 
-def test_validator_reports_contract_attachment_and_condition_errors() -> None:
+async def test_validator_reports_contract_attachment_and_condition_errors() -> None:
     graph = build_valid_graph().model_copy(
         update={
             "nodes": [
@@ -256,7 +256,7 @@ def test_validator_reports_contract_attachment_and_condition_errors() -> None:
         }
     )
 
-    report = GraphValidator().validate(graph)
+    report = await GraphValidator().validate(graph)
 
     assert ValidationCode.MISSING_CONTRACT_REF in validation_codes(report)
     assert ValidationCode.INVALID_OUTPUT_CONTRACT in validation_codes(report)
@@ -266,7 +266,7 @@ def test_validator_reports_contract_attachment_and_condition_errors() -> None:
     assert ValidationCode.INVALID_CONDITION in validation_codes(report)
 
 
-def test_validator_reports_invalid_mapping_and_raise_helper() -> None:
+async def test_validator_reports_invalid_mapping_and_raise_helper() -> None:
     graph = build_valid_graph().model_copy(
         update={
             "edges": [
@@ -292,12 +292,12 @@ def test_validator_reports_invalid_mapping_and_raise_helper() -> None:
     )
 
     validator = GraphValidator()
-    report = validator.validate(graph)
+    report = await validator.validate(graph)
 
     assert ValidationCode.INVALID_MAPPING in validation_codes(report)
 
     try:
-        validator.validate_or_raise(graph)
+        await validator.validate_or_raise(graph)
     except GraphValidationError as exc:
         assert exc.report == report
     else:  # pragma: no cover - defensive guard

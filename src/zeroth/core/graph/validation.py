@@ -11,6 +11,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
 
+from zeroth.core.contracts.registry import ContractRegistry
 from zeroth.core.graph.models import (
     AgentNode,
     Edge,
@@ -26,6 +27,8 @@ from zeroth.core.graph.validation_errors import (
     ValidationSeverity,
 )
 from zeroth.core.mappings import MappingValidationError, MappingValidator
+from zeroth.core.parallel.errors import ReducerRefValidationError
+from zeroth.core.parallel.reducers import resolve_reducer_ref
 
 
 def _is_ref_like(value: str) -> bool:
@@ -79,11 +82,20 @@ class GraphValidator:
     external registries.
     """
 
-    def __init__(self, mapping_validator: MappingValidator | None = None):
+    def __init__(
+        self,
+        mapping_validator: MappingValidator | None = None,
+        contract_registry: ContractRegistry | None = None,
+    ):
         self._mapping_validator = mapping_validator or MappingValidator()
+        self._contract_registry = contract_registry
 
-    def validate(self, graph: Graph) -> GraphValidationReport:
-        """Run all validation checks and return a report of any issues found."""
+    async def validate(self, graph: Graph) -> GraphValidationReport:
+        """Run all validation checks and return a report of any issues found.
+
+        Async because parallel-config validation (Phase 43) may call
+        ``ContractRegistry.get`` which is async.
+        """
         issues: list[ValidationIssue] = []
         node_map: dict[str, Node] = {}
         edge_ids: set[str] = set()
@@ -104,14 +116,131 @@ class GraphValidator:
         self._validate_entrypoint(graph, node_map, issues)
         self._validate_edges(graph, node_map, edge_ids, adjacency, issues)
         self._validate_cycles(graph, node_map, adjacency, issues)
+        await self._validate_parallel_configs(graph, issues)
 
         return GraphValidationReport(graph_id=graph.graph_id, issues=issues)
 
-    def validate_or_raise(self, graph: Graph) -> GraphValidationReport:
+    async def validate_or_raise(self, graph: Graph) -> GraphValidationReport:
         """Validate the graph and raise GraphValidationError if there are errors."""
-        report = self.validate(graph)
+        report = await self.validate(graph)
         report.raise_for_errors()
         return report
+
+    async def _validate_parallel_configs(
+        self,
+        graph: Graph,
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Publish-time checks for ParallelConfig on each node (Phase 43-02).
+
+        * ``custom`` strategies: resolve ``reducer_ref`` via
+          ``resolve_reducer_ref`` (D-16 full import + callable check).
+        * ``merge`` strategies: verify node's output contract has top-level
+          ``type == "object"`` via injected ``ContractRegistry`` (D-17). If
+          no registry is wired, degrade with a WARNING rather than ERROR so
+          tests and bootstraps without a registry are not broken.
+
+        The Pydantic model validator on ``ParallelConfig`` already enforces
+        strategy/reducer_ref consistency (D-04); this method does only the
+        deeper semantic checks that require external context.
+        """
+        for node in graph.nodes:
+            cfg = getattr(node, "parallel_config", None)
+            if cfg is None:
+                continue
+            if cfg.merge_strategy == "custom":
+                try:
+                    resolve_reducer_ref(cfg.reducer_ref)  # type: ignore[arg-type]
+                except ReducerRefValidationError as exc:
+                    _append_issue(
+                        issues,
+                        severity=ValidationSeverity.ERROR,
+                        code=ValidationCode.INVALID_REDUCER_REF,
+                        message=(
+                            f"invalid reducer_ref on node {node.node_id!r}: {exc}"
+                        ),
+                        graph_id=graph.graph_id,
+                        node_id=node.node_id,
+                        path=("nodes", node.node_id, "parallel_config", "reducer_ref"),
+                        details={"reducer_ref": cfg.reducer_ref},
+                    )
+            if cfg.merge_strategy == "merge":
+                await self._check_merge_dict_contract(graph, node, issues)
+
+    async def _check_merge_dict_contract(
+        self,
+        graph: Graph,
+        node: Any,
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Verify a node's output contract is dict-shaped for merge strategy (D-17)."""
+        if self._contract_registry is None:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.WARNING,
+                code=ValidationCode.INVALID_MERGE_STRATEGY,
+                message=(
+                    f"merge_strategy='merge' on node {node.node_id!r} cannot be "
+                    "contract-checked because no ContractRegistry is wired; "
+                    "dict-shape will be enforced at runtime instead"
+                ),
+                graph_id=graph.graph_id,
+                node_id=node.node_id,
+                path=("nodes", node.node_id, "parallel_config", "merge_strategy"),
+            )
+            return
+        if not node.output_contract_ref:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_MERGE_STRATEGY,
+                message=(
+                    f"merge_strategy='merge' on node {node.node_id!r} requires "
+                    "output_contract_ref to be set so the output shape can be "
+                    "verified as dict-like"
+                ),
+                graph_id=graph.graph_id,
+                node_id=node.node_id,
+                path=("nodes", node.node_id, "output_contract_ref"),
+            )
+            return
+        try:
+            contract_version = await self._contract_registry.get(
+                node.output_contract_ref
+            )
+        except Exception as exc:  # noqa: BLE001 - any registry failure is validation-fatal
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_MERGE_STRATEGY,
+                message=(
+                    f"merge_strategy='merge' on node {node.node_id!r}: could not "
+                    f"resolve output_contract_ref "
+                    f"{node.output_contract_ref!r}: {exc}"
+                ),
+                graph_id=graph.graph_id,
+                node_id=node.node_id,
+                path=("nodes", node.node_id, "output_contract_ref"),
+                details={"error": str(exc)},
+            )
+            return
+        schema_type = contract_version.json_schema.get("type")
+        if schema_type != "object":
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_MERGE_STRATEGY,
+                message=(
+                    f"merge_strategy='merge' on node {node.node_id!r} requires "
+                    f"an output contract with top-level type='object', got "
+                    f"type={schema_type!r} from contract "
+                    f"{node.output_contract_ref!r}"
+                ),
+                graph_id=graph.graph_id,
+                node_id=node.node_id,
+                path=("nodes", node.node_id, "parallel_config", "merge_strategy"),
+                details={"schema_type": schema_type},
+            )
 
     def _validate_graph_refs(self, graph: Graph, issues: list[ValidationIssue]) -> None:
         """Check that graph-level policy references look valid."""
