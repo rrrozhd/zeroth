@@ -49,6 +49,8 @@ class ValidationCode(StrEnum):
     INVALID_POLICY_REF = "invalid_policy_ref"
     INVALID_CAPABILITY_REF = "invalid_capability_ref"
     INVALID_OUTPUT_CONTRACT = "invalid_output_contract"
+    INVALID_MERGE_STRATEGY = "invalid_merge_strategy"
+    INVALID_REDUCER_REF = "invalid_reducer_ref"
 
 
 class ValidationIssue(BaseModel):
