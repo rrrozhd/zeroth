@@ -1,5 +1,14 @@
 """Phase 43 Plan 01 — SubgraphNode inside parallel fan-out composition.
 
+Top-of-module note: This module's integration tests mock the
+``SubgraphExecutor`` rather than constructing a full resolver +
+DeploymentService chain. The mocks return pre-built child ``Run``
+objects so that ``branch_coro_factory``'s SubgraphNode dispatch path is
+exercised end-to-end through ``_execute_parallel_fan_out`` and
+``ParallelExecutor`` without the persistence overhead of
+``tests/subgraph/test_integration.py``.
+
+
 This module covers the data-layer and wiring work for parallel subgraph
 composition per 43-01-PLAN.md:
 
@@ -243,3 +252,310 @@ class TestFanInResultPauseState:
         assert fan_in.pause_state is None
         assert len(fan_in.results) == 2
         assert fan_in.merged_output["items"][0] == {"v": 1}
+
+
+# ---------------------------------------------------------------------------
+# Task 2: namespace_subgraph branch_index variant
+# ---------------------------------------------------------------------------
+
+
+class TestNamespaceSubgraphBranchIndex:
+    """D-10: ``branch_index`` kwarg produces branch-prefixed audit IDs."""
+
+    def test_no_branch_index_matches_phase_39(self) -> None:
+        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.core.subgraph.resolver import namespace_subgraph
+
+        node = AgentNode(
+            node_id="a1",
+            graph_version_ref="g@1",
+            agent=AgentNodeData(
+                instruction="x", model_provider="openai/gpt-4"
+            ),
+        )
+        graph = Graph(
+            graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1"
+        )
+        ns = namespace_subgraph(graph, "g", depth=1)
+        assert ns.nodes[0].node_id == "subgraph:g:1:a1"
+        assert ns.entry_step == "subgraph:g:1:a1"
+
+    def test_branch_index_produces_branch_prefix(self) -> None:
+        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.core.subgraph.resolver import namespace_subgraph
+
+        node = AgentNode(
+            node_id="a1",
+            graph_version_ref="g@1",
+            agent=AgentNodeData(
+                instruction="x", model_provider="openai/gpt-4"
+            ),
+        )
+        graph = Graph(
+            graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1"
+        )
+        ns = namespace_subgraph(graph, "g", depth=1, branch_index=2)
+        assert ns.nodes[0].node_id == "branch:2:subgraph:g:1:a1"
+        assert ns.entry_step == "branch:2:subgraph:g:1:a1"
+
+    def test_branch_index_idempotent_re_namespacing(self) -> None:
+        """D-11 idempotency: re-namespacing with same branch_index is stable."""
+        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.core.subgraph.resolver import namespace_subgraph
+
+        node = AgentNode(
+            node_id="a1",
+            graph_version_ref="g@1",
+            agent=AgentNodeData(
+                instruction="x", model_provider="openai/gpt-4"
+            ),
+        )
+        graph = Graph(
+            graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1"
+        )
+        first = namespace_subgraph(graph, "g", depth=1, branch_index=3)
+        # Second pass on the ORIGINAL graph with same args — byte identical.
+        second = namespace_subgraph(graph, "g", depth=1, branch_index=3)
+        assert [n.node_id for n in first.nodes] == [n.node_id for n in second.nodes]
+
+
+# ---------------------------------------------------------------------------
+# D-21 Scenario 1 (integration-lite): SubgraphNode inside fan-out branch
+# ---------------------------------------------------------------------------
+
+
+class TestScenario1SubgraphInFanOutBranch:
+    """D-05 + D-23 end-to-end: fan-out with SubgraphNode downstream
+    executes one child run per branch and merges their outputs via
+    collect fan-in."""
+
+    @pytest.mark.asyncio
+    async def test_fan_out_to_subgraph_collect(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.core.execution_units import ExecutableUnitRunner
+        from zeroth.core.graph.models import (
+            AgentNode,
+            AgentNodeData,
+            Edge,
+            Graph,
+        )
+        from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
+        from zeroth.core.runs.models import Run, RunStatus
+        from zeroth.core.subgraph.executor import SubgraphExecutor
+
+        # Parent graph: source AgentNode (fan-out) -> SubgraphNode (downstream).
+        source_node = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4"),
+            parallel_config=ParallelConfig(split_path="items"),
+        )
+        sub_node = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        parent_graph = Graph(
+            graph_id="parent-g",
+            name="parent-g",
+            version=1,
+            nodes=[source_node, sub_node],
+            edges=[
+                Edge(
+                    edge_id="e1",
+                    source_node_id="source",
+                    target_node_id="sub-step",
+                )
+            ],
+            entry_step="source",
+        )
+
+        # Mock source agent runner to emit 3 items.
+        class _FakeResult:
+            def __init__(self, output_data: dict[str, Any]) -> None:
+                self.output_data = output_data
+                self.audit_record = {"model": "test", "token_usage": None}
+
+        source_runner = AsyncMock()
+        source_runner.run = AsyncMock(
+            return_value=_FakeResult(
+                {"items": [{"v": 1}, {"v": 2}, {"v": 3}]}
+            )
+        )
+
+        # Mock SubgraphExecutor: return a distinct completed child Run per
+        # branch, and count execute calls for branch-count assertion.
+        call_counter = {"count": 0}
+
+        async def _fake_execute(**kwargs: Any) -> Run:
+            call_counter["count"] += 1
+            idx = kwargs["branch_context"].branch_index
+            return Run(
+                run_id=f"child-run-{idx}",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.COMPLETED,
+                final_output={"branch_idx": idx, "doubled": idx * 2},
+                metadata={"subgraph_depth": 1, "total_cost_usd": 0.01 * (idx + 1)},
+            )
+
+        mock_executor = MagicMock(spec=SubgraphExecutor)
+        mock_executor.execute = AsyncMock(side_effect=_fake_execute)
+
+        # Minimal run repository.
+        repo = AsyncMock()
+        repo.create = AsyncMock(side_effect=lambda r: r)
+        repo.put = AsyncMock(side_effect=lambda r: r)
+        repo.get = AsyncMock(return_value=None)
+        repo.write_checkpoint = AsyncMock()
+
+        orch = RuntimeOrchestrator(
+            run_repository=repo,
+            agent_runners={"source": source_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            subgraph_executor=mock_executor,
+        )
+
+        result = await orch.run_graph(parent_graph, {"input": "test"})
+
+        assert result.status == RunStatus.COMPLETED
+        # One execute call per branch (three items → three child runs).
+        assert call_counter["count"] == 3
+        # Each execute was called with a distinct branch_context.
+        branch_indices = sorted(
+            call.kwargs["branch_context"].branch_index
+            for call in mock_executor.execute.call_args_list
+        )
+        assert branch_indices == [0, 1, 2]
+        # Shared step tracker threaded through every call.
+        trackers = {
+            id(call.kwargs.get("step_tracker"))
+            for call in mock_executor.execute.call_args_list
+        }
+        assert len(trackers) == 1  # single identity, not None and not per-branch
+        assert None not in {
+            call.kwargs.get("step_tracker")
+            for call in mock_executor.execute.call_args_list
+        }
+
+    @pytest.mark.asyncio
+    async def test_fan_out_subgraph_approval_pause_stashes_pending(
+        self,
+    ) -> None:
+        """D-11: one branch's child hits WAITING_APPROVAL → parent run
+        is persisted with status WAITING_APPROVAL and
+        ``pending_parallel_subgraph`` metadata carries the paused
+        branch + completed siblings.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.core.execution_units import ExecutableUnitRunner
+        from zeroth.core.graph.models import (
+            AgentNode,
+            AgentNodeData,
+            Edge,
+            Graph,
+        )
+        from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
+        from zeroth.core.runs.models import Run, RunStatus
+        from zeroth.core.subgraph.executor import SubgraphExecutor
+
+        source_node = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4"),
+            parallel_config=ParallelConfig(split_path="items"),
+        )
+        sub_node = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        parent_graph = Graph(
+            graph_id="parent-g",
+            name="parent-g",
+            version=1,
+            nodes=[source_node, sub_node],
+            edges=[
+                Edge(
+                    edge_id="e1",
+                    source_node_id="source",
+                    target_node_id="sub-step",
+                )
+            ],
+            entry_step="source",
+        )
+
+        class _FakeResult:
+            def __init__(self, output_data: dict[str, Any]) -> None:
+                self.output_data = output_data
+                self.audit_record = {"model": "test", "token_usage": None}
+
+        source_runner = AsyncMock()
+        source_runner.run = AsyncMock(
+            return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]})
+        )
+
+        async def _fake_execute(**kwargs: Any) -> Run:
+            idx = kwargs["branch_context"].branch_index
+            if idx == 1:
+                # Branch 1 pauses for approval.
+                return Run(
+                    run_id=f"child-run-{idx}",
+                    graph_version_ref="child-wf:v1",
+                    deployment_ref="child-wf",
+                    status=RunStatus.WAITING_APPROVAL,
+                    metadata={"subgraph_depth": 1},
+                )
+            return Run(
+                run_id=f"child-run-{idx}",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.COMPLETED,
+                final_output={"done": idx},
+                metadata={"subgraph_depth": 1, "total_cost_usd": 0.0},
+            )
+
+        mock_executor = MagicMock(spec=SubgraphExecutor)
+        mock_executor.execute = AsyncMock(side_effect=_fake_execute)
+
+        repo = AsyncMock()
+        repo.create = AsyncMock(side_effect=lambda r: r)
+        repo.put = AsyncMock(side_effect=lambda r: r)
+        repo.get = AsyncMock(return_value=None)
+        repo.write_checkpoint = AsyncMock()
+
+        orch = RuntimeOrchestrator(
+            run_repository=repo,
+            agent_runners={"source": source_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            subgraph_executor=mock_executor,
+        )
+
+        # Use best_effort so branch 0 runs to completion and we can assert
+        # the completed-branch-rehydration metadata field is populated.
+        source_node_best = source_node.model_copy(
+            update={
+                "parallel_config": ParallelConfig(
+                    split_path="items", fail_mode="best_effort"
+                )
+            }
+        )
+        parent_graph_best = parent_graph.model_copy(
+            update={"nodes": [source_node_best, sub_node]}
+        )
+
+        result = await orch.run_graph(parent_graph_best, {"input": "test"})
+
+        assert result.status == RunStatus.WAITING_APPROVAL
+        pending = result.metadata.get("pending_parallel_subgraph")
+        assert pending is not None
+        # Runtime stashes the fan-out SOURCE node id (the resume entry
+        # point) — downstream SubgraphNode identity lives inside
+        # `paused_branch.node_id` / `paused_branch.graph_ref`.
+        assert pending["node_id"] == "source"
+        assert pending["paused_branch"]["branch_index"] == 1
+        assert pending["paused_branch"]["child_run_id"] == "child-run-1"
+        assert pending["paused_branch"]["graph_ref"] == "child-wf"
+        assert pending["paused_branch"]["node_id"] == "sub-step"

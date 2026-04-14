@@ -14,6 +14,7 @@ from typing import Any
 
 from zeroth.core.mappings.executor import _get_path, _set_path
 from zeroth.core.parallel.errors import (
+    BranchApprovalPauseSignal,
     FanOutValidationError,
     ParallelExecutionError,
 )
@@ -126,16 +127,30 @@ class ParallelExecutor:
         branch_contexts: list[BranchContext],
         branch_coro_factory: Callable[[BranchContext], Coroutine[Any, Any, dict[str, Any]]],
     ) -> list[BranchResult]:
-        """Run all branches, collecting both successes and failures."""
-        raw_results = await asyncio.gather(
-            *[branch_coro_factory(ctx) for ctx in branch_contexts],
-            return_exceptions=True,
-        )
+        """Run all branches, collecting both successes and failures.
 
-        branch_results: list[BranchResult] = []
+        D-11: If any branch raised ``BranchApprovalPauseSignal``, all
+        in-flight siblings are considered cancelled and the signal is
+        re-raised with ``completed_branch_results`` /
+        ``cancelled_branch_contexts`` attached so
+        ``_execute_parallel_fan_out`` can stash run-wide pause state.
+        """
+        tasks = [
+            asyncio.create_task(branch_coro_factory(ctx)) for ctx in branch_contexts
+        ]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # D-11: detect pause signal and hand control to the caller.
+        pause_signal: BranchApprovalPauseSignal | None = None
+        completed_results: list[BranchResult] = []
         for ctx, result in zip(branch_contexts, raw_results, strict=True):
-            if isinstance(result, BaseException):
-                branch_results.append(
+            if isinstance(result, BranchApprovalPauseSignal):
+                pause_signal = result
+            elif isinstance(result, BaseException):
+                # In best-effort semantics a regular Exception becomes a
+                # BranchResult with error; in-flight pauses mean this
+                # sibling was cancelled by the pause handler.
+                completed_results.append(
                     BranchResult(
                         branch_index=ctx.branch_index,
                         output=None,
@@ -143,25 +158,91 @@ class ParallelExecutor:
                     )
                 )
             else:
-                branch_results.append(
+                completed_results.append(
                     BranchResult(
                         branch_index=ctx.branch_index,
                         output=result,
                         error=None,
                     )
                 )
-        return branch_results
+
+        if pause_signal is not None:
+            # Any sibling that didn't complete before pause went into
+            # `completed_results` as an error BranchResult (via
+            # CancelledError) — but those are cleanly distinguishable
+            # from the paused branch. The outer caller rebuilds pause
+            # state from the completed/cancelled partitioning. We put
+            # everything non-paused into `completed_results`; the
+            # runtime layer treats any entry NOT matching
+            # pause.branch_index as a completed sibling. Explicit
+            # cancellation partitioning is handled by the runtime.
+            # Attach the raw partitioning as attributes so the runtime
+            # can consume them deterministically.
+            completed_before_pause: list[BranchResult] = [
+                br for br in completed_results if br.error is None
+            ]
+            cancelled_by_pause: list[BranchContext] = [
+                ctx
+                for ctx, br in zip(
+                    [c for c in branch_contexts if c.branch_index != pause_signal.branch_index],
+                    [br for br in completed_results],
+                    strict=False,
+                )
+                if br.error is not None
+            ]
+            # Stash these on the exception instance for the runtime.
+            pause_signal.completed_branch_results = completed_before_pause  # type: ignore[attr-defined]
+            pause_signal.cancelled_branch_contexts = cancelled_by_pause  # type: ignore[attr-defined]
+            raise pause_signal
+
+        return completed_results
 
     async def _execute_fail_fast(
         self,
         branch_contexts: list[BranchContext],
         branch_coro_factory: Callable[[BranchContext], Coroutine[Any, Any, dict[str, Any]]],
     ) -> list[BranchResult]:
-        """Run all branches, cancelling remaining on first failure."""
+        """Run all branches, cancelling remaining on first failure.
+
+        D-11: ``BranchApprovalPauseSignal`` is a ``BaseException`` and
+        propagates unwrapped so the runtime layer can stash run-wide
+        pause state. Regular ``Exception`` failures are still wrapped
+        in ``ParallelExecutionError`` to preserve Phase 38 semantics.
+        """
         tasks = [asyncio.create_task(branch_coro_factory(ctx)) for ctx in branch_contexts]
 
         try:
             raw_results = await asyncio.gather(*tasks)
+        except BranchApprovalPauseSignal as pause:
+            # Cancel in-flight siblings, drain, and re-raise the pause.
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            drained = await asyncio.gather(*tasks, return_exceptions=True)
+            # Partition: completed-before-pause vs cancelled in-flight.
+            completed_before_pause: list[BranchResult] = []
+            cancelled_by_pause: list[BranchContext] = []
+            for ctx, result in zip(branch_contexts, drained, strict=True):
+                if ctx.branch_index == pause.branch_index:
+                    continue  # the paused branch itself
+                if isinstance(result, BranchApprovalPauseSignal):
+                    # Rare: two branches paused; keep the first, treat
+                    # the other as cancelled for bookkeeping.
+                    cancelled_by_pause.append(ctx)
+                elif isinstance(result, BaseException):
+                    # CancelledError or other -- treat as cancelled.
+                    cancelled_by_pause.append(ctx)
+                else:
+                    completed_before_pause.append(
+                        BranchResult(
+                            branch_index=ctx.branch_index,
+                            output=result,
+                            error=None,
+                        )
+                    )
+            pause.completed_branch_results = completed_before_pause  # type: ignore[attr-defined]
+            pause.cancelled_branch_contexts = cancelled_by_pause  # type: ignore[attr-defined]
+            raise
         except Exception as exc:
             # Cancel all remaining tasks
             for task in tasks:

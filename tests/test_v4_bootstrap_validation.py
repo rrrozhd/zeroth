@@ -61,16 +61,17 @@ async def test_bootstrap_orchestrator_context_window_enabled(sqlite_db) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SubgraphNode-in-parallel guard
+# SubgraphNode-in-parallel unblock (Phase 43 D-05 / D-23)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_split_fan_out_rejects_subgraph_node() -> None:
-    """split_fan_out raises FanOutValidationError for SubgraphNode."""
+async def test_split_fan_out_allows_subgraph_node() -> None:
+    """Phase 43 (D-05, D-23): SubgraphNode inside fan-out branches is now
+    supported composition — split_fan_out must NOT raise for subgraph
+    downstream nodes."""
     from unittest.mock import MagicMock
 
-    from zeroth.core.parallel.errors import FanOutValidationError
     from zeroth.core.parallel.executor import ParallelExecutor
     from zeroth.core.parallel.models import ParallelConfig
 
@@ -80,5 +81,7 @@ async def test_split_fan_out_rejects_subgraph_node() -> None:
     node = MagicMock()
     node.node_type = "subgraph"
 
-    with pytest.raises(FanOutValidationError, match="SubgraphNode"):
-        executor.split_fan_out("run1", {"items": [1, 2]}, config, node)
+    branches = executor.split_fan_out(
+        "run1", {"items": [{"a": 1}, {"b": 2}]}, config, node
+    )
+    assert len(branches) == 2
