@@ -293,3 +293,175 @@ def test_resolve_reducer_ref_wraps_import_error() -> None:
         from zeroth.core.parallel.reducers import resolve_reducer_ref
 
         resolve_reducer_ref("definitely_missing_mod.fn")
+
+
+# =========================================================================
+# GraphRepository.publish() integration (Phase 43-02, D-15)
+# =========================================================================
+
+
+class TestPublishValidationHook:
+    """Publish-path tests: validator is wired and called before save.
+
+    Uses the real ``GraphRepository`` with the SQLite fixture to exercise
+    the full DRAFT -> validate_or_raise -> save transition.
+    """
+
+    async def test_publish_with_valid_graph_succeeds(self, sqlite_db) -> None:
+        from tests.graph.test_validation import build_valid_graph as build_graph
+        from zeroth.core.graph.models import GraphStatus
+        from zeroth.core.graph.repository import GraphRepository
+
+        validator = GraphValidator()  # no registry — accepts plain graphs
+        repository = GraphRepository(sqlite_db, validator=validator)
+        graph = await repository.create(build_graph())
+        published = await repository.publish(graph.graph_id, graph.version)
+        assert published.status == GraphStatus.PUBLISHED
+
+    async def test_publish_with_invalid_reducer_ref_fails_and_stays_draft(
+        self, sqlite_db
+    ) -> None:
+        from tests.graph.test_validation import build_valid_graph as build_graph
+        from zeroth.core.graph.models import GraphStatus
+        from zeroth.core.graph.repository import GraphRepository
+
+        validator = GraphValidator()
+        repository = GraphRepository(sqlite_db, validator=validator)
+        base = build_graph()
+        # Attach a broken parallel_config to the first node before saving.
+        nodes = list(base.nodes)
+        nodes[0] = nodes[0].model_copy(
+            update={
+                "parallel_config": ParallelConfig(
+                    split_path="items",
+                    merge_strategy="custom",
+                    reducer_ref="nonexistent_xyz.mod.fn",
+                )
+            }
+        )
+        broken = base.model_copy(update={"nodes": nodes})
+        saved = await repository.save(broken)
+
+        with pytest.raises(GraphValidationError):
+            await repository.publish(saved.graph_id, saved.version)
+
+        # Graph remains DRAFT — no partial state transition.
+        reloaded = await repository.get(saved.graph_id, saved.version)
+        assert reloaded is not None
+        assert reloaded.status == GraphStatus.DRAFT
+
+    async def test_publish_with_merge_array_contract_fails(self, sqlite_db) -> None:
+        from tests.graph.test_validation import build_valid_graph as build_graph
+        from zeroth.core.graph.models import GraphStatus
+        from zeroth.core.graph.repository import GraphRepository
+
+        registry = StubContractRegistry(
+            {
+                # Every contract_ref used by build_graph nodes maps to an
+                # array-typed schema so the merge-strategy dict check fails.
+            }
+        )
+        # Pre-populate by scanning the graph's node output_contract_refs.
+        base = build_graph()
+        for n in base.nodes:
+            if n.output_contract_ref:
+                registry._contracts[n.output_contract_ref] = {
+                    "type": "array",
+                    "items": {},
+                }
+        validator = GraphValidator(contract_registry=registry)  # type: ignore[arg-type]
+        repository = GraphRepository(sqlite_db, validator=validator)
+        nodes = list(base.nodes)
+        nodes[0] = nodes[0].model_copy(
+            update={
+                "parallel_config": ParallelConfig(
+                    split_path="items", merge_strategy="merge"
+                )
+            }
+        )
+        broken = base.model_copy(update={"nodes": nodes})
+        saved = await repository.save(broken)
+
+        with pytest.raises(GraphValidationError):
+            await repository.publish(saved.graph_id, saved.version)
+
+        reloaded = await repository.get(saved.graph_id, saved.version)
+        assert reloaded is not None
+        assert reloaded.status == GraphStatus.DRAFT
+
+    async def test_publish_without_validator_still_works(self, sqlite_db) -> None:
+        """Legacy construction path: no validator = no publish-time check."""
+        from tests.graph.test_validation import build_valid_graph as build_graph
+        from zeroth.core.graph.models import GraphStatus
+        from zeroth.core.graph.repository import GraphRepository
+
+        repository = GraphRepository(sqlite_db)  # no validator kwarg
+        graph = await repository.create(build_graph())
+        published = await repository.publish(graph.graph_id, graph.version)
+        assert published.status == GraphStatus.PUBLISHED
+
+    async def test_publish_calls_validator_exactly_once(self, sqlite_db) -> None:
+        from tests.graph.test_validation import build_valid_graph as build_graph
+        from zeroth.core.graph.repository import GraphRepository
+
+        call_counter = {"count": 0}
+
+        class SpyValidator(GraphValidator):
+            async def validate_or_raise(self, graph):  # type: ignore[override]
+                call_counter["count"] += 1
+                return await super().validate_or_raise(graph)
+
+        validator = SpyValidator()
+        repository = GraphRepository(sqlite_db, validator=validator)
+        graph = await repository.create(build_graph())
+        await repository.publish(graph.graph_id, graph.version)
+        assert call_counter["count"] == 1
+
+    async def test_publish_no_parallel_config_backward_compat(
+        self, sqlite_db
+    ) -> None:
+        """Graphs without any parallel_config publish normally."""
+        from tests.graph.test_validation import build_valid_graph as build_graph
+        from zeroth.core.graph.models import GraphStatus
+        from zeroth.core.graph.repository import GraphRepository
+
+        validator = GraphValidator()
+        repository = GraphRepository(sqlite_db, validator=validator)
+        graph = await repository.create(build_graph())
+        published = await repository.publish(graph.graph_id, graph.version)
+        assert published.status == GraphStatus.PUBLISHED
+
+    async def test_retroactive_rejection_of_previously_unvalidated_draft(
+        self, sqlite_db
+    ) -> None:
+        """A DRAFT saved without validation can now be rejected on re-publish.
+
+        Documents the Phase 43-02 migration note: pre-existing DRAFT graphs
+        with invalid parallel_configs will fail the new publish-time check.
+        This is desirable — catches bugs — and is not auto-migrated.
+        """
+        from tests.graph.test_validation import build_valid_graph as build_graph
+        from zeroth.core.graph.models import GraphStatus
+        from zeroth.core.graph.repository import GraphRepository
+
+        # Save via a validator-less repository (simulating pre-Phase-43 state).
+        legacy_repo = GraphRepository(sqlite_db)
+        base = build_graph()
+        nodes = list(base.nodes)
+        nodes[0] = nodes[0].model_copy(
+            update={
+                "parallel_config": ParallelConfig(
+                    split_path="items",
+                    merge_strategy="custom",
+                    reducer_ref="nonexistent_xyz.mod.fn",
+                )
+            }
+        )
+        broken = base.model_copy(update={"nodes": nodes})
+        saved = await legacy_repo.save(broken)
+        assert saved.status == GraphStatus.DRAFT
+
+        # Now publish through a wired repository — the new check fires.
+        wired_repo = GraphRepository(sqlite_db, validator=GraphValidator())
+        with pytest.raises(GraphValidationError):
+            await wired_repo.publish(saved.graph_id, saved.version)
