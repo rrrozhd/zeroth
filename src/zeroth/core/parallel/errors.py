@@ -43,3 +43,29 @@ class ParallelStepLimitError(ParallelExecutionError):
     The sum of steps taken across all concurrent branches has reached or
     exceeded the maximum allowed by ExecutionSettings.max_total_steps.
     """
+
+
+class MergeStrategyError(ParallelExecutionError):
+    """Runtime failure during fan-in reduction.
+
+    Raised when a merge strategy cannot produce a valid reduced value at
+    runtime, such as ``merge`` encountering a non-dict branch output, or a
+    user-supplied reducer raising an exception.
+    """
+
+
+class MergeStrategyValidationError(ParallelExecutionError):
+    """Publish-time rejection of invalid merge strategy configuration.
+
+    Raised by ``GraphValidator`` when a ``ParallelConfig`` on a node is
+    inconsistent, misconfigured, or incompatible with the node's output
+    contract. Blocks DRAFT -> PUBLISHED transition.
+    """
+
+
+class ReducerRefValidationError(MergeStrategyValidationError):
+    """A ``reducer_ref`` string failed regex / importlib / callable check.
+
+    Raised when a dotted import path is malformed, points to a missing
+    module or attribute, or resolves to a non-callable object.
+    """

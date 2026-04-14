@@ -23,6 +23,7 @@ from zeroth.core.parallel.models import (
     FanInResult,
     ParallelConfig,
 )
+from zeroth.core.parallel.reducers import dispatch_strategy
 
 
 class ParallelExecutor:
@@ -211,13 +212,23 @@ class ParallelExecutor:
         # Sort by branch_index for deterministic ordering
         sorted_results = sorted(branch_results, key=lambda r: r.branch_index)
 
-        # Build the output list (None preserved for failed branches)
+        # Build the output list (None preserved for failed branches per D-19)
         output_list = [r.output for r in sorted_results]
+
+        # Dispatch through the strategy registry (D-01, D-02, D-04 literal).
+        # For ``collect`` this produces an equivalent list-of-outputs (backward
+        # compatible with Phase 38 semantics). For ``merge``/``reduce``/``custom``
+        # it produces the reduced value to write at the merge path.
+        reduced_value = dispatch_strategy(
+            config.merge_strategy,
+            output_list,
+            reducer_ref=config.reducer_ref,
+        )
 
         # Merge into base output at the merge path (defaults to split_path)
         merge_path = config.split_path
         merged_output = dict(base_output)
-        _set_path(merged_output, merge_path, output_list)
+        _set_path(merged_output, merge_path, reduced_value)
 
         # Aggregate cost and step counts
         total_cost = sum(r.cost_usd for r in sorted_results)
