@@ -4,6 +4,7 @@ import pytest
 
 from zeroth.core.conditions import ConditionContext, ConditionEvaluator
 from zeroth.core.conditions.errors import ConditionEvaluationError
+from zeroth.core.conditions.evaluator import _SafeEvaluator
 from zeroth.core.graph.models import Condition as GraphCondition
 
 
@@ -62,8 +63,6 @@ def test_condition_evaluator_rejects_unsupported_calls() -> None:
 # ---------------------------------------------------------------------------
 # Safe builtins support in _SafeEvaluator
 # ---------------------------------------------------------------------------
-
-from zeroth.core.conditions.evaluator import _SafeEvaluator
 
 
 class TestSafeEvaluatorBuiltinLen:

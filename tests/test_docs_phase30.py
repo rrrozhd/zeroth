@@ -332,6 +332,6 @@ def test_readme_links_to_live_docs() -> None:
     """README.md must link to the live docs URL near the top."""
     assert README.exists(), f"{README} missing"
     body = README.read_text(encoding="utf-8")
-    assert "https://rrrozhd.github.io/zeroth-core/" in body, (
-        "README.md must link to https://rrrozhd.github.io/zeroth-core/"
+    assert "https://rrrozhd.github.io/zeroth/" in body, (
+        "README.md must link to https://rrrozhd.github.io/zeroth/"
     )
