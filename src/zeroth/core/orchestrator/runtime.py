@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from time import perf_counter
@@ -61,6 +62,38 @@ logger = logging.getLogger(__name__)
 # Sentinel for "attribute not present" in optional runner wiring.
 _MISSING: Any = object()
 
+# Maps the string scope names used in TemplateMemoryBinding to MemoryScope enum values.
+# Imported lazily inside _resolve_template_memory to avoid a hard top-level dependency.
+_SCOPE_NAMES: frozenset[str] = frozenset({"run", "thread", "shared"})
+
+# Regex for {namespace.field} placeholders supported in binding key / key_prefix.
+_KEY_PLACEHOLDER_RE = re.compile(r"\{(input|state|run)\.([^}]+)\}")
+
+
+def _substitute_tmb_key(
+    key: str,
+    *,
+    input_payload: dict[str, Any],
+    state: dict[str, Any],
+    run_id: str,
+) -> str:
+    """Replace ``{input.field}``, ``{state.field}``, ``{run.run_id}`` placeholders in a key.
+
+    Unknown placeholders are left unchanged so callers can detect them.
+    """
+    sources: dict[str, dict[str, Any]] = {
+        "input": input_payload,
+        "state": state,
+        "run": {"run_id": run_id},
+    }
+
+    def _replace(m: re.Match) -> str:  # type: ignore[type-arg]
+        namespace, field = m.group(1), m.group(2)
+        ns = sources.get(namespace, {})
+        return str(ns[field]) if field in ns else m.group(0)
+
+    return _KEY_PLACEHOLDER_RE.sub(_replace, key)
+
 
 def _sum_run_cost(run: Run) -> float:
     """Return the child Run's aggregated cost_usd for BranchResult rollup.
@@ -102,6 +135,14 @@ class NodeDispatcherError(OrchestratorError):
 
     Raised when the orchestrator doesn't know how to run a particular
     node type, or when no runner is registered for an agent node.
+    """
+
+
+class MemoryBindingResolutionError(OrchestratorError):
+    """A template memory binding could not be resolved.
+
+    Raised when a connector referenced in ``template_memory_bindings`` is
+    not registered, or when fetching the value from the connector fails.
     """
 
 
@@ -1056,6 +1097,10 @@ class RuntimeOrchestrator:
             if runner is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
 
+            # Resolve thread before template rendering so memory can use thread scope.
+            thread_id = await self._resolve_thread(node, run)
+            tmb_audit_records: list[dict[str, Any]] = []
+
             # Phase 36: Template resolution -- resolve and render before agent execution.
             effective_instruction: str | None = None
             rendered_prompt_for_audit: str | None = None
@@ -1072,10 +1117,15 @@ class RuntimeOrchestrator:
                 registry: TemplateRegistry = self.template_registry
                 renderer: TemplateRenderer = self.template_renderer
                 template = registry.get(template_ref.name, template_ref.version)
+                # Resolve template memory bindings before building render_vars.
+                _memory_ns, _tmb_records = await self._resolve_template_memory(
+                    node, run, thread_id, input_payload
+                )
+                tmb_audit_records.extend(_tmb_records)
                 render_vars: dict[str, Any] = {
                     "input": dict(input_payload),
                     "state": dict(run.metadata) if run.metadata else {},
-                    "memory": {},
+                    "memory": _memory_ns,
                 }
                 render_result = renderer.render(template, render_vars)
                 effective_instruction = render_result.rendered
@@ -1193,7 +1243,6 @@ class RuntimeOrchestrator:
                     strategy=strategy,
                 )
 
-            thread_id = await self._resolve_thread(node, run)
             enforcement_context = self._enforcement_context_for(run, node.node_id)
             try:
                 result = await self._run_agent_with_optional_enforcement(
@@ -1244,6 +1293,10 @@ class RuntimeOrchestrator:
             if _context_window_audit is not None:
                 audit_record.setdefault("execution_metadata", {})
                 audit_record["execution_metadata"]["context_window"] = _context_window_audit
+            # Record template memory binding resolution in audit.
+            if tmb_audit_records:
+                audit_record.setdefault("execution_metadata", {})
+                audit_record["execution_metadata"]["template_memory_bindings"] = tmb_audit_records
             return result.output_data, audit_record
         if isinstance(node, ExecutableUnitNode):
             enforcement_context = self._enforcement_context_for(run, node.node_id)
@@ -1292,6 +1345,127 @@ class RuntimeOrchestrator:
             )
             run.thread_id = resolution.thread.thread_id
         return run.thread_id
+
+    async def _resolve_template_memory(
+        self,
+        node: AgentNode,
+        run: Run,
+        thread_id: str | None,
+        input_payload: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Fetch memory values declared in ``template_memory_bindings``.
+
+        Returns ``(memory_namespace, audit_records)`` where *memory_namespace*
+        is the dict that populates ``{{ memory.* }}`` in prompt templates and
+        *audit_records* is a list of per-binding audit dicts appended to the
+        node audit record under ``execution_metadata.template_memory_bindings``.
+
+        Raises ``MemoryBindingResolutionError`` when a connector is unknown or
+        when a read/search call fails.
+        """
+        bindings = node.agent.template_memory_bindings
+        if not bindings or self.memory_resolver is None:
+            return {}, []
+
+        from governai.memory.models import MemoryScope
+
+        _scope_map = {
+            "run": MemoryScope.RUN,
+            "thread": MemoryScope.THREAD,
+            "shared": MemoryScope.SHARED,
+        }
+
+        # Only resolve the connector refs actually used by template bindings.
+        refs_needed = list({b.connector_instance_id for b in bindings})
+        runtime_context: dict[str, Any] = {"node_id": node.node_id, "run_id": run.run_id}
+        try:
+            resolved = await self.memory_resolver.resolve(
+                refs_needed,
+                thread_id=thread_id,
+                runtime_context=runtime_context,
+                node_id=node.node_id,
+            )
+        except KeyError as exc:
+            raise MemoryBindingResolutionError(
+                f"unknown memory connector referenced in template_memory_bindings: {exc}"
+            ) from exc
+
+        connector_by_ref: dict[str, Any] = {rb.memory_ref: rb.connector for rb in resolved}
+        state: dict[str, Any] = dict(run.metadata) if run.metadata else {}
+        input_dict: dict[str, Any] = dict(input_payload)
+
+        memory_ns: dict[str, Any] = {}
+        audit_records: list[dict[str, Any]] = []
+
+        for binding in bindings:
+            connector = connector_by_ref.get(binding.connector_instance_id)
+            if connector is None:
+                raise MemoryBindingResolutionError(
+                    f"connector '{binding.connector_instance_id}' not found in memory_refs; "
+                    "add it to agent.memory_refs before using it in template_memory_bindings"
+                )
+
+            scope = _scope_map[binding.scope]
+
+            try:
+                if binding.access_mode == "get":
+                    resolved_key = _substitute_tmb_key(
+                        binding.key or "",
+                        input_payload=input_dict,
+                        state=state,
+                        run_id=run.run_id,
+                    )
+                    entry = await connector.read(resolved_key, scope)
+                    value = entry.value if entry is not None else binding.default
+                    audit_records.append(
+                        {
+                            "as_name": binding.as_name,
+                            "connector_instance_id": binding.connector_instance_id,
+                            "access_mode": "get",
+                            "key": resolved_key,
+                            "scope": binding.scope,
+                            "found": entry is not None,
+                        }
+                    )
+                else:  # scan
+                    prefix = binding.key_prefix or ""
+                    if prefix:
+                        prefix = _substitute_tmb_key(
+                            prefix,
+                            input_payload=input_dict,
+                            state=state,
+                            run_id=run.run_id,
+                        )
+                    all_entries = await connector.search({}, scope)
+                    items: dict[str, Any] = {
+                        entry.key[len(prefix) :]: entry.value
+                        for entry in all_entries
+                        if entry.key.startswith(prefix)
+                    }
+                    if binding.max_items is not None:
+                        items = dict(list(items.items())[: binding.max_items])
+                    value = items if items else binding.default
+                    audit_records.append(
+                        {
+                            "as_name": binding.as_name,
+                            "connector_instance_id": binding.connector_instance_id,
+                            "access_mode": "scan",
+                            "key_prefix": prefix,
+                            "scope": binding.scope,
+                            "item_count": len(items),
+                        }
+                    )
+            except MemoryBindingResolutionError:
+                raise
+            except Exception as exc:
+                raise MemoryBindingResolutionError(
+                    f"failed to read memory binding '{binding.as_name}' "
+                    f"(connector={binding.connector_instance_id}): {exc}"
+                ) from exc
+
+            memory_ns[binding.as_name] = value
+
+        return memory_ns, audit_records
 
     def _plan_next_nodes(
         self,
