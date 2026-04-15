@@ -111,6 +111,32 @@ class NodeBase(BaseModel):
         raise NotImplementedError
 
 
+class TemplateMemoryBinding(BaseModel):
+    """Declares which memory connector values to inject into the template memory namespace.
+
+    Each binding pulls one value (get mode) or a set of values by prefix (scan mode)
+    from a named connector and exposes them as ``memory.<as_name>`` in prompt templates.
+    ``connector_instance_id`` must match one of the values in the parent
+    ``AgentNodeData.memory_refs`` list.
+    """
+
+    as_name: str
+    connector_instance_id: str
+    access_mode: Literal["get", "scan"] = "get"
+    key: str | None = None
+    key_prefix: str | None = None
+    default: Any = None
+    max_items: int | None = Field(default=None, ge=1)
+    scope: Literal["run", "thread", "shared"] = "run"
+
+    @model_validator(mode="after")
+    def _validate_mode_fields(self) -> TemplateMemoryBinding:
+        if self.access_mode == "get" and self.key is None:
+            msg = "key is required when access_mode is 'get'"
+            raise ValueError(msg)
+        return self
+
+
 class AgentNodeData(BaseModel):
     """Configuration for an AI agent step.
 
@@ -130,6 +156,7 @@ class AgentNodeData(BaseModel):
     mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
     template_ref: TemplateReference | None = None
     context_window: ContextWindowSettings | None = None
+    template_memory_bindings: list[TemplateMemoryBinding] = Field(default_factory=list)
 
 
 class ExecutableUnitNodeData(BaseModel):
