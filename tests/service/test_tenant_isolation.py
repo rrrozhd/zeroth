@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import approval_resume_graph, deploy_service, wait_for
-from zeroth.identity import ServiceRole
-from zeroth.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.identity import ServiceRole
+from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
+from zeroth.core.service.bootstrap import bootstrap_app
 
 
 def _scoped_auth_config() -> ServiceAuthConfig:
@@ -47,15 +47,15 @@ def _headers(secret: str) -> dict[str, str]:
     return {"X-API-Key": secret}
 
 
-def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_db) -> None:
+async def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_db) -> None:
     auth_config = _scoped_auth_config()
-    service, _ = deploy_service(
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-tenant-run-read"),
         auth_config=auth_config,
         tenant_id="tenant-a",
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,
@@ -78,21 +78,21 @@ def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_db) ->
     assert response.json() == {"detail": "run not found"}
     denials = [
         record
-        for record in service.audit_repository.list_by_node("service.authorization")
+        for record in await service.audit_repository.list_by_node("service.authorization")
         if record.error == "scope mismatch"
     ]
     assert denials
 
 
-def test_cross_tenant_approval_resolution_is_hidden(sqlite_db) -> None:
+async def test_cross_tenant_approval_resolution_is_hidden(sqlite_db) -> None:
     auth_config = _scoped_auth_config()
-    service, _ = deploy_service(
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-tenant-approval"),
         auth_config=auth_config,
         tenant_id="tenant-a",
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=auth_config,
@@ -107,11 +107,13 @@ def test_cross_tenant_approval_resolution_is_hidden(sqlite_db) -> None:
         )
         run_id = create_response.json()["run_id"]
         wait_for(
-            lambda: client.get(
-                f"/runs/{run_id}",
-                headers=_headers("tenant-a-operator-key"),
-            ).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(
+                    f"/runs/{run_id}",
+                    headers=_headers("tenant-a-operator-key"),
+                ).json()["status"]
+                == "paused_for_approval"
+            )
         )
         approval_id = client.get(
             f"/runs/{run_id}",

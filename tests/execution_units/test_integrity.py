@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from zeroth.audit import AuditRepository
-from zeroth.execution_units import (
+from zeroth.core.audit import AuditRepository
+from zeroth.core.execution_units import (
     AdmissionController,
     CommandArtifactSource,
     ExecutableUnitBinding,
@@ -20,9 +20,9 @@ from zeroth.execution_units import (
     WrappedCommandUnitManifest,
     compute_manifest_digest,
 )
-from zeroth.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
-from zeroth.orchestrator import RuntimeOrchestrator
-from zeroth.runs import RunRepository, RunStatus
+from zeroth.core.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
+from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.core.runs import RunRepository, RunStatus
 
 
 class DemoInput(BaseModel):
@@ -150,7 +150,7 @@ async def test_executable_unit_admission_denials_are_recorded_in_audit(
     run = await orchestrator.run_graph(graph, {"value": 1})
 
     assert run.status is RunStatus.FAILED
-    audits = AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     assert audits[0].status == "rejected"
     assert audits[0].execution_metadata["admission"]["admitted"] is False

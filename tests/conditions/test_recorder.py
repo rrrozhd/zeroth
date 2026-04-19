@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from zeroth.conditions import ConditionResultRecorder
-from zeroth.runs.models import Run, RunConditionResult
+from zeroth.core.conditions import ConditionResultRecorder
+from zeroth.core.runs.models import Run, RunConditionResult
 
 
 def test_condition_result_recorder_appends_to_run_state() -> None:

@@ -3,19 +3,18 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
 from pydantic import BaseModel
 
-from zeroth.agent_runtime import (
+from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )
-from zeroth.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
-from zeroth.audit import AuditRepository
-from zeroth.execution_units import (
+from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.core.audit import AuditRepository
+from zeroth.core.execution_units import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -27,7 +26,7 @@ from zeroth.execution_units import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.graph import (
+from zeroth.core.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -39,17 +38,17 @@ from zeroth.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.identity import ActorIdentity, AuthMethod
-from zeroth.mappings.models import EdgeMapping, PassthroughMappingOperation
-from zeroth.orchestrator import RuntimeOrchestrator
-from zeroth.policy import (
+from zeroth.core.identity import ActorIdentity, AuthMethod
+from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.core.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.runs import Run, RunRepository, RunStatus, ThreadRepository
+from zeroth.core.runs import Run, RunRepository, RunStatus, ThreadRepository
 
 
 class NumberInput(BaseModel):
@@ -108,7 +107,6 @@ def _command_manifest(script: Path, *, unit_id: str) -> WrappedCommandUnitManife
     )
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_executes_linear_graph(sqlite_db, tmp_path: Path) -> None:
     script = tmp_path / "double.py"
     script.write_text(
@@ -204,13 +202,12 @@ print(json.dumps({"value": payload["value"] * 2}))
     assert [entry.node_id for entry in run.execution_history] == ["start", "double", "finish"]
     assert run.audit_refs == ["audit:1", "audit:2", "audit:3"]
 
-    audits = AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
     assert [audit.node_id for audit in audits] == ["start", "double", "finish"]
     assert audits[0].status == "completed"
     assert audits[1].execution_metadata["backend"] == "local"
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_resolves_conditional_branch(sqlite_db) -> None:
     eu_registry = ExecutableUnitRegistry()
     eu_registry.register(
@@ -326,7 +323,6 @@ async def test_runtime_orchestrator_resolves_conditional_branch(sqlite_db) -> No
     assert any(result.selected_edge_id == "edge-left" for result in run.condition_results)
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_stops_cycle_with_max_total_steps(sqlite_db) -> None:
     loop_runner = _agent_runner(
         output_model=NumberOutput,
@@ -362,7 +358,6 @@ async def test_runtime_orchestrator_stops_cycle_with_max_total_steps(sqlite_db) 
     assert len(run.execution_history) == 2
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_pauses_on_human_approval(sqlite_db) -> None:
     graph = Graph(
         graph_id="graph-approval",
@@ -395,12 +390,11 @@ async def test_runtime_orchestrator_pauses_on_human_approval(sqlite_db) -> None:
     assert run.current_node_ids == ["approval"]
     assert run.metadata["pending_approval"]["node_id"] == "approval"
     approval_id = run.metadata["pending_approval"]["approval_id"]
-    record = approval_service.get(approval_id)
+    record = await approval_service.get(approval_id)
     assert record is not None
     assert record.context_excerpt["value"] == 1
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_db) -> None:
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
@@ -449,7 +443,7 @@ async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_d
 
     paused = await orchestrator.run_graph(graph, {"value": 2})
     approval_id = paused.metadata["pending_approval"]["approval_id"]
-    approval_service.resolve(
+    await approval_service.resolve(
         approval_id,
         decision=ApprovalDecision.EDIT_AND_APPROVE,
         actor=ActorIdentity(subject="user-1", auth_method=AuthMethod.API_KEY),
@@ -464,7 +458,6 @@ async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_d
     assert resumed.final_output == {"value": 5}
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_blocks_policy_violation_and_records_audit(sqlite_db) -> None:
     graph = Graph(
         graph_id="graph-policy",
@@ -520,13 +513,12 @@ async def test_runtime_orchestrator_blocks_policy_violation_and_records_audit(sq
     assert run.status is RunStatus.FAILED
     assert run.failure_state is not None
     assert run.failure_state.reason == "policy_violation"
-    audits = AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     assert audits[0].status == "rejected"
     assert audits[0].error is not None
 
 
-@pytest.mark.asyncio
 async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
     store = RepositoryThreadStateStore(sqlite_db)
     thread_resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
@@ -566,7 +558,7 @@ async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
         edges=[],
     )
     repository = RunRepository(sqlite_db)
-    seeded = repository.create(
+    seeded = await repository.create(
         Run(
             graph_version_ref="graph-resume:v1",
             deployment_ref="graph-resume",
@@ -580,7 +572,7 @@ async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
             },
         )
     )
-    repository.write_checkpoint(seeded)
+    await repository.write_checkpoint(seeded)
     orchestrator = RuntimeOrchestrator(
         run_repository=repository,
         agent_runners={"agent": runner},
@@ -590,7 +582,7 @@ async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
 
     resumed = await orchestrator.resume_graph(graph, seeded.run_id)
 
-    latest_checkpoint = repository.get_latest_checkpoint(resumed.thread_id)
+    latest_checkpoint = await repository.get_latest_checkpoint(resumed.thread_id)
     assert resumed.status is RunStatus.COMPLETED
     assert resumed.final_output == {"value": 10}
     assert latest_checkpoint is not None

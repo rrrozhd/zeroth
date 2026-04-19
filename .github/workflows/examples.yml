@@ -1,0 +1,85 @@
+name: examples
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  run-examples:
+    runs-on: ubuntu-latest
+    env:
+      # Scripts SKIP cleanly when this is unset, so forked-PR runs
+      # without access to repo secrets still exit 0.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
+
+      # Core tier — learn the runtime.
+      - name: 00_hello.py
+        run: uv run python examples/00_hello.py
+
+      - name: 01_first_graph.py
+        run: uv run python examples/01_first_graph.py
+
+      - name: 02_multi_agent.py
+        run: uv run python examples/02_multi_agent.py
+
+      - name: 03_conditional_branches.py
+        run: uv run python examples/03_conditional_branches.py
+
+      - name: 04_native_tool.py
+        run: uv run python examples/04_native_tool.py
+
+      - name: 05_memory.py
+        run: uv run python examples/05_memory.py
+
+      # Service tier — ship it as an API.
+      - name: 10_serve_in_python.py (import-only; skips without OPENAI_API_KEY)
+        run: uv run python examples/10_serve_in_python.py
+
+      # Governance tier.
+      - name: 20_approval_gate.py
+        run: uv run python examples/20_approval_gate.py
+
+      - name: 21_policy_block.py
+        run: uv run python examples/21_policy_block.py
+
+      - name: 22_budget_cap.py
+        run: uv run python examples/22_budget_cap.py
+
+      - name: 23_secrets_and_sandbox.py
+        run: uv run python examples/23_secrets_and_sandbox.py
+
+      - name: 24_audit_query.py
+        run: uv run python examples/24_audit_query.py
+
+      - name: 25_webhook_delivery.py
+        run: uv run python examples/25_webhook_delivery.py
+
+      - name: 26_governance_walkthrough.py
+        run: uv run python examples/26_governance_walkthrough.py
+
+      # Advanced tier.
+      - name: 30_contracts_and_mappings.py
+        run: uv run python examples/30_contracts_and_mappings.py
+
+      - name: 31_guardrails.py
+        run: uv run python examples/31_guardrails.py
+
+      - name: 32_observability.py
+        run: uv run python examples/32_observability.py
+
+      - name: 33_mcp_tools.py
+        run: uv run python examples/33_mcp_tools.py

@@ -10,12 +10,14 @@ from tests.service.helpers import (
     reviewer_headers,
     wait_for,
 )
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.service.bootstrap import bootstrap_app
 
 
-def test_reviewer_cannot_create_runs(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, approval_resume_graph(graph_id="graph-rbac-run-create"))
-    app = bootstrap_app(
+async def test_reviewer_cannot_create_runs(sqlite_db) -> None:
+    service, _ = await deploy_service(
+        sqlite_db, approval_resume_graph(graph_id="graph-rbac-run-create")
+    )
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -33,12 +35,12 @@ def test_reviewer_cannot_create_runs(sqlite_db) -> None:
     assert response.json() == {"detail": "forbidden"}
 
 
-def test_operator_cannot_resolve_approvals(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_operator_cannot_resolve_approvals(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-rbac-approval-resolve"),
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -53,11 +55,13 @@ def test_operator_cannot_resolve_approvals(sqlite_db) -> None:
         )
         run_id = create_response.json()["run_id"]
         wait_for(
-            lambda: client.get(
-                f"/runs/{run_id}",
-                headers=operator_headers(),
-            ).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(
+                    f"/runs/{run_id}",
+                    headers=operator_headers(),
+                ).json()["status"]
+                == "paused_for_approval"
+            )
         )
         approval_id = client.get(
             f"/runs/{run_id}",
@@ -74,9 +78,11 @@ def test_operator_cannot_resolve_approvals(sqlite_db) -> None:
     assert response.json() == {"detail": "forbidden"}
 
 
-def test_admin_can_read_deployment_metadata(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, approval_resume_graph(graph_id="graph-rbac-metadata"))
-    app = bootstrap_app(
+async def test_admin_can_read_deployment_metadata(sqlite_db) -> None:
+    service, _ = await deploy_service(
+        sqlite_db, approval_resume_graph(graph_id="graph-rbac-metadata")
+    )
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,

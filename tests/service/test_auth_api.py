@@ -9,12 +9,15 @@ from tests.service.helpers import (
     reviewer_headers,
     wait_for,
 )
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.core.service.bootstrap import bootstrap_app
 
 
-def test_service_health_requires_authentication(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, approval_resume_graph(graph_id="graph-auth-health"))
-    app = bootstrap_app(
+async def test_service_health_bypasses_authentication(sqlite_db) -> None:
+    """Health endpoints should be accessible without authentication."""
+    service, _ = await deploy_service(
+        sqlite_db, approval_resume_graph(graph_id="graph-auth-health")
+    )
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -24,13 +27,15 @@ def test_service_health_requires_authentication(sqlite_db) -> None:
     with TestClient(app) as client:
         response = client.get("/health")
 
-    assert response.status_code == 401
-    assert response.json() == {"detail": "authentication required"}
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
 
 
-def test_service_health_accepts_api_key_authentication(sqlite_db) -> None:
-    service, _ = deploy_service(sqlite_db, approval_resume_graph(graph_id="graph-auth-health-key"))
-    app = bootstrap_app(
+async def test_service_health_accepts_api_key_authentication(sqlite_db) -> None:
+    service, _ = await deploy_service(
+        sqlite_db, approval_resume_graph(graph_id="graph-auth-health-key")
+    )
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -44,12 +49,12 @@ def test_service_health_accepts_api_key_authentication(sqlite_db) -> None:
     assert response.json()["deployment_ref"] == service.deployment.deployment_ref
 
 
-def test_approval_resolution_uses_authenticated_principal(sqlite_db) -> None:
-    service, _ = deploy_service(
+async def test_approval_resolution_uses_authenticated_principal(sqlite_db) -> None:
+    service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-auth-approval"),
     )
-    app = bootstrap_app(
+    app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         auth_config=service.auth_config,
@@ -64,11 +69,13 @@ def test_approval_resolution_uses_authenticated_principal(sqlite_db) -> None:
         )
         run_id = create_response.json()["run_id"]
         wait_for(
-            lambda: client.get(
-                f"/runs/{run_id}",
-                headers=operator_headers(),
-            ).json()["status"]
-            == "paused_for_approval"
+            lambda: (
+                client.get(
+                    f"/runs/{run_id}",
+                    headers=operator_headers(),
+                ).json()["status"]
+                == "paused_for_approval"
+            )
         )
         approval_id = client.get(
             f"/runs/{run_id}",

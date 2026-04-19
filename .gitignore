@@ -6,13 +6,54 @@ dist/
 wheels/
 *.egg-info
 
+# mkdocs build output
+site/
+
 # Virtual environments
 .venv
+node_modules/
 
 # Local git worktrees
 .worktrees/
 
 # Local brainstorming/visual companion state
 
-# Generated local state for live scenarios
-live_scenarios/*.sqlite3
+# Generated local state
+zeroth.db
+zeroth.db-shm
+zeroth.db-wal
+zeroth_dev.db
+zeroth_dev.db-shm
+zeroth_dev.db-wal
+zeroth_live.db
+zeroth_live.db-shm
+zeroth_live.db-wal
+
+# Regenerated at docs-build time by scripts/dump_openapi.py
+docs/assets/openapi/
+
+# Local AI/editor configs — not part of the library
+.cursorrules
+.windsurfrules
+.kiro/
+.mcp.json
+.opencode.json
+GEMINI.md
+.claude/scheduled_tasks.lock
+.claude/settings.json
+.claude/skills/
+.planning/.next-call-count
+live_scenarios/
+
+# Generated local state for runnable examples
+examples/*.sqlite
+examples/*.sqlite-shm
+examples/*.sqlite-wal
+examples/service/*.sqlite
+examples/service/*.sqlite-shm
+examples/service/*.sqlite-wal
+examples_serve.sqlite
+examples_approval.sqlite
+examples_service.sqlite
+# Added by code-review-graph
+.code-review-graph/

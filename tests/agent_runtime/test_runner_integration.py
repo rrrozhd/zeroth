@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.agent_runtime import (
+from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,
@@ -15,7 +15,7 @@ from zeroth.agent_runtime import (
     ToolAttachmentManifest,
     ToolAttachmentRegistry,
 )
-from zeroth.execution_units import (
+from zeroth.core.execution_units import (
     ExecutableUnitBinding,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -25,7 +25,7 @@ from zeroth.execution_units import (
     OutputMode,
     PythonModuleArtifactSource,
 )
-from zeroth.runs import RunRepository, ThreadRepository
+from zeroth.core.runs import RunRepository, ThreadRepository
 
 
 class AgentInput(BaseModel):
@@ -54,13 +54,14 @@ async def test_repository_thread_state_store_integrates_with_agent_runner(sqlite
     thread_repository = ThreadRepository(sqlite_db)
     run_repository = RunRepository(sqlite_db)
     resolver = RepositoryThreadResolver(thread_repository)
-    resolved = resolver.resolve(
+    resolved = await resolver.resolve(
         None,
         graph_version_ref="graph:v1",
         deployment_ref="deployment:v1",
         run_id="run-a",
     )
     store = RepositoryThreadStateStore(
+        sqlite_db,
         run_repository=run_repository,
         thread_repository=thread_repository,
     )
