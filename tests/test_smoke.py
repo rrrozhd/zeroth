@@ -1,3 +1,4 @@
 def test_import():
-    import zeroth
-    assert zeroth.__doc__
+    import zeroth.core
+
+    assert zeroth.core.__doc__

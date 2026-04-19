@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.execution_units import EnvironmentVariable
-from zeroth.secrets import EnvSecretProvider, SecretRedactor, SecretResolver
+from zeroth.core.execution_units import EnvironmentVariable
+from zeroth.core.secrets import EnvSecretProvider, SecretRedactor, SecretResolver
 
 
 def test_env_secret_provider_resolves_refs_from_environment() -> None:

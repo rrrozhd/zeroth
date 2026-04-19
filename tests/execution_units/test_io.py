@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from zeroth.execution_units.io import (
+from zeroth.core.execution_units.io import (
     ExtractedOutput,
     InputInjectionError,
     OutputConversionError,
@@ -15,7 +15,7 @@ from zeroth.execution_units.io import (
     extract_output,
     inject_input,
 )
-from zeroth.execution_units.models import InputMode, OutputMode
+from zeroth.core.execution_units.models import InputMode, OutputMode
 
 
 class DemoInput(BaseModel):
@@ -120,7 +120,7 @@ def test_input_file_json_mode_writes_payload(tmp_path: Path) -> None:
         ),
         (
             OutputMode.TAGGED_STDOUT_JSON,
-            "log line\nZEROTH_OUTPUT_JSON={\"answer\":\"done\",\"score\":7}\n",
+            'log line\nZEROTH_OUTPUT_JSON={"answer":"done","score":7}\n',
             None,
             None,
             {"answer": "done", "score": 7},

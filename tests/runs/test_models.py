@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from governai import RunStatus
 
-from zeroth.runs.models import (
+from zeroth.core.runs.models import (
     Run,
     RunConditionResult,
     RunFailureState,

@@ -1,0 +1,83 @@
+name: Verify extras
+
+# Continuous verification that every declared optional extra resolves and
+# installs cleanly, and that the modules gated behind each extra import
+# successfully. Gate for PKG-03 per Phase 28 D-04.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-extras:
+    name: "extra=${{ matrix.extra }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extra:
+          - memory-pg
+          - memory-chroma
+          - memory-es
+          - dispatch
+          - sandbox
+          - all
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel
+        run: uv build
+
+      - name: Clean-venv install extra and import smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          WHEEL=$(ls dist/zeroth_core-*.whl | head -1)
+          echo "Using wheel: ${WHEEL}"
+          VENV="/tmp/venv-${{ matrix.extra }}"
+          python -m venv "${VENV}"
+          # shellcheck disable=SC1090
+          source "${VENV}/bin/activate"
+          pip install --upgrade pip
+          pip install "${WHEEL}[${{ matrix.extra }}]"
+          case "${{ matrix.extra }}" in
+            memory-pg)
+              python -c "import zeroth.core.memory.pgvector_connector; print('memory-pg OK')"
+              ;;
+            memory-chroma)
+              python -c "import zeroth.core.memory.chroma_connector; print('memory-chroma OK')"
+              ;;
+            memory-es)
+              python -c "import zeroth.core.memory.elastic_connector; print('memory-es OK')"
+              ;;
+            dispatch)
+              python -c "import zeroth.core.dispatch.worker; print('dispatch OK')"
+              ;;
+            sandbox)
+              # [sandbox] extra is intentionally empty (sandbox_sidecar shells
+              # out to docker CLI at runtime). Gate is: install resolves and
+              # the module imports from base deps only.
+              python -c "import zeroth.core.sandbox_sidecar; print('sandbox OK')"
+              ;;
+            all)
+              python -c "import zeroth.core.memory.pgvector_connector, zeroth.core.memory.chroma_connector, zeroth.core.dispatch.worker, zeroth.core.sandbox_sidecar; print('all OK')"
+              ;;
+            *)
+              echo "::error::Unknown matrix entry: ${{ matrix.extra }}"
+              exit 1
+              ;;
+          esac

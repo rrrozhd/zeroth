@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from zeroth.execution_units.constraints import ResourceConstraints, build_docker_resource_flags
-from zeroth.execution_units.sandbox import (
+from zeroth.core.execution_units.constraints import ResourceConstraints, build_docker_resource_flags
+from zeroth.core.execution_units.sandbox import (
     DockerSandboxConfig,
     SandboxBackendMode,
     SandboxBackendUnavailableError,

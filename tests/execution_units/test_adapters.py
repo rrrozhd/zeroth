@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from zeroth.execution_units import (
+from zeroth.core.execution_units import (
     CommandArtifactSource,
     CommandRuntimeAdapter,
     ExecutionMode,

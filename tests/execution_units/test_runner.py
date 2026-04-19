@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from zeroth.execution_units.models import (
+from zeroth.core.execution_units.models import (
     BuildConfig,
     CommandArtifactSource,
     ExecutionMode,
@@ -19,7 +19,7 @@ from zeroth.execution_units.models import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.execution_units.runner import (
+from zeroth.core.execution_units.runner import (
     ExecutableUnitBinding,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
