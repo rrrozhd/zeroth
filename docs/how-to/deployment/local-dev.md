@@ -85,6 +85,9 @@ for every knob the `database` section exposes.
 
 ## Next steps
 
-- Graduate to a realistic stack with [Docker Compose](docker-compose.md).
+- Stand up a single-node service with
+  [Standalone service](standalone-service.md).
+- Isolate untrusted executable units with
+  [Sandbox container](sandbox-container.md).
 - Embed the runtime in a host app with
   [Embedded library](embedded-library.md).

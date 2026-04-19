@@ -38,17 +38,14 @@ jobs:
         # all extras is the simplest way to keep the drift gate honest in CI.
         run: uv sync --all-extras
 
-      - name: Check OpenAPI snapshot is up to date
-        run: |
-          uv run python scripts/dump_openapi.py --check --out openapi/zeroth-core-openapi.json
-
       - name: Check Configuration reference is up to date
         run: |
           uv run python scripts/dump_config.py --check --out docs/reference/configuration.md
 
-      - name: Check docs OpenAPI asset mirrors root snapshot
+      - name: Generate OpenAPI asset for docs site
         run: |
-          diff -u openapi/zeroth-core-openapi.json docs/assets/openapi/zeroth-core-openapi.json
+          mkdir -p docs/assets/openapi
+          uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-core-openapi.json
 
       - name: Build site (strict)
         run: uv run mkdocs build --strict

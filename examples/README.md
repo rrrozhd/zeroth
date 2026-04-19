@@ -28,8 +28,6 @@ runtime → ship it as an API → governance → advanced.
 | ------------------------------------ | --------------------------------------------------------------------------- |
 | `10_serve_in_python.py`              | `bootstrap_service` → `create_app` → `uvicorn.run`. Prints the curl commands you need. |
 | `11_serve_via_entrypoint.md`         | The production path: `zeroth.yaml`, `ZEROTH_*` env vars, `python -m examples.service.entrypoint`. |
-| `12_docker_compose.md`               | How the `docker-compose.yml` stack fits together and where each service plugs in. |
-| `13_dev_server.py`                   | The fastest "change a graph, see the result" inner loop, without HTTP.       |
 | `service/zeroth.yaml`                | Base config file picked up by `zeroth.core.config.settings.get_settings`.   |
 | `service/seed_deployment.py`         | One-shot: migrations → contracts → graph → publish → deploy.                |
 | `service/entrypoint.py`              | Drop-in extension of `zeroth.core.service.entrypoint` with your own agent runners. |
@@ -68,7 +66,6 @@ runtime → ship it as an API → governance → advanced.
 uv run python examples/03_conditional_branches.py
 uv run python examples/04_native_tool.py
 uv run python examples/05_memory.py
-uv run python examples/13_dev_server.py
 uv run python examples/21_policy_block.py
 uv run python examples/22_budget_cap.py
 uv run python examples/23_secrets_and_sandbox.py
@@ -109,5 +106,5 @@ This rewrite uses only `zeroth.core.*` types you'd use in production:
 `NativeUnitManifest`, `MemoryConnectorResolver`, `PolicyGuard`,
 `BudgetEnforcer`, `WebhookDeliveryWorker`, `bootstrap_service`,
 `create_app`, and so on. If you're learning the library, read them
-top-down. If you're porting a graph into production, `10`, `11`, and
-`12` are the files you need.
+top-down. If you're porting a graph into production, `10` and `11`
+are the files you need.

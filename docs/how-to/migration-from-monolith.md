@@ -159,7 +159,7 @@ If your deployment sets `ZEROTH_*` vars via `.env`, docker-compose, Kubernetes s
 
 ## 5. Docker image retag
 
-Zeroth-core does not currently publish an official Docker image — you build your own from the package, or use the `docker-compose.yml` in the `zeroth-core` repo as a reference.
+Zeroth-core does not publish an official Docker image — you build your own from the package. See the [sandbox container guide](deployment/sandbox-container.md) for the isolation-focused recipe.
 
 **If you had a Dockerfile for the monolith** that installed it in editable mode, replace the install step:
 
@@ -180,8 +180,6 @@ docker push registry.example.com/myorg/myapp:zeroth-core-0.1.1
 ```
 
 Update your Kubernetes manifests, Helm values, or docker-compose files to point at the new tag, and roll the deployment. Because env vars are unchanged (see Section 4), no ConfigMap/Secret edits are needed.
-
-For a ready-made compose file, see the [docker-compose deployment guide](deployment/docker-compose.md).
 
 ## 6. Verify the migration
 

@@ -44,11 +44,10 @@ When `ZEROTH_REGULUS__ENABLED=true`, agent nodes are wrapped in a cost check
 before execution. The orchestrator halts the run if the budget is exceeded,
 and the halt is recorded in the audit trail.
 
-## Docker Compose excerpt
+## Compose excerpt
 
-Add a `regulus` service alongside `zeroth` in your compose file. The
-bundled `docker-compose.yml` already wires this for you — here is the
-salient excerpt:
+Add a `regulus` service alongside `zeroth` in whatever compose/manifest
+you run:
 
 ```yaml
 services:
@@ -66,9 +65,6 @@ services:
     networks:
       - zeroth-net
 ```
-
-For the full working file, see
-[Docker Compose deployment](docker-compose.md).
 
 ## Standalone deployment
 

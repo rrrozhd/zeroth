@@ -7,7 +7,9 @@ environment-variable overrides, and the `uvicorn` factory pattern
 from `zeroth.core.service.entrypoint`.
 
 Everything under `examples/service/` is designed to drop straight into
-a Docker build (see `examples/12_docker_compose.md`).
+your own container image or systemd unit (see the
+[Sandbox container guide](../docs/how-to/deployment/sandbox-container.md)
+for the isolation-focused recipe).
 
 ## Files
 

@@ -3,8 +3,8 @@
 #
 # Environment variables with the ``ZEROTH_`` prefix override these
 # values (e.g. ``ZEROTH_DATABASE__BACKEND=postgres``). In production
-# the file is baked into the Docker image and the env vars are set
-# by the orchestrator (see ``examples/12_docker_compose.md``).
+# the file is typically baked into your container image and the env
+# vars are set by the orchestrator.
 
 database:
   # SQLite is fine for dev and CI. For production set
