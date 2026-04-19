@@ -1,13 +1,12 @@
 """Dump the zeroth-core OpenAPI spec to JSON for offline consumption.
 
-Used by Phase 29 (zeroth-studio repo split) and Phase 32 (OpenAPI consumers)
-to produce a reproducible snapshot of the FastAPI OpenAPI document without
-requiring a running uvicorn process.
+Produces a reproducible snapshot of the FastAPI OpenAPI document without
+requiring a running uvicorn process. The docs CI calls this before
+``mkdocs build`` to render the HTTP API reference.
 
 Usage:
-    uv run python scripts/dump_openapi.py --out openapi/zeroth-core-openapi.json
+    uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-core-openapi.json
     uv run python scripts/dump_openapi.py  # writes to stdout
-    uv run python scripts/dump_openapi.py --check --out openapi/zeroth-core-openapi.json
 """
 
 from __future__ import annotations

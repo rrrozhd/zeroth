@@ -118,7 +118,7 @@ nav:
     - Deployment:
       - how-to/deployment/index.md
       - Local development: how-to/deployment/local-dev.md
-      - Docker Compose: how-to/deployment/docker-compose.md
+      - Sandbox container: how-to/deployment/sandbox-container.md
       - Standalone service: how-to/deployment/standalone-service.md
       - Embedded library: how-to/deployment/embedded-library.md
       - With Regulus: how-to/deployment/with-regulus.md

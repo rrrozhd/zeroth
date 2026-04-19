@@ -77,8 +77,8 @@ curl -X POST http://localhost:8000/deployments/demo-approval/approvals/$APPROVAL
 The endpoint is
 `POST /deployments/{deployment_ref}/approvals/{approval_id}/resolve`.
 Its request/response schemas live in
-`zeroth.core.service.approval_api` and are covered by the OpenAPI spec
-committed at `openapi/zeroth-core-openapi.json`. Passing
+`zeroth.core.service.approval_api` and are rendered in the
+[HTTP API Reference](../../reference/http-api.md). Passing
 `{"decision": "reject"}` would fail the run instead.
 
 ## Service mode vs library mode

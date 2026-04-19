@@ -11,8 +11,8 @@ Goes from "I have a graph" to "I have a production-shaped HTTP API on
 * :func:`create_app` — returns a fully-configured :class:`fastapi.FastAPI`
   instance with ``/v1/runs``, ``/v1/approvals``, ``/v1/audits``, ``/health``
   and authentication middleware already bolted on.
-* :mod:`uvicorn` — the same ASGI server the production ``docker-compose``
-  stack uses (see ``11_serve_via_entrypoint.md``).
+* :mod:`uvicorn` — the ASGI server used for both local and production
+  deployments (see ``11_serve_via_entrypoint.md``).
 
 After launch you can hit it with curl — the commands are printed at
 startup so you can copy-paste them into another terminal.

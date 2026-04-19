@@ -1,6 +1,8 @@
 # HTTP API Reference
 
-Interactive reference for the `zeroth-core` FastAPI service, rendered from the committed OpenAPI spec at [`openapi/zeroth-core-openapi.json`](https://github.com/rrrozhd/zeroth-core/blob/main/openapi/zeroth-core-openapi.json). The spec is regenerated from the FastAPI app on every commit via `scripts/dump_openapi.py`, and CI fails if it drifts.
+Interactive reference for the `zeroth-core` FastAPI service. The OpenAPI
+spec is generated from the FastAPI app at docs-build time via
+`scripts/dump_openapi.py` — it is not committed to the repo.
 
 <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
 <div id="swagger-ui"></div>
@@ -17,17 +19,15 @@ Interactive reference for the `zeroth-core` FastAPI service, rendered from the c
   });
 </script>
 
-## Regenerating the spec
-
-The spec is a committed snapshot, not fetched live. To refresh it locally:
+## Regenerating the spec locally
 
 ```bash
-uv run python scripts/dump_openapi.py --out openapi/zeroth-core-openapi.json
-cp openapi/zeroth-core-openapi.json docs/assets/openapi/zeroth-core-openapi.json
+uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-core-openapi.json
 ```
 
-CI runs `python scripts/dump_openapi.py --check --out openapi/zeroth-core-openapi.json` on every PR and fails if the committed snapshot is stale.
+The docs CI runs the same command before `mkdocs build`, so the
+published Swagger UI always reflects the live FastAPI routes.
 
 ## Offline consumption
 
-The raw JSON is available at [`/assets/openapi/zeroth-core-openapi.json`](../assets/openapi/zeroth-core-openapi.json) for tooling that wants to consume it directly (e.g., `openapi-typescript`, Postman import, ReDoc).
+The raw JSON is served at [`/assets/openapi/zeroth-core-openapi.json`](../assets/openapi/zeroth-core-openapi.json) on the built docs site for tooling that wants to consume it directly (e.g., `openapi-typescript`, Postman import, ReDoc).

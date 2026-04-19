@@ -49,9 +49,6 @@ jobs:
       - name: 10_serve_in_python.py (import-only; skips without OPENAI_API_KEY)
         run: uv run python examples/10_serve_in_python.py
 
-      - name: 13_dev_server.py
-        run: uv run python examples/13_dev_server.py
-
       # Governance tier.
       - name: 20_approval_gate.py
         run: uv run python examples/20_approval_gate.py
