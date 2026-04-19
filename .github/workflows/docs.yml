@@ -40,9 +40,7 @@ jobs:
 
       - name: Check Configuration reference is up to date
         run: |
-          cp docs/reference/configuration.md /tmp/committed-config.md
-          uv run python scripts/dump_config.py --out /tmp/fresh-config.md
-          diff -u /tmp/committed-config.md /tmp/fresh-config.md
+          uv run python scripts/dump_config.py --check --out docs/reference/configuration.md
 
       - name: Generate OpenAPI asset for docs site
         run: |
