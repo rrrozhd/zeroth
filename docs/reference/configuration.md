@@ -172,7 +172,7 @@ Global resilient-HTTP-client configuration.
 | `ZEROTH_HTTP_CLIENT__MAX_RETRIES` | `int` | `3` |  |  |
 | `ZEROTH_HTTP_CLIENT__RETRY_BACKOFF_BASE` | `float` | `0.5` |  |  |
 | `ZEROTH_HTTP_CLIENT__RETRY_MAX_DELAY` | `float` | `60.0` |  |  |
-| `ZEROTH_HTTP_CLIENT__RETRYABLE_STATUS_CODES` | `set[int]` | `{500, 408, 502, 503, 504, 429}` |  |  |
+| `ZEROTH_HTTP_CLIENT__RETRYABLE_STATUS_CODES` | `set[int]` | `{408, 429, 500, 502, 503, 504}` |  |  |
 | `ZEROTH_HTTP_CLIENT__CIRCUIT_BREAKER_THRESHOLD` | `int` | `5` |  |  |
 | `ZEROTH_HTTP_CLIENT__CIRCUIT_BREAKER_RESET_TIMEOUT` | `float` | `30.0` |  |  |
 | `ZEROTH_HTTP_CLIENT__POOL_MAX_CONNECTIONS` | `int` | `100` |  |  |

@@ -97,7 +97,12 @@ def _render_default(field: Any) -> str:
         return f"`{default}`"
     if isinstance(default, (int, float)):
         return f"`{default}`"
-    if isinstance(default, (list, dict, tuple, set)):
+    if isinstance(default, (set, frozenset)):
+        # repr() of a set is hash-order-dependent. Sort for deterministic
+        # output so the drift check doesn't flap across Python invocations.
+        inner = ", ".join(repr(v) for v in sorted(default))
+        return f"`{{{inner}}}`"
+    if isinstance(default, (list, dict, tuple)):
         return f"`{default!r}`"
     return f"`{default!r}`"
 
