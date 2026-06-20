@@ -18,6 +18,8 @@ from zeroth.core.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
     Node,
+    RetrievalNode,
+    RetrievalNodeData,
     SubgraphNode,
     TemplateMemoryBinding,
 )
@@ -39,6 +41,8 @@ __all__ = [
     "HumanApprovalNode",
     "HumanApprovalNodeData",
     "Node",
+    "RetrievalNode",
+    "RetrievalNodeData",
     "SubgraphNode",
     "SubgraphNodeData",
     "TemplateMemoryBinding",
