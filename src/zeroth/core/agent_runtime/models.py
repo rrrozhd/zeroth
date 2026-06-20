@@ -76,6 +76,53 @@ class ModelParams(BaseModel):
     seed: int | None = None
 
 
+class ToolOutputSafetyConfig(BaseModel):
+    """Model-boundary safety controls for untrusted tool/memory output.
+
+    Tool results and memory-sourced content are re-injected into the LLM, where
+    they can carry prompt-injection payloads. These settings length-cap, screen,
+    and provenance-wrap that untrusted content before the model sees it. Enabled
+    by default (governance-first); set ``enabled=False`` to restore the prior
+    raw re-injection. See ``zeroth.core.agent_runtime.sanitization``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Default per-tool output cap (characters); individual tools can override via
+    # ToolAttachmentManifest.max_output_chars.
+    max_output_chars: int = Field(default=8000, ge=1)
+    wrap_with_provenance: bool = True
+    screen_for_injection: bool = True
+    # "flag" annotates the audit trail; "block" withholds the suspect content.
+    screening_mode: Literal["flag", "block"] = "flag"
+
+
+class ContentSafetyConfig(BaseModel):
+    """Content-safety policy for an agent's own input and output.
+
+    Detects PII and blocklisted terms in agent input/output and, depending on
+    ``mode``, flags (audit only), redacts, or blocks the run. **Opt-in**
+    (``enabled=False`` by default): unlike model-boundary sanitization, this
+    imposes a content policy on the application's own typed data, which is
+    high-blast-radius, so it is off until explicitly configured. See
+    ``zeroth.core.guardrails.content``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    scan_input: bool = True
+    scan_output: bool = True
+    # "flag" = audit only; "redact" = replace findings in-place; "block" = reject the run.
+    mode: Literal["flag", "redact", "block"] = "flag"
+    detect_pii: bool = True
+    # Empty = all built-in PII types (email, ssn, credit_card, phone).
+    pii_types: tuple[str, ...] = ()
+    # Case-insensitive literal terms to flag/redact/block.
+    blocklist: tuple[str, ...] = ()
+
+
 class AgentConfig(BaseModel):
     """The main configuration for an agent.
 
@@ -101,6 +148,8 @@ class AgentConfig(BaseModel):
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     timeout_seconds: float | None = Field(default=None, ge=0.0)
     max_tool_calls: int = Field(default=4, ge=0)
+    tool_output_safety: ToolOutputSafetyConfig = Field(default_factory=ToolOutputSafetyConfig)
+    content_safety: ContentSafetyConfig = Field(default_factory=ContentSafetyConfig)
     execution_placement: ExecutionPlacement = "local_only"
     requires_approval: bool = False
     mcp_servers: list[MCPServerConfig] = Field(default_factory=list)

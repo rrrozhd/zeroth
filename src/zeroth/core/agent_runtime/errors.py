@@ -44,6 +44,31 @@ class AgentRetryExhaustedError(AgentRuntimeError):
         self.last_error = last_error
 
 
+class AgentContentBlockedError(AgentRuntimeError):
+    """Raised when a content-safety guardrail blocks an agent's input or output.
+
+    Carries a structured ``audit_record`` mapping so the orchestrator's
+    failure-audit path (``_record_failed_execution_audit``) persists a rejected
+    NodeAuditRecord with the findings — i.e. a blocked run is auditable, not just
+    an exception (SAFE-03).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        direction: str,
+        findings: list[str],
+        audit_record: dict | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.direction = direction
+        self.findings = findings
+        # Consumed by RuntimeOrchestrator._record_failed_execution_audit via
+        # getattr(error, "audit_record", None).
+        self.audit_record = audit_record or {}
+
+
 class BudgetExceededError(RuntimeError):
     """Raised when a tenant has exceeded its budget cap (per D-12).
 
