@@ -62,6 +62,98 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ---
 
+## Identified Gaps — Candidate v4.2 (Agent Quality, Safety & Observability)
+
+Surfaced by a 2026-06-20 codebase gap analysis (see `.planning/GAP-ANALYSIS.md`). These are
+confirmed-absent or weak-partial capabilities that cut against the "governed, production-grade
+multi-agent" positioning. Not yet roadmapped to phases; logged here for traceability.
+
+### Agent Evaluation Harness (EVAL) — shipped 2026-06-20
+
+New `zeroth.core.eval` module: datasets, scorers, runner, and a CI gate. Decoupled from
+any executor via a `target` callable (`async (input) -> output`; wrap an `AgentRunner` or a
+graph run). Errors are first-class — a judge/target failure is an *errored* case, never a
+silent score of zero, and errored cases count against the pass rate.
+
+- [x] **EVAL-01**: `EvalDataset`/`EvalCase` reference format (input + expected + optional per-case rubric), loadable from JSONL/records
+- [x] **EVAL-02**: `LLMJudgeScorer` (configurable rubric, per-case override) using a provider adapter with structured output; provider/parse failures are errored, not zero
+- [x] **EVAL-03**: Deterministic scorers — exact-match, contains, regex, Pydantic-schema (the project's schema mechanism, not raw JSON-Schema), and arbitrary predicate
+- [x] **EVAL-04**: `EvalReport` (pass-rate, error-rate, per-scorer means) + `gate()` raising below an **absolute** pass-rate floor — baseline-diff regression deferred; errored cases can't inflate the rate
+- [x] **EVAL-05**: Quality scoring is a distinct module from `agent_runtime.OutputValidator` (shape); `SchemaScorer` is the one shape-as-quality check among the quality scorers
+
+### Model-Boundary Safety (MBND) — shipped 2026-06-20
+
+Implemented in `zeroth.core.agent_runtime.sanitization` (`ToolOutputSanitizer`,
+`HeuristicInjectionScreener`), wired into `AgentRunner._resolve_tool_calls` and the
+memory path in `PromptAssembler`. Controlled by `AgentConfig.tool_output_safety`
+(enabled by default); per-tool cap via `ToolAttachmentManifest.max_output_chars`.
+
+- [x] **MBND-01**: Tool/function results are sanitized (escaped, length-capped) before re-injection into the model
+- [x] **MBND-02**: Memory-sourced content carries provenance/untrusted markers when injected into prompts
+- [x] **MBND-03**: Configurable prompt-injection screening on untrusted tool/memory input
+- [x] **MBND-04**: Per-tool output size limits enforced independently of timeout
+
+### Content Safety Guardrails (SAFE) — shipped 2026-06-20
+
+Implemented in `zeroth.core.guardrails.content` (`ContentGuardrail`, `PIIFilter`,
+`BlocklistFilter`), applied at the agent input/output boundary in `AgentRunner` via
+`AgentConfig.content_safety` (**opt-in**, disabled by default — it imposes a policy on
+the app's own typed data). Block mode raises `AgentContentBlockedError`, which carries an
+`audit_record` so the orchestrator persists a `rejected` NodeAuditRecord with the findings.
+Scope: guards the agent's typed `input` and `output`; untrusted tool/memory output is
+covered separately by MBND.
+
+- [x] **SAFE-01**: Pluggable content filter on agent input/output (PII + blocklist; custom `ContentFilter` injectable) — implemented as an agent-boundary guardrail, not a standalone graph node
+- [x] **SAFE-02**: PII detection/redaction option on agent input and output (email, SSN, credit-card w/ Luhn, phone)
+- [x] **SAFE-03**: Safety guardrails emit audit events (`content_safety` in the node audit; `rejected` record on block) and can flag / redact / hard-block
+
+### Distributed Tracing (OBS) — shipped 2026-06-20
+
+Implemented in `zeroth.core.observability.tracing` (`start_span`, `configure_tracing`).
+OpenTelemetry is an optional `[otel]` extra; tracing is **off by default** and a
+zero-overhead no-op until enabled via `ZerothSettings.tracing` (wired in
+`bootstrap_service`). Spans wrap the orchestrator run, node dispatch, fan-out, subgraph,
+agent run, and tool call; fan-out branches inherit the parent span via asyncio
+contextvar propagation.
+
+- [x] **OBS-01**: Spans across orchestrator run/drive, node dispatch, agent run, tool call, and subgraph hops
+- [x] **OBS-02**: Correlation ID attached to spans; trace context propagates across fan-out branches (asyncio tasks)
+- [x] **OBS-03**: Configurable OTLP/HTTP exporter; spans carry the run/node/correlation identifiers that key the Prometheus metrics and audit records
+
+### Retrieval / RAG Node (RAG) — shipped 2026-06-20
+
+`RetrievalNode` (a first-class graph node type in `zeroth.core.graph`, dispatched by the
+orchestrator) queries a memory connector via the uniform `search({"text", "limit"})`
+interface (vector connectors do semantic top-k) and outputs the retrieved chunks under a
+configurable key for a downstream agent to ground on. Ingestion lives in
+`zeroth.core.rag.ingestion`.
+
+- [x] **RAG-01**: First-class `RetrievalNode` type that queries a vector connector and outputs grounded context for a downstream node to consume
+- [x] **RAG-02**: Document chunking + write pipeline (`chunk_text`, `ingest_documents`) feeding the retrieval store — **embedding delegated to the connector**; chunk attribution travels via the `{source_id}#{index}` key (the connector `write` interface carries no metadata field)
+- [x] **RAG-03**: Retrieved chunks audited with source attribution (query + per-chunk id/metadata; chunk bodies are not written to the audit log)
+
+### Provider Resilience (PRES) — shipped 2026-06-20
+
+Composable `ProviderAdapter` wrappers in `zeroth.core.agent_runtime.resilience`
+(`FallbackProviderAdapter`, `CachingProviderAdapter`, `InMemoryResponseCache`), stacked
+like `econ.InstrumentedProviderAdapter`. Opt-in: nothing is wrapped unless the caller
+composes them (e.g. `CachingProviderAdapter(FallbackProviderAdapter.across_models(...))`).
+
+- [x] **PRES-01**: Model fallback chains — `FallbackProviderAdapter` tries an ordered list of targets (per-target model override), failing over on transient provider errors (reuses the retry classifier); raises the last error if all fail
+- [x] **PRES-02**: Response caching keyed on prompt + params — **exact-match** via `CachingProviderAdapter` (tool-call responses skipped by default). **Semantic** caching is deferred; the `ResponseCache` protocol is the extension point for it.
+
+### Re-evaluate Current Out-of-Scope Calls
+
+The 2026-06-20 analysis flags two prior "Out of Scope" deferrals as **contestable** and worth
+revisiting before 1.0. Defensible deferrals (mobile apps, custom LLM hosting) are unchanged.
+
+| Deferral | Why contestable |
+|----------|-----------------|
+| Real-time streaming ("async sufficient") | No time-to-first-token for interactive/agentic UX; SSE is table stakes for agent APIs |
+| Model fallback chains | ✅ Resolved 2026-06-20 — `FallbackProviderAdapter` (PRES-01) provides automatic failover |
+
+---
+
 ## v3.0 Requirements — Core Library Extraction, Studio Split & Documentation
 
 v3.0 is a packaging and documentation milestone. No new runtime features. Deliverables: ship `zeroth-core` on PyPI under the `zeroth.core.*` namespace, move the Vue Studio to its own public repo, write in-depth documentation for every subsystem, and formalize the monolith archive.
@@ -366,4 +458,4 @@ Phases 22–23 shipped in v2.0. Phases 24–26 deferred to the new `zeroth-studi
 
 ---
 
-*Requirements last updated: 2026-04-13 (v4.1 milestone started).*
+*Requirements last updated: 2026-06-20 (MBND + SAFE + OBS + PRES + RAG + EVAL shipped — all six v4.2 candidate gaps closed; semantic response caching and baseline-diff eval regression remain deferred).*
