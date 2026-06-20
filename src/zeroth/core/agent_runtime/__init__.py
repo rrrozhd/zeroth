@@ -7,6 +7,7 @@ directly from this package.
 """
 
 from zeroth.core.agent_runtime.errors import (
+    AgentContentBlockedError,
     AgentInputValidationError,
     AgentOutputValidationError,
     AgentProviderError,
@@ -18,12 +19,14 @@ from zeroth.core.agent_runtime.mcp import MCPServerConfig
 from zeroth.core.agent_runtime.models import (
     AgentConfig,
     AgentRunResult,
+    ContentSafetyConfig,
     InMemoryThreadStateStore,
     ModelParams,
     PromptAssembly,
     PromptConfig,
     PromptMessage,
     RetryPolicy,
+    ToolOutputSafetyConfig,
 )
 from zeroth.core.agent_runtime.prompt import AgentAuditSerializer, PromptAssembler
 from zeroth.core.agent_runtime.provider import (
@@ -35,8 +38,22 @@ from zeroth.core.agent_runtime.provider import (
     ProviderRequest,
     ProviderResponse,
 )
+from zeroth.core.agent_runtime.resilience import (
+    CachingProviderAdapter,
+    FallbackProviderAdapter,
+    InMemoryResponseCache,
+    ProviderTarget,
+    ResponseCache,
+)
 from zeroth.core.agent_runtime.response_format import build_response_format
 from zeroth.core.agent_runtime.runner import AgentRunner
+from zeroth.core.agent_runtime.sanitization import (
+    HeuristicInjectionScreener,
+    InjectionScreener,
+    SanitizedContent,
+    ToolOutputSanitizer,
+    wrap_untrusted,
+)
 from zeroth.core.agent_runtime.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
@@ -58,6 +75,7 @@ from zeroth.core.agent_runtime.validation import OutputValidator
 __all__ = [
     "AgentAuditSerializer",
     "AgentConfig",
+    "AgentContentBlockedError",
     "AgentInputValidationError",
     "AgentOutputValidationError",
     "AgentProviderError",
@@ -66,9 +84,15 @@ __all__ = [
     "AgentRunner",
     "AgentRuntimeError",
     "AgentTimeoutError",
+    "CachingProviderAdapter",
+    "ContentSafetyConfig",
     "DeterministicProviderAdapter",
+    "FallbackProviderAdapter",
     "GovernedLLMProviderAdapter",
+    "HeuristicInjectionScreener",
+    "InMemoryResponseCache",
     "InMemoryThreadStateStore",
+    "InjectionScreener",
     "LiteLLMProviderAdapter",
     "MCPServerConfig",
     "ModelParams",
@@ -81,9 +105,12 @@ __all__ = [
     "ProviderMessage",
     "ProviderRequest",
     "ProviderResponse",
+    "ProviderTarget",
     "RepositoryThreadResolver",
     "RepositoryThreadStateStore",
+    "ResponseCache",
     "RetryPolicy",
+    "SanitizedContent",
     "ThreadResolution",
     "ToolAttachmentAction",
     "ToolAttachmentBinding",
@@ -91,8 +118,11 @@ __all__ = [
     "ToolAttachmentError",
     "ToolAttachmentManifest",
     "ToolAttachmentRegistry",
+    "ToolOutputSafetyConfig",
+    "ToolOutputSanitizer",
     "ToolPermissionError",
     "UndeclaredToolError",
     "build_response_format",
     "normalize_declared_tool_refs",
+    "wrap_untrusted",
 ]
