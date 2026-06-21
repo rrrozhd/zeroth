@@ -134,7 +134,9 @@ class JudgeVerdict(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     score: float = Field(ge=0.0, le=1.0)
-    rationale: str = ""
+    # Required (no default): OpenAI strict structured output rejects schemas where
+    # any property is omitted from `required`. A judge should always give a reason.
+    rationale: str
 
 
 _JUDGE_INSTRUCTION = (
