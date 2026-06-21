@@ -89,7 +89,9 @@ async def test_judge_parses_json_verdict_and_applies_threshold() -> None:
 
 @pytest.mark.asyncio
 async def test_judge_below_threshold_fails_without_error() -> None:
-    provider = _FakeProvider(ProviderResponse(content=JudgeVerdict(score=0.5)))  # typed content
+    provider = _FakeProvider(
+        ProviderResponse(content=JudgeVerdict(score=0.5, rationale="weak"))  # typed content
+    )
     result = await _judge(provider).score("weak output", _case())
     assert result.value == 0.5
     assert result.passed is False
