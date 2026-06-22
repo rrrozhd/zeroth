@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from zeroth.core.agent_runtime import AgentConfig, AgentRunner
 from zeroth.core.agent_runtime.errors import AgentOutputValidationError
-from zeroth.core.agent_runtime.provider import ProviderResponse
+from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.core.audit import AuditRepository
 from zeroth.core.audit.models import NodeAuditRecord, TokenUsage
 from zeroth.core.econ import (
@@ -27,7 +27,7 @@ from zeroth.core.econ import (
     waste_gate,
 )
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
+from zeroth.core.graph import AgentNode, AgentNodeData, Condition, Edge, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import RunRepository, RunStatus
 
@@ -241,3 +241,74 @@ async def test_failed_run_cost_survives_into_audit_and_waste_report(sqlite_db) -
     report = analyze_run(run.run_id, run.status, audits)
     assert report.confirmed_waste_usd == pytest.approx(0.02)
     assert any(f.kind == WasteKind.PAID_FOR_FAILED_RUN for f in report.findings)
+
+
+class _CountIn(BaseModel):
+    count: int = 0
+
+
+class _CountOut(BaseModel):
+    count: int
+
+
+async def test_real_loop_yields_multiple_audits_and_flags_waste(sqlite_db) -> None:
+    """A real terminating cycle produces one audit per visit, which analyze_run flags.
+
+    Guards loop_reexecution against being inert: confirms the audit data model
+    *appends* a record per node visit (rather than superseding to one record), so
+    the repeated spend is visible to the detector on a completed run.
+    """
+
+    def _increment(request):  # noqa: ANN001
+        count = request.metadata["input_payload"].get("count", 0)
+        return ProviderResponse(content={"count": count + 1}, cost_usd=0.01)
+
+    runner = AgentRunner(
+        AgentConfig(
+            name="loop",
+            instruction="increment",
+            model_name="t",
+            input_model=_CountIn,
+            output_model=_CountOut,
+        ),
+        CallableProviderAdapter(_increment),
+    )
+    graph = Graph(
+        graph_id="g-loop",
+        name="loop",
+        entry_step="loop",
+        execution_settings=ExecutionSettings(max_total_steps=10),
+        nodes=[
+            AgentNode(
+                node_id="loop",
+                graph_version_ref="g-loop:v1",
+                agent=AgentNodeData(instruction="increment", model_provider="p"),
+            )
+        ],
+        # Self-loop while count < 2, then no edge matches -> run completes.
+        edges=[
+            Edge(
+                edge_id="e-loop",
+                source_node_id="loop",
+                target_node_id="loop",
+                condition=Condition(expression="payload.count < 2", allow_cycle_traversal=True),
+            )
+        ],
+    )
+    orch = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository(sqlite_db),
+        agent_runners={"loop": runner},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    )
+
+    run = await orch.run_graph(graph, {"count": 0})
+    assert run.status is RunStatus.COMPLETED
+
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    loop_audits = [a for a in audits if a.node_id == "loop"]
+    assert len(loop_audits) >= 2  # one audit per visit -> loop multiplicity is real
+
+    report = analyze_run(run.run_id, run.status, audits)
+    assert report.flagged_waste_usd > 0
+    assert any(f.kind == WasteKind.LOOP_REEXECUTION for f in report.findings)
