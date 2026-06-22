@@ -17,7 +17,9 @@ from pydantic import BaseModel
 
 from zeroth.core.agent_runtime import AgentConfig, AgentRunner
 from zeroth.core.agent_runtime.errors import AgentOutputValidationError
+from zeroth.core.agent_runtime.models import RetryPolicy
 from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.core.agent_runtime.resilience import CachingProviderAdapter
 from zeroth.core.audit import AuditRepository
 from zeroth.core.audit.models import NodeAuditRecord, TokenUsage
 from zeroth.core.econ import (
@@ -33,7 +35,12 @@ from zeroth.core.runs import RunRepository, RunStatus
 
 
 def _audit(
-    node_id: str, cost_usd: float | None = None, *, status: str = "completed", audit_id: str = "a"
+    node_id: str,
+    cost_usd: float | None = None,
+    *,
+    status: str = "completed",
+    audit_id: str = "a",
+    execution_metadata: dict | None = None,
 ) -> NodeAuditRecord:
     return NodeAuditRecord(
         audit_id=audit_id,
@@ -43,6 +50,7 @@ def _audit(
         deployment_ref="g",
         status=status,
         cost_usd=cost_usd,
+        execution_metadata=execution_metadata or {},
     )
 
 
@@ -312,3 +320,183 @@ async def test_real_loop_yields_multiple_audits_and_flags_waste(sqlite_db) -> No
     report = analyze_run(run.run_id, run.status, audits)
     assert report.flagged_waste_usd > 0
     assert any(f.kind == WasteKind.LOOP_REEXECUTION for f in report.findings)
+
+
+# --- P2: retry overhead + cache efficiency ---------------------------------------
+
+
+def test_retry_overhead_flagged_on_completed_run() -> None:
+    """A node that took >1 attempt flags estimated retry overhead on a completed run."""
+    audits = [_audit("a", 0.01, execution_metadata={"extra": {"attempts": 3}})]
+    report = analyze_run("r1", RunStatus.COMPLETED, audits)
+    retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
+    assert retry.confirmed is False
+    assert retry.severity == "warning"
+    assert retry.metadata["attempts"] == 3
+    assert report.flagged_waste_usd == pytest.approx(0.02)  # 0.01 * (3 - 1)
+
+
+def test_retry_overhead_is_info_on_failed_run() -> None:
+    """On a failed run the retry cost is already in the failed-run total -> info only."""
+    audits = [_audit("a", 0.01, execution_metadata={"extra": {"attempts": 3}})]
+    report = analyze_run("r1", RunStatus.FAILED, audits)
+    assert report.confirmed_waste_usd == pytest.approx(0.01)
+    assert report.flagged_waste_usd == 0.0  # no double-count
+    retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
+    assert retry.wasted_usd == 0.0
+    assert retry.severity == "info"
+
+
+def test_cache_finding_only_when_caching_present() -> None:
+    """Cache efficiency is reported only when some audit carries a cache_hit flag."""
+    no_cache = analyze_run("r1", RunStatus.COMPLETED, [_audit("a", 0.01)])
+    assert not any(f.kind == WasteKind.CACHE_INEFFICIENCY for f in no_cache.findings)
+
+    with_cache = analyze_run(
+        "r1",
+        RunStatus.COMPLETED,
+        [
+            _audit(
+                "a",
+                0.01,
+                audit_id="1",
+                execution_metadata={"response": {"metadata": {"cache_hit": False}}},
+            ),
+            _audit(
+                "b",
+                0.0,
+                audit_id="2",
+                execution_metadata={"response": {"metadata": {"cache_hit": True}}},
+            ),
+        ],
+    )
+    cache = next(f for f in with_cache.findings if f.kind == WasteKind.CACHE_INEFFICIENCY)
+    assert cache.metadata == {"hits": 1, "misses": 1, "hit_rate": 0.5}
+    assert cache.wasted_usd == 0.0  # info, never counted as waste
+
+
+# --- P2 real-path: signals reach the persisted audit -----------------------------
+
+
+async def test_cache_hit_reaches_audit_and_is_detected(sqlite_db) -> None:
+    """A cache hit's flag survives into the persisted audit, and the detector reads it.
+
+    Pins the nested ``response.metadata.cache_hit`` path against a serialization
+    change silently making the detector inert.
+    """
+    # Constant echo + a bare self-loop: iteration 2's input equals iteration 1's, so
+    # it is an exact cache hit. Bounded to 2 steps so a miss AND a hit land in one
+    # run's audits (the run stops at the step guard). Cross-run caching wouldn't hit
+    # -- each run_graph builds a slightly different prompt.
+    cached = CachingProviderAdapter(
+        CallableProviderAdapter(
+            lambda _req: ProviderResponse(
+                content={"value": 1},
+                token_usage=TokenUsage(
+                    input_tokens=5, output_tokens=2, total_tokens=7, model_name="t"
+                ),
+            )
+        )
+    )
+    runner = AgentRunner(
+        AgentConfig(
+            name="loop",
+            instruction="echo",
+            model_name="t",
+            input_model=_ValueOut,
+            output_model=_ValueOut,
+        ),
+        cached,
+    )
+    graph = Graph(
+        graph_id="g-cache",
+        name="cache",
+        entry_step="loop",
+        execution_settings=ExecutionSettings(max_total_steps=2),
+        nodes=[
+            AgentNode(
+                node_id="loop",
+                graph_version_ref="g-cache:v1",
+                agent=AgentNodeData(instruction="echo", model_provider="p"),
+            )
+        ],
+        edges=[Edge(edge_id="e", source_node_id="loop", target_node_id="loop")],
+    )
+    # No regulus/cost wiring -> provider is not re-wrapped, so the cache flag flows
+    # cleanly (and the phantom-cost path that would inflate a hit is not in play).
+    orch = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository(sqlite_db),
+        agent_runners={"loop": runner},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    )
+
+    run = await orch.run_graph(graph, {"value": 1})  # 2 visits: miss then hit
+
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    report = analyze_run(run.run_id, run.status, audits)
+    cache = next(f for f in report.findings if f.kind == WasteKind.CACHE_INEFFICIENCY)
+    assert cache.metadata == {"hits": 1, "misses": 1, "hit_rate": 0.5}
+
+
+class _FlakyValidationProvider:
+    """Returns invalid output once, then valid -- forces exactly one validation retry."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def ainvoke(self, request):  # noqa: ANN001
+        """First call returns the wrong shape; subsequent calls succeed (costed)."""
+        self.calls += 1
+        content = {"value": 1} if self.calls >= 2 else {"wrong": "shape"}
+        return ProviderResponse(
+            content=content,
+            cost_usd=0.01,
+            token_usage=TokenUsage(input_tokens=5, output_tokens=2, total_tokens=7, model_name="t"),
+        )
+
+
+async def test_retry_overhead_fires_end_to_end(sqlite_db) -> None:
+    """A fail-once-then-succeed node records attempts=2, and the detector triggers."""
+    runner = AgentRunner(
+        AgentConfig(
+            name="n",
+            instruction="x",
+            model_name="t",
+            input_model=_AnyIn,
+            output_model=_ValueOut,
+            retry_policy=RetryPolicy(max_retries=1, use_exponential_backoff=False),
+        ),
+        _FlakyValidationProvider(),
+    )
+    graph = Graph(
+        graph_id="g-retry",
+        name="retry",
+        entry_step="n1",
+        execution_settings=ExecutionSettings(max_total_steps=5),
+        nodes=[
+            AgentNode(
+                node_id="n1",
+                graph_version_ref="g-retry:v1",
+                agent=AgentNodeData(instruction="x", model_provider="p"),
+            )
+        ],
+        edges=[],
+    )
+    orch = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository(sqlite_db),
+        agent_runners={"n1": runner},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    )
+
+    run = await orch.run_graph(graph, {})
+    assert run.status is RunStatus.COMPLETED
+
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    n1 = next(a for a in audits if a.node_id == "n1")
+    assert n1.execution_metadata["extra"]["attempts"] == 2  # retry recorded in the audit
+    report = analyze_run(run.run_id, run.status, audits)
+    retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
+    assert retry.metadata["attempts"] == 2
+    assert report.flagged_waste_usd > 0
