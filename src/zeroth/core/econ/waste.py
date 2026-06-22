@@ -14,15 +14,15 @@ judgment, because a loop may be intentional refinement rather than a bug. The tw
 never share a dollar (see :func:`analyze_run`), so ``confirmed_waste_usd`` stays a
 number you can put in front of someone without a caveat.
 
-Scope (P1): the ``paid_for_failed_run`` and ``loop_reexecution`` detectors. Cache
-inefficiency, retry/fallback overhead, and model right-sizing (cost x eval) are
-deferred to a later phase -- their signals exist on the audit record but are not
-yet first-class fields.
+Detectors: ``paid_for_failed_run`` and ``loop_reexecution`` (P1); ``retry_overhead``
+and ``cache_inefficiency`` (P2). Model right-sizing (cost x eval pass-rate) is a
+cross-model shape that does not fit a per-run audit pass and lives outside
+``analyze_run`` -- deferred to its own phase.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Any
 
@@ -37,6 +37,8 @@ class WasteKind(StrEnum):
 
     PAID_FOR_FAILED_RUN = "paid_for_failed_run"
     LOOP_REEXECUTION = "loop_reexecution"
+    RETRY_OVERHEAD = "retry_overhead"
+    CACHE_INEFFICIENCY = "cache_inefficiency"
 
 
 class WasteFinding(BaseModel):
@@ -97,6 +99,31 @@ class EconReport(BaseModel):
             "waste_ratio": self.waste_ratio,
             "findings": len(self.findings),
         }
+
+
+def _attempts(record: NodeAuditRecord) -> int:
+    """Retry attempts for a node from its audit (``extra.attempts``; defaults to 1)."""
+    extra = record.execution_metadata.get("extra")
+    if isinstance(extra, Mapping):
+        value = extra.get("attempts")
+        if isinstance(value, int) and value > 0:
+            return value
+    return 1
+
+
+def _cache_hit(record: NodeAuditRecord) -> bool | None:
+    """Cache hit/miss for a node, or ``None`` when caching was not in the chain.
+
+    Reads the nested ``response.metadata.cache_hit`` that ``CachingProviderAdapter``
+    sets. The path is pinned by a real-path test so a serialization change cannot
+    silently turn the detector inert (the lesson from the success-cost gap).
+    """
+    response = record.execution_metadata.get("response")
+    if isinstance(response, Mapping):
+        metadata = response.get("metadata")
+        if isinstance(metadata, Mapping) and "cache_hit" in metadata:
+            return bool(metadata["cache_hit"])
+    return None
 
 
 def analyze_run(
@@ -179,6 +206,62 @@ def analyze_run(
                     metadata={"executions": executions, "node_cost_usd": node_cost},
                 )
             )
+
+    for record in audits:
+        attempts = _attempts(record)
+        cost = record.cost_usd or 0.0
+        if attempts <= 1 or cost <= 0:
+            continue
+        # Failed attempts aren't recorded individually; estimate their cost as the
+        # final (recorded) attempt's. Different dollars from loop_reexecution
+        # (retries within one record vs repeated records), so no double-count.
+        estimated = cost * (attempts - 1)
+        if failed:
+            findings.append(
+                WasteFinding(
+                    kind=WasteKind.RETRY_OVERHEAD,
+                    node_id=record.node_id,
+                    wasted_usd=0.0,
+                    severity="info",
+                    detail=(
+                        f"node succeeded after {attempts} attempts "
+                        "(cost already counted in the failed-run total)"
+                    ),
+                    metadata={"attempts": attempts},
+                )
+            )
+        else:
+            findings.append(
+                WasteFinding(
+                    kind=WasteKind.RETRY_OVERHEAD,
+                    node_id=record.node_id,
+                    wasted_usd=estimated,
+                    severity="warning",
+                    detail=(
+                        f"node succeeded after {attempts} attempts; "
+                        f"~${estimated:.4f} estimated retry overhead"
+                    ),
+                    metadata={"attempts": attempts, "final_cost_usd": cost},
+                )
+            )
+
+    # Cache efficiency -- info only, and only when caching is actually in the chain
+    # (otherwise every uncached run would be stamped "0% hit rate" -- pure noise).
+    cache_flags = [hit for hit in (_cache_hit(record) for record in audits) if hit is not None]
+    if cache_flags:
+        hits = sum(1 for hit in cache_flags if hit)
+        total = len(cache_flags)
+        findings.append(
+            WasteFinding(
+                kind=WasteKind.CACHE_INEFFICIENCY,
+                wasted_usd=0.0,
+                severity="info",
+                detail=(
+                    f"cache hit rate {hits / total:.0%} ({hits}/{total}); {total - hits} miss(es)"
+                ),
+                metadata={"hits": hits, "misses": total - hits, "hit_rate": hits / total},
+            )
+        )
 
     return EconReport(
         run_id=run_id,
