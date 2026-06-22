@@ -1733,6 +1733,14 @@ class RuntimeOrchestrator:
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
+        redacted_audit_record = self._redact_for_audit(dict(audit_record))
+        # Promote cost/token fields so spend incurred before the failure -- a paid
+        # LLM call that then failed validation or was content-blocked -- is not lost
+        # from the audit trail (and stays visible to econ.waste.analyze_run).
+        token_usage_data = redacted_audit_record.get("token_usage")
+        token_usage = (
+            TokenUsage.model_validate(token_usage_data) if token_usage_data is not None else None
+        )
         await self.audit_repository.write(
             NodeAuditRecord(
                 audit_id=self._stored_audit_id(run.run_id, audit_ref),
@@ -1746,7 +1754,10 @@ class RuntimeOrchestrator:
                 status="rejected",
                 input_snapshot=self._redact_for_audit(dict(input_payload)),
                 output_snapshot={},
-                execution_metadata=self._redact_for_audit(dict(audit_record)),
+                execution_metadata=redacted_audit_record,
+                token_usage=token_usage,
+                cost_usd=redacted_audit_record.get("cost_usd"),
+                cost_event_id=redacted_audit_record.get("cost_event_id"),
                 error=str(error),
             )
         )
