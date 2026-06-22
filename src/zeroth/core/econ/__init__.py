@@ -9,11 +9,25 @@ Public API:
 from zeroth.core.econ.budget import BudgetEnforcer
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.econ.cost import CostEstimator
+from zeroth.core.econ.waste import (
+    EconReport,
+    EconThresholdError,
+    WasteFinding,
+    WasteKind,
+    analyze_run,
+    waste_gate,
+)
 
 __all__ = [
     "BudgetEnforcer",
-    "RegulusClient",
     "CostEstimator",
+    "EconReport",
+    "EconThresholdError",
+    "RegulusClient",
+    "WasteFinding",
+    "WasteKind",
+    "analyze_run",
+    "waste_gate",
 ]
 
 

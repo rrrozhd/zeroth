@@ -36,6 +36,7 @@ from zeroth.core.agent_runtime.prompt import AgentAuditSerializer, PromptAssembl
 from zeroth.core.agent_runtime.provider import (
     ProviderAdapter,
     ProviderRequest,
+    ProviderResponse,
     run_provider_with_timeout,
 )
 from zeroth.core.agent_runtime.retry import compute_backoff_delay, is_retryable_provider_error
@@ -330,8 +331,9 @@ class AgentRunner:
                         tool_call_records=tool_audits,
                         audit_record=record,
                     )
-                except AgentContentBlockedError:
+                except AgentContentBlockedError as exc:
                     # Content blocks are terminal — never retried or wrapped.
+                    self._attach_cost_audit(exc, response)
                     raise
                 except TimeoutError as exc:
                     last_error = AgentTimeoutError(
@@ -341,6 +343,7 @@ class AgentRunner:
                         raise last_error from exc
                 except AgentOutputValidationError as exc:
                     last_error = exc
+                    self._attach_cost_audit(exc, response)
                     if not retry_policy.retry_on_validation_error or attempt == max_attempts:
                         raise
                 except Exception as exc:
@@ -367,6 +370,27 @@ class AgentRunner:
             raise AgentRetryExhaustedError(attempts=attempts, last_error=last_error)
         finally:
             await self._stop_mcp_servers()
+
+    @staticmethod
+    def _attach_cost_audit(error: Exception, response: ProviderResponse | None) -> None:
+        """Bundle a paid response's cost onto a failing error's ``audit_record``.
+
+        Output-validation and content-block failures happen *after* a (paid)
+        provider call but *before* the success audit record is built, so without
+        this the spend is invisible to the audit trail -- and thus to
+        ``econ.waste.analyze_run``. Gated on ``cost_usd`` so only instrumented
+        (real-cost) calls are touched; merges into any ``audit_record`` the error
+        already carries (e.g. content-safety findings).
+        """
+        if response is None or response.cost_usd is None:
+            return
+        fragment: dict[str, Any] = {"cost_usd": response.cost_usd}
+        if response.cost_event_id is not None:
+            fragment["cost_event_id"] = response.cost_event_id
+        if response.token_usage is not None:
+            fragment["token_usage"] = response.token_usage.model_dump(mode="json")
+        existing = getattr(error, "audit_record", None)
+        error.audit_record = {**existing, **fragment} if isinstance(existing, Mapping) else fragment
 
     def _build_provider_request(
         self,
