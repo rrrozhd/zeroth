@@ -286,6 +286,13 @@ class AgentRunner:
                     # Copy token usage from provider response to audit record (per D-11)
                     if response.token_usage is not None:
                         record["token_usage"] = response.token_usage.model_dump(mode="json")
+                    # Promote cost to the top level so per-node spend reaches the
+                    # NodeAuditRecord (and econ.waste). serialize_record only nests it
+                    # under "response"; the runtime lifts these top-level keys.
+                    if response.cost_usd is not None:
+                        record["cost_usd"] = response.cost_usd
+                    if response.cost_event_id is not None:
+                        record["cost_event_id"] = response.cost_event_id
                     # Phase 37: Record compaction metadata in audit.
                     if compaction_result is not None:
                         record["context_window"] = {
