@@ -244,4 +244,68 @@ class TestPgvectorLive:
     """
 
     async def test_roundtrip(self):
-        pytest.skip("Requires pgvector testcontainer - run with pytest -m live")
+        """Vector write/read/semantic-search/delete against real Postgres+pgvector.
+
+        DSN comes from ``ZEROTH_TEST_PGVECTOR_DSN`` (default
+        ``postgresql://postgres:test@localhost:5432/postgres``). Embeddings are
+        generated live via litellm, so ``OPENAI_API_KEY`` must be set. Skips if
+        either the database is unreachable or no key is present.
+        """
+        import os
+
+        import psycopg
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            pytest.skip("pgvector live test needs OPENAI_API_KEY for embeddings")
+
+        dsn = os.environ.get(
+            "ZEROTH_TEST_PGVECTOR_DSN", "postgresql://postgres:test@localhost:5432/postgres"
+        )
+        # The connector registers the pgvector type before issuing its own
+        # CREATE EXTENSION, so the extension must already exist. Seed it (and
+        # probe reachability) on a throwaway connection first.
+        try:
+            seed = await psycopg.AsyncConnection.connect(dsn, connect_timeout=10)
+        except Exception as exc:  # noqa: BLE001
+            pytest.skip(f"Postgres not reachable at {dsn}: {exc}")
+        try:
+            await seed.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            await seed.commit()
+        finally:
+            await seed.close()
+
+        async def conn_factory():
+            return await psycopg.AsyncConnection.connect(dsn)
+
+        connector = PgvectorMemoryConnector(conn_factory, table_name="zeroth_test_vectors")
+        try:
+            await connector.write(
+                "sky", {"text": "the sky is blue"}, MemoryScope.SHARED, target="__shared__"
+            )
+            await connector.write(
+                "fruit", {"text": "bananas are yellow"}, MemoryScope.SHARED, target="__shared__"
+            )
+
+            entry = await connector.read("sky", MemoryScope.SHARED, target="__shared__")
+            assert entry is not None
+            assert entry.value == {"text": "the sky is blue"}
+
+            # Cosine search ranks the semantically closest document first.
+            hits = await connector.search(
+                {"text": "what color is the sky", "limit": 2},
+                MemoryScope.SHARED,
+                target="__shared__",
+            )
+            assert hits and hits[0].key == "sky"
+
+            await connector.delete("sky", MemoryScope.SHARED, target="__shared__")
+            assert await connector.read("sky", MemoryScope.SHARED, target="__shared__") is None
+            with pytest.raises(KeyError):
+                await connector.delete("sky", MemoryScope.SHARED, target="__shared__")
+        finally:
+            cleanup = await psycopg.AsyncConnection.connect(dsn)
+            try:
+                await cleanup.execute("DROP TABLE IF EXISTS zeroth_test_vectors")
+                await cleanup.commit()
+            finally:
+                await cleanup.close()

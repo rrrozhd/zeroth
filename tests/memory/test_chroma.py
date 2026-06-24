@@ -86,7 +86,9 @@ class TestProtocol:
 class TestCollectionNaming:
     def test_collection_name_pattern(self, connector):
         name = connector._collection_name(MemoryScope.SHARED, "__shared__")
-        assert name == "zeroth_test_shared___shared__"
+        # Must be a valid ChromaDB name: starts and ends with an alphanumeric.
+        assert name == "zeroth_test_shared_shared"
+        assert name[0].isalnum() and name[-1].isalnum()
 
     def test_collection_name_sanitizes_target(self, connector):
         name = connector._collection_name(MemoryScope.RUN, "run-123:abc")
@@ -192,4 +194,56 @@ class TestChromaLive:
     """
 
     async def test_roundtrip(self):
-        pytest.skip("Requires ChromaDB testcontainer - run with pytest -m live")
+        """Vector write/read/semantic-search/delete against a real ChromaDB server.
+
+        Host/port come from ``ZEROTH_TEST_CHROMA_HOST`` / ``ZEROTH_TEST_CHROMA_PORT``
+        (default ``localhost:8000``). Embeddings are generated live via litellm,
+        so ``OPENAI_API_KEY`` must be set. Skips if the server is unreachable or
+        no key is present.
+        """
+        import os
+
+        import chromadb
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            pytest.skip("chroma live test needs OPENAI_API_KEY for embeddings")
+
+        host = os.environ.get("ZEROTH_TEST_CHROMA_HOST", "localhost")
+        port = int(os.environ.get("ZEROTH_TEST_CHROMA_PORT", "8000"))
+        try:
+            client = chromadb.HttpClient(host=host, port=port)
+            client.heartbeat()
+        except Exception as exc:  # noqa: BLE001
+            pytest.skip(f"ChromaDB not reachable at {host}:{port}: {exc}")
+
+        connector = ChromaDBMemoryConnector(client, collection_prefix="zeroth_test")
+        collection = connector._collection_name(MemoryScope.SHARED, "__shared__")
+        try:
+            await connector.write(
+                "sky", {"text": "the sky is blue"}, MemoryScope.SHARED, target="__shared__"
+            )
+            await connector.write(
+                "fruit", {"text": "bananas are yellow"}, MemoryScope.SHARED, target="__shared__"
+            )
+
+            entry = await connector.read("sky", MemoryScope.SHARED, target="__shared__")
+            assert entry is not None
+            assert entry.value == {"text": "the sky is blue"}
+
+            # Cosine search ranks the semantically closest document first.
+            hits = await connector.search(
+                {"text": "what color is the sky", "limit": 2},
+                MemoryScope.SHARED,
+                target="__shared__",
+            )
+            assert hits and hits[0].key == "sky"
+
+            await connector.delete("sky", MemoryScope.SHARED, target="__shared__")
+            assert await connector.read("sky", MemoryScope.SHARED, target="__shared__") is None
+            with pytest.raises(KeyError):
+                await connector.delete("sky", MemoryScope.SHARED, target="__shared__")
+        finally:
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                client.delete_collection(collection)
