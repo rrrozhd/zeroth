@@ -158,7 +158,7 @@ class PgvectorMemoryConnector:
                 f"SELECT key, value, scope, scope_target, metadata, created_at, updated_at "
                 f"FROM {self._table} "
                 f"WHERE scope = %s AND scope_target = %s "
-                f"ORDER BY embedding <=> %s LIMIT %s",
+                f"ORDER BY embedding <=> %s::vector LIMIT %s",
                 [scope.value, target or "", embedding, limit],
             )
             rows = await cur.fetchall()
