@@ -21,6 +21,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
+import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
 import { StudioNodeView, type Port } from "@/app/components/StudioNodeView";
 import { Button, Card, ErrorBox } from "@/app/components/ui";
 import {
@@ -123,7 +124,7 @@ function Editor({ id }: { id: string }) {
   const [status, setStatus] = useState<string>("");
   const [palette, setPalette] = useState<NodeType[]>([]);
   const [rf, setRf] = useState<ReactFlowInstance<Node, Edge> | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const paneRef = useRef<HTMLDivElement>(null);
 
   const [loading, setLoading] = useState(true);
@@ -197,14 +198,22 @@ function Editor({ id }: { id: string }) {
     [rf, setNodes],
   );
 
-  const patchSelected = useCallback(
-    (patch: Partial<{ label: string; config: Cfg }>) => {
-      if (!selectedId) return;
+  const patchNode = useCallback(
+    (nodeId: string, patch: Partial<{ label: string; config: Cfg }>) => {
       setNodes((ns) =>
-        ns.map((n) => (n.id === selectedId ? { ...n, data: { ...n.data, ...patch } } : n)),
+        ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n)),
       );
     },
-    [selectedId, setNodes],
+    [setNodes],
+  );
+
+  const deleteNode = useCallback(
+    (nodeId: string) => {
+      setNodes((ns) => ns.filter((n) => n.id !== nodeId));
+      setEdges((es) => es.filter((e) => e.source !== nodeId && e.target !== nodeId));
+      setEditingId(null);
+    },
+    [setNodes, setEdges],
   );
 
   async function save() {
@@ -238,7 +247,7 @@ function Editor({ id }: { id: string }) {
     }
   }
 
-  const selected = nodes.find((n) => n.id === selectedId);
+  const editing = nodes.find((n) => n.id === editingId);
   const readOnly = status === "published";
 
   return (
@@ -286,7 +295,7 @@ function Editor({ id }: { id: string }) {
       </div>
 
       <div className="flex flex-col gap-4 lg:flex-row">
-        <aside className="w-full shrink-0 space-y-3 lg:w-56">
+        <aside className="w-full shrink-0 lg:w-60">
           <Card title="Add node">
             <div className="space-y-1.5">
               {palette.map((t) => (
@@ -294,26 +303,27 @@ function Editor({ id }: { id: string }) {
                   key={t.type}
                   onClick={() => addNode(t)}
                   disabled={readOnly}
-                  className="w-full rounded-lg border border-border px-3 py-1.5 text-left text-sm transition-colors hover:border-accent/40 hover:bg-accent/[0.04] disabled:opacity-50"
+                  title={readOnly ? "Clone to a draft to edit" : `Add ${t.label}`}
+                  className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent/[0.04] disabled:opacity-50 disabled:hover:border-transparent disabled:hover:bg-transparent"
                 >
-                  <div className="font-medium">{t.label}</div>
-                  <div className="text-[10px] text-muted">{t.type}</div>
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
+                    <NodeGlyph type={t.type} className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">{t.label}</span>
+                    <span className="block truncate text-xs text-muted">
+                      {NODE_META[t.type]?.blurb ?? t.category}
+                    </span>
+                  </span>
                 </button>
               ))}
             </div>
           </Card>
-
-          {selected && (
-            <Card title="Inspector">
-              <NodeInspector
-                studioType={(selected.data as { studioType: string }).studioType}
-                label={(selected.data as { label: string }).label}
-                config={(selected.data as { config: Cfg }).config}
-                onLabelChange={(label) => patchSelected({ label })}
-                onConfigChange={(config) => patchSelected({ config })}
-              />
-            </Card>
-          )}
+          <p className="mt-2 px-1 text-xs text-muted">
+            Click a node to edit it. Select a node or edge and press{" "}
+            <kbd className="rounded border border-border bg-surface px-1">Backspace</kbd> to
+            delete.
+          </p>
         </aside>
 
         <div
@@ -331,13 +341,12 @@ function Editor({ id }: { id: string }) {
               edges={edges}
               nodeTypes={nodeTypes}
               nodesFocusable
+              deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onInit={setRf}
-              onSelectionChange={({ nodes: sel }) =>
-                setSelectedId(sel.length === 1 ? sel[0].id : null)
-              }
+              onNodeClick={(_, node) => setEditingId(node.id)}
               fitView
               fitViewOptions={{ maxZoom: 1, padding: 0.25 }}
               minZoom={0.3}
@@ -357,6 +366,93 @@ function Editor({ id }: { id: string }) {
             </ReactFlow>
           )}
         </div>
+      </div>
+
+      {editing && (
+        <NodeEditorDialog
+          node={editing}
+          readOnly={readOnly}
+          onClose={() => setEditingId(null)}
+          onPatch={(patch) => patchNode(editing.id, patch)}
+          onDelete={() => deleteNode(editing.id)}
+        />
+      )}
+    </div>
+  );
+}
+
+function NodeEditorDialog({
+  node,
+  readOnly,
+  onClose,
+  onPatch,
+  onDelete,
+}: {
+  node: Node;
+  readOnly: boolean;
+  onClose: () => void;
+  onPatch: (patch: Partial<{ label: string; config: Cfg }>) => void;
+  onDelete: () => void;
+}) {
+  const d = node.data as { studioType: string; label: string; config: Cfg };
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-20"
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-label={`Edit ${d.label}`}
+        className="w-full max-w-md rounded-xl border border-border bg-surface shadow-xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
+              <NodeGlyph type={d.studioType} className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">{d.label || d.studioType}</div>
+              <div className="text-[11px] uppercase tracking-wide text-muted">{d.studioType}</div>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+            ✕
+          </Button>
+        </header>
+
+        <div className="max-h-[60vh] overflow-auto p-4">
+          <NodeInspector
+            studioType={d.studioType}
+            label={d.label}
+            config={d.config}
+            readOnly={readOnly}
+            onLabelChange={(label) => onPatch({ label })}
+            onConfigChange={(config) => onPatch({ config })}
+          />
+        </div>
+
+        <footer className="flex items-center justify-between border-t border-border px-4 py-3">
+          {readOnly ? (
+            <span className="text-xs text-muted">Read-only (published)</span>
+          ) : (
+            <Button variant="danger" size="sm" onClick={onDelete}>
+              Delete node
+            </Button>
+          )}
+          <Button variant="primary" size="sm" onClick={onClose}>
+            Done
+          </Button>
+        </footer>
       </div>
     </div>
   );
