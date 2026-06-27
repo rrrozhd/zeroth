@@ -8,6 +8,8 @@ import {
   Empty,
   ErrorBox,
   Json,
+  Mono,
+  PageHeader,
   StatusBadge,
   useAsync,
 } from "@/app/components/ui";
@@ -38,7 +40,7 @@ export default function RunsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Runs</h1>
+      <PageHeader title="Runs" subtitle="Submit and inspect runs." />
       {selected ? (
         <RunDetail runId={selected} onBack={() => setSelected(null)} />
       ) : (
@@ -182,7 +184,7 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
       </button>
 
       <Card
-        title={<span className="font-mono text-xs">{runId}</span>}
+        title={<Mono>{runId}</Mono>}
         actions={
           <Button onClick={reload} disabled={loading}>
             {loading ? "…" : "Refresh"}

@@ -1,7 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card, Empty, ErrorBox, Json, StatusBadge, useAsync } from "@/app/components/ui";
+import {
+  Button,
+  Card,
+  Empty,
+  ErrorBox,
+  Json,
+  PageHeader,
+  StatusBadge,
+  useAsync,
+} from "@/app/components/ui";
 import { errMsg, listApprovals, resolveApproval, type ApprovalRecord } from "@/app/lib/api";
 
 export default function ApprovalsPage() {
@@ -11,12 +20,15 @@ export default function ApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
-        <Button onClick={reload} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
-        </Button>
-      </div>
+      <PageHeader
+        title="Approvals"
+        subtitle="Resolve human-approval gates."
+        actions={
+          <Button onClick={reload} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
+          </Button>
+        }
+      />
 
       {error && <ErrorBox message={error} />}
       {data && pending.length === 0 && <Empty>No pending approvals.</Empty>}

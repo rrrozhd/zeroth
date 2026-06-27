@@ -1,26 +1,66 @@
 @import "tailwindcss";
 
+/* ---- Design tokens -------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --app-bg: #f7f7f8; /* tinted so white cards lift off it */
+  --surface: #ffffff;
+  --foreground: #18181b; /* zinc-900 */
+  --muted: #71717a; /* zinc-500 */
+  --border: #e4e4e7; /* zinc-200 */
+  --accent: #4f46e5; /* indigo-600 */
+  --accent-fg: #ffffff;
+  --ring: #6366f1; /* indigo-500 */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --app-bg: #09090b; /* zinc-950 */
+    --surface: #18181b; /* zinc-900 */
+    --foreground: #fafafa;
+    --muted: #a1a1aa; /* zinc-400 */
+    --border: #27272a; /* zinc-800 */
+    --accent: #6366f1; /* indigo-500 */
+    --accent-fg: #ffffff;
+    --ring: #818cf8;
   }
 }
 
+@theme inline {
+  --color-app: var(--app-bg);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, monospace;
+}
+
+/* ---- Base ---------------------------------------------------------------- */
 body {
-  background: var(--background);
+  background: var(--app-bg);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* One consistent, accessible focus ring on all interactive elements. */
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* React Flow theming hooks so the canvas matches the app surfaces. */
+.react-flow {
+  --xy-background-color: var(--app-bg);
+  --xy-node-border-default: var(--border);
 }
