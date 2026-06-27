@@ -256,11 +256,13 @@ The console reads its API base URL and `X-API-Key` from the browser at runtime
 detail view); approvals (approve/reject); per-node audit; deployment cost; and a
 Studio with workflow CRUD and a React Flow graph canvas.
 
-> **Studio authoring is layout-level today.** The canvas visualizes graphs and
-> persists node positions + viewport for *draft* workflows (published graphs are
-> read-only). Creating/removing executable nodes and edges is not yet persisted
-> by the studio API — those edits are visual-only until the backend gains
-> structural authoring.
+> **Studio authoring edits draft graph structure.** On a *draft* you can add the
+> five executable node types (agent, executable_unit, human_approval, retrieval,
+> subgraph), edit each node's config, draw edges, and save real graph nodes/edges
+> plus layout. Published graphs are read-only — *clone to a draft* to edit. Note:
+> an authored draft still needs contracts + a registered runner + deployment to
+> actually run; the canvas authors graph *structure*, not the full medium-code
+> wiring.
 
 ```bash
 # Build the static export (requires Node; produces frontend/out/)
