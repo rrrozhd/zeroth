@@ -252,6 +252,16 @@ once and runs in **two modes from the same bundle**:
 The console reads its API base URL and `X-API-Key` from the browser at runtime
 (localStorage), so the same artifact works in both modes.
 
+**What it covers:** an overview/health dashboard; runs (submit + a live-polling
+detail view); approvals (approve/reject); per-node audit; deployment cost; and a
+Studio with workflow CRUD and a React Flow graph canvas.
+
+> **Studio authoring is layout-level today.** The canvas visualizes graphs and
+> persists node positions + viewport for *draft* workflows (published graphs are
+> read-only). Creating/removing executable nodes and edges is not yet persisted
+> by the studio API — those edits are visual-only until the backend gains
+> structural authoring.
+
 ```bash
 # Build the static export (requires Node; produces frontend/out/)
 cd frontend && npm install && npm run build
