@@ -2695,7 +2695,7 @@
         ]
       },
       "put": {
-        "description": "Update a workflow's name, nodes, edges, or viewport.",
+        "description": "Update a workflow's name, structure (nodes/edges), and visual layout.\n\nOnly draft graphs are editable \u2014 published versions are immutable; clone one\nto a draft first (POST .../clone). When ``nodes`` are supplied they are built\ninto real executable graph nodes (and ``edges`` into graph edges), so the\ncanvas authors the actual graph, not just visual metadata.",
         "operationId": "update_workflow_api_studio_v1_workflows__workflow_id__put",
         "parameters": [
           {
@@ -2741,6 +2741,49 @@
           }
         },
         "summary": "Update Workflow",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
+    "/api/studio/v1/workflows/{workflow_id}/clone": {
+      "post": {
+        "description": "Clone a published workflow into a new editable draft version.",
+        "operationId": "clone_workflow_api_studio_v1_workflows__workflow_id__clone_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clone Workflow",
         "tags": [
           "studio"
         ]

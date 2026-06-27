@@ -173,6 +173,14 @@ export function deleteWorkflow(id: string): Promise<void> {
   });
 }
 
+/** Clone a published workflow into a fresh editable draft version (same id). */
+export function cloneWorkflow(id: string): Promise<WorkflowDetail> {
+  return apiFetch<WorkflowDetail>(
+    `/api/studio/v1/workflows/${encodeURIComponent(id)}/clone`,
+    { method: "POST" },
+  );
+}
+
 export function listNodeTypes(): Promise<NodeType[]> {
   return apiFetch<NodeType[]>("/api/studio/v1/node-types");
 }

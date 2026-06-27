@@ -18,9 +18,11 @@ import {
   type Node,
   type ReactFlowInstance,
 } from "@xyflow/react";
+import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
 import { StudioNodeView, type Port } from "@/app/components/StudioNodeView";
 import { Button, ErrorBox } from "@/app/components/ui";
 import {
+  cloneWorkflow,
   errMsg,
   getWorkflow,
   listNodeTypes,
@@ -31,24 +33,29 @@ import {
   type WorkflowDetail,
 } from "@/app/lib/api";
 
-// Stable reference — required by React Flow.
 const nodeTypes = { studio: StudioNodeView };
+
+type Cfg = Record<string, unknown>;
 
 function portsFor(type: string, types: NodeType[]): Port[] {
   return (types.find((t) => t.type === type)?.ports ?? []) as Port[];
 }
 
 function toRfNodes(detail: WorkflowDetail, types: NodeType[]): Node[] {
-  return detail.nodes.map((n) => ({
-    id: n.id,
-    type: "studio",
-    position: { x: n.position.x, y: n.position.y },
-    data: {
-      label: (n.data?.label as string) || n.id,
-      studioType: n.type,
-      ports: portsFor(n.type, types),
-    },
-  }));
+  return detail.nodes.map((n) => {
+    const data = (n.data ?? {}) as { label?: string; config?: Cfg };
+    return {
+      id: n.id,
+      type: "studio",
+      position: { x: n.position.x, y: n.position.y },
+      data: {
+        label: data.label || n.id,
+        studioType: n.type,
+        ports: portsFor(n.type, types),
+        config: data.config ?? {},
+      },
+    };
+  });
 }
 
 function toRfEdges(detail: WorkflowDetail): Edge[] {
@@ -62,12 +69,15 @@ function toRfEdges(detail: WorkflowDetail): Edge[] {
 }
 
 function toStudioNodes(nodes: Node[]): StudioNode[] {
-  return nodes.map((n) => ({
-    id: n.id,
-    type: (n.data as { studioType: string }).studioType,
-    position: { x: n.position.x, y: n.position.y },
-    data: { label: (n.data as { label: string }).label },
-  }));
+  return nodes.map((n) => {
+    const d = n.data as { studioType: string; label: string; config: Cfg };
+    return {
+      id: n.id,
+      type: d.studioType,
+      position: { x: n.position.x, y: n.position.y },
+      data: { label: d.label, config: d.config },
+    };
+  });
 }
 
 function toStudioEdges(edges: Edge[]): StudioEdge[] {
@@ -116,30 +126,28 @@ function Editor({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [cloning, setCloning] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [detail, types] = await Promise.all([getWorkflow(id), listNodeTypes()]);
+      setName(detail.name);
+      setStatus(detail.status);
+      setPalette(types);
+      setNodes(toRfNodes(detail, types));
+      setEdges(toRfEdges(detail));
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [id, setNodes, setEdges]);
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const [detail, types] = await Promise.all([getWorkflow(id), listNodeTypes()]);
-        if (!alive) return;
-        setName(detail.name);
-        setStatus(detail.status);
-        setPalette(types);
-        setNodes(toRfNodes(detail, types));
-        setEdges(toRfEdges(detail));
-      } catch (e) {
-        if (alive) setError(errMsg(e));
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [id, setNodes, setEdges]);
+    load();
+  }, [load]);
 
   const onConnect = useCallback(
     (c: Connection) =>
@@ -160,18 +168,23 @@ function Editor({ id }: { id: string }) {
           id: newId,
           type: "studio",
           position: { x: 80 + ns.length * 30, y: 80 + ns.length * 30 },
-          data: { label: t.label, studioType: t.type, ports: t.ports },
+          data: {
+            label: t.label,
+            studioType: t.type,
+            ports: t.ports,
+            config: { ...(DEFAULT_CONFIG[t.type] ?? {}) },
+          },
         }),
       );
     },
     [setNodes],
   );
 
-  const renameSelected = useCallback(
-    (label: string) => {
+  const patchSelected = useCallback(
+    (patch: Partial<{ label: string; config: Cfg }>) => {
       if (!selectedId) return;
       setNodes((ns) =>
-        ns.map((n) => (n.id === selectedId ? { ...n, data: { ...n.data, label } } : n)),
+        ns.map((n) => (n.id === selectedId ? { ...n, data: { ...n.data, ...patch } } : n)),
       );
     },
     [selectedId, setNodes],
@@ -195,6 +208,19 @@ function Editor({ id }: { id: string }) {
     }
   }
 
+  async function clone() {
+    setCloning(true);
+    setError(null);
+    try {
+      await cloneWorkflow(id);
+      await load(); // same id now resolves to the new editable draft version
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setCloning(false);
+    }
+  }
+
   const selected = nodes.find((n) => n.id === selectedId);
   const readOnly = status === "published";
 
@@ -208,17 +234,19 @@ function Editor({ id }: { id: string }) {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium dark:border-zinc-700 dark:bg-zinc-900"
+            disabled={readOnly}
+            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
           />
         </div>
-        <Button
-          variant="primary"
-          onClick={save}
-          disabled={saveState === "saving" || readOnly}
-          title={readOnly ? "Published graphs are read-only" : undefined}
-        >
-          {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Save"}
-        </Button>
+        {readOnly ? (
+          <Button variant="primary" onClick={clone} disabled={cloning}>
+            {cloning ? "Cloning…" : "Clone to draft"}
+          </Button>
+        ) : (
+          <Button variant="primary" onClick={save} disabled={saveState === "saving"}>
+            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Save"}
+          </Button>
+        )}
       </div>
 
       {error && <ErrorBox message={error} />}
@@ -226,21 +254,21 @@ function Editor({ id }: { id: string }) {
       <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
         {readOnly ? (
           <>
-            This workflow is <strong>published</strong> and read-only. Saving is
-            disabled — clone it to a draft to edit.
+            This workflow is <strong>published</strong> and read-only. Clone it to a draft
+            to edit its structure.
           </>
         ) : (
           <>
-            Layout (node positions) and viewport are saved. Creating or removing
-            executable nodes and edges isn&apos;t persisted by the studio API yet —
-            those edits are visual-only for now.
+            Editing a <strong>draft</strong>: nodes, edges, config, and layout are saved.
+            Fill required fields (<span className="text-amber-600">*</span>) before
+            publishing. Running an authored graph still needs contracts + a registered
+            runner + deployment.
           </>
         )}
       </div>
 
       <div className="flex gap-4">
-        {/* Palette */}
-        <aside className="w-44 shrink-0 space-y-3">
+        <aside className="w-52 shrink-0 space-y-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
             Add node
           </div>
@@ -249,33 +277,26 @@ function Editor({ id }: { id: string }) {
               <button
                 key={t.type}
                 onClick={() => addNode(t)}
-                className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                disabled={readOnly}
+                className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
               >
                 <div className="font-medium">{t.label}</div>
-                <div className="text-[10px] text-zinc-400">{t.category}</div>
+                <div className="text-[10px] text-zinc-400">{t.type}</div>
               </button>
             ))}
           </div>
 
           {selected && (
-            <div className="space-y-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                Selected node
-              </div>
-              <label className="block text-xs text-zinc-500">Label</label>
-              <input
-                value={(selected.data as { label: string }).label}
-                onChange={(e) => renameSelected(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-              />
-              <p className="text-[10px] text-zinc-400">
-                Select an edge/node and press Backspace to delete.
-              </p>
-            </div>
+            <NodeInspector
+              studioType={(selected.data as { studioType: string }).studioType}
+              label={(selected.data as { label: string }).label}
+              config={(selected.data as { config: Cfg }).config}
+              onLabelChange={(label) => patchSelected({ label })}
+              onConfigChange={(config) => patchSelected({ config })}
+            />
           )}
         </aside>
 
-        {/* Canvas */}
         <div className="h-[70vh] flex-1 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-zinc-400">
