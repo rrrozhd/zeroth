@@ -73,31 +73,37 @@ class TestLiteLLMAdapterForwarding:
         assert kwargs["response_format"] == fmt
 
     @pytest.mark.asyncio
-    async def test_output_model_uses_with_structured_output(self, adapter: LiteLLMProviderAdapter) -> None:
-        """When output_model is set, adapter uses with_structured_output()."""
+    async def test_output_model_binds_strict_response_format(self, adapter: LiteLLMProviderAdapter) -> None:
+        """When output_model is set, adapter binds an OpenAI strict-compliant
+        json_schema response_format and parses the JSON content back into the
+        Pydantic model -- including defaulted fields in `required`."""
 
         class TestOutput(BaseModel):
             answer: str
+            tags: list[str] = []  # defaulted field -- must still be required
 
-        mock_msg = _mock_ai_message()
-        parsed = TestOutput(answer="Paris")
-
-        # Mock the structured output chain
-        mock_structured = MagicMock()
-        mock_structured.ainvoke = AsyncMock(return_value={"raw": mock_msg, "parsed": parsed})
+        # litellm returns the structured result as a JSON string content.
+        mock_msg = _mock_ai_message(content='{"answer": "Paris", "tags": []}')
+        mock_bound = MagicMock()
+        mock_bound.ainvoke = AsyncMock(return_value=mock_msg)
 
         mock_client = MagicMock()
-        mock_client.with_structured_output = MagicMock(return_value=mock_structured)
+        mock_client.bind = MagicMock(return_value=mock_bound)
 
         request = ProviderRequest(model_name="openai/gpt-4o", output_model=TestOutput)
 
         with patch.object(adapter, "_get_client", return_value=mock_client):
             response = await adapter.ainvoke(request)
 
-        # Verify with_structured_output was called with the model and include_raw=True
-        mock_client.with_structured_output.assert_called_once_with(TestOutput, include_raw=True)
-        mock_structured.ainvoke.assert_called_once()
-        # Response content should be the parsed Pydantic instance
+        # A strict json_schema response_format was bound, with every property
+        # (including the defaulted `tags`) listed in `required`.
+        _, bind_kwargs = mock_client.bind.call_args
+        rf = bind_kwargs["response_format"]
+        assert rf["type"] == "json_schema"
+        assert rf["json_schema"]["strict"] is True
+        assert set(rf["json_schema"]["schema"]["required"]) == {"answer", "tags"}
+        mock_bound.ainvoke.assert_called_once()
+        # Response content should be the parsed Pydantic instance.
         assert isinstance(response.content, TestOutput)
         assert response.content.answer == "Paris"
 
