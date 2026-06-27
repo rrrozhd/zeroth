@@ -62,7 +62,12 @@ export interface paths {
         get: operations["get_workflow_api_studio_v1_workflows__workflow_id__get"];
         /**
          * Update Workflow
-         * @description Update a workflow's name, nodes, edges, or viewport.
+         * @description Update a workflow's name, structure (nodes/edges), and visual layout.
+         *
+         *     Only draft graphs are editable — published versions are immutable; clone one
+         *     to a draft first (POST .../clone). When ``nodes`` are supplied they are built
+         *     into real executable graph nodes (and ``edges`` into graph edges), so the
+         *     canvas authors the actual graph, not just visual metadata.
          */
         put: operations["update_workflow_api_studio_v1_workflows__workflow_id__put"];
         post?: never;
@@ -71,6 +76,26 @@ export interface paths {
          * @description Archive a workflow (soft delete).
          */
         delete: operations["delete_workflow_api_studio_v1_workflows__workflow_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/studio/v1/workflows/{workflow_id}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clone Workflow
+         * @description Clone a published workflow into a new editable draft version.
+         */
+        post: operations["clone_workflow_api_studio_v1_workflows__workflow_id__clone_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1929,6 +1954,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clone_workflow_api_studio_v1_workflows__workflow_id__clone_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDetailResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
