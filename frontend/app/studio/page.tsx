@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Button, Card, Empty, ErrorBox, StatusBadge, useAsync } from "@/app/components/ui";
+import {
+  Button,
+  Card,
+  Empty,
+  ErrorBox,
+  Field,
+  Input,
+  PageHeader,
+  StatusBadge,
+  useAsync,
+} from "@/app/components/ui";
 import { createWorkflow, deleteWorkflow, errMsg, listWorkflows } from "@/app/lib/api";
 
 export default function StudioPage() {
@@ -37,27 +47,28 @@ export default function StudioPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Studio</h1>
-        <Button onClick={reload} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
-        </Button>
-      </div>
+      <PageHeader
+        title="Studio"
+        subtitle="Author and manage workflow graphs."
+        actions={
+          <Button onClick={reload} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
+          </Button>
+        }
+      />
 
       <Card title="New workflow">
         <div className="flex items-end gap-3">
-          <label className="flex-1 text-sm">
-            <span className="mb-1 block font-medium text-zinc-700 dark:text-zinc-300">
-              Name
-            </span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && create()}
-              placeholder="My workflow"
-              className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            />
-          </label>
+          <div className="flex-1">
+            <Field label="Name">
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && create()}
+                placeholder="My workflow"
+              />
+            </Field>
+          </div>
           <Button variant="primary" onClick={create} disabled={busy || !name.trim()}>
             {busy ? "Creating…" : "Create"}
           </Button>

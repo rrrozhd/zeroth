@@ -29,19 +29,44 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   return { data, error, loading, reload: run, setData };
 }
 
+// --- Page header: consistent title / subtitle / actions row across pages.
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+        {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
+      </div>
+      {actions}
+    </header>
+  );
+}
+
 export function Card({
   title,
   actions,
   children,
+  className = "",
 }: {
   title?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+    <section
+      className={`rounded-xl border border-border bg-surface shadow-sm shadow-black/[0.03] ${className}`}
+    >
       {(title || actions) && (
-        <header className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+        <header className="flex items-center justify-between border-b border-border px-4 py-3">
           {title && <h2 className="text-sm font-semibold">{title}</h2>}
           {actions}
         </header>
@@ -52,30 +77,50 @@ export function Card({
 }
 
 const STATUS_TONES: Record<string, string> = {
-  completed: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-  succeeded: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-  published: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-  running: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  pending: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  paused: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  awaiting_approval: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  draft: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
-  failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
-  dead_letter: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+  completed: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  succeeded: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  published: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  ok: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  running: "bg-blue-500/12 text-blue-700 dark:text-blue-400",
+  pending: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  paused: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  awaiting_approval: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  draft: "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400",
+  failed: "bg-red-500/12 text-red-700 dark:text-red-400",
+  dead_letter: "bg-red-500/12 text-red-700 dark:text-red-400",
 };
 
-export function StatusBadge({ status }: { status: string }) {
-  const tone =
-    STATUS_TONES[status?.toLowerCase()] ??
-    "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+const DOT_TONES: Record<string, string> = {
+  completed: "bg-emerald-500",
+  succeeded: "bg-emerald-500",
+  published: "bg-emerald-500",
+  ok: "bg-emerald-500",
+  running: "bg-blue-500",
+  pending: "bg-amber-500",
+  paused: "bg-amber-500",
+  awaiting_approval: "bg-amber-500",
+  draft: "bg-zinc-400",
+  failed: "bg-red-500",
+  dead_letter: "bg-red-500",
+};
+
+export function StatusBadge({ status, dot = true }: { status: string; dot?: boolean }) {
+  const key = status?.toLowerCase();
+  const tone = STATUS_TONES[key] ?? "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400";
+  const dotTone = DOT_TONES[key] ?? "bg-zinc-400";
   return (
-    <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone}`}>{status}</span>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
+    >
+      {dot && <span className={`h-1.5 w-1.5 rounded-full ${dotTone}`} />}
+      {status}
+    </span>
   );
 }
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+    <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
       {message}
     </div>
   );
@@ -84,37 +129,80 @@ export function ErrorBox({ message }: { message: string }) {
 export function Button({
   children,
   variant = "default",
+  size = "md",
+  className = "",
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "default" | "primary" | "danger";
+  variant?: "default" | "primary" | "danger" | "ghost";
+  size?: "sm" | "md";
 }) {
   const base =
-    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+    "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  const sizes = { sm: "px-2.5 py-1 text-xs", md: "px-3.5 py-1.5 text-sm" };
   const tones = {
     default:
-      "border border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900",
-    primary:
-      "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300",
+      "border border-border bg-surface hover:bg-zinc-50 dark:hover:bg-zinc-800/60",
+    primary: "bg-accent text-accent-fg hover:opacity-90 shadow-sm shadow-accent/25",
     danger:
-      "border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/40",
+      "border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/40",
+    ghost: "text-muted hover:bg-zinc-100 hover:text-foreground dark:hover:bg-zinc-800/60",
   };
   return (
-    <button className={`${base} ${tones[variant]}`} {...props}>
+    <button className={`${base} ${sizes[size]} ${tones[variant]} ${className}`} {...props}>
       {children}
     </button>
   );
 }
 
+const fieldInput =
+  "w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm placeholder:text-zinc-400 focus-visible:border-accent";
+
+export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} className={`${fieldInput} ${props.className ?? ""}`} />;
+}
+
+export function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block text-sm">
+      <span className="mb-1 flex items-baseline gap-2">
+        <span className="font-medium">{label}</span>
+        {hint && <span className="text-xs font-normal text-zinc-400">{hint}</span>}
+      </span>
+      {children}
+    </label>
+  );
+}
+
 export function Json({ value }: { value: unknown }) {
   return (
-    <pre className="overflow-auto rounded-md bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+    <pre className="overflow-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-700 ring-1 ring-border dark:bg-zinc-900/60 dark:text-zinc-300">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
 }
 
+export function Mono({ children }: { children: React.ReactNode }) {
+  return (
+    <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-muted dark:bg-zinc-800">
+      {children}
+    </code>
+  );
+}
+
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm text-zinc-500">{children}</p>;
+  return (
+    <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
+      {children}
+    </p>
+  );
 }
 
 /** Render an API error, with friendlier copy for common auth/config codes. */
