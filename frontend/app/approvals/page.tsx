@@ -2,18 +2,22 @@
 
 import { useState } from "react";
 import {
+  ApiErrorNote,
   Button,
   Card,
   Empty,
   ErrorBox,
   Json,
+  NotConnected,
   PageHeader,
   StatusBadge,
   useAsync,
+  useConnected,
 } from "@/app/components/ui";
 import { errMsg, listApprovals, resolveApproval, type ApprovalRecord } from "@/app/lib/api";
 
 export default function ApprovalsPage() {
+  const connected = useConnected();
   const { data, error, loading, reload } = useAsync(listApprovals, []);
   const pending = (data ?? []).filter((a) => (a.status ?? "pending") === "pending");
   const resolved = (data ?? []).filter((a) => (a.status ?? "pending") !== "pending");
@@ -24,14 +28,15 @@ export default function ApprovalsPage() {
         title="Approvals"
         subtitle="Resolve human-approval gates."
         actions={
-          <Button onClick={reload} disabled={loading}>
+          <Button onClick={() => reload()} disabled={loading}>
             {loading ? "Loading…" : "Refresh"}
           </Button>
         }
       />
 
-      {error && <ErrorBox message={error} />}
-      {data && pending.length === 0 && <Empty>No pending approvals.</Empty>}
+      {!connected && <NotConnected />}
+      {connected && error && <ApiErrorNote error={error} />}
+      {connected && data && pending.length === 0 && <Empty>No pending approvals.</Empty>}
 
       <div className="space-y-3">
         {pending.map((a) => (
@@ -41,7 +46,7 @@ export default function ApprovalsPage() {
 
       {resolved.length > 0 && (
         <Card title="Resolved">
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          <ul className="divide-y divide-border">
             {resolved.map((a) => (
               <li
                 key={a.approval_id}

@@ -83,16 +83,16 @@ export function NodeInspector({
   }
 
   const inputCls =
-    "w-full rounded-md border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900";
+    "w-full rounded-lg border border-border bg-surface px-2 py-1 text-sm focus-visible:border-accent";
 
   return (
-    <div className="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+    <div className="space-y-3">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted">
         {studioType}
       </div>
 
       <label className="block text-xs">
-        <span className="mb-1 block text-zinc-500">Label</span>
+        <span className="mb-1 block text-muted">Label</span>
         <input value={label} onChange={(e) => onLabelChange(e.target.value)} className={inputCls} />
       </label>
 
@@ -101,7 +101,7 @@ export function NodeInspector({
         const str = value === undefined || value === null ? "" : String(value);
         return (
           <label key={f.key} className="block text-xs">
-            <span className="mb-1 block text-zinc-500">
+            <span className="mb-1 block text-muted">
               {f.label}
               {f.required && <span className="text-amber-600"> *</span>}
             </span>
@@ -137,7 +137,7 @@ export function NodeInspector({
         );
       })}
 
-      <p className="text-[10px] text-zinc-400">
+      <p className="text-[10px] text-muted">
         Select a node/edge and press Backspace to delete. <span className="text-amber-600">*</span>{" "}
         required to publish.
       </p>

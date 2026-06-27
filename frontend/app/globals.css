@@ -5,7 +5,7 @@
   --app-bg: #f7f7f8; /* tinted so white cards lift off it */
   --surface: #ffffff;
   --foreground: #18181b; /* zinc-900 */
-  --muted: #71717a; /* zinc-500 */
+  --muted: #52525b; /* zinc-600 — ~7:1 on app bg for comfortable AA margin */
   --border: #e4e4e7; /* zinc-200 */
   --accent: #4f46e5; /* indigo-600 */
   --accent-fg: #ffffff;
@@ -63,4 +63,11 @@ body {
 .react-flow {
   --xy-background-color: var(--app-bg);
   --xy-node-border-default: var(--border);
+}
+
+/* The canvas control buttons keep xyflow's faint default focus — give them the
+   same visible ring as the rest of the app. */
+.react-flow__controls-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
