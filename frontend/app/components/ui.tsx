@@ -268,6 +268,17 @@ export function ApiErrorNote({ error }: { error: string }) {
       </Empty>
     );
   }
+  if (error.startsWith("503")) {
+    // e.g. cost: "Regulus backend not configured" — this is optional infra,
+    // not a failure, so present it as an informational state.
+    return (
+      <Empty>
+        This feature isn&apos;t configured for the deployment.
+        {error.toLowerCase().includes("regulus") &&
+          " Cost tracking needs the Regulus backend, which isn't wired up here."}
+      </Empty>
+    );
+  }
   return <ErrorBox message={error} />;
 }
 
