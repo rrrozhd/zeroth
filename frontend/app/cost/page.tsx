@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, ErrorBox, useAsync } from "@/app/components/ui";
+import { Button, Card, ErrorBox, PageHeader, useAsync } from "@/app/components/ui";
 import { getCost } from "@/app/lib/api";
 
 export default function CostPage() {
@@ -8,12 +8,15 @@ export default function CostPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Cost</h1>
-        <Button onClick={reload} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
-        </Button>
-      </div>
+      <PageHeader
+        title="Cost"
+        subtitle="Aggregated provider spend."
+        actions={
+          <Button onClick={reload} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
+          </Button>
+        }
+      />
 
       {error && <ErrorBox message={error} />}
 

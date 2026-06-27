@@ -1,6 +1,14 @@
 "use client";
 
-import { ApiErrorNote, Button, Empty, Json, StatusBadge, useAsync } from "@/app/components/ui";
+import {
+  ApiErrorNote,
+  Button,
+  Empty,
+  Json,
+  PageHeader,
+  StatusBadge,
+  useAsync,
+} from "@/app/components/ui";
 import { listAudits, type NodeAuditRecord } from "@/app/lib/api";
 
 export default function AuditPage() {
@@ -9,12 +17,15 @@ export default function AuditPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Audit</h1>
-        <Button onClick={reload} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
-        </Button>
-      </div>
+      <PageHeader
+        title="Audit"
+        subtitle="Per-node audit records for this deployment."
+        actions={
+          <Button onClick={reload} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
+          </Button>
+        }
+      />
 
       {error && <ApiErrorNote error={error} />}
       {data && records.length === 0 && <Empty>No audit records yet.</Empty>}
