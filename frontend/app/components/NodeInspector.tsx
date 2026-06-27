@@ -63,12 +63,14 @@ export function NodeInspector({
   config,
   onLabelChange,
   onConfigChange,
+  readOnly = false,
 }: {
   studioType: string;
   label: string;
   config: Record<string, unknown>;
   onLabelChange: (v: string) => void;
   onConfigChange: (next: Record<string, unknown>) => void;
+  readOnly?: boolean;
 }) {
   const fields = FIELD_SPECS[studioType] ?? [];
 
@@ -83,38 +85,41 @@ export function NodeInspector({
   }
 
   const inputCls =
-    "w-full rounded-lg border border-border bg-surface px-2 py-1 text-sm focus-visible:border-accent";
+    "w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm focus-visible:border-accent disabled:opacity-60";
 
   return (
-    <div className="space-y-3">
-      <div className="text-xs font-semibold uppercase tracking-wide text-muted">
-        {studioType}
-      </div>
-
-      <label className="block text-xs">
-        <span className="mb-1 block text-muted">Label</span>
-        <input value={label} onChange={(e) => onLabelChange(e.target.value)} className={inputCls} />
+    <div className="space-y-4">
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium">Label</span>
+        <input
+          value={label}
+          disabled={readOnly}
+          onChange={(e) => onLabelChange(e.target.value)}
+          className={inputCls}
+        />
       </label>
 
       {fields.map((f) => {
         const value = config[f.key];
         const str = value === undefined || value === null ? "" : String(value);
         return (
-          <label key={f.key} className="block text-xs">
-            <span className="mb-1 block text-muted">
+          <label key={f.key} className="block text-sm">
+            <span className="mb-1 block font-medium">
               {f.label}
               {f.required && <span className="text-amber-600"> *</span>}
             </span>
             {f.kind === "textarea" ? (
               <textarea
                 value={str}
+                disabled={readOnly}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
-                rows={3}
+                rows={4}
                 className={inputCls}
               />
             ) : f.kind === "select" ? (
               <select
                 value={str}
+                disabled={readOnly}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 className={inputCls}
               >
@@ -129,6 +134,7 @@ export function NodeInspector({
                 value={str}
                 type={f.kind === "number" ? "number" : "text"}
                 placeholder={f.placeholder}
+                disabled={readOnly}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 className={inputCls}
               />
@@ -137,10 +143,11 @@ export function NodeInspector({
         );
       })}
 
-      <p className="text-[10px] text-muted">
-        Select a node/edge and press Backspace to delete. <span className="text-amber-600">*</span>{" "}
-        required to publish.
-      </p>
+      {fields.some((f) => f.required) && (
+        <p className="text-xs text-muted">
+          <span className="text-amber-600">*</span> required for the graph to publish.
+        </p>
+      )}
     </div>
   );
 }

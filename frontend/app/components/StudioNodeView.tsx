@@ -1,6 +1,7 @@
 "use client";
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { NodeGlyph } from "@/app/components/nodeMeta";
 
 export type Port = { id: string; type: string; direction: string; label: string };
 export type StudioNodeData = {
@@ -23,15 +24,18 @@ export function StudioNodeView({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`min-w-[150px] rounded-md border bg-white px-3 py-2 shadow-sm dark:bg-zinc-900 ${
+      className={`flex min-w-[180px] items-center gap-2.5 rounded-lg border bg-surface px-3 py-2.5 shadow-sm transition-shadow ${
         selected
-          ? "border-zinc-900 ring-1 ring-zinc-900 dark:border-zinc-100 dark:ring-zinc-100"
-          : "border-zinc-300 dark:border-zinc-700"
+          ? "border-accent ring-2 ring-accent/30"
+          : "border-border hover:shadow-md"
       }`}
     >
-      <div className="text-sm font-semibold leading-tight">{d.label}</div>
-      <div className="text-[10px] uppercase tracking-wide text-zinc-400">
-        {d.studioType}
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
+        <NodeGlyph type={d.studioType} className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold leading-tight">{d.label}</div>
+        <div className="text-[10px] uppercase tracking-wide text-muted">{d.studioType}</div>
       </div>
 
       {inputs.map((p, i) => (
