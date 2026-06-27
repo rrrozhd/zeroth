@@ -65,3 +65,4 @@ examples_service.sqlite
 # Playwright MCP / browser verification artifacts
 .playwright-mcp/
 *-mode.png
+/m?-*.png

@@ -1,91 +1,64 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
 import { ConnectBar } from "@/app/components/ConnectBar";
-import { ApiError, listWorkflows, type WorkflowSummary } from "@/app/lib/api";
-import { isConfigured } from "@/app/lib/config";
+import { Card, ErrorBox, useAsync } from "@/app/components/ui";
+import { getHealth } from "@/app/lib/api";
 
-export default function Home() {
-  const [items, setItems] = useState<WorkflowSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  // Gate localStorage-derived UI until after mount to avoid hydration mismatch.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      setItems(await listWorkflows());
-    } catch (e) {
-      setError(e instanceof ApiError ? `${e.status || ""} ${e.message}`.trim() : String(e));
-      setItems(null);
-    } finally {
-      setLoading(false);
-    }
-  }
+export default function Overview() {
+  const { data: health, error, loading, reload } = useAsync(getHealth, []);
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-6 py-10">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Zeroth Console</h1>
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Operate and author your Zeroth multi-agent apps.
         </p>
       </header>
 
-      <section className="mb-6">
-        <ConnectBar onChange={() => setError(null)} />
-      </section>
+      <ConnectBar onChange={reload} />
 
-      <section>
-        <div className="mb-3 flex items-center gap-3">
-          <h2 className="text-lg font-medium">Workflows</h2>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="rounded-md border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+      <Card title="Connected deployment">
+        {loading && <p className="text-sm text-zinc-500">Checking…</p>}
+        {error && <ErrorBox message={error} />}
+        {health && (
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+            <Field label="Status" value={health.status} />
+            <Field label="Deployment" value={health.deployment_ref} />
+            <Field label="Version" value={`v${health.deployment_version}`} />
+            <Field label="Graph" value={health.graph_version_ref} />
+          </dl>
+        )}
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {[
+          ["/runs", "Runs", "Submit & inspect runs"],
+          ["/approvals", "Approvals", "Resolve human gates"],
+          ["/audit", "Audit", "Per-node audit trail"],
+          ["/cost", "Cost", "Spend for this deployment"],
+          ["/studio", "Studio", "Author workflows"],
+        ].map(([href, title, desc]) => (
+          <Link
+            key={href}
+            href={href}
+            className="rounded-lg border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
           >
-            {loading ? "Loading…" : "Load workflows"}
-          </button>
-          {mounted && !isConfigured() && (
-            <span className="text-xs text-amber-600">Set an API key above first.</span>
-          )}
-        </div>
+            <div className="font-medium">{title}</div>
+            <div className="mt-0.5 text-xs text-zinc-500">{desc}</div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-        {error && (
-          <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-            {error}
-          </div>
-        )}
-
-        {items && items.length === 0 && !error && (
-          <p className="text-sm text-zinc-500">No workflows yet.</p>
-        )}
-
-        {items && items.length > 0 && (
-          <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-            {items.map((w) => (
-              <li
-                key={w.id}
-                className="flex items-center justify-between bg-white px-4 py-3 dark:bg-zinc-950"
-              >
-                <div>
-                  <div className="font-medium">{w.name}</div>
-                  <div className="font-mono text-xs text-zinc-500">{w.id}</div>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-zinc-500">
-                  <span className="rounded bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
-                    {w.status}
-                  </span>
-                  <span>v{w.version}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </main>
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-zinc-400">{label}</dt>
+      <dd className="font-mono text-sm">{value}</dd>
+    </div>
   );
 }
