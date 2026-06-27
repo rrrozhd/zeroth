@@ -41,6 +41,7 @@ export function StudioNodeView({ data, selected }: NodeProps) {
           type="target"
           position={Position.Left}
           title={p.label}
+          aria-label={p.label}
           className={`h-2.5 w-2.5 ${PORT_TONE[p.type] ?? "!bg-zinc-400"}`}
           style={{ top: `${((i + 1) / (inputs.length + 1)) * 100}%` }}
         />
@@ -52,6 +53,7 @@ export function StudioNodeView({ data, selected }: NodeProps) {
           type="source"
           position={Position.Right}
           title={p.label}
+          aria-label={p.label}
           className={`h-2.5 w-2.5 ${PORT_TONE[p.type] ?? "!bg-zinc-400"}`}
           style={{ top: `${((i + 1) / (outputs.length + 1)) * 100}%` }}
         />

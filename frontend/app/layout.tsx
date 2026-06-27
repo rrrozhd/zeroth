@@ -17,8 +17,16 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className="flex min-h-full flex-col">
+        <a
+          href="#main"
+          className="sr-only rounded-md bg-accent px-3 py-1.5 text-sm text-accent-fg focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50"
+        >
+          Skip to main content
+        </a>
         <Header />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">{children}</main>
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
+          {children}
+        </main>
       </body>
     </html>
   );

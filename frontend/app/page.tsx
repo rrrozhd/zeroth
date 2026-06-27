@@ -66,7 +66,7 @@ export default function Overview() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-zinc-400">
+                  <div className="text-xs uppercase tracking-wide text-muted">
                     Connected deployment
                   </div>
                   <div className="mt-0.5 text-lg font-semibold">{health.deployment_ref}</div>
@@ -84,7 +84,7 @@ export default function Overview() {
 
       {/* Quick links */}
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
           Jump to
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -122,7 +122,7 @@ export default function Overview() {
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-zinc-400">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
       <dd className={`mt-0.5 ${mono ? "font-mono text-sm" : "text-sm"}`}>{value}</dd>
     </div>
   );

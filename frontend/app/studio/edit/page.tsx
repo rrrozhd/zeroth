@@ -20,7 +20,7 @@ import {
 } from "@xyflow/react";
 import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
 import { StudioNodeView, type Port } from "@/app/components/StudioNodeView";
-import { Button, ErrorBox } from "@/app/components/ui";
+import { Button, Card, ErrorBox } from "@/app/components/ui";
 import {
   cloneWorkflow,
   errMsg,
@@ -226,32 +226,33 @@ function Editor({ id }: { id: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link href="/studio" className="text-sm text-zinc-500 hover:underline">
-            ← Studio
-          </Link>
+      <div>
+        <Link href="/studio" className="text-sm text-muted hover:underline">
+          ← Studio
+        </Link>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={readOnly}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
+            aria-label="Workflow name"
+            className="-ml-2 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1 text-2xl font-semibold tracking-tight hover:border-border focus-visible:border-accent disabled:opacity-70"
           />
+          {readOnly ? (
+            <Button variant="primary" onClick={clone} disabled={cloning}>
+              {cloning ? "Cloning…" : "Clone to draft"}
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={save} disabled={saveState === "saving"}>
+              {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Save"}
+            </Button>
+          )}
         </div>
-        {readOnly ? (
-          <Button variant="primary" onClick={clone} disabled={cloning}>
-            {cloning ? "Cloning…" : "Clone to draft"}
-          </Button>
-        ) : (
-          <Button variant="primary" onClick={save} disabled={saveState === "saving"}>
-            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Save"}
-          </Button>
-        )}
       </div>
 
       {error && <ErrorBox message={error} />}
 
-      <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+      <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
         {readOnly ? (
           <>
             This workflow is <strong>published</strong> and read-only. Clone it to a draft
@@ -259,54 +260,57 @@ function Editor({ id }: { id: string }) {
           </>
         ) : (
           <>
-            Editing a <strong>draft</strong>: nodes, edges, config, and layout are saved.
-            Fill required fields (<span className="text-amber-600">*</span>) before
-            publishing. Running an authored graph still needs contracts + a registered
-            runner + deployment.
+            Editing a <strong>draft</strong>: nodes, edges, config, and layout save to this
+            draft. Fields marked <span className="font-semibold">*</span> are required for the
+            graph to publish. Publishing &amp; running additionally need contracts, a
+            registered runner, and a deployment (the medium-code path).
           </>
         )}
       </div>
 
-      <div className="flex gap-4">
-        <aside className="w-52 shrink-0 space-y-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-            Add node
-          </div>
-          <div className="space-y-1.5">
-            {palette.map((t) => (
-              <button
-                key={t.type}
-                onClick={() => addNode(t)}
-                disabled={readOnly}
-                className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-              >
-                <div className="font-medium">{t.label}</div>
-                <div className="text-[10px] text-zinc-400">{t.type}</div>
-              </button>
-            ))}
-          </div>
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <aside className="w-full shrink-0 space-y-3 lg:w-56">
+          <Card title="Add node">
+            <div className="space-y-1.5">
+              {palette.map((t) => (
+                <button
+                  key={t.type}
+                  onClick={() => addNode(t)}
+                  disabled={readOnly}
+                  className="w-full rounded-lg border border-border px-3 py-1.5 text-left text-sm transition-colors hover:border-accent/40 hover:bg-accent/[0.04] disabled:opacity-50"
+                >
+                  <div className="font-medium">{t.label}</div>
+                  <div className="text-[10px] text-muted">{t.type}</div>
+                </button>
+              ))}
+            </div>
+          </Card>
 
           {selected && (
-            <NodeInspector
-              studioType={(selected.data as { studioType: string }).studioType}
-              label={(selected.data as { label: string }).label}
-              config={(selected.data as { config: Cfg }).config}
-              onLabelChange={(label) => patchSelected({ label })}
-              onConfigChange={(config) => patchSelected({ config })}
-            />
+            <Card title="Inspector">
+              <NodeInspector
+                studioType={(selected.data as { studioType: string }).studioType}
+                label={(selected.data as { label: string }).label}
+                config={(selected.data as { config: Cfg }).config}
+                onLabelChange={(label) => patchSelected({ label })}
+                onConfigChange={(config) => patchSelected({ config })}
+              />
+            </Card>
           )}
         </aside>
 
-        <div className="h-[70vh] flex-1 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <div className="h-[60vh] flex-1 overflow-hidden rounded-xl border border-border bg-surface lg:h-[70vh]">
           {loading ? (
-            <div className="flex h-full items-center justify-center text-sm text-zinc-400">
+            <div className="flex h-full items-center justify-center text-sm text-muted">
               Loading graph…
             </div>
           ) : (
             <ReactFlow
+              aria-label="Workflow graph editor"
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
+              nodesFocusable
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}

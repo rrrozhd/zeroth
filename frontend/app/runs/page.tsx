@@ -7,11 +7,16 @@ import {
   Card,
   Empty,
   ErrorBox,
+  Field,
+  Input,
   Json,
   Mono,
+  NotConnected,
   PageHeader,
   StatusBadge,
+  Textarea,
   useAsync,
+  useConnected,
 } from "@/app/components/ui";
 import {
   errMsg,
@@ -32,6 +37,7 @@ const ACTIVE = new Set([
 ]);
 
 export default function RunsPage() {
+  const connected = useConnected();
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,7 +47,9 @@ export default function RunsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Runs" subtitle="Submit and inspect runs." />
-      {selected ? (
+      {!connected ? (
+        <NotConnected />
+      ) : selected ? (
         <RunDetail runId={selected} onBack={() => setSelected(null)} />
       ) : (
         <>
@@ -59,7 +67,7 @@ function RunList({ onSelect }: { onSelect: (id: string) => void }) {
     <Card
       title="Recent runs"
       actions={
-        <Button onClick={reload} disabled={loading}>
+        <Button onClick={() => reload()} disabled={loading}>
           {loading ? "Loading…" : "Refresh"}
         </Button>
       }
@@ -67,17 +75,15 @@ function RunList({ onSelect }: { onSelect: (id: string) => void }) {
       {error && <ApiErrorNote error={error} />}
       {data && data.runs.length === 0 && <Empty>No runs yet.</Empty>}
       {data && data.runs.length > 0 && (
-        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <ul className="divide-y divide-border">
           {data.runs.map((r) => (
             <li key={r.run_id}>
               <button
                 onClick={() => onSelect(r.run_id)}
-                className="flex w-full items-center justify-between py-2.5 text-left hover:opacity-80"
+                className="flex w-full items-center justify-between gap-3 py-2.5 text-left hover:opacity-80"
               >
-                <span className="font-mono text-xs text-zinc-600 dark:text-zinc-400">
-                  {r.run_id}
-                </span>
-                <span className="flex items-center gap-3 text-xs text-zinc-500">
+                <span className="truncate font-mono text-xs text-muted">{r.run_id}</span>
+                <span className="flex shrink-0 items-center gap-3 text-xs text-muted">
                   {r.current_step && <span>{r.current_step}</span>}
                   <StatusBadge status={r.status} />
                 </span>
@@ -102,7 +108,7 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
     try {
       parsed = JSON.parse(payload);
     } catch {
-      setError("input_payload is not valid JSON");
+      setError("Input payload is not valid JSON.");
       return;
     }
     setBusy(true);
@@ -123,27 +129,21 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
     <Card title="Submit a run">
       <div className="space-y-3">
         {error && <ErrorBox message={error} />}
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-zinc-700 dark:text-zinc-300">
-            input_payload (JSON)
-          </span>
-          <textarea
+        <Field label="Input payload (JSON)">
+          <Textarea
             value={payload}
             onChange={(e) => setPayload(e.target.value)}
             rows={5}
-            className="w-full rounded-md border border-zinc-300 p-2 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            className="font-mono text-xs"
           />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-zinc-700 dark:text-zinc-300">
-            thread_id <span className="font-normal text-zinc-400">(optional)</span>
-          </span>
-          <input
+        </Field>
+        <Field label="Thread ID" hint="optional">
+          <Input
             value={thread}
             onChange={(e) => setThread(e.target.value)}
-            className="w-full rounded-md border border-zinc-300 px-3 py-1.5 font-mono text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            className="font-mono"
           />
-        </label>
+        </Field>
         <Button variant="primary" onClick={submit} disabled={busy}>
           {busy ? "Submitting…" : "Submit run"}
         </Button>
@@ -153,18 +153,15 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
 }
 
 function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
-  const { data, error, loading, reload } = useAsync<RunStatus>(
-    () => getRun(runId),
-    [runId],
-  );
+  const { data, error, loading, reload } = useAsync<RunStatus>(() => getRun(runId), [runId]);
   const [timeline, setTimeline] = useState<unknown>(null);
   const [tlError, setTlError] = useState<string | null>(null);
 
-  // Poll while the run is still active.
+  // Poll (in the background, so the Refresh button doesn't flicker) while active.
   const active = data ? ACTIVE.has(data.status.toLowerCase()) : false;
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(reload, 1500);
+    const t = setInterval(() => reload(true), 1500);
     return () => clearInterval(t);
   }, [active, reload]);
 
@@ -179,34 +176,32 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
 
   return (
     <div className="space-y-4">
-      <button onClick={onBack} className="text-sm text-zinc-500 hover:underline">
+      <button onClick={onBack} className="text-sm text-muted hover:underline">
         ← Back to runs
       </button>
 
       <Card
         title={<Mono>{runId}</Mono>}
         actions={
-          <Button onClick={reload} disabled={loading}>
-            {loading ? "…" : "Refresh"}
+          <Button onClick={() => reload()} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
           </Button>
         }
       >
-        {error && <ErrorBox message={error} />}
+        {error && <ApiErrorNote error={error} />}
         {data && (
           <div className="space-y-3 text-sm">
             <div className="flex items-center gap-3">
               <StatusBadge status={data.status} />
-              {active && <span className="text-xs text-zinc-400">auto-refreshing…</span>}
+              {active && <span className="text-xs text-muted">auto-refreshing…</span>}
               {data.current_step && (
-                <span className="text-zinc-500">step: {data.current_step}</span>
+                <span className="text-muted">step: {data.current_step}</span>
               )}
             </div>
 
             {data.failure_state && (
               <div>
-                <div className="mb-1 font-medium text-red-700 dark:text-red-400">
-                  Failure
-                </div>
+                <div className="mb-1 font-medium text-red-700 dark:text-red-400">Failure</div>
                 <Json value={data.failure_state} />
               </div>
             )}
@@ -230,10 +225,7 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
         )}
       </Card>
 
-      <Card
-        title="Timeline"
-        actions={<Button onClick={loadTimeline}>Load timeline</Button>}
-      >
+      <Card title="Timeline" actions={<Button onClick={loadTimeline}>Load timeline</Button>}>
         {tlError && <ErrorBox message={tlError} />}
         {timeline ? <Json value={timeline} /> : <Empty>Not loaded.</Empty>}
       </Card>

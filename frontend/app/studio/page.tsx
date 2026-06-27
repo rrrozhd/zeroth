@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import {
+  ApiErrorNote,
   Button,
   Card,
   Empty,
@@ -20,6 +21,8 @@ export default function StudioPage() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<{ id: string; msg: string } | null>(null);
 
   async function create() {
     if (!name.trim()) return;
@@ -36,12 +39,17 @@ export default function StudioPage() {
     }
   }
 
-  async function remove(id: string) {
+  async function remove(id: string, label: string) {
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+    setDeletingId(id);
+    setRowError(null);
     try {
       await deleteWorkflow(id);
       reload();
     } catch (e) {
-      setFormError(errMsg(e));
+      setRowError({ id, msg: errMsg(e) });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -51,7 +59,7 @@ export default function StudioPage() {
         title="Studio"
         subtitle="Author and manage workflow graphs."
         actions={
-          <Button onClick={reload} disabled={loading}>
+          <Button onClick={() => reload()} disabled={loading}>
             {loading ? "Loading…" : "Refresh"}
           </Button>
         }
@@ -80,38 +88,46 @@ export default function StudioPage() {
         )}
       </Card>
 
-      {error && <ErrorBox message={error} />}
+      {error && <ApiErrorNote error={error} />}
       {data && data.length === 0 && <Empty>No workflows yet.</Empty>}
 
       {data && data.length > 0 && (
-        <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
           {data.map((w) => (
-            <li
-              key={w.id}
-              className="flex items-center justify-between bg-white px-4 py-3 dark:bg-zinc-950"
-            >
-              <div>
-                <Link
-                  href={`/studio/edit?id=${encodeURIComponent(w.id)}`}
-                  className="font-medium hover:underline"
-                >
-                  {w.name}
-                </Link>
-                <div className="font-mono text-xs text-zinc-500">{w.id}</div>
+            <li key={w.id} className="px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <Link
+                    href={`/studio/edit?id=${encodeURIComponent(w.id)}`}
+                    className="font-medium hover:text-accent"
+                  >
+                    {w.name}
+                  </Link>
+                  <div className="truncate font-mono text-xs text-muted">{w.id}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-3 text-xs text-muted">
+                  <StatusBadge status={w.status} />
+                  <span>v{w.version}</span>
+                  <Link href={`/studio/edit?id=${encodeURIComponent(w.id)}`}>
+                    <Button size="sm">Edit</Button>
+                  </Link>
+                  {w.status !== "published" && (
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => remove(w.id, w.name)}
+                      disabled={deletingId === w.id}
+                    >
+                      {deletingId === w.id ? "Deleting…" : "Delete"}
+                    </Button>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-3 text-xs text-zinc-500">
-                <StatusBadge status={w.status} />
-                <span>v{w.version}</span>
-                <Link
-                  href={`/studio/edit?id=${encodeURIComponent(w.id)}`}
-                  className="rounded-md border border-zinc-300 px-2 py-1 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                >
-                  Edit
-                </Link>
-                <Button variant="danger" onClick={() => remove(w.id)}>
-                  Delete
-                </Button>
-              </div>
+              {rowError?.id === w.id && (
+                <div className="mt-2">
+                  <ErrorBox message={rowError.msg} />
+                </div>
+              )}
             </li>
           ))}
         </ul>
