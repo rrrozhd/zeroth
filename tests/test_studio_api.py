@@ -191,17 +191,14 @@ class TestListNodeTypes:
         resp = client.get("/api/studio/v1/node-types")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 8
+        # The palette mirrors the executable graph model's node_type discriminator.
         type_names = {item["type"] for item in data}
         assert type_names == {
-            "start",
-            "end",
             "agent",
-            "executionUnit",
-            "approvalGate",
-            "memoryResource",
-            "conditionBranch",
-            "dataMapping",
+            "executable_unit",
+            "human_approval",
+            "retrieval",
+            "subgraph",
         }
         # Each should have type, label, category, ports
         for item in data:
@@ -215,3 +212,138 @@ class TestListNodeTypes:
                 assert "type" in port
                 assert "direction" in port
                 assert "label" in port
+
+
+class TestStructuralAuthoring:
+    """PUT persists real executable nodes/edges (not just visual metadata)."""
+
+    def test_persist_nodes_and_edges_round_trip(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "authored"}).json()[
+            "id"
+        ]
+
+        body = {
+            "nodes": [
+                {
+                    "id": "gate",
+                    "type": "human_approval",
+                    "position": {"x": 10, "y": 20},
+                    "data": {"label": "Review gate", "config": {}},
+                },
+                {
+                    "id": "writer",
+                    "type": "agent",
+                    "position": {"x": 200, "y": 20},
+                    "data": {
+                        "label": "Writer",
+                        "config": {
+                            "instruction": "Write a summary",
+                            "model_provider": "openai/gpt-4o",
+                        },
+                    },
+                },
+            ],
+            "edges": [
+                {
+                    "id": "e1",
+                    "source": "gate",
+                    "target": "writer",
+                    "source_handle": "output-data",
+                    "target_handle": "input-data",
+                }
+            ],
+        }
+        resp = client.put(f"/api/studio/v1/workflows/{wf_id}", json=body)
+        assert resp.status_code == 200, resp.text
+
+        # Re-fetch: nodes/edges/config must round-trip.
+        detail = client.get(f"/api/studio/v1/workflows/{wf_id}").json()
+        nodes = {n["id"]: n for n in detail["nodes"]}
+        assert set(nodes) == {"gate", "writer"}
+        assert nodes["writer"]["type"] == "agent"
+        assert nodes["writer"]["data"]["config"]["instruction"] == "Write a summary"
+        assert nodes["gate"]["position"] == {"x": 10, "y": 20}
+        assert len(detail["edges"]) == 1
+        assert detail["edges"][0]["source"] == "gate"
+        assert detail["edges"][0]["source_handle"] == "output-data"
+
+    def test_invalid_node_config_rejected(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "bad"}).json()["id"]
+
+        # agent requires instruction + model_provider
+        resp = client.put(
+            f"/api/studio/v1/workflows/{wf_id}",
+            json={
+                "nodes": [
+                    {
+                        "id": "a",
+                        "type": "agent",
+                        "position": {"x": 0, "y": 0},
+                        "data": {"config": {}},
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_edge_to_unknown_node_rejected(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "dangling"}).json()[
+            "id"
+        ]
+        resp = client.put(
+            f"/api/studio/v1/workflows/{wf_id}",
+            json={
+                "nodes": [],
+                "edges": [{"id": "e", "source": "ghost", "target": "ghost2"}],
+            },
+        )
+        assert resp.status_code == 422
+
+
+class TestCloneAndDraftGuard:
+    """POST .../clone and the draft-only edit guard."""
+
+    def test_clone_published_to_draft(self) -> None:
+        import asyncio
+
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "pub"}).json()["id"]
+        asyncio.run(repo.publish(wf_id))
+
+        resp = client.post(f"/api/studio/v1/workflows/{wf_id}/clone")
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["status"] == "draft"
+        assert resp.json()["version"] == 2
+
+    def test_clone_draft_rejected(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "d"}).json()["id"]
+        resp = client.post(f"/api/studio/v1/workflows/{wf_id}/clone")
+        assert resp.status_code == 409
+
+    def test_edit_published_rejected(self) -> None:
+        import asyncio
+
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "p"}).json()["id"]
+        asyncio.run(repo.publish(wf_id))
+
+        resp = client.put(f"/api/studio/v1/workflows/{wf_id}", json={"name": "nope"})
+        assert resp.status_code == 409
