@@ -9,6 +9,7 @@
     "gen:api": "uv run --project .. python ../scripts/dump_openapi.py --out openapi.json && openapi-typescript openapi.json -o app/lib/api-types.ts"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.1",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4"
