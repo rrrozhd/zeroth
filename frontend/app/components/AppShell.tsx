@@ -23,19 +23,20 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-6">
-        <Link href="/" className="flex items-center gap-2">
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 overflow-x-auto px-6">
+        <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="grid h-6 w-6 place-items-center rounded-md bg-accent text-[13px] font-bold text-accent-fg">
             0
           </span>
           <span className="text-sm font-semibold tracking-tight">Zeroth</span>
         </Link>
 
-        <nav className="flex items-center gap-0.5">
+        <nav aria-label="Primary" className="flex shrink-0 items-center gap-0.5">
           {LINKS.map((l) => (
             <Link
               key={l.href}
               href={l.href}
+              aria-current={active(l.href) ? "page" : undefined}
               className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
                 active(l.href)
                   ? "bg-accent/10 font-medium text-accent"
@@ -47,7 +48,7 @@ export function Header() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <DeploymentChip />
           <ConnectPopover />
         </div>
@@ -76,8 +77,9 @@ function DeploymentChip() {
   }, []);
 
   return (
-    <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-muted sm:inline-flex">
+    <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-muted lg:inline-flex">
       <span
+        aria-hidden
         className={`h-1.5 w-1.5 rounded-full ${ok ? "bg-emerald-500" : "bg-zinc-400"}`}
       />
       <span className="font-mono">{text ?? "…"}</span>
@@ -90,18 +92,35 @@ function ConnectPopover() {
   const [base, setBase] = useState("");
   const [key, setKey] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const firstFieldRef = useRef<HTMLInputElement>(null);
+
+  function close() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
 
   useEffect(() => {
+    if (!open) return;
     setBase(getApiBase());
     setKey(getApiKey());
+    firstFieldRef.current?.focus();
   }, [open]);
 
   useEffect(() => {
+    if (!open) return;
     function onDoc(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    if (open) document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") close();
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   function save(e: React.FormEvent) {
@@ -113,20 +132,30 @@ function ConnectPopover() {
 
   return (
     <div className="relative" ref={ref}>
-      <Button size="sm" variant={open ? "default" : "primary"} onClick={() => setOpen((o) => !o)}>
+      <Button
+        ref={triggerRef}
+        size="sm"
+        variant={open ? "default" : "primary"}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen((o) => !o)}
+      >
         Connect
       </Button>
       {open && (
         <form
+          role="dialog"
+          aria-label="API connection settings"
           onSubmit={save}
           className="absolute right-0 top-full z-30 mt-2 w-80 space-y-3 rounded-xl border border-border bg-surface p-4 shadow-lg shadow-black/10"
         >
           <div className="text-sm font-semibold">Connection</div>
           <label className="block text-xs">
             <span className="mb-1 block text-muted">
-              API base URL <span className="text-zinc-400">(blank = same origin)</span>
+              API base URL <span className="text-zinc-500">(blank = same origin)</span>
             </span>
             <Input
+              ref={firstFieldRef}
               value={base}
               onChange={(e) => setBase(e.target.value)}
               placeholder="https://api.example.com"
@@ -139,9 +168,12 @@ function ConnectPopover() {
               value={key}
               onChange={(e) => setKey(e.target.value)}
               type="password"
-              placeholder="X-API-Key"
+              placeholder="sk-… / your operator key"
               className="font-mono"
             />
+            <span className="mt-1 block text-[11px] text-muted">
+              Sent as the <code>X-API-Key</code> header.
+            </span>
           </label>
           <Button type="submit" variant="primary" size="sm" className="w-full">
             Save &amp; reload
