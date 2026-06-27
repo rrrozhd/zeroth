@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Protocol
 
 from fastapi import APIRouter, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,6 +23,7 @@ from zeroth.core.service.approval_api import register_approval_routes
 from zeroth.core.service.artifact_api import register_artifact_routes
 from zeroth.core.service.audit_api import register_audit_routes
 from zeroth.core.service.auth import AuthenticationError, record_service_denial
+from zeroth.core.service.console_ui import console_cors_origins, mount_console
 from zeroth.core.service.contracts_api import register_contract_routes
 from zeroth.core.service.cost_api import register_cost_routes
 from zeroth.core.service.run_api import register_run_routes
@@ -206,8 +208,19 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):
-        # Health endpoints bypass authentication (load balancer probes).
-        if request.url.path.startswith("/health"):
+        # Bypass authentication for:
+        #  - /health probes (load balancers),
+        #  - the /console static UI (browser navigation can't send the API key;
+        #    the UI's own /v1 and /api/studio fetches still carry it),
+        #  - CORS preflight (OPTIONS carries no API key); CORSMiddleware runs
+        #    outermost and answers these before they reach here.
+        path = request.url.path
+        if (
+            path.startswith("/health")
+            or path == "/console"
+            or path.startswith("/console/")
+            or request.method == "OPTIONS"
+        ):
             cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
             set_correlation_id(cid)
             response = await call_next(request)
@@ -283,5 +296,21 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_template_routes(compat_router)
 
     app.include_router(compat_router)
+
+    # Standalone-console support: enable CORS only when origins are configured
+    # (mounted mode is same-origin and needs none). Added last so it sits
+    # OUTERMOST and answers OPTIONS preflight before the auth middleware.
+    cors_origins = console_cors_origins()
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_methods=["*"],
+            allow_headers=["X-API-Key", "Content-Type", "Accept", "X-Correlation-ID"],
+            allow_credentials=False,
+        )
+
+    # Mount the static console UI at /console when a build is present.
+    mount_console(app)
 
     return app
