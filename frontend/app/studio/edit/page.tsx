@@ -3,12 +3,14 @@
 import "@xyflow/react/dist/style.css";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   addEdge,
   Background,
   Controls,
+  MarkerType,
   MiniMap,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
@@ -122,6 +124,7 @@ function Editor({ id }: { id: string }) {
   const [palette, setPalette] = useState<NodeType[]>([]);
   const [rf, setRf] = useState<ReactFlowInstance<Node, Edge> | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,21 +166,35 @@ function Editor({ id }: { id: string }) {
   const addNode = useCallback(
     (t: NodeType) => {
       const newId = `${t.type}-${Date.now().toString(36)}`;
-      setNodes((ns) =>
-        ns.concat({
+      // Drop the node near the center of what the user is currently looking at
+      // (in flow space), with a small stagger so repeated adds don't stack.
+      const rect = paneRef.current?.getBoundingClientRect();
+      const center =
+        rf && rect
+          ? rf.screenToFlowPosition({
+              x: rect.left + rect.width / 2,
+              y: rect.top + rect.height / 2,
+            })
+          : null;
+      setNodes((ns) => {
+        const jitter = (ns.length % 5) * 28;
+        const position = center
+          ? { x: center.x - 75 + jitter, y: center.y - 24 + jitter }
+          : { x: 80 + ns.length * 30, y: 80 + ns.length * 30 };
+        return ns.concat({
           id: newId,
           type: "studio",
-          position: { x: 80 + ns.length * 30, y: 80 + ns.length * 30 },
+          position,
           data: {
             label: t.label,
             studioType: t.type,
             ports: t.ports,
             config: { ...(DEFAULT_CONFIG[t.type] ?? {}) },
           },
-        }),
-      );
+        });
+      });
     },
-    [setNodes],
+    [rf, setNodes],
   );
 
   const patchSelected = useCallback(
@@ -299,7 +316,10 @@ function Editor({ id }: { id: string }) {
           )}
         </aside>
 
-        <div className="h-[60vh] flex-1 overflow-hidden rounded-xl border border-border bg-surface lg:h-[70vh]">
+        <div
+          ref={paneRef}
+          className="h-[60vh] flex-1 overflow-hidden rounded-xl border border-border bg-surface lg:h-[70vh]"
+        >
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-muted">
               Loading graph…
@@ -319,11 +339,21 @@ function Editor({ id }: { id: string }) {
                 setSelectedId(sel.length === 1 ? sel[0].id : null)
               }
               fitView
+              fitViewOptions={{ maxZoom: 1, padding: 0.25 }}
+              minZoom={0.3}
+              defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
               proOptions={{ hideAttribution: true }}
             >
               <Background />
               <Controls />
               <MiniMap pannable zoomable />
+              {nodes.length === 0 && (
+                <Panel position="top-center">
+                  <div className="mt-12 rounded-lg border border-dashed border-border bg-surface/80 px-4 py-3 text-center text-sm text-muted">
+                    Add a node from the palette to start building.
+                  </div>
+                </Panel>
+              )}
             </ReactFlow>
           )}
         </div>

@@ -59,10 +59,30 @@ body {
   border-radius: 6px;
 }
 
-/* React Flow theming hooks so the canvas matches the app surfaces. */
+/* React Flow theming via its own CSS variables (the only override-safe way —
+   xyflow's stylesheet loads after ours). Keeps the canvas chrome on-theme in
+   both light and dark instead of rendering a white minimap/controls block. */
 .react-flow {
   --xy-background-color: var(--app-bg);
   --xy-node-border-default: var(--border);
+  --xy-controls-button-background-color: var(--surface);
+  --xy-controls-button-background-color-hover: color-mix(
+    in srgb,
+    var(--foreground) 8%,
+    var(--surface)
+  );
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-color-hover: var(--foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-minimap-background-color: var(--surface);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--app-bg) 62%, transparent);
+  --xy-minimap-node-background-color: var(--border);
+  --xy-edge-stroke: var(--muted);
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 /* The canvas control buttons keep xyflow's faint default focus — give them the
