@@ -128,6 +128,8 @@ class ServiceBootstrap:
     memory_resolver: object | None = None
     # Phase 17: Database reference for health probes.
     database: AsyncDatabase | None = None
+    # Studio: graph authoring repository (consumed by /api/studio/v1 routes).
+    graph_repository: GraphRepository | None = None
     # Phase 15: Webhook and SLA components (optional).
     webhook_service: object | None = None
     webhook_repository: object | None = None
@@ -442,6 +444,7 @@ async def bootstrap_service(
 
     return ServiceBootstrap(
         database=database,
+        graph_repository=graph_repository,
         deployment_service=deployment_service,
         deployment=deployment,
         graph=graph,

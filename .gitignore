@@ -58,3 +58,10 @@ examples_approval.sqlite
 examples_service.sqlite
 # Added by code-review-graph
 .code-review-graph/
+
+# macOS
+.DS_Store
+
+# Playwright MCP / browser verification artifacts
+.playwright-mcp/
+*-mode.png
