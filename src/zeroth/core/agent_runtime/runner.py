@@ -17,6 +17,7 @@ from governai.memory.models import MemoryScope
 from pydantic import BaseModel, ValidationError
 
 from zeroth.core.agent_runtime.errors import (
+    AgentContentBlockedError,
     AgentInputValidationError,
     AgentOutputValidationError,
     AgentProviderError,
@@ -35,13 +36,25 @@ from zeroth.core.agent_runtime.prompt import AgentAuditSerializer, PromptAssembl
 from zeroth.core.agent_runtime.provider import (
     ProviderAdapter,
     ProviderRequest,
+    ProviderResponse,
     run_provider_with_timeout,
 )
 from zeroth.core.agent_runtime.retry import compute_backoff_delay, is_retryable_provider_error
+from zeroth.core.agent_runtime.sanitization import (
+    HeuristicInjectionScreener,
+    ToolOutputSanitizer,
+)
 from zeroth.core.agent_runtime.tools import ToolAttachmentBridge
 from zeroth.core.agent_runtime.validation import OutputValidator
 from zeroth.core.audit import MemoryAccessRecord
+from zeroth.core.guardrails.content import (
+    BlocklistFilter,
+    ContentFilter,
+    ContentGuardrail,
+    PIIFilter,
+)
 from zeroth.core.memory import MemoryConnectorResolver
+from zeroth.core.observability import start_span
 
 
 class AgentRunner:
@@ -67,6 +80,8 @@ class AgentRunner:
         memory_resolver: MemoryConnectorResolver | None = None,
         budget_enforcer: Any | None = None,
         context_tracker: Any | None = None,
+        tool_output_sanitizer: ToolOutputSanitizer | None = None,
+        content_guardrail: ContentGuardrail | None = None,
     ) -> None:
         self.config = config
         self.provider = provider
@@ -84,8 +99,60 @@ class AgentRunner:
         self.budget_enforcer = budget_enforcer
         self.context_tracker: Any | None = context_tracker
         self._mcp_manager: MCPClientManager | None = None
+        # Model-boundary safety: sanitize untrusted tool/memory output before it
+        # is re-injected into the model (per AgentConfig.tool_output_safety).
+        safety = config.tool_output_safety
+        self.tool_output_sanitizer = tool_output_sanitizer or ToolOutputSanitizer(
+            max_output_chars=safety.max_output_chars,
+            wrap_with_provenance=safety.wrap_with_provenance,
+            screener=HeuristicInjectionScreener() if safety.screen_for_injection else None,
+            screening_mode=safety.screening_mode,
+        )
+        # Content safety: optional PII/blocklist policy on agent input/output
+        # (opt-in via AgentConfig.content_safety; see zeroth.core.guardrails.content).
+        content_safety = config.content_safety
+        if content_guardrail is not None:
+            self.content_guardrail: ContentGuardrail | None = content_guardrail
+        elif content_safety.enabled:
+            content_filters: list[ContentFilter] = []
+            if content_safety.detect_pii:
+                content_filters.append(PIIFilter(content_safety.pii_types))
+            if content_safety.blocklist:
+                content_filters.append(BlocklistFilter(content_safety.blocklist))
+            self.content_guardrail = (
+                ContentGuardrail(filters=content_filters, mode=content_safety.mode)
+                if content_filters
+                else None
+            )
+        else:
+            self.content_guardrail = None
 
     async def run(
+        self,
+        input_payload: BaseModel | Mapping[str, Any],
+        *,
+        thread_id: str | None = None,
+        runtime_context: Mapping[str, Any] | None = None,
+        enforcement_context: Mapping[str, Any] | None = None,
+    ) -> AgentRunResult:
+        """Execute the agent within an OBS tracing span; delegates to :meth:`_run`.
+
+        Kept as a thin wrapper so the public signature (inspected by the
+        orchestrator for ``enforcement_context``) is unchanged while every agent
+        run produces one ``zeroth.agent`` span.
+        """
+        with start_span(
+            "zeroth.agent",
+            {"zeroth.agent": self.config.name, "zeroth.model": self.config.model_name},
+        ):
+            return await self._run(
+                input_payload,
+                thread_id=thread_id,
+                runtime_context=runtime_context,
+                enforcement_context=enforcement_context,
+            )
+
+    async def _run(
         self,
         input_payload: BaseModel | Mapping[str, Any],
         *,
@@ -101,6 +168,11 @@ class AgentRunner:
         audit information.
         """
         validated_input = self._validate_input(input_payload)
+        # SAFE: content-safety guardrail on agent input (may redact or raise/block).
+        validated_input, input_safety_audit = self._guard_content(
+            validated_input, direction="input"
+        )
+        output_safety_audit: dict[str, Any] | None = None
         thread_state = await self._load_thread_state(thread_id)
         resolved_runtime_context = dict(runtime_context or {})
         memory_context, memory_interactions = await self._load_memory(
@@ -178,6 +250,8 @@ class AgentRunner:
                     )
                     # Validation turns the provider response into the typed Zeroth output.
                     output = self.output_validator.validate(self.config.output_model, response)
+                    # SAFE: content-safety guardrail on agent output (may redact or raise/block).
+                    output, output_safety_audit = self._guard_content(output, direction="output")
                     record = self.audit_serializer.serialize_record(
                         prompt=prompt,
                         response=response,
@@ -191,9 +265,34 @@ class AgentRunner:
                             ],
                         },
                     )
+                    safety_audit: dict[str, Any] = {}
+                    if input_safety_audit is not None:
+                        safety_audit["input"] = input_safety_audit
+                    if output_safety_audit is not None:
+                        safety_audit["output"] = output_safety_audit
+                    if safety_audit:
+                        record["content_safety"] = safety_audit
+                    # In redact mode, scrub the raw model response from the persisted
+                    # audit too, so redacted PII never lands in the audit store.
+                    if (
+                        self.content_guardrail is not None
+                        and self.config.content_safety.mode == "redact"
+                        and output_safety_audit is not None
+                        and isinstance(record.get("response"), Mapping)
+                    ):
+                        record["response"] = self.content_guardrail.inspect(
+                            record["response"], direction="output"
+                        ).payload
                     # Copy token usage from provider response to audit record (per D-11)
                     if response.token_usage is not None:
                         record["token_usage"] = response.token_usage.model_dump(mode="json")
+                    # Promote cost to the top level so per-node spend reaches the
+                    # NodeAuditRecord (and econ.waste). serialize_record only nests it
+                    # under "response"; the runtime lifts these top-level keys.
+                    if response.cost_usd is not None:
+                        record["cost_usd"] = response.cost_usd
+                    if response.cost_event_id is not None:
+                        record["cost_event_id"] = response.cost_event_id
                     # Phase 37: Record compaction metadata in audit.
                     if compaction_result is not None:
                         record["context_window"] = {
@@ -239,6 +338,10 @@ class AgentRunner:
                         tool_call_records=tool_audits,
                         audit_record=record,
                     )
+                except AgentContentBlockedError as exc:
+                    # Content blocks are terminal — never retried or wrapped.
+                    self._attach_cost_audit(exc, response)
+                    raise
                 except TimeoutError as exc:
                     last_error = AgentTimeoutError(
                         f"provider timed out after {provider_timeout_seconds} second(s)"
@@ -247,6 +350,7 @@ class AgentRunner:
                         raise last_error from exc
                 except AgentOutputValidationError as exc:
                     last_error = exc
+                    self._attach_cost_audit(exc, response)
                     if not retry_policy.retry_on_validation_error or attempt == max_attempts:
                         raise
                 except Exception as exc:
@@ -274,6 +378,27 @@ class AgentRunner:
         finally:
             await self._stop_mcp_servers()
 
+    @staticmethod
+    def _attach_cost_audit(error: Exception, response: ProviderResponse | None) -> None:
+        """Bundle a paid response's cost onto a failing error's ``audit_record``.
+
+        Output-validation and content-block failures happen *after* a (paid)
+        provider call but *before* the success audit record is built, so without
+        this the spend is invisible to the audit trail -- and thus to
+        ``econ.waste.analyze_run``. Gated on ``cost_usd`` so only instrumented
+        (real-cost) calls are touched; merges into any ``audit_record`` the error
+        already carries (e.g. content-safety findings).
+        """
+        if response is None or response.cost_usd is None:
+            return
+        fragment: dict[str, Any] = {"cost_usd": response.cost_usd}
+        if response.cost_event_id is not None:
+            fragment["cost_event_id"] = response.cost_event_id
+        if response.token_usage is not None:
+            fragment["token_usage"] = response.token_usage.model_dump(mode="json")
+        existing = getattr(error, "audit_record", None)
+        error.audit_record = {**existing, **fragment} if isinstance(existing, Mapping) else fragment
+
     def _build_provider_request(
         self,
         messages: list[Any],
@@ -300,6 +425,51 @@ class AgentRunner:
             output_model=output_model,
             model_params=self.config.model_params,
         )
+
+    def _guard_content(
+        self,
+        model: BaseModel,
+        *,
+        direction: str,
+    ) -> tuple[BaseModel, dict[str, Any] | None]:
+        """Apply the content-safety guardrail to an agent input/output model.
+
+        Returns the (possibly redacted) model plus an audit summary, or
+        ``(model, None)`` when the guardrail is off or finds nothing. Raises
+        ``AgentContentBlockedError`` in block mode when findings are present; the
+        error carries an ``audit_record`` so a blocked run is still audited.
+        """
+        guardrail = self.content_guardrail
+        if guardrail is None:
+            return model, None
+        content_safety = self.config.content_safety
+        if direction == "input" and not content_safety.scan_input:
+            return model, None
+        if direction == "output" and not content_safety.scan_output:
+            return model, None
+        outcome = guardrail.inspect(model.model_dump(mode="json"), direction=direction)
+        if outcome.blocked:
+            categories = [finding.category for finding in outcome.findings]
+            raise AgentContentBlockedError(
+                f"content blocked by safety guardrail on {direction}: {', '.join(categories)}",
+                direction=direction,
+                findings=categories,
+                audit_record={"content_safety": {direction: outcome.as_audit()}},
+            )
+        if not outcome.has_findings:
+            return model, None
+        result_model = model
+        if content_safety.mode == "redact":
+            model_type = (
+                self.config.input_model if direction == "input" else self.config.output_model
+            )
+            try:
+                result_model = model_type.model_validate(outcome.payload)
+            except ValidationError:
+                # Redaction would violate the typed schema (e.g. a constrained
+                # field); fall back to flagging without modifying the payload.
+                return model, {**outcome.as_audit(), "redaction_skipped": True}
+        return result_model, outcome.as_audit()
 
     async def _resolve_tool_calls(
         self,
@@ -344,16 +514,17 @@ class AgentRunner:
                     )
                 self.tool_bridge.validate_permissions(binding, self.granted_tool_permissions)
                 try:
-                    # Route MCP tool calls through MCPClientManager
-                    if (
-                        binding.executable_unit_ref.startswith("mcp://")
-                        and self._mcp_manager is not None
-                    ):
-                        result = await self._mcp_manager.call_tool(call["name"], call["args"])
-                    else:
-                        result = self.tool_executor(binding, call["args"])
-                        if asyncio.iscoroutine(result):
-                            result = await result
+                    with start_span("zeroth.tool", {"zeroth.tool": call["name"]}):
+                        # Route MCP tool calls through MCPClientManager
+                        if (
+                            binding.executable_unit_ref.startswith("mcp://")
+                            and self._mcp_manager is not None
+                        ):
+                            result = await self._mcp_manager.call_tool(call["name"], call["args"])
+                        else:
+                            result = self.tool_executor(binding, call["args"])
+                            if asyncio.iscoroutine(result):
+                                result = await result
                     audit = self.tool_bridge.build_call_audit(
                         binding=binding,
                         arguments=call["args"],
@@ -361,6 +532,17 @@ class AgentRunner:
                         outcome=result if isinstance(result, Mapping) else {"value": result},
                     )
                     content = json.dumps(result, ensure_ascii=False, sort_keys=True)
+                    if self.config.tool_output_safety.enabled:
+                        sanitized = self.tool_output_sanitizer.sanitize(
+                            content,
+                            source=f"tool:{call['name']}",
+                            max_output_chars=binding.max_output_chars,
+                        )
+                        content = sanitized.text
+                        audit["tool_output_safety"] = {
+                            "source": f"tool:{call['name']}",
+                            **sanitized.as_audit(),
+                        }
                     current_messages.append(
                         build_tool_message(
                             tool_call_id=call["id"],
@@ -376,11 +558,23 @@ class AgentRunner:
                         granted_permissions=self.granted_tool_permissions,
                         error=str(exc),
                     )
+                    error_content = str(exc)
+                    if self.config.tool_output_safety.enabled:
+                        sanitized = self.tool_output_sanitizer.sanitize(
+                            error_content,
+                            source=f"tool_error:{call['name']}",
+                            max_output_chars=binding.max_output_chars,
+                        )
+                        error_content = sanitized.text
+                        audit["tool_output_safety"] = {
+                            "source": f"tool_error:{call['name']}",
+                            **sanitized.as_audit(),
+                        }
                     current_messages.append(
                         build_tool_message(
                             tool_call_id=call["id"],
                             name=call["name"],
-                            content=str(exc),
+                            content=error_content,
                             is_error=True,
                         )
                     )

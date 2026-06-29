@@ -135,6 +135,16 @@ class TLSSettings(BaseModel):
     keyfile: str | None = None
 
 
+class TracingSettings(BaseModel):
+    """OpenTelemetry tracing configuration (requires the ``otel`` extra)."""
+
+    enabled: bool = False
+    service_name: str = "zeroth-core"
+    # OTLP/HTTP collector endpoint; when unset the exporter falls back to its own
+    # OTEL_EXPORTER_OTLP_ENDPOINT environment variable.
+    otlp_endpoint: str | None = None
+
+
 class ZerothSettings(BaseSettings):
     """Top-level settings for the Zeroth platform.
 
@@ -166,6 +176,7 @@ class ZerothSettings(BaseSettings):
     tls: TLSSettings = Field(default_factory=TLSSettings)
     artifact_store: ArtifactStoreSettings = Field(default_factory=ArtifactStoreSettings)
     http_client: HttpClientSettings = Field(default_factory=HttpClientSettings)
+    tracing: TracingSettings = Field(default_factory=TracingSettings)
 
     @classmethod
     def settings_customise_sources(

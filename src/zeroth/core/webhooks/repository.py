@@ -7,8 +7,7 @@ JSON columns, async with self._database.transaction() as connection.
 
 from __future__ import annotations
 
-import random
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from zeroth.core.storage.database import AsyncDatabase
@@ -169,28 +168,63 @@ class WebhookRepository:
             )
         return delivery
 
-    async def claim_pending_delivery(self) -> WebhookDelivery | None:
-        """Claim the oldest pending delivery ready for attempt.
+    async def claim_pending_delivery(
+        self, *, lease_seconds: float = 30.0
+    ) -> WebhookDelivery | None:
+        """Claim the oldest delivery that is due for an attempt.
 
-        Returns the delivery if one is available, None otherwise.
-        Uses SELECT then UPDATE within a transaction for atomicity.
+        Atomically leases the delivery so the polling worker cannot
+        double-claim (and thus double-deliver) it: within one transaction
+        the chosen row is flipped to ``DELIVERING`` and its
+        ``next_attempt_at`` is pushed ``lease_seconds`` into the future, so a
+        subsequent claim won't see it until the lease lapses. The
+        SELECT-then-UPDATE is atomic for a single serialized poll loop;
+        concurrent workers would additionally need row-level locking (e.g.
+        ``SELECT ... FOR UPDATE SKIP LOCKED``) to keep the same guarantee.
+        A claim covers three due cases:
+
+        * ``PENDING`` -- reached its first-attempt time;
+        * ``FAILED``  -- its retry backoff has elapsed (the actual retry path);
+        * ``DELIVERING`` -- its lease expired, i.e. a worker died mid-delivery.
+
+        Returns the claimed delivery, or ``None`` when nothing is due.
         """
-        now = _utc_now().isoformat()
+        now = _utc_now()
+        now_iso = now.isoformat()
         async with self._database.transaction() as conn:
             row = await conn.fetch_one(
                 """
                 SELECT * FROM webhook_deliveries
-                WHERE status = ? AND next_attempt_at <= ?
+                WHERE next_attempt_at <= ?
+                  AND status IN (?, ?, ?)
                 ORDER BY next_attempt_at
                 LIMIT 1
                 """,
-                (DeliveryStatus.PENDING.value, now),
+                (
+                    now_iso,
+                    DeliveryStatus.PENDING.value,
+                    DeliveryStatus.FAILED.value,
+                    DeliveryStatus.DELIVERING.value,
+                ),
             )
             if row is None:
                 return None
-            # Also claim failed deliveries that are due for retry
             delivery = self._row_to_delivery(row)
-            return delivery
+            lease_until = now + timedelta(seconds=lease_seconds)
+            await conn.execute(
+                """
+                UPDATE webhook_deliveries
+                SET status = ?, next_attempt_at = ?, updated_at = ?
+                WHERE delivery_id = ?
+                """,
+                (
+                    DeliveryStatus.DELIVERING.value,
+                    lease_until.isoformat(),
+                    now_iso,
+                    delivery.delivery_id,
+                ),
+            )
+        return delivery
 
     async def mark_delivered(self, delivery_id: str) -> None:
         """Mark a delivery as successfully delivered."""
@@ -211,8 +245,11 @@ class WebhookRepository:
     ) -> None:
         """Mark a delivery as failed and schedule the next retry.
 
-        Increments attempt_count, computes next_attempt_at with jitter,
-        and records the error details.
+        Increments attempt_count and schedules ``next_attempt_at`` at
+        ``retry_delay`` seconds from now, then records the error details.
+        ``retry_delay`` is the final, already-jittered backoff in seconds:
+        the delivery worker owns the backoff policy (see ``next_retry_delay``)
+        and this method persists it verbatim rather than re-deriving it.
         """
         now = _utc_now()
         async with self._database.transaction() as conn:
@@ -223,10 +260,7 @@ class WebhookRepository:
             if row is None:
                 return
             new_count = row["attempt_count"] + 1
-            # Exponential backoff with full jitter
-            delay = min(retry_delay * (2 ** new_count), 300.0)
-            jittered = random.uniform(0, delay)  # noqa: S311
-            next_at = now + __import__("datetime").timedelta(seconds=jittered)
+            next_at = now + timedelta(seconds=retry_delay)
             await conn.execute(
                 """
                 UPDATE webhook_deliveries

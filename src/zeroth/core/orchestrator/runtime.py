@@ -14,13 +14,14 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
 from zeroth.core.agent_runtime import AgentRunner, RepositoryThreadResolver
 from zeroth.core.approvals import ApprovalDecision, ApprovalRecord, ApprovalService
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
-from zeroth.core.audit.models import TokenUsage
+from zeroth.core.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRecord
 from zeroth.core.conditions import NextStepPlanner
 from zeroth.core.conditions.models import ConditionContext, TraversalState
 from zeroth.core.execution_units import ExecutableUnitRunner
@@ -31,9 +32,11 @@ from zeroth.core.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
     Node,
+    RetrievalNode,
     SubgraphNode,
 )
 from zeroth.core.mappings import MappingExecutor
+from zeroth.core.observability import start_span
 from zeroth.core.parallel.errors import (
     BranchApprovalPauseSignal,
     FanOutValidationError,
@@ -216,7 +219,15 @@ class RuntimeOrchestrator:
         persisted.touch()
         persisted = await self.run_repository.put(persisted)
         await self.run_repository.write_checkpoint(persisted)
-        return await self._drive(graph, persisted)
+        with start_span(
+            "zeroth.run",
+            {
+                "zeroth.run_id": persisted.run_id,
+                "zeroth.graph_version": persisted.graph_version_ref,
+                "zeroth.deployment_ref": persisted.deployment_ref,
+            },
+        ):
+            return await self._drive(graph, persisted)
 
     async def resume_graph(self, graph: Graph, run_id: str) -> Run:
         """Resume an existing run that was paused or waiting for approval.
@@ -230,7 +241,15 @@ class RuntimeOrchestrator:
             raise KeyError(run_id)
         if run.status not in {RunStatus.RUNNING, RunStatus.PENDING, RunStatus.WAITING_APPROVAL}:
             raise OrchestratorError(f"run {run_id} is not resumable from status {run.status}")
-        return await self._drive(graph, run)
+        with start_span(
+            "zeroth.run",
+            {
+                "zeroth.run_id": run.run_id,
+                "zeroth.graph_version": run.graph_version_ref,
+                "zeroth.deployment_ref": run.deployment_ref,
+            },
+        ):
+            return await self._drive(graph, run)
 
     async def _refresh_artifact_ttls(self, run: Run) -> None:
         """Refresh TTLs on all artifact references found in run state.
@@ -412,9 +431,7 @@ class RuntimeOrchestrator:
                             graph_ref, version
                         )
                     except SubgraphResolutionError as exc:
-                        return await self._fail_run(
-                            run, "subgraph_resume_failed", str(exc)
-                        )
+                        return await self._fail_run(run, "subgraph_resume_failed", str(exc))
 
                     depth = run.metadata.get("subgraph_depth", 0) + 1
                     subgraph = namespace_subgraph(subgraph, graph_ref, depth)
@@ -464,15 +481,19 @@ class RuntimeOrchestrator:
 
                 # Path A: First encounter -- no pending_subgraph for this node.
                 try:
-                    child_run = await self.subgraph_executor.execute(
-                        orchestrator=self,
-                        parent_graph=graph,
-                        parent_run=run,
-                        node=node,
-                        node_id=node_id,
-                        input_payload=input_payload,
-                        step_tracker=step_tracker,
-                    )
+                    with start_span(
+                        "zeroth.subgraph",
+                        {"zeroth.node_id": node_id, "zeroth.run_id": run.run_id},
+                    ):
+                        child_run = await self.subgraph_executor.execute(
+                            orchestrator=self,
+                            parent_graph=graph,
+                            parent_run=run,
+                            node=node,
+                            node_id=node_id,
+                            input_payload=input_payload,
+                            step_tracker=step_tracker,
+                        )
                 except (
                     SubgraphDepthLimitError,
                     SubgraphResolutionError,
@@ -533,17 +554,21 @@ class RuntimeOrchestrator:
             parallel_config = getattr(node, "parallel_config", None)
             if parallel_config is not None:
                 try:
-                    fan_in_result = await self._execute_parallel_fan_out(
-                        graph,
-                        run,
-                        node,
-                        node_id,
-                        input_payload,
-                        output_data,
-                        audit_record,
-                        parallel_config,
-                        step_tracker=step_tracker,
-                    )
+                    with start_span(
+                        "zeroth.fanout",
+                        {"zeroth.node_id": node_id, "zeroth.run_id": run.run_id},
+                    ):
+                        fan_in_result = await self._execute_parallel_fan_out(
+                            graph,
+                            run,
+                            node,
+                            node_id,
+                            input_payload,
+                            output_data,
+                            audit_record,
+                            parallel_config,
+                            step_tracker=step_tracker,
+                        )
                 except (FanOutValidationError, ParallelExecutionError) as exc:
                     return await self._fail_run(run, "parallel_execution_failed", str(exc))
                 # D-11: Check for run-wide approval pause from a branch's subgraph.
@@ -724,9 +749,7 @@ class RuntimeOrchestrator:
                     }
                 else:
                     # Dispatch the downstream node with branch-isolated payload
-                    ds_output, ds_audit = await self._dispatch_node(
-                        ds_node, run, branch_output
-                    )
+                    ds_output, ds_audit = await self._dispatch_node(ds_node, run, branch_output)
 
                 # Increment global step tracker
                 await step_tracker.increment()
@@ -743,6 +766,9 @@ class RuntimeOrchestrator:
 
                 # Write audit record if audit repo available
                 if self.audit_repository is not None:
+                    branch_tool_calls, branch_memory = self._typed_audit_fields(
+                        ds_audit_with_branch
+                    )
                     await self.audit_repository.write(
                         NodeAuditRecord(
                             audit_id=audit_ref,
@@ -754,9 +780,12 @@ class RuntimeOrchestrator:
                             deployment_ref=run.deployment_ref,
                             attempt=1,
                             status="completed",
+                            completed_at=datetime.now(UTC),
                             input_snapshot=dict(branch_output),
                             output_snapshot=dict(ds_output),
                             execution_metadata=ds_audit_with_branch,
+                            tool_calls=branch_tool_calls,
+                            memory_interactions=branch_memory,
                         )
                     )
 
@@ -882,8 +911,7 @@ class RuntimeOrchestrator:
                 "cost_usd": br.cost_usd,
                 "audit_refs": list(br.audit_refs),
                 "execution_history": [
-                    e.model_dump() if hasattr(e, "model_dump") else e
-                    for e in br.execution_history
+                    e.model_dump() if hasattr(e, "model_dump") else e for e in br.execution_history
                 ],
             }
             for br in pause_state.get("completed_branch_results", [])
@@ -1081,6 +1109,28 @@ class RuntimeOrchestrator:
         run.completed_steps = [entry.node_id for entry in run.execution_history]
 
     async def _dispatch_node(
+        self,
+        node: Node,
+        run: Run,
+        input_payload: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Dispatch a node inside an OBS tracing span.
+
+        Wraps every dispatch path (main drive loop and fan-out branches, which
+        call this directly) so each node hop produces one span carrying the
+        node/run identifiers that also key the metrics and audit records.
+        """
+        with start_span(
+            "zeroth.node",
+            {
+                "zeroth.node_id": node.node_id,
+                "zeroth.node_type": type(node).__name__,
+                "zeroth.run_id": run.run_id,
+            },
+        ):
+            return await self._dispatch_node_inner(node, run, input_payload)
+
+    async def _dispatch_node_inner(
         self,
         node: Node,
         run: Run,
@@ -1320,7 +1370,72 @@ class RuntimeOrchestrator:
                 audit_record["enforcement"] = enforcement_context
                 audit_record["enforcement_applied"] = True
             return result.output_data, audit_record
+        if isinstance(node, RetrievalNode):
+            return await self._dispatch_retrieval_node(node, run, input_payload)
         raise NodeDispatcherError(f"unsupported node type: {type(node)!r}")
+
+    async def _dispatch_retrieval_node(
+        self,
+        node: RetrievalNode,
+        run: Run,
+        input_payload: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Retrieve grounded context from a vector connector for a RetrievalNode (RAG-01).
+
+        Queries the configured memory connector with the input's query field and
+        returns the input augmented with the retrieved chunks under ``as_name``.
+        The audit record carries the query and per-chunk source attribution
+        (ids + metadata), not the chunk bodies (RAG-03).
+        """
+        data = node.retrieval
+        if self.memory_resolver is None:
+            raise NodeDispatcherError(
+                f"retrieval node '{node.node_id}' requires a memory resolver to be wired"
+            )
+        query_text = input_payload.get(data.query_key)
+        if not isinstance(query_text, str) or not query_text.strip():
+            raise NodeDispatcherError(
+                f"retrieval node '{node.node_id}': input field '{data.query_key}' "
+                "must be a non-empty string"
+            )
+        from governai.memory.models import MemoryScope
+
+        scope = {
+            "run": MemoryScope.RUN,
+            "thread": MemoryScope.THREAD,
+            "shared": MemoryScope.SHARED,
+        }[data.scope]
+        try:
+            resolved = await self.memory_resolver.resolve(
+                [data.connector_ref],
+                thread_id=run.thread_id or None,
+                runtime_context={"run_id": run.run_id, "node_id": node.node_id},
+                node_id=node.node_id,
+            )
+        except KeyError as exc:
+            raise NodeDispatcherError(
+                f"retrieval node '{node.node_id}': unknown memory connector '{data.connector_ref}'"
+            ) from exc
+        connector = resolved[0].connector
+        entries = await connector.search({"text": query_text, "limit": data.top_k}, scope)
+        chunks = [
+            {"id": entry.key, "content": entry.value, "metadata": dict(entry.metadata)}
+            for entry in entries
+        ]
+        output_data = {**dict(input_payload), data.as_name: chunks}
+        audit_record = {
+            "retrieval": {
+                "connector_ref": data.connector_ref,
+                "query": query_text,
+                "scope": data.scope,
+                "top_k": data.top_k,
+                "result_count": len(chunks),
+                "sources": [
+                    {"id": entry.key, "metadata": dict(entry.metadata)} for entry in entries
+                ],
+            }
+        }
+        return output_data, audit_record
 
     async def _resolve_thread(self, node: AgentNode, run: Run) -> str | None:
         """Figure out which thread ID an agent node should use.
@@ -1575,6 +1690,7 @@ class RuntimeOrchestrator:
                 if token_usage_data is not None
                 else None
             )
+            tool_calls, memory_interactions = self._typed_audit_fields(redacted_audit_record)
             await self.audit_repository.write(
                 NodeAuditRecord(
                     audit_id=self._stored_audit_id(run.run_id, audit_ref),
@@ -1586,12 +1702,15 @@ class RuntimeOrchestrator:
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="completed",
+                    completed_at=datetime.now(UTC),
                     input_snapshot=redacted_input,
                     output_snapshot=redacted_output,
                     execution_metadata=redacted_audit_record,
                     token_usage=token_usage,
                     cost_usd=redacted_audit_record.get("cost_usd"),
                     cost_event_id=redacted_audit_record.get("cost_event_id"),
+                    tool_calls=tool_calls,
+                    memory_interactions=memory_interactions,
                 )
             )
         run.execution_history.append(
@@ -1625,6 +1744,15 @@ class RuntimeOrchestrator:
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
+        redacted_audit_record = self._redact_for_audit(dict(audit_record))
+        # Promote cost/token fields so spend incurred before the failure -- a paid
+        # LLM call that then failed validation or was content-blocked -- is not lost
+        # from the audit trail (and stays visible to econ.waste.analyze_run).
+        token_usage_data = redacted_audit_record.get("token_usage")
+        token_usage = (
+            TokenUsage.model_validate(token_usage_data) if token_usage_data is not None else None
+        )
+        tool_calls, memory_interactions = self._typed_audit_fields(redacted_audit_record)
         await self.audit_repository.write(
             NodeAuditRecord(
                 audit_id=self._stored_audit_id(run.run_id, audit_ref),
@@ -1636,10 +1764,16 @@ class RuntimeOrchestrator:
                 deployment_ref=run.deployment_ref,
                 attempt=1,
                 status="rejected",
+                completed_at=datetime.now(UTC),
                 input_snapshot=self._redact_for_audit(dict(input_payload)),
                 output_snapshot={},
-                execution_metadata=self._redact_for_audit(dict(audit_record)),
+                execution_metadata=redacted_audit_record,
+                token_usage=token_usage,
+                cost_usd=redacted_audit_record.get("cost_usd"),
+                cost_event_id=redacted_audit_record.get("cost_event_id"),
                 error=str(error),
+                tool_calls=tool_calls,
+                memory_interactions=memory_interactions,
             )
         )
 
@@ -1716,6 +1850,7 @@ class RuntimeOrchestrator:
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="rejected",
+                    completed_at=datetime.now(UTC),
                     input_snapshot=self._redact_for_audit(dict(input_payload)),
                     output_snapshot={},
                     execution_metadata=self._redact_for_audit(
@@ -1893,6 +2028,54 @@ class RuntimeOrchestrator:
         if resolver is None:
             return value
         return resolver.redactor().redact(value)
+
+    @staticmethod
+    def _typed_audit_fields(
+        record: Mapping[str, Any],
+    ) -> tuple[list[ToolCallRecord], list[MemoryAccessRecord]]:
+        """Promote a runner audit record's tool calls / memory interactions to typed fields.
+
+        These otherwise only live in ``execution_metadata.extra`` and the typed
+        (queryable, evidence-summarized) ``tool_calls`` / ``memory_interactions``
+        fields stay empty. Built from the already-redacted record so secrets never
+        reach the typed columns, and tolerant of odd shapes (a redaction edge case
+        coerces an argument/outcome into ``{"redacted": ...}`` rather than dropping
+        the whole call).
+        """
+        extra = record.get("extra")
+        if not isinstance(extra, Mapping):
+            return [], []
+
+        def _as_dict(value: Any) -> dict[str, Any] | None:
+            if value is None:
+                return None
+            return dict(value) if isinstance(value, Mapping) else {"redacted": value}
+
+        tool_calls: list[ToolCallRecord] = []
+        for tc in extra.get("tool_calls") or []:
+            if not isinstance(tc, Mapping):
+                continue
+            tool = tc.get("tool")
+            tool = tool if isinstance(tool, Mapping) else {}
+            tool_calls.append(
+                ToolCallRecord(
+                    tool_ref=str(tool.get("executable_unit_ref") or tool.get("tool_ref") or ""),
+                    alias=str(tool.get("alias") or ""),
+                    arguments=_as_dict(tc.get("arguments")) or {},
+                    outcome=_as_dict(tc.get("outcome")),
+                    error=tc.get("error"),
+                )
+            )
+
+        memory_interactions: list[MemoryAccessRecord] = []
+        for mi in extra.get("memory_interactions") or []:
+            if not isinstance(mi, Mapping):
+                continue
+            try:
+                memory_interactions.append(MemoryAccessRecord.model_validate(dict(mi)))
+            except Exception:
+                continue
+        return tool_calls, memory_interactions
 
     async def record_approval_resolution(
         self,

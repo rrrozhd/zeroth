@@ -10,6 +10,7 @@ Per D-10, D-12, D-14 from Phase 14 planning.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import chromadb
@@ -18,6 +19,11 @@ from governai.memory.models import MemoryEntry, MemoryScope
 from governai.models.common import JSONValue
 
 from zeroth.core.config.settings import DEFAULT_EMBEDDING_MODEL
+
+# ChromaDB collection names must be 3-512 chars from [a-zA-Z0-9._-] and must
+# start and end with an alphanumeric character. Collapse any run of other
+# characters to a single underscore so arbitrary scope targets stay valid.
+_COLLECTION_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]+")
 
 
 class ChromaDBMemoryConnector:
@@ -42,8 +48,15 @@ class ChromaDBMemoryConnector:
         self._embedding_model = embedding_model
 
     def _collection_name(self, scope: MemoryScope, target: str | None) -> str:
-        """Build a sanitized collection name from scope and target."""
-        safe_target = (target or "default").replace("-", "_").replace(":", "_")
+        """Build a valid ChromaDB collection name from scope and target.
+
+        Collapses any run of non-alphanumeric characters in the target to a
+        single underscore and trims the ends, so targets that contain or are
+        padded with separators -- notably the canonical SHARED target
+        ``__shared__`` -- still produce a name ChromaDB accepts (one that
+        starts and ends with an alphanumeric character).
+        """
+        safe_target = _COLLECTION_SANITIZE_RE.sub("_", target or "default").strip("_") or "default"
         return f"{self._collection_prefix}_{scope.value}_{safe_target}"
 
     def _get_collection(self, scope: MemoryScope, target: str | None) -> Any:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -170,3 +171,51 @@ class TestNextRetryDelay:
     def test_zero_attempt(self):
         delay = next_retry_delay(0, base=1.0, max_delay=300.0)
         assert 0 <= delay <= 1.0
+
+
+class TestRetryBackoffWindow:
+    """Backoff is computed exactly once across the worker -> repository path.
+
+    Regression: the worker derived a fully-jittered delay via ``next_retry_delay``
+    and ``mark_failed`` then re-applied exponential growth + jitter on top, so the
+    scheduled retry landed far outside the intended window (roughly
+    ``window * 2**(attempt+1)`` seconds out). The worker now owns the policy and
+    ``mark_failed`` persists the supplied delay verbatim, so ``next_attempt_at``
+    falls inside a single backoff window.
+    """
+
+    @pytest.mark.parametrize("attempt_count", [0, 3])
+    async def test_next_attempt_within_single_backoff_window(
+        self, worker, webhook_repo, http_client, sqlite_db, attempt_count
+    ):
+        sub, delivery = await _create_sub_and_delivery(
+            webhook_repo, attempt_count=attempt_count
+        )
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 500
+        http_client.post.return_value = response
+
+        # The single jittered backoff window for this attempt count.
+        window = min(worker.retry_base_delay * (2**attempt_count), worker.retry_max_delay)
+
+        # Pin jitter to its upper bound so the schedule is deterministic and the
+        # assertion checks the top edge of the window -- exactly where the old
+        # double-compute overshot.
+        before = datetime.now(UTC)
+        with patch("zeroth.core.webhooks.delivery.random.uniform", lambda _low, high: high):
+            await worker._deliver(delivery)
+        after = datetime.now(UTC)
+
+        async with sqlite_db.transaction() as conn:
+            row = await conn.fetch_one(
+                "SELECT next_attempt_at, attempt_count, status "
+                "FROM webhook_deliveries WHERE delivery_id = ?",
+                (delivery.delivery_id,),
+            )
+        next_at = datetime.fromisoformat(row["next_attempt_at"])
+
+        # next_attempt_at must sit within [before, after + window]; the double
+        # exponentiation bug would push it to ~window * 2**(attempt+1) seconds out.
+        assert before <= next_at <= after + timedelta(seconds=window)
+        assert row["attempt_count"] == attempt_count + 1
+        assert row["status"] == "failed"

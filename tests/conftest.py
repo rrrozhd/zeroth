@@ -122,3 +122,37 @@ async def dual_database(request, tmp_path, postgres_container):
                 "deployment_versions",
             ]:
                 await conn.execute(f"TRUNCATE TABLE {table} CASCADE")
+
+
+@pytest.fixture(scope="session")
+def _otel_exporter():
+    """Session-wide in-memory OTel exporter.
+
+    OpenTelemetry only honours the first global TracerProvider, so it must be set
+    exactly once per session; individual tests clear the exporter between runs.
+    """
+    pytest.importorskip("opentelemetry.sdk")
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))  # synchronous: spans flush immediately
+    trace.set_tracer_provider(provider)
+    return exporter
+
+
+@pytest.fixture
+def otel_spans(_otel_exporter):
+    """Enable tracing for one test and yield the cleared in-memory span exporter."""
+    from zeroth.core.observability import tracing
+
+    _otel_exporter.clear()
+    tracing._TRACING_ENABLED = True
+    try:
+        yield _otel_exporter
+    finally:
+        tracing._TRACING_ENABLED = False
+        _otel_exporter.clear()

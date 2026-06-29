@@ -267,5 +267,57 @@ class TestRedisThreadIntegration:
 
     @pytest.mark.asyncio
     async def test_conversation_roundtrip_live(self) -> None:
-        """Requires a running Redis. Skipped by default."""
-        pytest.skip("Requires live Redis -- run with -m live")
+        """Append-and-read conversation history against a real Redis sorted set.
+
+        Connection comes from ``ZEROTH_TEST_REDIS_URL`` (default
+        ``redis://localhost:6379/0``); skips if Redis is unreachable.
+        """
+        import asyncio
+        import os
+
+        import redis.asyncio as aioredis
+
+        url = os.environ.get("ZEROTH_TEST_REDIS_URL", "redis://localhost:6379/0")
+        client = aioredis.from_url(url)
+        try:
+            await client.ping()
+        except Exception as exc:  # noqa: BLE001
+            await client.aclose()
+            pytest.skip(f"Redis not reachable at {url}: {exc}")
+
+        connector = RedisThreadMemoryConnector(client, key_prefix="zeroth:test:thread")
+        try:
+            await connector.write(
+                "messages", {"role": "user", "content": "hello"}, MemoryScope.THREAD, target="t-1"
+            )
+            # Distinct sorted-set scores so "most recent" is unambiguous.
+            await asyncio.sleep(0.01)
+            await connector.write(
+                "messages",
+                {"role": "assistant", "content": "hi there"},
+                MemoryScope.THREAD,
+                target="t-1",
+            )
+
+            # read returns the most recent entry.
+            latest = await connector.read("messages", MemoryScope.THREAD, target="t-1")
+            assert latest is not None
+            assert latest.value == {"role": "assistant", "content": "hi there"}
+
+            # search preserves the full history and supports text filtering.
+            all_msgs = await connector.search({}, MemoryScope.THREAD, target="t-1")
+            assert len(all_msgs) >= 2
+            filtered = await connector.search(
+                {"text": "hello"}, MemoryScope.THREAD, target="t-1"
+            )
+            assert any(m.value.get("content") == "hello" for m in filtered)
+
+            # Delete drops the whole history; a second delete raises KeyError.
+            await connector.delete("messages", MemoryScope.THREAD, target="t-1")
+            assert await connector.read("messages", MemoryScope.THREAD, target="t-1") is None
+            with pytest.raises(KeyError):
+                await connector.delete("messages", MemoryScope.THREAD, target="t-1")
+        finally:
+            async for stale in client.scan_iter(match="zeroth:test:thread:*"):
+                await client.delete(stale)
+            await client.aclose()

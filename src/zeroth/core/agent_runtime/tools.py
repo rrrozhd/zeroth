@@ -44,6 +44,9 @@ class ToolAttachmentManifest(BaseModel):
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
+    # Per-tool override for the model-boundary output cap; None inherits the
+    # agent-level ToolOutputSafetyConfig.max_output_chars default.
+    max_output_chars: int | None = Field(default=None, ge=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_openai_tool(self) -> dict[str, Any]:
@@ -93,6 +96,7 @@ class ToolAttachmentBinding(BaseModel):
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
+    max_output_chars: int | None = Field(default=None, ge=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
@@ -108,6 +112,7 @@ class ToolAttachmentBinding(BaseModel):
             permission_scope=manifest.permission_scope,
             timeout_override_seconds=manifest.timeout_override_seconds,
             side_effect_allowed=manifest.side_effect_allowed,
+            max_output_chars=manifest.max_output_chars,
             metadata=dict(manifest.metadata),
         )
 

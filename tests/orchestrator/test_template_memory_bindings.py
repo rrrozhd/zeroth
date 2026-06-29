@@ -75,10 +75,7 @@ def _make_orchestrator_for_unit(
 ) -> RuntimeOrchestrator:
     """Minimal orchestrator for calling _resolve_template_memory directly."""
     eu_runner = ExecutableUnitRunner(ExecutableUnitRegistry())
-    if sqlite_db is not None:
-        run_repo = RunRepository(sqlite_db)
-    else:
-        run_repo = MagicMock()
+    run_repo = RunRepository(sqlite_db) if sqlite_db is not None else MagicMock()
     return RuntimeOrchestrator(
         run_repository=run_repo,
         agent_runners={},

@@ -271,5 +271,49 @@ class TestRedisKVIntegration:
 
     @pytest.mark.asyncio
     async def test_write_read_roundtrip_live(self) -> None:
-        """Requires a running Redis. Skipped by default."""
-        pytest.skip("Requires live Redis -- run with -m live")
+        """Full write/read/upsert/search/delete roundtrip against a real Redis.
+
+        Connection comes from ``ZEROTH_TEST_REDIS_URL`` (default
+        ``redis://localhost:6379/0``); skips if Redis is unreachable.
+        """
+        import os
+
+        import redis.asyncio as aioredis
+
+        url = os.environ.get("ZEROTH_TEST_REDIS_URL", "redis://localhost:6379/0")
+        client = aioredis.from_url(url)
+        try:
+            await client.ping()
+        except Exception as exc:  # noqa: BLE001
+            await client.aclose()
+            pytest.skip(f"Redis not reachable at {url}: {exc}")
+
+        connector = RedisKVMemoryConnector(client, key_prefix="zeroth:test:kv")
+        try:
+            await connector.write("prefs", {"theme": "dark"}, MemoryScope.RUN, target="run-1")
+            entry = await connector.read("prefs", MemoryScope.RUN, target="run-1")
+            assert entry is not None
+            assert entry.key == "prefs"
+            assert entry.value == {"theme": "dark"}
+
+            # Upsert overwrites the value for the same key/scope/target.
+            await connector.write("prefs", {"theme": "light"}, MemoryScope.RUN, target="run-1")
+            updated = await connector.read("prefs", MemoryScope.RUN, target="run-1")
+            assert updated is not None and updated.value == {"theme": "light"}
+
+            # Scope isolation: same key under a different target is absent.
+            assert await connector.read("prefs", MemoryScope.RUN, target="run-2") is None
+
+            # Substring search over key/value text.
+            hits = await connector.search({"text": "light"}, MemoryScope.RUN, target="run-1")
+            assert any(h.key == "prefs" for h in hits)
+
+            # Delete removes it; a second delete raises KeyError.
+            await connector.delete("prefs", MemoryScope.RUN, target="run-1")
+            assert await connector.read("prefs", MemoryScope.RUN, target="run-1") is None
+            with pytest.raises(KeyError):
+                await connector.delete("prefs", MemoryScope.RUN, target="run-1")
+        finally:
+            async for stale in client.scan_iter(match="zeroth:test:kv:*"):
+                await client.delete(stale)
+            await client.aclose()

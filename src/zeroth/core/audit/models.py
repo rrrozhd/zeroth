@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.core.identity import ActorIdentity
 
@@ -139,6 +139,15 @@ class NodeAuditRecord(BaseModel):
     record_digest: str | None = None
     started_at: datetime = Field(default_factory=_utc_now)
     completed_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _ensure_completion_not_before_start(self) -> NodeAuditRecord:
+        # completed_at is often set from now() at call time while started_at
+        # falls back to its default factory a few microseconds later, which can
+        # render as "completed before started". Clamp so the invariant holds.
+        if self.completed_at is not None and self.completed_at < self.started_at:
+            self.completed_at = self.started_at
+        return self
 
 
 class AuditQuery(BaseModel):

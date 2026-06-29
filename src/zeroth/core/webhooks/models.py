@@ -39,6 +39,7 @@ class DeliveryStatus(StrEnum):
     """Lifecycle states of a webhook delivery attempt."""
 
     PENDING = "pending"
+    DELIVERING = "delivering"
     DELIVERED = "delivered"
     FAILED = "failed"
     DEAD_LETTER = "dead_letter"
@@ -75,8 +76,9 @@ class WebhookSubscription(BaseModel):
 class WebhookDelivery(BaseModel):
     """Tracks a single webhook delivery attempt.
 
-    Created when an event fires. Moves through PENDING -> DELIVERED or
-    PENDING -> FAILED -> ... -> DEAD_LETTER if all retries are exhausted.
+    Created when an event fires. A worker claims it (PENDING/FAILED ->
+    DELIVERING) then resolves it: DELIVERING -> DELIVERED on success, or
+    DELIVERING -> FAILED -> ... -> DEAD_LETTER once retries are exhausted.
     """
 
     model_config = ConfigDict(extra="forbid")

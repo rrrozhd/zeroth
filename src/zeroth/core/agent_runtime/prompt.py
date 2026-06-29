@@ -17,6 +17,10 @@ from zeroth.core.agent_runtime.models import (
     PromptAssembly,
     PromptMessage,
 )
+from zeroth.core.agent_runtime.sanitization import (
+    HeuristicInjectionScreener,
+    wrap_untrusted,
+)
 
 
 def _redact_value(value: Any, redact_keys: set[str]) -> Any:
@@ -97,8 +101,25 @@ class PromptAssembler:
         user_parts = [_json_block("Input payload:", input_dump)]
         if prompt_config.include_thread_state:
             user_parts.append(_json_block("Thread state:", thread_dump))
-        if context_dump:
-            user_parts.append(_json_block("Runtime context:", context_dump))
+        # MBND-02: when safety is enabled, memory-sourced content is untrusted —
+        # split it out of the trusted runtime context and render it (already
+        # redacted, and screened) in a clearly delimited provenance block so the
+        # model treats it as data, not instructions. When safety is disabled,
+        # memory stays nested in the runtime context exactly as before.
+        safety = config.tool_output_safety
+        display_context = dict(context_dump)
+        if safety.enabled and "memory" in display_context:
+            memory_text = json.dumps(
+                display_context.pop("memory"), indent=2, sort_keys=True, ensure_ascii=False
+            )
+            memory_flags = (
+                HeuristicInjectionScreener().screen(memory_text)
+                if safety.screen_for_injection
+                else ()
+            )
+            user_parts.append(wrap_untrusted(memory_text, source="memory", flags=memory_flags))
+        if display_context:
+            user_parts.append(_json_block("Runtime context:", display_context))
         if prompt_config.extra_context:
             user_parts.append(_json_block("Prompt context:", prompt_config.extra_context))
 

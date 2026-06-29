@@ -27,6 +27,7 @@ from zeroth.core.memory.factory import register_memory_connectors
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.observability.metrics import MetricsCollector
 from zeroth.core.observability.queue_gauge import QueueDepthGauge
+from zeroth.core.observability.tracing import configure_tracing
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import RunRepository, ThreadRepository
 from zeroth.core.service.app import create_app
@@ -127,6 +128,8 @@ class ServiceBootstrap:
     memory_resolver: object | None = None
     # Phase 17: Database reference for health probes.
     database: AsyncDatabase | None = None
+    # Studio: graph authoring repository (consumed by /api/studio/v1 routes).
+    graph_repository: GraphRepository | None = None
     # Phase 15: Webhook and SLA components (optional).
     webhook_service: object | None = None
     webhook_repository: object | None = None
@@ -252,6 +255,8 @@ async def bootstrap_service(
 
     # Phase 13: Regulus economics integration.
     settings = get_settings()
+    # OBS: enable OpenTelemetry tracing when configured (no-op when disabled).
+    configure_tracing(settings.tracing)
     regulus_client: RegulusClient | None = None
     budget_enforcer: object | None = None
     cost_estimator: object | None = None
@@ -439,6 +444,7 @@ async def bootstrap_service(
 
     return ServiceBootstrap(
         database=database,
+        graph_repository=graph_repository,
         deployment_service=deployment_service,
         deployment=deployment,
         graph=graph,
