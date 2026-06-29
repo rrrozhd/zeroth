@@ -191,17 +191,14 @@ class TestListNodeTypes:
         resp = client.get("/api/studio/v1/node-types")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 8
+        # The palette mirrors the executable graph model's node_type discriminator.
         type_names = {item["type"] for item in data}
         assert type_names == {
-            "start",
-            "end",
             "agent",
-            "executionUnit",
-            "approvalGate",
-            "memoryResource",
-            "conditionBranch",
-            "dataMapping",
+            "executable_unit",
+            "human_approval",
+            "retrieval",
+            "subgraph",
         }
         # Each should have type, label, category, ports
         for item in data:
@@ -215,3 +212,213 @@ class TestListNodeTypes:
                 assert "type" in port
                 assert "direction" in port
                 assert "label" in port
+
+
+class TestStructuralAuthoring:
+    """PUT persists real executable nodes/edges (not just visual metadata)."""
+
+    def test_persist_nodes_and_edges_round_trip(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "authored"}).json()[
+            "id"
+        ]
+
+        body = {
+            "nodes": [
+                {
+                    "id": "gate",
+                    "type": "human_approval",
+                    "position": {"x": 10, "y": 20},
+                    "data": {"label": "Review gate", "config": {}},
+                },
+                {
+                    "id": "writer",
+                    "type": "agent",
+                    "position": {"x": 200, "y": 20},
+                    "data": {
+                        "label": "Writer",
+                        "config": {
+                            "instruction": "Write a summary",
+                            "model_provider": "openai/gpt-4o",
+                        },
+                    },
+                },
+            ],
+            "edges": [
+                {
+                    "id": "e1",
+                    "source": "gate",
+                    "target": "writer",
+                    "source_handle": "output-data",
+                    "target_handle": "input-data",
+                }
+            ],
+        }
+        resp = client.put(f"/api/studio/v1/workflows/{wf_id}", json=body)
+        assert resp.status_code == 200, resp.text
+
+        # Re-fetch: nodes/edges/config must round-trip.
+        detail = client.get(f"/api/studio/v1/workflows/{wf_id}").json()
+        nodes = {n["id"]: n for n in detail["nodes"]}
+        assert set(nodes) == {"gate", "writer"}
+        assert nodes["writer"]["type"] == "agent"
+        assert nodes["writer"]["data"]["config"]["instruction"] == "Write a summary"
+        assert nodes["gate"]["position"] == {"x": 10, "y": 20}
+        assert len(detail["edges"]) == 1
+        assert detail["edges"][0]["source"] == "gate"
+        assert detail["edges"][0]["source_handle"] == "output-data"
+
+    def test_invalid_node_config_rejected(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "bad"}).json()["id"]
+
+        # agent requires instruction + model_provider
+        resp = client.put(
+            f"/api/studio/v1/workflows/{wf_id}",
+            json={
+                "nodes": [
+                    {
+                        "id": "a",
+                        "type": "agent",
+                        "position": {"x": 0, "y": 0},
+                        "data": {"config": {}},
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_edge_to_unknown_node_rejected(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "dangling"}).json()[
+            "id"
+        ]
+        resp = client.put(
+            f"/api/studio/v1/workflows/{wf_id}",
+            json={
+                "nodes": [],
+                "edges": [{"id": "e", "source": "ghost", "target": "ghost2"}],
+            },
+        )
+        assert resp.status_code == 422
+
+
+class TestCloneAndDraftGuard:
+    """POST .../clone and the draft-only edit guard."""
+
+    def test_clone_published_to_draft(self) -> None:
+        import asyncio
+
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "pub"}).json()["id"]
+        asyncio.run(repo.publish(wf_id))
+
+        resp = client.post(f"/api/studio/v1/workflows/{wf_id}/clone")
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["status"] == "draft"
+        assert resp.json()["version"] == 2
+
+    def test_clone_draft_rejected(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "d"}).json()["id"]
+        resp = client.post(f"/api/studio/v1/workflows/{wf_id}/clone")
+        assert resp.status_code == 409
+
+    def test_edit_published_rejected(self) -> None:
+        import asyncio
+
+        repo = _make_repo()
+        app = _make_app(repo)
+        client = TestClient(app)
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "p"}).json()["id"]
+        asyncio.run(repo.publish(wf_id))
+
+        resp = client.put(f"/api/studio/v1/workflows/{wf_id}", json={"name": "nope"})
+        assert resp.status_code == 409
+
+
+def _branching_graph(metadata: dict | None = None):
+    """A 3-node branching graph (entry a -> b, c) for layout tests."""
+    from zeroth.core.graph.models import (
+        AgentNode,
+        AgentNodeData,
+        Edge,
+        ExecutableUnitNode,
+        ExecutableUnitNodeData,
+        Graph,
+    )
+
+    return Graph(
+        graph_id="layout-graph",
+        name="Layout graph",
+        version=1,
+        entry_step="a",
+        nodes=[
+            AgentNode(
+                node_id="a",
+                graph_version_ref="layout-graph@1",
+                agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4o-mini"),
+            ),
+            ExecutableUnitNode(
+                node_id="b",
+                graph_version_ref="layout-graph@1",
+                executable_unit=ExecutableUnitNodeData(
+                    manifest_ref="eu://echo", execution_mode="native"
+                ),
+            ),
+            ExecutableUnitNode(
+                node_id="c",
+                graph_version_ref="layout-graph@1",
+                executable_unit=ExecutableUnitNodeData(
+                    manifest_ref="eu://echo", execution_mode="native"
+                ),
+            ),
+        ],
+        edges=[
+            Edge(edge_id="e1", source_node_id="a", target_node_id="b"),
+            Edge(edge_id="e2", source_node_id="a", target_node_id="c"),
+        ],
+        metadata=metadata or {},
+    )
+
+
+class TestStudioAutoLayout:
+    """A graph deployed outside the Studio carries no positions; the canvas must
+    not stack every node at the origin."""
+
+    def test_no_positions_gets_non_overlapping_layout(self) -> None:
+        from zeroth.core.service.studio_api import _graph_to_detail
+
+        detail = _graph_to_detail(_branching_graph())
+        positions = {n.id: (n.position.x, n.position.y) for n in detail.nodes}
+        # Three distinct positions (not all stacked at the origin).
+        assert len(set(positions.values())) == 3
+        # Entry at x=0; downstream branches laid out to the right.
+        assert positions["a"][0] == 0
+        assert positions["b"][0] > 0
+        assert positions["c"][0] > 0
+        # Siblings at the same depth are separated vertically.
+        assert positions["b"][1] != positions["c"][1]
+
+    def test_stored_positions_win_over_auto_layout(self) -> None:
+        from zeroth.core.service.studio_api import _graph_to_detail
+
+        graph = _branching_graph(
+            metadata={"studio": {"node_positions": {"a": {"x": 5, "y": 7}}}}
+        )
+        detail = _graph_to_detail(graph)
+        positions = {n.id: (n.position.x, n.position.y) for n in detail.nodes}
+        # Stored layout is respected verbatim; auto-layout does not kick in.
+        assert positions["a"] == (5, 7)

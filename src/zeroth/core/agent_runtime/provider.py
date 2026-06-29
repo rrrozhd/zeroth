@@ -19,6 +19,7 @@ from langchain_litellm import ChatLiteLLM
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.agent_runtime.models import ModelParams, PromptMessage
+from zeroth.core.agent_runtime.response_format import build_response_format
 from zeroth.core.audit.models import TokenUsage
 
 ProviderMessage = PromptMessage | dict[str, Any] | Any
@@ -190,16 +191,23 @@ class LiteLLMProviderAdapter:
             if params.seed is not None:
                 kwargs["seed"] = params.seed
 
-        if request.output_model is not None:
-            # Use LangChain's with_structured_output for provider-agnostic
-            # structured output. include_raw=True gives us the AIMessage
-            # alongside the parsed Pydantic model for token usage extraction.
-            structured = client.with_structured_output(
-                request.output_model, include_raw=True
+        response_format = (
+            build_response_format(request.output_model)
+            if request.output_model is not None
+            else None
+        )
+        if response_format is not None:
+            # Bind an OpenAI strict-compliant json_schema ourselves rather than
+            # delegating to with_structured_output: langchain_litellm derives the
+            # schema from the model and only patches additionalProperties, leaving
+            # defaulted fields out of `required`, which OpenAI rejects under strict
+            # mode. build_response_format enforces all strict rules. We then parse
+            # the JSON content back into the Pydantic model.
+            bound = client.bind(response_format=response_format)
+            ai_message: AIMessage = await bound.ainvoke(lc_messages, **kwargs)
+            parsed: BaseModel = request.output_model.model_validate_json(
+                ai_message.content
             )
-            result = await structured.ainvoke(lc_messages, **kwargs)
-            ai_message: AIMessage = result["raw"]
-            parsed: BaseModel = result["parsed"]
             token_usage = self._extract_token_usage(ai_message, request.model_name)
             tool_calls = self._extract_tool_calls(ai_message)
             return ProviderResponse(

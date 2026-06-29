@@ -188,6 +188,21 @@ class HumanApprovalNodeData(BaseModel):
     delegate_identity: dict[str, Any] | None = None
 
 
+class RetrievalNodeData(BaseModel):
+    """Configuration for a retrieval (RAG) step.
+
+    Queries a vector memory connector with text taken from the node input and
+    outputs the retrieved chunks for a downstream node (typically an agent) to
+    ground on. Embedding and ranking are owned by the connector.
+    """
+
+    connector_ref: str
+    query_key: str = "query"
+    top_k: int = Field(default=5, ge=1)
+    scope: Literal["run", "thread", "shared"] = "shared"
+    as_name: str = "retrieved"
+
+
 class AgentNode(NodeBase):
     """A graph node that runs an AI agent.
 
@@ -291,8 +306,31 @@ class SubgraphNode(NodeBase):
         )
 
 
+class RetrievalNode(NodeBase):
+    """A graph node that retrieves grounded context from a vector memory connector."""
+
+    node_type: Literal["retrieval"] = "retrieval"
+    retrieval: RetrievalNodeData
+
+    def to_governed_step_spec(self) -> GovernedStepSpec:
+        """Convert this retrieval node into a spec the execution engine understands."""
+        return GovernedStepSpec(
+            name=self.node_id,
+            tool={
+                "kind": "retrieval_ref",
+                "connector_ref": self.retrieval.connector_ref,
+                "top_k": self.retrieval.top_k,
+                "scope": self.retrieval.scope,
+                "input_contract_ref": self.input_contract_ref,
+                "output_contract_ref": self.output_contract_ref,
+                "policy_refs": list(self.policy_bindings),
+                "capability_refs": list(self.capability_bindings),
+            },
+        )
+
+
 Node = Annotated[
-    AgentNode | ExecutableUnitNode | HumanApprovalNode | SubgraphNode,
+    AgentNode | ExecutableUnitNode | HumanApprovalNode | SubgraphNode | RetrievalNode,
     Field(discriminator="node_type"),
 ]
 

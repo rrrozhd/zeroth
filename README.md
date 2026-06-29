@@ -236,6 +236,59 @@ Zeroth optimizes for:
 
 ---
 
+## Web Console
+
+An in-repo web console (`frontend/`) for operating and authoring Zeroth apps —
+a Next.js **static export** that talks to the platform's HTTP API. It is built
+once and runs in **two modes from the same bundle**:
+
+- **Mounted** — when a build is present, the FastAPI app serves it at
+  `/console` on the same origin as the API. One deployment ships both API and
+  UI; no CORS, no second host.
+- **Standalone** — host the static bundle anywhere and point it at a remote
+  API. Set the API base URL + key in the console's *Connect* bar; enable CORS
+  on the API (below).
+
+The console reads its API base URL and `X-API-Key` from the browser at runtime
+(localStorage), so the same artifact works in both modes.
+
+**What it covers:** an overview/health dashboard; runs (submit + a live-polling
+detail view); approvals (approve/reject); per-node audit; deployment cost; and a
+Studio with workflow CRUD and a React Flow graph canvas.
+
+> **Studio authoring edits draft graph structure.** On a *draft* you can add the
+> five executable node types (agent, executable_unit, human_approval, retrieval,
+> subgraph), edit each node's config, draw edges, and save real graph nodes/edges
+> plus layout. Published graphs are read-only — *clone to a draft* to edit. Note:
+> an authored draft still needs contracts + a registered runner + deployment to
+> actually run; the canvas authors graph *structure*, not the full medium-code
+> wiring.
+
+```bash
+# Build the static export (requires Node; produces frontend/out/)
+cd frontend && npm install && npm run build
+
+# Mounted: any Zeroth service auto-mounts frontend/out at /console.
+# Override the location with ZEROTH_CONSOLE_DIR=/path/to/out
+# Then open http://<host>/console/
+
+# Standalone dev against a running API on :8000
+npm run dev                       # serves http://localhost:3000/console/
+# ...and allow that origin on the API:
+export ZEROTH_CONSOLE_CORS_ORIGINS="http://localhost:3000"
+```
+
+| Env var | Purpose |
+| ------- | ------- |
+| `ZEROTH_CONSOLE_DIR` | Explicit path to the built `out/` dir (defaults to `frontend/out`). |
+| `ZEROTH_CONSOLE_CORS_ORIGINS` | Comma-separated origins allowed to call the API cross-origin (standalone mode). Unset = no CORS (mounted mode). |
+
+If no build is present (Python-only install / CI with no Node), the mount is
+skipped silently and the API is unaffected. See [frontend/README.md](frontend/README.md)
+for development details.
+
+---
+
 ## Studio
 
 Zeroth's canvas UI for authoring and inspecting workflows lives in a separate repo:

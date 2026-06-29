@@ -149,12 +149,16 @@ class TestWebhookRepositorySubscriptions:
             event_types=[WebhookEventType.RUN_COMPLETED, WebhookEventType.RUN_FAILED]
         )
         sub2 = make_subscription(event_types=[WebhookEventType.APPROVAL_REQUESTED])
-        sub3 = make_subscription(deployment_ref="other-deploy", event_types=[WebhookEventType.RUN_COMPLETED])
+        sub3 = make_subscription(
+            deployment_ref="other-deploy", event_types=[WebhookEventType.RUN_COMPLETED]
+        )
         await repo.create_subscription(sub1)
         await repo.create_subscription(sub2)
         await repo.create_subscription(sub3)
 
-        matches = await repo.list_subscriptions_for_event("deploy-test", WebhookEventType.RUN_COMPLETED)
+        matches = await repo.list_subscriptions_for_event(
+            "deploy-test", WebhookEventType.RUN_COMPLETED
+        )
         ids = [s.subscription_id for s in matches]
         assert sub1.subscription_id in ids
         assert sub2.subscription_id not in ids
@@ -180,7 +184,9 @@ class TestWebhookRepositorySubscriptions:
         sub = make_subscription()
         await repo.create_subscription(sub)
         await repo.deactivate_subscription(sub.subscription_id)
-        matches = await repo.list_subscriptions_for_event("deploy-test", WebhookEventType.RUN_COMPLETED)
+        matches = await repo.list_subscriptions_for_event(
+            "deploy-test", WebhookEventType.RUN_COMPLETED
+        )
         assert len(matches) == 0
 
 
@@ -223,6 +229,86 @@ class TestWebhookRepositoryDeliveries:
         assert await repo.claim_pending_delivery() is None
 
     @pytest.mark.asyncio
+    async def test_failed_delivery_is_reclaimed_for_retry(
+        self, async_database, make_subscription, make_delivery
+    ):
+        """A FAILED delivery whose backoff has elapsed must be re-claimed.
+
+        Regression: claim_pending_delivery filtered status=PENDING only while
+        mark_failed sets status=FAILED, so a once-failed delivery was never
+        retried -- the backoff/next_attempt_at machinery was dead code.
+        """
+        from zeroth.core.webhooks.repository import WebhookRepository
+
+        repo = WebhookRepository(async_database)
+        sub = make_subscription()
+        await repo.create_subscription(sub)
+        delivery = make_delivery(
+            subscription_id=sub.subscription_id,
+            next_attempt_at=datetime.now(UTC) - timedelta(seconds=10),
+        )
+        await repo.enqueue_delivery(delivery)
+
+        first = await repo.claim_pending_delivery()
+        assert first is not None and first.delivery_id == delivery.delivery_id
+
+        # Worker reports failure; retry_delay=0 => the retry is due immediately.
+        await repo.mark_failed(
+            delivery.delivery_id, error="HTTP 500", status_code=500, retry_delay=0.0
+        )
+
+        retry = await repo.claim_pending_delivery()
+        assert retry is not None, "failed delivery was never re-claimed for retry"
+        assert retry.delivery_id == delivery.delivery_id
+
+    @pytest.mark.asyncio
+    async def test_claimed_delivery_is_not_double_claimed(
+        self, async_database, make_subscription, make_delivery
+    ):
+        """Claiming leases the row so a second claim can't grab the same delivery.
+
+        Regression: claim did not mark the row in-flight, so the polling worker
+        re-claimed the still-PENDING row and delivered it multiple times.
+        """
+        from zeroth.core.webhooks.repository import WebhookRepository
+
+        repo = WebhookRepository(async_database)
+        sub = make_subscription()
+        await repo.create_subscription(sub)
+        delivery = make_delivery(
+            subscription_id=sub.subscription_id,
+            next_attempt_at=datetime.now(UTC) - timedelta(seconds=10),
+        )
+        await repo.enqueue_delivery(delivery)
+
+        first = await repo.claim_pending_delivery()
+        assert first is not None and first.delivery_id == delivery.delivery_id
+
+        second = await repo.claim_pending_delivery()
+        assert second is None, "same delivery claimed twice (would double-deliver)"
+
+    @pytest.mark.asyncio
+    async def test_expired_delivering_lease_is_reclaimed(
+        self, async_database, make_subscription, make_delivery
+    ):
+        """A DELIVERING row whose lease expired is reclaimed (worker-crash recovery)."""
+        from zeroth.core.webhooks.repository import WebhookRepository
+
+        repo = WebhookRepository(async_database)
+        sub = make_subscription()
+        await repo.create_subscription(sub)
+        delivery = make_delivery(
+            subscription_id=sub.subscription_id,
+            status=DeliveryStatus.DELIVERING,
+            next_attempt_at=datetime.now(UTC) - timedelta(seconds=5),
+        )
+        await repo.enqueue_delivery(delivery)
+
+        claimed = await repo.claim_pending_delivery()
+        assert claimed is not None, "expired DELIVERING lease was not reclaimed"
+        assert claimed.delivery_id == delivery.delivery_id
+
+    @pytest.mark.asyncio
     async def test_mark_delivered(self, async_database, make_subscription, make_delivery):
         from zeroth.core.webhooks.repository import WebhookRepository
 
@@ -242,7 +328,9 @@ class TestWebhookRepositoryDeliveries:
         assert row["status"] == "delivered"
 
     @pytest.mark.asyncio
-    async def test_mark_failed_increments_attempt_count(self, async_database, make_subscription, make_delivery):
+    async def test_mark_failed_increments_attempt_count(
+        self, async_database, make_subscription, make_delivery
+    ):
         from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)
@@ -250,7 +338,9 @@ class TestWebhookRepositoryDeliveries:
         await repo.create_subscription(sub)
         delivery = make_delivery(subscription_id=sub.subscription_id)
         await repo.enqueue_delivery(delivery)
-        await repo.mark_failed(delivery.delivery_id, error="timeout", status_code=504, retry_delay=1.0)
+        await repo.mark_failed(
+            delivery.delivery_id, error="timeout", status_code=504, retry_delay=1.0
+        )
 
         async with async_database.transaction() as conn:
             row = await conn.fetch_one(
@@ -295,7 +385,9 @@ class TestWebhookRepositoryDeadLetters:
     """Dead-letter query operations."""
 
     @pytest.mark.asyncio
-    async def test_list_dead_letters_ordered_desc(self, async_database, make_subscription, make_delivery):
+    async def test_list_dead_letters_ordered_desc(
+        self, async_database, make_subscription, make_delivery
+    ):
         from zeroth.core.webhooks.repository import WebhookRepository
 
         repo = WebhookRepository(async_database)

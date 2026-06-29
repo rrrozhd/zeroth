@@ -196,4 +196,50 @@ class TestElasticsearchLive:
     """
 
     async def test_roundtrip(self):
-        pytest.skip("Requires Elasticsearch testcontainer - run with pytest -m live")
+        """Index/get/search/delete roundtrip against a real Elasticsearch cluster.
+
+        Endpoint comes from ``ZEROTH_TEST_ELASTICSEARCH_URL`` (default
+        ``http://localhost:9200``); skips if the cluster is unreachable.
+        """
+        import os
+
+        from elasticsearch import AsyncElasticsearch
+
+        url = os.environ.get("ZEROTH_TEST_ELASTICSEARCH_URL", "http://localhost:9200")
+        client = AsyncElasticsearch(url, request_timeout=10)
+        try:
+            if not await client.ping():
+                await client.close()
+                pytest.skip(f"Elasticsearch not reachable at {url}")
+        except Exception as exc:  # noqa: BLE001
+            await client.close()
+            pytest.skip(f"Elasticsearch not reachable at {url}: {exc}")
+
+        connector = ElasticsearchMemoryConnector(client, index_prefix="zeroth_test_mem")
+        index = connector._index_name(MemoryScope.SHARED, "__shared__")
+        try:
+            await connector.write(
+                "doc1", {"text": "hello world"}, MemoryScope.SHARED, target="__shared__"
+            )
+            # GET-by-id is real-time in Elasticsearch.
+            entry = await connector.read("doc1", MemoryScope.SHARED, target="__shared__")
+            assert entry is not None
+            assert entry.value == {"text": "hello world"}
+
+            # _search is near-real-time: make the new doc visible before querying.
+            await client.indices.refresh(index=index)
+            hits = await connector.search(
+                {"text": "hello"}, MemoryScope.SHARED, target="__shared__"
+            )
+            assert any(h.key == "doc1" for h in hits)
+
+            # Delete removes it; a second delete raises KeyError.
+            await connector.delete("doc1", MemoryScope.SHARED, target="__shared__")
+            assert await connector.read("doc1", MemoryScope.SHARED, target="__shared__") is None
+            with pytest.raises(KeyError):
+                await connector.delete("doc1", MemoryScope.SHARED, target="__shared__")
+        finally:
+            try:
+                await client.indices.delete(index=index, ignore_unavailable=True)
+            finally:
+                await client.close()
