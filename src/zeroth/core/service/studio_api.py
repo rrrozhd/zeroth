@@ -7,6 +7,7 @@ to avoid modifying core graph models.
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from typing import Any
 from uuid import uuid4
 
@@ -154,11 +155,52 @@ def _build_edge(se: StudioEdgeResponse) -> Edge:
     )
 
 
+def _auto_layout(graph: Graph) -> dict[str, dict[str, float]]:
+    """Left-to-right positions for a graph with no stored Studio layout.
+
+    Graphs deployed outside the Studio (e.g. via the deployment API) carry no
+    ``metadata["studio"]["node_positions"]``, so every node would default to
+    (0, 0) and stack at the canvas origin. Lay nodes out by BFS depth from the
+    entry step (x) with siblings staggered vertically (y) so a freshly deployed
+    graph renders as a graph on first open. Stored positions always win — this
+    only runs when none are present.
+    """
+    adjacency: dict[str, list[str]] = defaultdict(list)
+    for edge in graph.edges:
+        adjacency[edge.source_node_id].append(edge.target_node_id)
+
+    depth: dict[str, int] = {}
+    if graph.entry_step:
+        depth[graph.entry_step] = 0
+        queue = deque([graph.entry_step])
+        while queue:
+            current = queue.popleft()
+            for target in adjacency[current]:
+                if target not in depth:
+                    depth[target] = depth[current] + 1
+                    queue.append(target)
+
+    by_depth: dict[int, list[str]] = defaultdict(list)
+    for node in graph.nodes:
+        by_depth[depth.get(node.node_id, 0)].append(node.node_id)
+
+    positions: dict[str, dict[str, float]] = {}
+    for level, node_ids in by_depth.items():
+        for row, node_id in enumerate(node_ids):
+            positions[node_id] = {"x": level * 320.0, "y": row * 180.0}
+    return positions
+
+
 def _graph_to_detail(graph: Graph) -> WorkflowDetailResponse:
     """Map a core Graph model to a Studio WorkflowDetailResponse."""
     studio_meta = graph.metadata.get("studio", {})
     node_positions = studio_meta.get("node_positions", {})
     viewport_data = studio_meta.get("viewport", {})
+
+    # No stored layout (graph deployed outside the Studio): lay it out so the
+    # canvas doesn't render every node stacked at the origin.
+    if not node_positions:
+        node_positions = _auto_layout(graph)
 
     nodes = []
     for node in graph.nodes:

@@ -347,3 +347,78 @@ class TestCloneAndDraftGuard:
 
         resp = client.put(f"/api/studio/v1/workflows/{wf_id}", json={"name": "nope"})
         assert resp.status_code == 409
+
+
+def _branching_graph(metadata: dict | None = None):
+    """A 3-node branching graph (entry a -> b, c) for layout tests."""
+    from zeroth.core.graph.models import (
+        AgentNode,
+        AgentNodeData,
+        Edge,
+        ExecutableUnitNode,
+        ExecutableUnitNodeData,
+        Graph,
+    )
+
+    return Graph(
+        graph_id="layout-graph",
+        name="Layout graph",
+        version=1,
+        entry_step="a",
+        nodes=[
+            AgentNode(
+                node_id="a",
+                graph_version_ref="layout-graph@1",
+                agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4o-mini"),
+            ),
+            ExecutableUnitNode(
+                node_id="b",
+                graph_version_ref="layout-graph@1",
+                executable_unit=ExecutableUnitNodeData(
+                    manifest_ref="eu://echo", execution_mode="native"
+                ),
+            ),
+            ExecutableUnitNode(
+                node_id="c",
+                graph_version_ref="layout-graph@1",
+                executable_unit=ExecutableUnitNodeData(
+                    manifest_ref="eu://echo", execution_mode="native"
+                ),
+            ),
+        ],
+        edges=[
+            Edge(edge_id="e1", source_node_id="a", target_node_id="b"),
+            Edge(edge_id="e2", source_node_id="a", target_node_id="c"),
+        ],
+        metadata=metadata or {},
+    )
+
+
+class TestStudioAutoLayout:
+    """A graph deployed outside the Studio carries no positions; the canvas must
+    not stack every node at the origin."""
+
+    def test_no_positions_gets_non_overlapping_layout(self) -> None:
+        from zeroth.core.service.studio_api import _graph_to_detail
+
+        detail = _graph_to_detail(_branching_graph())
+        positions = {n.id: (n.position.x, n.position.y) for n in detail.nodes}
+        # Three distinct positions (not all stacked at the origin).
+        assert len(set(positions.values())) == 3
+        # Entry at x=0; downstream branches laid out to the right.
+        assert positions["a"][0] == 0
+        assert positions["b"][0] > 0
+        assert positions["c"][0] > 0
+        # Siblings at the same depth are separated vertically.
+        assert positions["b"][1] != positions["c"][1]
+
+    def test_stored_positions_win_over_auto_layout(self) -> None:
+        from zeroth.core.service.studio_api import _graph_to_detail
+
+        graph = _branching_graph(
+            metadata={"studio": {"node_positions": {"a": {"x": 5, "y": 7}}}}
+        )
+        detail = _graph_to_detail(graph)
+        positions = {n.id: (n.position.x, n.position.y) for n in detail.nodes}
+        # Stored layout is respected verbatim; auto-layout does not kick in.
+        assert positions["a"] == (5, 7)

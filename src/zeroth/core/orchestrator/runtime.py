@@ -21,7 +21,7 @@ from typing import Any
 from zeroth.core.agent_runtime import AgentRunner, RepositoryThreadResolver
 from zeroth.core.approvals import ApprovalDecision, ApprovalRecord, ApprovalService
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
-from zeroth.core.audit.models import TokenUsage
+from zeroth.core.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRecord
 from zeroth.core.conditions import NextStepPlanner
 from zeroth.core.conditions.models import ConditionContext, TraversalState
 from zeroth.core.execution_units import ExecutableUnitRunner
@@ -766,6 +766,9 @@ class RuntimeOrchestrator:
 
                 # Write audit record if audit repo available
                 if self.audit_repository is not None:
+                    branch_tool_calls, branch_memory = self._typed_audit_fields(
+                        ds_audit_with_branch
+                    )
                     await self.audit_repository.write(
                         NodeAuditRecord(
                             audit_id=audit_ref,
@@ -781,6 +784,8 @@ class RuntimeOrchestrator:
                             input_snapshot=dict(branch_output),
                             output_snapshot=dict(ds_output),
                             execution_metadata=ds_audit_with_branch,
+                            tool_calls=branch_tool_calls,
+                            memory_interactions=branch_memory,
                         )
                     )
 
@@ -1685,6 +1690,7 @@ class RuntimeOrchestrator:
                 if token_usage_data is not None
                 else None
             )
+            tool_calls, memory_interactions = self._typed_audit_fields(redacted_audit_record)
             await self.audit_repository.write(
                 NodeAuditRecord(
                     audit_id=self._stored_audit_id(run.run_id, audit_ref),
@@ -1703,6 +1709,8 @@ class RuntimeOrchestrator:
                     token_usage=token_usage,
                     cost_usd=redacted_audit_record.get("cost_usd"),
                     cost_event_id=redacted_audit_record.get("cost_event_id"),
+                    tool_calls=tool_calls,
+                    memory_interactions=memory_interactions,
                 )
             )
         run.execution_history.append(
@@ -1744,6 +1752,7 @@ class RuntimeOrchestrator:
         token_usage = (
             TokenUsage.model_validate(token_usage_data) if token_usage_data is not None else None
         )
+        tool_calls, memory_interactions = self._typed_audit_fields(redacted_audit_record)
         await self.audit_repository.write(
             NodeAuditRecord(
                 audit_id=self._stored_audit_id(run.run_id, audit_ref),
@@ -1763,6 +1772,8 @@ class RuntimeOrchestrator:
                 cost_usd=redacted_audit_record.get("cost_usd"),
                 cost_event_id=redacted_audit_record.get("cost_event_id"),
                 error=str(error),
+                tool_calls=tool_calls,
+                memory_interactions=memory_interactions,
             )
         )
 
@@ -2017,6 +2028,54 @@ class RuntimeOrchestrator:
         if resolver is None:
             return value
         return resolver.redactor().redact(value)
+
+    @staticmethod
+    def _typed_audit_fields(
+        record: Mapping[str, Any],
+    ) -> tuple[list[ToolCallRecord], list[MemoryAccessRecord]]:
+        """Promote a runner audit record's tool calls / memory interactions to typed fields.
+
+        These otherwise only live in ``execution_metadata.extra`` and the typed
+        (queryable, evidence-summarized) ``tool_calls`` / ``memory_interactions``
+        fields stay empty. Built from the already-redacted record so secrets never
+        reach the typed columns, and tolerant of odd shapes (a redaction edge case
+        coerces an argument/outcome into ``{"redacted": ...}`` rather than dropping
+        the whole call).
+        """
+        extra = record.get("extra")
+        if not isinstance(extra, Mapping):
+            return [], []
+
+        def _as_dict(value: Any) -> dict[str, Any] | None:
+            if value is None:
+                return None
+            return dict(value) if isinstance(value, Mapping) else {"redacted": value}
+
+        tool_calls: list[ToolCallRecord] = []
+        for tc in extra.get("tool_calls") or []:
+            if not isinstance(tc, Mapping):
+                continue
+            tool = tc.get("tool")
+            tool = tool if isinstance(tool, Mapping) else {}
+            tool_calls.append(
+                ToolCallRecord(
+                    tool_ref=str(tool.get("executable_unit_ref") or tool.get("tool_ref") or ""),
+                    alias=str(tool.get("alias") or ""),
+                    arguments=_as_dict(tc.get("arguments")) or {},
+                    outcome=_as_dict(tc.get("outcome")),
+                    error=tc.get("error"),
+                )
+            )
+
+        memory_interactions: list[MemoryAccessRecord] = []
+        for mi in extra.get("memory_interactions") or []:
+            if not isinstance(mi, Mapping):
+                continue
+            try:
+                memory_interactions.append(MemoryAccessRecord.model_validate(dict(mi)))
+            except Exception:
+                continue
+        return tool_calls, memory_interactions
 
     async def record_approval_resolution(
         self,
