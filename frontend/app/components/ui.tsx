@@ -93,13 +93,16 @@ const STATUS_TONES: Record<string, string> = {
   resolved: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
   ok: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
   running: "bg-blue-500/12 text-blue-700 dark:text-blue-400",
+  approval_api: "bg-blue-500/12 text-blue-700 dark:text-blue-400",
   pending: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   paused: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  paused_for_approval: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   awaiting_approval: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   escalated: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   draft: "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400",
   failed: "bg-red-500/12 text-red-700 dark:text-red-400",
   rejected: "bg-red-500/12 text-red-700 dark:text-red-400",
+  terminated_by_policy: "bg-red-500/12 text-red-700 dark:text-red-400",
   dead_letter: "bg-red-500/12 text-red-700 dark:text-red-400",
 };
 
@@ -111,14 +114,25 @@ const DOT_TONES: Record<string, string> = {
   resolved: "bg-emerald-500",
   ok: "bg-emerald-500",
   running: "bg-blue-500",
+  approval_api: "bg-blue-500",
   pending: "bg-amber-500",
   paused: "bg-amber-500",
+  paused_for_approval: "bg-amber-500",
   awaiting_approval: "bg-amber-500",
   escalated: "bg-amber-500",
   draft: "bg-zinc-400",
   failed: "bg-red-500",
   rejected: "bg-red-500",
+  terminated_by_policy: "bg-red-500",
   dead_letter: "bg-red-500",
+};
+
+// Friendly labels for raw backend statuses that don't humanize cleanly.
+const STATUS_LABELS: Record<string, string> = {
+  approval_api: "Approval resolved",
+  paused_for_approval: "Awaiting approval",
+  terminated_by_policy: "Blocked by policy",
+  dead_letter: "Dead letter",
 };
 
 /** Humanize a snake_case status for display. */
@@ -135,7 +149,7 @@ export function StatusBadge({ status, dot = true }: { status: string; dot?: bool
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
     >
       {dot && <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dotTone}`} />}
-      {humanize(status)}
+      {STATUS_LABELS[key] ?? humanize(status)}
     </span>
   );
 }

@@ -432,6 +432,7 @@ class ApprovalService:
                 workspace_id=record.workspace_id,
                 attempt=1,
                 status="approval_api",
+                completed_at=datetime.now(UTC),
                 actor=record.resolution.actor,
                 execution_metadata={"resolution": record.resolution.model_dump(mode="json")},
                 approval_actions=[
@@ -468,6 +469,7 @@ class ApprovalService:
                 workspace_id=record.workspace_id,
                 attempt=1,
                 status=status,
+                completed_at=datetime.now(UTC),
                 actor=record.resolution.actor,
                 input_snapshot=record.proposed_payload or {},
                 output_snapshot=output_payload,

@@ -14,6 +14,7 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
@@ -776,6 +777,7 @@ class RuntimeOrchestrator:
                             deployment_ref=run.deployment_ref,
                             attempt=1,
                             status="completed",
+                            completed_at=datetime.now(UTC),
                             input_snapshot=dict(branch_output),
                             output_snapshot=dict(ds_output),
                             execution_metadata=ds_audit_with_branch,
@@ -1694,6 +1696,7 @@ class RuntimeOrchestrator:
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="completed",
+                    completed_at=datetime.now(UTC),
                     input_snapshot=redacted_input,
                     output_snapshot=redacted_output,
                     execution_metadata=redacted_audit_record,
@@ -1752,6 +1755,7 @@ class RuntimeOrchestrator:
                 deployment_ref=run.deployment_ref,
                 attempt=1,
                 status="rejected",
+                completed_at=datetime.now(UTC),
                 input_snapshot=self._redact_for_audit(dict(input_payload)),
                 output_snapshot={},
                 execution_metadata=redacted_audit_record,
@@ -1835,6 +1839,7 @@ class RuntimeOrchestrator:
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="rejected",
+                    completed_at=datetime.now(UTC),
                     input_snapshot=self._redact_for_audit(dict(input_payload)),
                     output_snapshot={},
                     execution_metadata=self._redact_for_audit(
