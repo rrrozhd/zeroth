@@ -98,6 +98,25 @@ def test_tolerant_of_redacted_argument_shapes() -> None:
     assert tools[0].error == "boom"
 
 
+def test_non_str_error_is_coerced_not_dropped() -> None:
+    # A malformed (non-string) error must not raise out and abort the audit
+    # write; coerce it to a string and keep the call.
+    record = {
+        "extra": {
+            "tool_calls": [
+                {
+                    "tool": {"alias": "x", "executable_unit_ref": "eu://x"},
+                    "arguments": {"a": 1},
+                    "error": {"code": 500},
+                }
+            ]
+        }
+    }
+    tools, _ = _fields(record)
+    assert len(tools) == 1
+    assert tools[0].error == "{'code': 500}"
+
+
 def test_redacted_leaf_inside_dict_argument_preserved() -> None:
     # The common production shape: structure preserved, a leaf value redacted.
     record = {

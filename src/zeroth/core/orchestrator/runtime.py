@@ -766,8 +766,12 @@ class RuntimeOrchestrator:
 
                 # Write audit record if audit repo available
                 if self.audit_repository is not None:
+                    # Redact the branch record like the completed/failed sites so
+                    # resolved secrets never reach the snapshots or the typed
+                    # tool_calls / memory_interactions columns.
+                    redacted_branch_audit = self._redact_for_audit(dict(ds_audit_with_branch))
                     branch_tool_calls, branch_memory = self._typed_audit_fields(
-                        ds_audit_with_branch
+                        redacted_branch_audit
                     )
                     await self.audit_repository.write(
                         NodeAuditRecord(
@@ -781,9 +785,9 @@ class RuntimeOrchestrator:
                             attempt=1,
                             status="completed",
                             completed_at=datetime.now(UTC),
-                            input_snapshot=dict(branch_output),
-                            output_snapshot=dict(ds_output),
-                            execution_metadata=ds_audit_with_branch,
+                            input_snapshot=self._redact_for_audit(dict(branch_output)),
+                            output_snapshot=self._redact_for_audit(dict(ds_output)),
+                            execution_metadata=redacted_branch_audit,
                             tool_calls=branch_tool_calls,
                             memory_interactions=branch_memory,
                         )
@@ -2057,15 +2061,22 @@ class RuntimeOrchestrator:
                 continue
             tool = tc.get("tool")
             tool = tool if isinstance(tool, Mapping) else {}
-            tool_calls.append(
-                ToolCallRecord(
-                    tool_ref=str(tool.get("executable_unit_ref") or tool.get("tool_ref") or ""),
-                    alias=str(tool.get("alias") or ""),
-                    arguments=_as_dict(tc.get("arguments")) or {},
-                    outcome=_as_dict(tc.get("outcome")),
-                    error=tc.get("error"),
+            error = tc.get("error")
+            try:
+                tool_calls.append(
+                    ToolCallRecord(
+                        tool_ref=str(
+                            tool.get("executable_unit_ref") or tool.get("tool_ref") or ""
+                        ),
+                        alias=str(tool.get("alias") or ""),
+                        arguments=_as_dict(tc.get("arguments")) or {},
+                        outcome=_as_dict(tc.get("outcome")),
+                        error=error if error is None else str(error),
+                    )
                 )
-            )
+            except Exception:
+                # A malformed tool-call record must not abort the whole audit write.
+                continue
 
         memory_interactions: list[MemoryAccessRecord] = []
         for mi in extra.get("memory_interactions") or []:
