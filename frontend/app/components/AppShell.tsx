@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/audit", label: "Audit" },
   { href: "/cost", label: "Cost" },
   { href: "/studio", label: "Studio" },
+  { href: "/guide", label: "Guide" },
 ];
 
 export function Header() {

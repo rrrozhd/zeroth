@@ -86,7 +86,9 @@ function RunList({ onSelect }: { onSelect: (id: string) => void }) {
     >
       {error && <ApiErrorNote error={error} />}
       {loading && !data && <Skeleton rows={4} />}
-      {data && data.runs.length === 0 && <Empty>No runs yet.</Empty>}
+      {data && data.runs.length === 0 && (
+        <Empty>No runs yet — submit one above to see it appear here.</Empty>
+      )}
       {data && data.runs.length > 0 && (
         <ul className="divide-y divide-border">
           {data.runs.map((r) => (
@@ -108,6 +110,23 @@ function RunList({ onSelect }: { onSelect: (id: string) => void }) {
     </Card>
   );
 }
+
+// Ready-made payloads to fill the form with — the real shape is defined by the
+// deployed graph's input contract, these just show the common patterns.
+const PAYLOAD_EXAMPLES: { label: string; payload: Record<string, unknown> }[] = [
+  { label: "Question", payload: { question: "What is Zeroth?" } },
+  {
+    label: "Document",
+    payload: {
+      document: "Paste the text to process here.",
+      instructions: "Summarize the key points.",
+    },
+  },
+  {
+    label: "Structured task",
+    payload: { task: "generate_report", parameters: { period: "2026-Q2" } },
+  },
+];
 
 function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
   const [payload, setPayload] = useState('{\n  "question": "What is Zeroth?"\n}');
@@ -142,7 +161,7 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
     <Card title="Submit a run">
       <div className="space-y-3">
         {error && <ErrorBox message={error} />}
-        <Field label="Input payload (JSON)">
+        <Field label="Input payload (JSON)" hint="the shape is set by your graph's input contract">
           <Textarea
             value={payload}
             onChange={(e) => setPayload(e.target.value)}
@@ -150,6 +169,19 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
             className="font-mono text-xs"
           />
         </Field>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span>Examples:</span>
+          {PAYLOAD_EXAMPLES.map((ex) => (
+            <button
+              key={ex.label}
+              type="button"
+              onClick={() => setPayload(JSON.stringify(ex.payload, null, 2))}
+              className="rounded-full border border-border px-2.5 py-0.5 transition-colors hover:border-accent/40 hover:text-accent"
+            >
+              {ex.label}
+            </button>
+          ))}
+        </div>
         <Field label="Thread ID" hint="optional">
           <Input
             value={thread}

@@ -32,6 +32,35 @@ const QUICK_LINKS: { href: string; title: string; desc: string; icon: string }[]
     desc: "Author workflows",
     icon: "M12 19l7-7 3 3-7 7-3-3zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5zM2 2l7.586 7.586M11 13a2 2 0 11-4 0 2 2 0 014 0z",
   },
+  {
+    href: "/guide",
+    title: "Guide",
+    desc: "Concepts & how-to",
+    icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z",
+  },
+];
+
+const GETTING_STARTED: { title: string; desc: React.ReactNode; href: string }[] = [
+  {
+    title: "Connect to your deployment",
+    desc: "Top right — set the API base URL and your operator key.",
+    href: "/guide",
+  },
+  {
+    title: "Create a workflow from a template",
+    desc: "Studio ships ready-made graphs (RAG, approval gate, tool pipeline) you can reshape.",
+    href: "/studio",
+  },
+  {
+    title: "Submit a run and watch it execute",
+    desc: "Use an example payload, then follow status, output, and timeline.",
+    href: "/runs",
+  },
+  {
+    title: "Govern it",
+    desc: "Resolve approval gates, inspect the per-node audit trail, track spend.",
+    href: "/approvals",
+  },
 ];
 
 export default function Overview() {
@@ -80,6 +109,33 @@ export default function Overview() {
             </div>
           )
         )}
+      </Card>
+
+      {/* Getting started — most useful before the first workflow exists, so it
+          leads while unconnected and stays available (below the fold) after. */}
+      <Card title="Getting started">
+        <ol className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+          {GETTING_STARTED.map((s, i) => (
+            <li key={s.title} className="flex gap-3 text-sm">
+              <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
+                {i + 1}
+              </span>
+              <div>
+                <Link href={s.href} className="font-medium hover:text-accent">
+                  {s.title}
+                </Link>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted">{s.desc}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-4 border-t border-border pt-3 text-xs text-muted">
+          New here?{" "}
+          <Link href="/guide" className="font-medium text-accent hover:underline">
+            Read the guide
+          </Link>{" "}
+          — concepts, node reference, and how to call the deployment from your app.
+        </p>
       </Card>
 
       {/* Quick links */}
