@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   ApiErrorNote,
   Button,
@@ -36,7 +37,15 @@ export default function AuditPage() {
       {!connected && <NotConnected />}
       {connected && error && <ApiErrorNote error={error} />}
       {connected && loading && !data && <Skeleton rows={5} />}
-      {connected && data && records.length === 0 && <Empty>No audit records yet.</Empty>}
+      {connected && data && records.length === 0 && (
+        <Empty>
+          No audit records yet. Every node execution writes one —{" "}
+          <Link href="/runs" className="font-medium text-accent hover:underline">
+            submit a run
+          </Link>{" "}
+          to see the trail: status, tokens, cost, tool calls, and memory access per node.
+        </Empty>
+      )}
 
       <div className="space-y-2">
         {records.map((r) => (
