@@ -20,6 +20,30 @@ async def _make_run(run_repo: RunRepository) -> Run:
     return await run_repo.create(run)
 
 
+async def _wait_for_status(
+    run_repo: RunRepository,
+    run_id: str,
+    expected: RunStatus,
+    *,
+    timeout: float = 5.0,
+) -> Run | None:
+    """Poll until the run reaches the expected status or the deadline passes.
+
+    Fixed sleeps are load-sensitive; polling keeps these tests deterministic
+    on a busy machine. Returns the last observed run either way so the caller's
+    assertion produces a useful failure message.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        run = await run_repo.get(run_id)
+        if run is not None and run.status is expected:
+            return run
+        if loop.time() >= deadline:
+            return run
+        await asyncio.sleep(0.02)
+
+
 class _FakeOrchestrator:
     """Minimal orchestrator that completes a run."""
 
@@ -179,10 +203,8 @@ async def test_worker_recovers_orphaned_run(sqlite_db) -> None:
         )
 
     await worker.start()
-    # Allow recovery tasks to finish.
-    await asyncio.sleep(0.1)
-
-    final = await run_repo.get(run.run_id)
+    # Wait for recovery tasks to finish.
+    final = await _wait_for_status(run_repo, run.run_id, RunStatus.COMPLETED)
     assert final is not None
     assert final.status is RunStatus.COMPLETED
 
@@ -211,6 +233,9 @@ async def test_worker_does_not_claim_more_runs_than_available_capacity(
     await worker.start()
     poll_task = asyncio.create_task(worker.poll_loop())
     await asyncio.wait_for(orchestrator.started.wait(), timeout=1)
+    # Grace period of several poll intervals so a buggy over-claim of the
+    # second run would have a chance to show up (a longer wait under load
+    # only makes this negative check stricter, never flaky).
     await asyncio.sleep(0.05)
 
     async with sqlite_db.transaction() as connection:
@@ -220,15 +245,14 @@ async def test_worker_does_not_claim_more_runs_than_available_capacity(
         )
 
     orchestrator.release.set()
-    await asyncio.sleep(0.05)
+    completed = await _wait_for_status(run_repo, first_run.run_id, RunStatus.COMPLETED)
     poll_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await poll_task
 
     assert row["lease_worker_id"] is None
-    final = await run_repo.get(first_run.run_id)
-    assert final is not None
-    assert final.status is RunStatus.COMPLETED
+    assert completed is not None
+    assert completed.status is RunStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------
@@ -255,10 +279,8 @@ async def test_handle_wakeup_claims_and_dispatches(sqlite_db: AsyncSQLiteDatabas
 
     run = await _make_run(run_repo)
     await worker.handle_wakeup(run.run_id)
-    # Allow the spawned task to complete.
-    await asyncio.sleep(0.1)
-
-    final = await run_repo.get(run.run_id)
+    # Wait for the spawned task to complete.
+    final = await _wait_for_status(run_repo, run.run_id, RunStatus.COMPLETED)
     assert final is not None
     assert final.status is RunStatus.COMPLETED
     assert run.run_id in orchestrator.driven
@@ -351,6 +373,7 @@ def test_extract_run_id_from_task_name() -> None:
 
     loop = asyncio.new_event_loop()
     try:
+
         async def _noop():
             pass
 
