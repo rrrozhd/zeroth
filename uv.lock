@@ -3623,7 +3623,7 @@ wheels = [
 
 [[package]]
 name = "zeroth-core"
-version = "0.4"
+version = "0.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -3716,7 +3716,7 @@ requires-dist = [
     { name = "dramatiq", marker = "extra == 'regulus'", specifier = ">=1.17" },
     { name = "elasticsearch", extras = ["async"], marker = "extra == 'memory-es'", specifier = ">=8.0,<9" },
     { name = "email-validator", marker = "extra == 'regulus'", specifier = ">=2.2" },
-    { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastapi", specifier = ">=0.115,<0.136" },
     { name = "governai", specifier = ">=0.2.3" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain-litellm", specifier = ">=0.3.4" },

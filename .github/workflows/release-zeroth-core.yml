@@ -110,8 +110,11 @@ jobs:
           python -m venv /tmp/test-venv
           source /tmp/test-venv/bin/activate
           pip install --upgrade pip
-          # Install the built wheel with [all] so backend-dependent tests can import their deps
-          pip install "$(ls dist/zeroth_core-*.whl)[all]" pytest pytest-asyncio
+          # Install the built wheel with [all] so backend-dependent tests can import
+          # their deps. testcontainers[postgres] is a dev/test-only dep (not in any
+          # runtime extra) needed by the Docker-gated postgres backend tests, which
+          # run on the Docker-enabled GitHub runner.
+          pip install "$(ls dist/zeroth_core-*.whl)[all]" pytest pytest-asyncio "testcontainers[postgres]"
           # Run the suite against the INSTALLED wheel, not src mode
           # -m "not live" respects the pyproject.toml marker convention
           pytest tests/ -v --no-header -ra -m "not live"
