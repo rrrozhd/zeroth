@@ -317,6 +317,9 @@ class RuntimeOrchestrator:
             node = self._node_by_id(graph, node_id)
             # Each node consumes the payload that was prepared for it by the previous step.
             input_payload = self._payload_for(run, node_id)
+            # Node dispatch time — threaded into the audit record so it reflects a
+            # real wall-clock duration instead of completed_at == started_at.
+            node_started_at = datetime.now(UTC)
             run.current_node_ids = [node_id]
             run.current_step = node_id
             run.touch()
@@ -467,7 +470,8 @@ class RuntimeOrchestrator:
 
                     # Continue normal post-node flow.
                     await self._record_history(
-                        run, node, node_id, input_payload, output_data, audit_record
+                        run, node, node_id, input_payload, output_data, audit_record,
+                        started_at=node_started_at,
                     )
                     self._increment_node_visit(run, node_id)
                     next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
@@ -532,7 +536,8 @@ class RuntimeOrchestrator:
 
                 # Record history and plan next nodes (same post-node flow as normal nodes).
                 await self._record_history(
-                    run, node, node_id, input_payload, output_data, audit_record
+                    run, node, node_id, input_payload, output_data, audit_record,
+                    started_at=node_started_at,
                 )
                 self._increment_node_visit(run, node_id)
                 next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
@@ -547,7 +552,9 @@ class RuntimeOrchestrator:
             try:
                 output_data, audit_record = await self._dispatch_node(node, run, input_payload)
             except Exception as exc:
-                await self._record_failed_execution_audit(run, node, node_id, input_payload, exc)
+                await self._record_failed_execution_audit(
+                    run, node, node_id, input_payload, exc, started_at=node_started_at
+                )
                 return await self._fail_run(run, "node_execution_failed", str(exc))
 
             # Phase 38: Parallel fan-out detection.
@@ -589,6 +596,7 @@ class RuntimeOrchestrator:
                     input_payload,
                     output_data,
                     audit_record,
+                    started_at=node_started_at,
                 )
                 self._increment_node_visit(run, node_id)
                 # Merge branch histories and audit refs into parent run
@@ -611,7 +619,10 @@ class RuntimeOrchestrator:
                 await self._refresh_artifact_ttls(run)
                 continue
 
-            await self._record_history(run, node, node_id, input_payload, output_data, audit_record)
+            await self._record_history(
+                run, node, node_id, input_payload, output_data, audit_record,
+                started_at=node_started_at,
+            )
             self._increment_node_visit(run, node_id)
             next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
             self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
@@ -1675,6 +1686,8 @@ class RuntimeOrchestrator:
         input_payload: Mapping[str, Any],
         output_payload: Mapping[str, Any],
         audit_record: Mapping[str, Any],
+        *,
+        started_at: datetime | None = None,
     ) -> None:
         """Save a record of this node's execution to the run history and audit log.
 
@@ -1689,6 +1702,10 @@ class RuntimeOrchestrator:
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
+        # started_at is the node's dispatch time (captured by the caller); without
+        # it completed_at==started_at and the record reports a zero duration.
+        completed_at = datetime.now(UTC)
+        node_started_at = started_at or completed_at
         if self.audit_repository is not None:
             # Promote token_usage and cost fields from runner audit record
             # to top-level NodeAuditRecord fields for queryability.
@@ -1710,7 +1727,8 @@ class RuntimeOrchestrator:
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="completed",
-                    completed_at=datetime.now(UTC),
+                    started_at=node_started_at,
+                    completed_at=completed_at,
                     input_snapshot=redacted_input,
                     output_snapshot=redacted_output,
                     execution_metadata=redacted_audit_record,
@@ -1743,6 +1761,8 @@ class RuntimeOrchestrator:
         node_id: str,
         input_payload: Mapping[str, Any],
         error: Exception,
+        *,
+        started_at: datetime | None = None,
     ) -> None:
         """Persist an audit record for execution failures that happen before completion."""
         audit_record = getattr(error, "audit_record", None)
@@ -1752,6 +1772,8 @@ class RuntimeOrchestrator:
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
+        completed_at = datetime.now(UTC)
+        node_started_at = started_at or completed_at
         redacted_audit_record = self._redact_for_audit(dict(audit_record))
         # Promote cost/token fields so spend incurred before the failure -- a paid
         # LLM call that then failed validation or was content-blocked -- is not lost
@@ -1772,7 +1794,8 @@ class RuntimeOrchestrator:
                 deployment_ref=run.deployment_ref,
                 attempt=1,
                 status="rejected",
-                completed_at=datetime.now(UTC),
+                started_at=node_started_at,
+                completed_at=completed_at,
                 input_snapshot=self._redact_for_audit(dict(input_payload)),
                 output_snapshot={},
                 execution_metadata=redacted_audit_record,
