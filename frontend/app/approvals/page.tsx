@@ -40,7 +40,17 @@ export default function ApprovalsPage() {
       {!connected && <NotConnected />}
       {connected && error && <ApiErrorNote error={error} />}
       {connected && loading && !data && <Skeleton rows={3} />}
-      {connected && data && pending.length === 0 && <Empty>No pending approvals.</Empty>}
+      {connected && data && pending.length === 0 && (
+        <Empty>
+          No pending approvals. Runs pause here when they reach a{" "}
+          <span className="font-medium text-foreground">Human Approval</span> node — add one to
+          your graph in{" "}
+          <Link href="/studio" className="font-medium text-accent hover:underline">
+            Studio
+          </Link>
+          .
+        </Empty>
+      )}
 
       <div className="space-y-3">
         {pending.map((a) => (

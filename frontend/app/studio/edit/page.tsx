@@ -35,6 +35,7 @@ import {
   type StudioNode,
   type WorkflowDetail,
 } from "@/app/lib/api";
+import { WORKFLOW_TEMPLATES } from "@/app/lib/templates";
 
 const nodeTypes = { studio: StudioNodeView };
 
@@ -197,6 +198,38 @@ function Editor({ id }: { id: string }) {
     },
     [rf, setNodes],
   );
+
+  // Populate the empty canvas with a small working example (the RAG template)
+  // so a fresh draft never has to start from nothing.
+  const insertExample = useCallback(() => {
+    const t = WORKFLOW_TEMPLATES[0];
+    setNodes(
+      t.nodes.map((n) => {
+        const d = (n.data ?? {}) as { label?: string; config?: Cfg };
+        return {
+          id: n.id,
+          type: "studio",
+          position: { x: n.position.x, y: n.position.y },
+          data: {
+            label: d.label ?? n.id,
+            studioType: n.type,
+            ports: portsFor(n.type, palette),
+            config: d.config ?? {},
+          },
+        };
+      }),
+    );
+    setEdges(
+      t.edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.source_handle ?? undefined,
+        targetHandle: e.target_handle ?? undefined,
+      })),
+    );
+    window.setTimeout(() => rf?.fitView({ maxZoom: 1, padding: 0.25 }), 0);
+  }, [palette, rf, setNodes, setEdges]);
 
   const patchNode = useCallback(
     (nodeId: string, patch: Partial<{ label: string; config: Cfg }>) => {
@@ -368,6 +401,13 @@ function Editor({ id }: { id: string }) {
                 <Panel position="top-center">
                   <div className="mt-12 rounded-lg border border-dashed border-border bg-surface/80 px-4 py-3 text-center text-sm text-muted">
                     Add a node from the palette to start building.
+                    {!readOnly && (
+                      <div className="mt-2">
+                        <Button size="sm" onClick={insertExample}>
+                          Insert example graph
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </Panel>
               )}

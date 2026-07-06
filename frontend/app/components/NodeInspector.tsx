@@ -1,5 +1,6 @@
 "use client";
 
+import { NODE_META } from "@/app/components/nodeMeta";
 import { fieldInput } from "@/app/components/ui";
 
 // Per-type config forms for the executable node types. Field keys map directly
@@ -13,39 +14,87 @@ type Field = {
   required?: boolean;
   options?: string[];
   placeholder?: string;
+  hint?: string;
 };
 
 export const FIELD_SPECS: Record<string, Field[]> = {
   agent: [
-    { key: "instruction", label: "Instruction", kind: "textarea", required: true },
+    {
+      key: "instruction",
+      label: "Instruction",
+      kind: "textarea",
+      required: true,
+      placeholder: "Summarize the incoming document in five bullet points…",
+      hint: "What this step should do. The agent receives the upstream node's output as context.",
+    },
     {
       key: "model_provider",
       label: "Model provider",
       kind: "text",
       required: true,
       placeholder: "openai/gpt-4o",
+      hint: "provider/model, e.g. openai/gpt-4o or anthropic/claude-sonnet-5.",
     },
   ],
   executable_unit: [
-    { key: "manifest_ref", label: "Manifest ref", kind: "text", required: true },
+    {
+      key: "manifest_ref",
+      label: "Manifest ref",
+      kind: "text",
+      required: true,
+      placeholder: "tools/my_tool",
+      hint: "The registered manifest that provides the code to run.",
+    },
     {
       key: "execution_mode",
       label: "Execution mode",
       kind: "select",
       required: true,
       options: ["native", "wrapped_command", "project"],
+      hint: "native = in-process Python; wrapped_command = shell command; project = project runner.",
     },
   ],
   human_approval: [
-    { key: "sla_timeout_seconds", label: "SLA timeout (seconds)", kind: "number" },
+    {
+      key: "sla_timeout_seconds",
+      label: "SLA timeout (seconds)",
+      kind: "number",
+      placeholder: "86400",
+      hint: "Escalate if the gate is still unresolved after this long. Blank = no SLA.",
+    },
   ],
   retrieval: [
-    { key: "connector_ref", label: "Connector ref", kind: "text", required: true },
-    { key: "top_k", label: "Top K", kind: "number", placeholder: "5" },
+    {
+      key: "connector_ref",
+      label: "Connector ref",
+      kind: "text",
+      required: true,
+      placeholder: "docs",
+      hint: "The memory/knowledge connector to query.",
+    },
+    {
+      key: "top_k",
+      label: "Top K",
+      kind: "number",
+      placeholder: "5",
+      hint: "How many matches to pass downstream.",
+    },
   ],
   subgraph: [
-    { key: "graph_ref", label: "Graph ref", kind: "text", required: true },
-    { key: "version", label: "Version", kind: "number" },
+    {
+      key: "graph_ref",
+      label: "Graph ref",
+      kind: "text",
+      required: true,
+      placeholder: "my-subflow",
+      hint: "The published graph to invoke as this step.",
+    },
+    {
+      key: "version",
+      label: "Version",
+      kind: "number",
+      hint: "Pin a specific version. Blank = latest published.",
+    },
   ],
 };
 
@@ -90,6 +139,12 @@ export function NodeInspector({
 
   return (
     <div className="space-y-4">
+      {NODE_META[studioType]?.help && (
+        <p className="rounded-lg bg-accent/[0.06] px-3 py-2 text-xs leading-relaxed text-muted">
+          {NODE_META[studioType].help}
+        </p>
+      )}
+
       <label className="block text-sm">
         <span className="mb-1 block font-medium">Label</span>
         <input
@@ -112,6 +167,7 @@ export function NodeInspector({
             {f.kind === "textarea" ? (
               <textarea
                 value={str}
+                placeholder={f.placeholder}
                 disabled={readOnly}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 rows={4}
@@ -140,6 +196,7 @@ export function NodeInspector({
                 className={inputCls}
               />
             )}
+            {f.hint && <span className="mt-1 block text-xs font-normal text-muted">{f.hint}</span>}
           </label>
         );
       })}
