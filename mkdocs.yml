@@ -1,0 +1,173 @@
+site_name: Zeroth
+site_url: https://rrrozhd.github.io/zeroth-core/
+site_description: Governed medium-code platform for production-grade multi-agent systems
+repo_url: https://github.com/rrrozhd/zeroth-core
+repo_name: rrrozhd/zeroth-core
+edit_uri: edit/main/docs/
+
+# docs/specs/ are internal design notes, not part of the public site.
+exclude_docs: |
+  specs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - section-index
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_root_toc_entry: true
+            show_source: false
+            members_order: source
+            show_signature_annotations: true
+            separate_signature: true
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: [".", "examples"]
+      check_paths: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Tutorials:
+    - tutorials/index.md
+    - Getting Started:
+      - tutorials/getting-started/index.md
+      - Install: tutorials/getting-started/01-install.md
+      - First graph: tutorials/getting-started/02-first-graph.md
+      - Service mode & approval: tutorials/getting-started/03-service-and-approval.md
+    - Governance Walkthrough: tutorials/governance-walkthrough.md
+  - How-to Guides:
+    - how-to/index.md
+    - Subsystems:
+      - Graph: how-to/graph.md
+      - Orchestrator: how-to/orchestrator.md
+      - Agents: how-to/agents.md
+      - Execution units: how-to/execution-units.md
+      - Conditions: how-to/conditions.md
+      - Mappings: how-to/mappings.md
+      - Memory: how-to/memory.md
+      - Storage: how-to/storage.md
+      - Contracts: how-to/contracts.md
+      - Runs: how-to/runs.md
+      - Policy: how-to/policy.md
+      - Approvals: how-to/approvals.md
+      - Audit: how-to/audit.md
+      - Guardrails: how-to/guardrails.md
+      - Identity: how-to/identity.md
+      - Secrets: how-to/secrets.md
+      - Dispatch: how-to/dispatch.md
+      - Economics: how-to/econ.md
+      - Service: how-to/service.md
+      - Webhooks: how-to/webhooks.md
+    - Cookbook:
+      - how-to/cookbook/index.md
+      - Add an approval step: how-to/cookbook/approval-step.md
+      - Attach memory to an agent: how-to/cookbook/attach-memory.md
+      - Cap a run's cost budget: how-to/cookbook/budget-cap.md
+      - Sandbox a tool call: how-to/cookbook/sandbox-tool.md
+      - Retry a failing webhook: how-to/cookbook/webhook-retry.md
+      - Block a tool call via policy: how-to/cookbook/policy-block.md
+      - Query the audit trail: how-to/cookbook/audit-query.md
+      - Hand off between agents: how-to/cookbook/agent-handoff.md
+      - Branch on a condition: how-to/cookbook/condition-branch.md
+      - Inject a secret: how-to/cookbook/secret-injection.md
+    - Deployment:
+      - how-to/deployment/index.md
+      - Local development: how-to/deployment/local-dev.md
+      - Sandbox container: how-to/deployment/sandbox-container.md
+      - Standalone service: how-to/deployment/standalone-service.md
+      - Embedded library: how-to/deployment/embedded-library.md
+      - With Regulus: how-to/deployment/with-regulus.md
+    - Migration from monolith: how-to/migration-from-monolith.md
+  - Concepts:
+    - concepts/index.md
+    - Graph: concepts/graph.md
+    - Orchestrator: concepts/orchestrator.md
+    - Agents: concepts/agents.md
+    - Execution units: concepts/execution-units.md
+    - Conditions: concepts/conditions.md
+    - Mappings: concepts/mappings.md
+    - Memory: concepts/memory.md
+    - Storage: concepts/storage.md
+    - Contracts: concepts/contracts.md
+    - Runs: concepts/runs.md
+    - Policy: concepts/policy.md
+    - Approvals: concepts/approvals.md
+    - Audit: concepts/audit.md
+    - Guardrails: concepts/guardrails.md
+    - Identity: concepts/identity.md
+    - Secrets: concepts/secrets.md
+    - Dispatch: concepts/dispatch.md
+    - Economics: concepts/econ.md
+    - Service: concepts/service.md
+    - Webhooks: concepts/webhooks.md
+  - Reference:
+    - reference/index.md
+    - Python API:
+      - reference/python-api.md
+      - Graph: reference/python-api/graph.md
+      - Orchestrator: reference/python-api/orchestrator.md
+      - Agents: reference/python-api/agents.md
+      - Execution units: reference/python-api/execution-units.md
+      - Conditions: reference/python-api/conditions.md
+      - Mappings: reference/python-api/mappings.md
+      - Memory: reference/python-api/memory.md
+      - Storage: reference/python-api/storage.md
+      - Contracts: reference/python-api/contracts.md
+      - Runs: reference/python-api/runs.md
+      - Policy: reference/python-api/policy.md
+      - Approvals: reference/python-api/approvals.md
+      - Audit: reference/python-api/audit.md
+      - Guardrails: reference/python-api/guardrails.md
+      - Identity: reference/python-api/identity.md
+      - Secrets: reference/python-api/secrets.md
+      - Dispatch: reference/python-api/dispatch.md
+      - Economics: reference/python-api/econ.md
+      - Service: reference/python-api/service.md
+      - Webhooks: reference/python-api/webhooks.md
+    - HTTP API: reference/http-api.md
+    - Configuration: reference/configuration.md
