@@ -6,6 +6,13 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "uvicorn", "zeroth.service.app:app", "--reload", "--port", "8000"],
       "port": 8000
+    },
+    {
+      "name": "console",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "frontend",
+      "port": 3000
     }
   ]
 }

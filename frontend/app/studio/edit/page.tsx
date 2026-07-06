@@ -278,7 +278,15 @@ function Editor({ id }: { id: string }) {
 
       {error && <ErrorBox message={error} />}
 
-      <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
+      {/* Amber is reserved for the read-only warning; routine draft editing gets a
+          neutral note so the banner still means something when it matters. */}
+      <div
+        className={
+          readOnly
+            ? "rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
+            : "rounded-lg border border-border bg-surface px-3 py-2 text-xs text-muted"
+        }
+      >
         {readOnly ? (
           <>
             This workflow is <strong>published</strong> and read-only. Clone it to a draft
@@ -395,6 +403,13 @@ function NodeEditorDialog({
   onDelete: () => void;
 }) {
   const d = node.data as { studioType: string; label: string; config: Cfg };
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // Move focus into the dialog on open so keyboard users aren't left behind
+  // on the canvas.
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -411,6 +426,7 @@ function NodeEditorDialog({
     >
       <div
         role="dialog"
+        aria-modal="true"
         aria-label={`Edit ${d.label}`}
         className="w-full max-w-md rounded-xl border border-border bg-surface shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
@@ -425,7 +441,7 @@ function NodeEditorDialog({
               <div className="text-[11px] uppercase tracking-wide text-muted">{d.studioType}</div>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+          <Button ref={closeRef} variant="ghost" size="sm" onClick={onClose} aria-label="Close">
             ✕
           </Button>
         </header>

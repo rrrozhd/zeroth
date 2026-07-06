@@ -1,5 +1,7 @@
 "use client";
 
+import { fieldInput } from "@/app/components/ui";
+
 // Per-type config forms for the executable node types. Field keys map directly
 // to the backend *NodeData models; values live in the canvas node's
 // data.config and round-trip through PUT /workflows/{id}.
@@ -84,8 +86,7 @@ export function NodeInspector({
     onConfigChange(next);
   }
 
-  const inputCls =
-    "w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm focus-visible:border-accent disabled:opacity-60";
+  const inputCls = `${fieldInput} disabled:opacity-60`;
 
   return (
     <div className="space-y-4">
@@ -106,7 +107,7 @@ export function NodeInspector({
           <label key={f.key} className="block text-sm">
             <span className="mb-1 block font-medium">
               {f.label}
-              {f.required && <span className="text-amber-600"> *</span>}
+              {f.required && <span className="text-red-600 dark:text-red-400"> *</span>}
             </span>
             {f.kind === "textarea" ? (
               <textarea
@@ -145,7 +146,7 @@ export function NodeInspector({
 
       {fields.some((f) => f.required) && (
         <p className="text-xs text-muted">
-          <span className="text-amber-600">*</span> required for the graph to publish.
+          <span className="text-red-600 dark:text-red-400">*</span> required for the graph to publish.
         </p>
       )}
     </div>
