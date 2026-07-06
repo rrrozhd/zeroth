@@ -117,6 +117,42 @@ def test_non_str_error_is_coerced_not_dropped() -> None:
     assert tools[0].error == "{'code': 500}"
 
 
+def test_redaction_before_mapping_removes_secrets_from_typed_fields() -> None:
+    # The completed/failed/branch audit sites redact the record BEFORE mapping it
+    # into typed columns. Prove a resolved secret in tool args/outcome + memory
+    # value does not survive redact-then-map (the invariant the branch fix relies on).
+    from zeroth.core.secrets.redaction import SecretRedactor
+
+    secret = "sk-SUPERSECRET"  # noqa: S105 — test fixture
+    record = {
+        "extra": {
+            "tool_calls": [
+                {
+                    "tool": {"alias": "x", "executable_unit_ref": "eu://x"},
+                    "arguments": {"api_key": secret},
+                    "outcome": {"echo": secret},
+                    "error": None,
+                }
+            ],
+            "memory_interactions": [
+                {
+                    "memory_ref": "m://c",
+                    "connector_type": "thread",
+                    "scope": "thread",
+                    "operation": "write",
+                    "key": "latest",
+                    "value": {"token": secret},
+                }
+            ],
+        }
+    }
+    redacted = SecretRedactor({"secret/x": secret}).redact(dict(record))
+    tools, mem = _fields(redacted)
+    assert secret not in str(tools[0].arguments)
+    assert secret not in str(tools[0].outcome)
+    assert secret not in str(mem[0].value)
+
+
 def test_redacted_leaf_inside_dict_argument_preserved() -> None:
     # The common production shape: structure preserved, a leaf value redacted.
     record = {
