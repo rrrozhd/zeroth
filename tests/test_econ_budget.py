@@ -122,6 +122,29 @@ async def test_check_budget_fail_open_connection_error():
     assert cap == float("inf")
 
 
+@pytest.mark.asyncio
+async def test_check_budget_fail_open_is_logged(caplog):
+    """A silent fail-open hides that caps aren't enforced — it must warn."""
+    import logging
+
+    def error_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Connection refused")
+
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1",
+        cache_ttl=30,
+        timeout=5.0,
+        _transport=error_handler,
+    )
+    with caplog.at_level(logging.WARNING, logger="zeroth.core.econ.budget"):
+        allowed, _, _ = await enforcer.check_budget("tenant-42")
+    assert allowed is True
+    assert any(
+        "tenant-42" in r.message and "NOT enforced" in r.message
+        for r in caplog.records
+    )
+
+
 # -- Test 5: fail-open on timeout --
 
 
