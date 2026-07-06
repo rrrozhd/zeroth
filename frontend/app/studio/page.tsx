@@ -11,6 +11,7 @@ import {
   Field,
   Input,
   PageHeader,
+  Skeleton,
   StatusBadge,
   useAsync,
 } from "@/app/components/ui";
@@ -89,6 +90,7 @@ export default function StudioPage() {
       </Card>
 
       {error && <ApiErrorNote error={error} />}
+      {loading && !data && <Skeleton rows={4} />}
       {data && data.length === 0 && <Empty>No workflows yet.</Empty>}
 
       {data && data.length > 0 && (

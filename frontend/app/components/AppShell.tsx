@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getApiBase, getApiKey, isConfigured, setConfig } from "@/app/lib/config";
 import { getHealth } from "@/app/lib/api";
-import { Button, Input } from "@/app/components/ui";
+import { Button, Input, useConnected } from "@/app/components/ui";
 
 const LINKS = [
   { href: "/", label: "Overview" },
@@ -88,6 +88,7 @@ function DeploymentChip() {
 }
 
 function ConnectPopover() {
+  const connected = useConnected();
   const [open, setOpen] = useState(false);
   const [base, setBase] = useState("");
   const [key, setKey] = useState("");
@@ -132,15 +133,16 @@ function ConnectPopover() {
 
   return (
     <div className="relative" ref={ref}>
+      {/* Primary CTA only while unconfigured — once connected it's a settings affordance. */}
       <Button
         ref={triggerRef}
         size="sm"
-        variant={open ? "default" : "primary"}
+        variant={open || connected ? "default" : "primary"}
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((o) => !o)}
       >
-        Connect
+        {connected ? "Connection" : "Connect"}
       </Button>
       {open && (
         <form

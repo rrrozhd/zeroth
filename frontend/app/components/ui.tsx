@@ -160,6 +160,11 @@ export function humanize(s: string): string {
 
 export function StatusBadge({ status, dot = true }: { status: string; dot?: boolean }) {
   const key = status?.toLowerCase();
+  if (process.env.NODE_ENV !== "production" && key && !(key in STATUS_TONES)) {
+    // A neutral badge on an unmapped status can make a serious state (e.g. a
+    // policy kill) look harmless — surface it during development.
+    console.warn(`StatusBadge: unmapped status "${status}" rendered with neutral tone`);
+  }
   const tone = STATUS_TONES[key] ?? "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400";
   const dotTone = DOT_TONES[key] ?? "bg-zinc-400";
   return (
@@ -209,7 +214,7 @@ export const Button = forwardRef<
   );
 });
 
-const fieldInput =
+export const fieldInput =
   "w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm placeholder:text-zinc-500 focus-visible:border-accent dark:placeholder:text-zinc-500";
 
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
@@ -244,7 +249,7 @@ export function Field({
 
 export function Json({ value }: { value: unknown }) {
   return (
-    <pre className="overflow-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-700 ring-1 ring-border dark:bg-zinc-900/60 dark:text-zinc-300">
+    <pre className="max-h-80 overflow-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-700 ring-1 ring-border dark:bg-zinc-900/60 dark:text-zinc-300">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -256,6 +261,33 @@ export function Mono({ children }: { children: React.ReactNode }) {
       {children}
     </code>
   );
+}
+
+/** Pulsing placeholder rows while a page's initial data is in flight. */
+export function Skeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div aria-hidden className="space-y-2">
+      {Array.from({ length: rows }, (_, i) => (
+        <div
+          key={i}
+          className="h-9 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800/60"
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Local, readable timestamp; hover reveals the raw ISO value. */
+export function fmtTime(iso: string | null | undefined): React.ReactNode {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return <span title={iso}>{d.toLocaleString()}</span>;
+}
+
+/** Dollar amounts: cent precision from $1 up, sub-cent precision below. */
+export function fmtUsd(n: number): string {
+  return `$${n >= 1 ? n.toFixed(2) : n.toFixed(4)}`;
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
