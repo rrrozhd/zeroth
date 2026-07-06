@@ -94,6 +94,59 @@ def test_loop_reexecution_is_flagged_not_confirmed() -> None:
     assert finding.metadata["executions"] == 3
 
 
+def test_loop_reexecution_excludes_free_cache_iterations() -> None:
+    """A loop whose repeat is a free cache hit flags $0 recoverable, not the average.
+
+    costs=[0.01 paid, 0.00 cache hit]: the repeated iteration was served from
+    cache and attributed $0 (see econ.adapter), so the recoverable re-execution
+    waste is $0 -- not the ~$0.005 that averaging (node_cost - node_cost/executions)
+    would report by smearing the one paid call across both visits.
+    """
+    audits = [
+        _audit(
+            "a",
+            0.01,
+            audit_id="a1",
+            execution_metadata={"response": {"metadata": {"cache_hit": False}}},
+        ),
+        _audit(
+            "a",
+            0.0,
+            audit_id="a2",
+            execution_metadata={"response": {"metadata": {"cache_hit": True}}},
+        ),
+    ]
+    report = analyze_run("r1", RunStatus.COMPLETED, audits)
+    loop = next(f for f in report.findings if f.kind == WasteKind.LOOP_REEXECUTION)
+    assert loop.node_id == "a"
+    assert loop.confirmed is False
+    assert loop.wasted_usd == 0.0  # the free cache-hit repeat is not recoverable
+    assert loop.severity == "info"  # $0 recoverable -> info, never a warning
+    assert loop.metadata["executions"] == 2
+    # Headline: no flagged dollars. Averaging would have reported ~$0.005.
+    assert report.flagged_waste_usd == 0.0
+
+
+def test_loop_reexecution_counts_only_paid_repeats() -> None:
+    """With one free and one paid repeat, only the paid repeat is recoverable.
+
+    costs=[0.01 paid, 0.01 paid, 0.00 cache hit]: keep one paid execution, the
+    other paid execution ($0.01) is the recoverable repeat, and the free one adds
+    nothing -> $0.01. Averaging would have reported ~$0.0133 (0.02 - 0.02/3).
+    Guards against the opposite over-correction "any cache hit -> report $0".
+    """
+    audits = [
+        _audit("a", 0.01, audit_id="a1"),
+        _audit("a", 0.01, audit_id="a2"),
+        _audit("a", 0.0, audit_id="a3"),
+    ]
+    report = analyze_run("r1", RunStatus.COMPLETED, audits)
+    loop = next(f for f in report.findings if f.kind == WasteKind.LOOP_REEXECUTION)
+    assert loop.wasted_usd == pytest.approx(0.01)
+    assert loop.severity == "warning"
+    assert report.flagged_waste_usd == pytest.approx(0.01)
+
+
 def test_failed_run_with_loop_does_not_double_count() -> None:
     """A looped node inside a failed run stays inside the failed-run total."""
     audits = [_audit("a", 0.01, audit_id="a1"), _audit("a", 0.01, audit_id="a2")]
@@ -422,8 +475,10 @@ async def test_cache_hit_reaches_audit_and_is_detected(sqlite_db) -> None:
         ],
         edges=[Edge(edge_id="e", source_node_id="loop", target_node_id="loop")],
     )
-    # No regulus/cost wiring -> provider is not re-wrapped, so the cache flag flows
-    # cleanly (and the phantom-cost path that would inflate a hit is not in play).
+    # No regulus/cost wiring -> provider is not re-wrapped, so this test isolates the
+    # serialization path (the cache flag reaching the persisted audit). The
+    # instrumented path -- where a hit must NOT inflate cost or double-bill Regulus --
+    # is covered by test_instrumented_cache_hit_costs_zero_through_orchestrator below.
     orch = RuntimeOrchestrator(
         run_repository=RunRepository(sqlite_db),
         audit_repository=AuditRepository(sqlite_db),
@@ -435,6 +490,90 @@ async def test_cache_hit_reaches_audit_and_is_detected(sqlite_db) -> None:
 
     audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
     report = analyze_run(run.run_id, run.status, audits)
+    cache = next(f for f in report.findings if f.kind == WasteKind.CACHE_INEFFICIENCY)
+    assert cache.metadata == {"hits": 1, "misses": 1, "hit_rate": 0.5}
+
+
+async def test_instrumented_cache_hit_costs_zero_through_orchestrator(sqlite_db) -> None:
+    """End-to-end: with Regulus + cost wiring on, a cache hit costs zero and emits no event.
+
+    The orchestrator wraps the runner's (caching) provider with
+    InstrumentedProviderAdapter as the outermost adapter -- the exact wiring the
+    no-Regulus sibling test above deliberately avoids. Before the cache-hit
+    short-circuit, the hit re-estimated cost on the cached tokens, inflated
+    ``total_cost_usd``, and fired a duplicate ExecutionEvent for a call that never
+    reached a model. A *priced* model makes the miss's cost non-zero, so the hit's
+    zero is a meaningful contrast rather than two zeros.
+    """
+    from unittest.mock import MagicMock
+
+    from zeroth.core.econ.cost import CostEstimator
+
+    cached = CachingProviderAdapter(
+        CallableProviderAdapter(
+            lambda _req: ProviderResponse(
+                content={"value": 1},
+                token_usage=TokenUsage(
+                    input_tokens=1000,
+                    output_tokens=500,
+                    total_tokens=1500,
+                    model_name="openai/gpt-4o-mini",
+                ),
+            )
+        )
+    )
+    runner = AgentRunner(
+        AgentConfig(
+            name="loop",
+            instruction="echo",
+            model_name="openai/gpt-4o-mini",
+            input_model=_ValueOut,
+            output_model=_ValueOut,
+        ),
+        cached,
+    )
+    graph = Graph(
+        graph_id="g-cache-cost",
+        name="cache-cost",
+        entry_step="loop",
+        execution_settings=ExecutionSettings(max_total_steps=2),
+        nodes=[
+            AgentNode(
+                node_id="loop",
+                graph_version_ref="g-cache-cost:v1",
+                agent=AgentNodeData(instruction="echo", model_provider="p"),
+            )
+        ],
+        edges=[Edge(edge_id="e", source_node_id="loop", target_node_id="loop")],
+    )
+    regulus = MagicMock()
+    orch = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository(sqlite_db),
+        agent_runners={"loop": runner},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+        regulus_client=regulus,
+        cost_estimator=CostEstimator(),
+        deployment_ref="deploy-1",
+    )
+
+    run = await orch.run_graph(graph, {"value": 1})  # 2 visits: miss then hit
+
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    report = analyze_run(run.run_id, run.status, audits)
+
+    # Two visits: a cold miss with real cost, and a hit that costs nothing.
+    costs = sorted(a.cost_usd or 0.0 for a in audits)
+    assert len(costs) == 2
+    assert costs[0] == 0.0  # the cache hit -- no fabricated cost
+    assert costs[1] > 0  # the cold miss -- real spend
+    # Total reflects only the miss; the hit no longer inflates it.
+    assert report.total_cost_usd == pytest.approx(costs[1])
+
+    # Exactly one Regulus event -- the miss. The hit emits none (no double-bill).
+    regulus.track_execution.assert_called_once()
+
+    # Caching is still detected end-to-end.
     cache = next(f for f in report.findings if f.kind == WasteKind.CACHE_INEFFICIENCY)
     assert cache.metadata == {"hits": 1, "misses": 1, "hit_rate": 0.5}
 

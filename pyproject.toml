@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.2.0"
+version = "0.3"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,7 +35,6 @@ dependencies = [
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
     "governai>=0.2.3",
-    "econ-instrumentation-sdk>=0.1.1",
     "tenacity>=8.2",
     "cachetools>=5.5",
     "litellm>=1.83,<2.0",
@@ -66,6 +65,16 @@ otel = [
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-http>=1.27",
 ]
+# Bundled Regulus economic control plane (src/econ_plane). Source lives in-repo;
+# these are the extra runtime deps needed to import + boot the backend on SQLite.
+# (fastapi/uvicorn/httpx/sqlalchemy/pydantic-settings/redis are already core.)
+# Postgres adds psycopg (see memory-pg); kafka/prometheus/otel are lazy/flag-gated.
+regulus = [
+    "python-jose[cryptography]>=3.3",
+    "email-validator>=2.2",
+    "numpy>=1.26",
+    "dramatiq>=1.17",
+]
 all = [
     "zeroth-core[memory-pg]",
     "zeroth-core[memory-chroma]",
@@ -73,6 +82,7 @@ all = [
     "zeroth-core[dispatch]",
     "zeroth-core[sandbox]",
     "zeroth-core[otel]",
+    "zeroth-core[regulus]",
 ]
 docs = [
     "mkdocs>=1.6,<2.0",
@@ -94,7 +104,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 # Namespace layout (PEP 420): src/zeroth has no __init__.py; hatchling packs src/zeroth/core/ under zeroth/core/ in the wheel. VERIFIED against 0.1.0 wheel. See 28-RESEARCH.md pitfall #2.
-packages = ["src/zeroth"]
+packages = ["src/zeroth", "src/econ_instrumentation", "src/econ_plane"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -121,6 +131,10 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Vendored from the Regulus repo (see src/econ_*/VENDOR.md) -- keep upstream
+# style intact so re-syncs stay clean rather than imposing Zeroth's lint rules.
+extend-exclude = ["src/econ_instrumentation", "src/econ_plane"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "D"]
@@ -145,4 +159,4 @@ fail-under = 90
 ignore-init-method = true
 ignore-init-module = true
 ignore-nested-functions = true
-exclude = ["src/zeroth/core/migrations", "tests", "scripts"]
+exclude = ["src/zeroth/core/migrations", "tests", "scripts", "src/econ_instrumentation", "src/econ_plane"]

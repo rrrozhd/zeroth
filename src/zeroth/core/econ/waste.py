@@ -139,8 +139,9 @@ def analyze_run(
     * ``paid_for_failed_run`` (*confirmed*): a ``FAILED`` run that still incurred
       cost produced no usable output, so its entire spend is waste.
     * ``loop_reexecution`` (*flagged*): a node with more than one audit record
-      re-spent on all but one execution. Counted as flagged waste only for
-      non-failed runs; in a failed run that spend is already inside
+      re-spent on every execution but its most expensive one (so a repeat served
+      from cache, which attributes $0, adds nothing). Counted as flagged waste
+      only for non-failed runs; in a failed run that spend is already inside
       ``paid_for_failed_run`` and is surfaced as a zero-dollar info finding.
 
     Cost comes from ``NodeAuditRecord.cost_usd`` (``None`` is treated as ``0``),
@@ -175,7 +176,13 @@ def analyze_run(
         node_cost = sum(costs)
         if executions <= 1 or node_cost <= 0:
             continue
-        repeat_cost = node_cost - node_cost / executions
+        # Recoverable re-execution waste = total node spend minus the single
+        # most-expensive execution (the one you keep). Summing all-but-the-max
+        # rather than averaging node_cost across visits means a repeat that cost
+        # $0 -- a cache hit attributes zero (see econ.adapter) -- adds nothing.
+        # Averaging would smear the one paid execution over every visit and
+        # over-report what is actually recoverable.
+        repeat_cost = node_cost - max(costs)
         if failed:
             findings.append(
                 WasteFinding(
@@ -191,7 +198,7 @@ def analyze_run(
                     metadata={"executions": executions, "node_cost_usd": node_cost},
                 )
             )
-        else:
+        elif repeat_cost > 0:
             findings.append(
                 WasteFinding(
                     kind=WasteKind.LOOP_REEXECUTION,
@@ -202,6 +209,24 @@ def analyze_run(
                     detail=(
                         f"node executed {executions}x for ${node_cost:.4f}; "
                         f"~${repeat_cost:.4f} is re-execution (recoverable if unintended)"
+                    ),
+                    metadata={"executions": executions, "node_cost_usd": node_cost},
+                )
+            )
+        else:
+            # Every repeat cost $0 (e.g. served from cache): the loop multiplicity
+            # is real and worth surfacing, but nothing is recoverable -- info, not
+            # a warning, so a $0 finding never reads as recoverable money.
+            findings.append(
+                WasteFinding(
+                    kind=WasteKind.LOOP_REEXECUTION,
+                    node_id=node_id,
+                    wasted_usd=0.0,
+                    confirmed=False,
+                    severity="info",
+                    detail=(
+                        f"node executed {executions}x for ${node_cost:.4f}; "
+                        "repeated executions added no cost (e.g. served from cache)"
                     ),
                     metadata={"executions": executions, "node_cost_usd": node_cost},
                 )
