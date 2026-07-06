@@ -35,7 +35,9 @@ export default function CostPage() {
           <div className="flex items-baseline gap-2">
             <span className="text-4xl font-semibold tabular-nums">
               {data.currency === "USD" || !data.currency ? "$" : ""}
-              {data.total_cost_usd.toFixed(4)}
+              {data.total_cost_usd >= 1
+                ? data.total_cost_usd.toFixed(2)
+                : data.total_cost_usd.toFixed(4)}
             </span>
             <span className="text-sm text-muted">{data.currency ?? "USD"} total</span>
           </div>

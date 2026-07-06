@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   ApiErrorNote,
@@ -7,9 +8,11 @@ import {
   Card,
   Empty,
   ErrorBox,
+  fmtTime,
   Json,
   NotConnected,
   PageHeader,
+  Skeleton,
   StatusBadge,
   useAsync,
   useConnected,
@@ -36,6 +39,7 @@ export default function ApprovalsPage() {
 
       {!connected && <NotConnected />}
       {connected && error && <ApiErrorNote error={error} />}
+      {connected && loading && !data && <Skeleton rows={3} />}
       {connected && data && pending.length === 0 && <Empty>No pending approvals.</Empty>}
 
       <div className="space-y-3">
@@ -92,27 +96,41 @@ function ApprovalCard({
       actions={<StatusBadge status={approval.status ?? "pending"} />}
     >
       <div className="space-y-3 text-sm">
-        <p className="text-zinc-600 dark:text-zinc-400">{approval.rationale}</p>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-zinc-500 sm:grid-cols-3">
+        <p className="text-muted">{approval.rationale}</p>
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
           <div>
-            <dt className="text-zinc-400">Node</dt>
-            <dd className="font-mono">{approval.node_id}</dd>
+            <dt className="text-muted">Node</dt>
+            <dd className="truncate font-mono" title={approval.node_id ?? undefined}>
+              {approval.node_id}
+            </dd>
           </div>
           <div>
-            <dt className="text-zinc-400">Run</dt>
-            <dd className="font-mono">{approval.run_id}</dd>
+            <dt className="text-muted">Run</dt>
+            <dd className="font-mono">
+              {approval.run_id ? (
+                <Link
+                  href={`/runs?run_id=${approval.run_id}`}
+                  title={approval.run_id}
+                  className="text-accent hover:underline"
+                >
+                  {approval.run_id.slice(0, 8)}
+                </Link>
+              ) : (
+                "—"
+              )}
+            </dd>
           </div>
           {approval.sla_deadline && (
             <div>
-              <dt className="text-zinc-400">SLA</dt>
-              <dd>{approval.sla_deadline}</dd>
+              <dt className="text-muted">SLA</dt>
+              <dd>{fmtTime(approval.sla_deadline)}</dd>
             </div>
           )}
         </dl>
 
         {approval.proposed_payload != null && (
           <details>
-            <summary className="cursor-pointer text-xs text-zinc-500">
+            <summary className="cursor-pointer text-xs text-muted">
               Proposed payload
             </summary>
             <div className="mt-2">

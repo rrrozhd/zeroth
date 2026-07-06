@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   ApiErrorNote,
@@ -13,6 +14,7 @@ import {
   Mono,
   NotConnected,
   PageHeader,
+  Skeleton,
   StatusBadge,
   Textarea,
   useAsync,
@@ -44,17 +46,27 @@ export default function RunsPage() {
     setSelected(new URLSearchParams(window.location.search).get("run_id"));
   }, []);
 
+  // Keep the URL in sync so run details are deep-linkable and reload-safe.
+  function select(id: string | null) {
+    setSelected(id);
+    window.history.replaceState(
+      null,
+      "",
+      id ? `?run_id=${id}` : window.location.pathname,
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="Runs" subtitle="Submit and inspect runs." />
       {!connected ? (
         <NotConnected />
       ) : selected ? (
-        <RunDetail runId={selected} onBack={() => setSelected(null)} />
+        <RunDetail runId={selected} onBack={() => select(null)} />
       ) : (
         <>
-          <SubmitRun onSubmitted={setSelected} />
-          <RunList onSelect={setSelected} />
+          <SubmitRun onSubmitted={select} />
+          <RunList onSelect={select} />
         </>
       )}
     </div>
@@ -73,6 +85,7 @@ function RunList({ onSelect }: { onSelect: (id: string) => void }) {
       }
     >
       {error && <ApiErrorNote error={error} />}
+      {loading && !data && <Skeleton rows={4} />}
       {data && data.runs.length === 0 && <Empty>No runs yet.</Empty>}
       {data && data.runs.length > 0 && (
         <ul className="divide-y divide-border">
@@ -80,7 +93,7 @@ function RunList({ onSelect }: { onSelect: (id: string) => void }) {
             <li key={r.run_id}>
               <button
                 onClick={() => onSelect(r.run_id)}
-                className="flex w-full items-center justify-between gap-3 py-2.5 text-left hover:opacity-80"
+                className="-mx-2 flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
               >
                 <span className="truncate font-mono text-xs text-muted">{r.run_id}</span>
                 <span className="flex shrink-0 items-center gap-3 text-xs text-muted">
@@ -208,8 +221,16 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
 
             {data.approval_paused_state && (
               <div>
-                <div className="mb-1 font-medium text-amber-700 dark:text-amber-400">
-                  Awaiting approval
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <span className="font-medium text-amber-700 dark:text-amber-400">
+                    Awaiting approval
+                  </span>
+                  <Link
+                    href="/approvals"
+                    className="text-xs font-medium text-accent hover:underline"
+                  >
+                    Resolve in Approvals →
+                  </Link>
                 </div>
                 <Json value={data.approval_paused_state} />
               </div>
