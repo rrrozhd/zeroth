@@ -5,6 +5,12 @@ Wraps any ProviderAdapter to:
 2. Estimate USD cost via CostEstimator (litellm pricing)
 3. Emit a Regulus ExecutionEvent via RegulusClient (fire-and-forget)
 4. Return enriched ProviderResponse with cost_usd and cost_event_id
+
+Exception -- cache hits: when an inner ``CachingProviderAdapter`` short-circuits
+the call (``response.metadata["cache_hit"] is True``) no model was reached, so
+steps 3-4 would fabricate cost and double-bill Regulus. On a hit the adapter emits
+no event and attributes zero marginal cost, recording the avoided spend as
+``metadata["cache_saved_usd"]`` for savings visibility.
 """
 
 from __future__ import annotations
@@ -13,7 +19,6 @@ from decimal import Decimal
 from time import perf_counter
 
 from econ_instrumentation import ExecutionEvent
-
 from zeroth.core.agent_runtime.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.econ.cost import CostEstimator
@@ -26,6 +31,11 @@ class InstrumentedProviderAdapter:
     fires it to Regulus via the client, and enriches the response with
     cost_usd and cost_event_id so downstream code (audit records, etc.)
     can carry cost attribution.
+
+    A cache hit is the one exception: when an inner ``CachingProviderAdapter``
+    short-circuits the call (``response.metadata["cache_hit"] is True``), there is
+    no new spend, so no event is emitted and zero marginal cost is attributed
+    (see ``ainvoke``).
     """
 
     def __init__(
@@ -48,7 +58,12 @@ class InstrumentedProviderAdapter:
         self._deployment_ref = deployment_ref
 
     async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
-        """Call the inner adapter, estimate cost, emit event, return enriched response."""
+        """Call the inner adapter, estimate cost, emit event, return enriched response.
+
+        A cache hit (set by an inner ``CachingProviderAdapter``) is the exception: no
+        model was reached, so no event is emitted and zero marginal cost is attributed
+        -- see the cache-hit branch below.
+        """
         start = perf_counter()
         response = await self._inner.ainvoke(request)
         elapsed_ms = int((perf_counter() - start) * 1000)
@@ -71,6 +86,21 @@ class InstrumentedProviderAdapter:
             )
         except Exception:
             estimated_cost = Decimal("0")
+
+        # Cache hit: an inner CachingProviderAdapter short-circuited the model call,
+        # so there is no new spend. Emitting an event or stamping cost here would
+        # fabricate cost and double-bill Regulus for a call that never reached a
+        # model. Attribute zero marginal cost and emit no event; record what the call
+        # would have cost as cache_saved_usd for savings visibility. Preserve
+        # cache_hit=True so econ.waste's cache_inefficiency detector still sees it.
+        if response.metadata.get("cache_hit") is True:
+            return response.model_copy(
+                update={
+                    "cost_usd": 0.0,
+                    "cost_event_id": None,
+                    "metadata": {**response.metadata, "cache_saved_usd": float(estimated_cost)},
+                }
+            )
 
         # Build and emit the Regulus ExecutionEvent
         event = ExecutionEvent(

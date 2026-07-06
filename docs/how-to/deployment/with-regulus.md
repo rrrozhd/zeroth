@@ -1,109 +1,138 @@
-# With the Regulus companion service
+# With the Regulus economic control plane
 
-Regulus is the economics companion service that enforces cost budgets and
-tracks spend across graph runs. `zeroth-core` integrates with it through the
-`econ-instrumentation-sdk` (pinned to `>=0.1.1`). Enabling Regulus turns on
-cost checks at agent nodes and halts runs that would exceed their declared
-budget.
+Regulus is the economics control plane that tracks LLM spend and exposes the
+cost/KPI data behind budget caps. As of `zeroth-core` 0.2, **Regulus ships in
+this repository** rather than as a separate project:
+
+- the instrumentation SDK is vendored at `src/econ_instrumentation`
+  (the former `econ-instrumentation-sdk` PyPI package — no longer an external
+  dependency); and
+- the backend is bundled at `src/econ_plane` (the `econ_plane` FastAPI app),
+  installable via the `regulus` optional extra.
+
+You can run it **in-process** (mounted inside the Zeroth app — one service) or
+as a **separate process** (the bundled app, started on its own port). Both use
+the same in-repo source.
 
 ## Use case
 
-- Enforcing per-run, per-tenant, or per-graph cost caps
-- Tracking spend for billing or chargeback
-- Fail-closed guarantees on cost-checked nodes
-- Centralizing economics across multiple `zeroth-core` deployments
-
-## Prerequisites
-
-- A running Regulus service reachable over HTTP
-- An API key issued by Regulus
-- `zeroth-core >= 0.1.1` (the SDK dependency is already transitive)
+- Tracking LLM spend per node / run / tenant
+- Feeding the cost dashboard (`/v1/.../cost`) and the console cost page
+- Budget-cap checks at fan-out (fail-open by design — see below)
 
 ## Install
 
-No extra install is required — `econ-instrumentation-sdk` ships as part of
-the `zeroth-core` dependency set.
+The instrumentation SDK is always available (vendored, core deps only). To run
+the bundled backend, install the `regulus` extra:
 
 ```bash
-pip install zeroth-core
+uv sync --extra regulus        # or: uv sync --all-extras
+# pip equivalent:
+pip install "zeroth-core[regulus]"
 ```
+
+This pulls the backend's extra runtime deps (`python-jose`, `email-validator`,
+`numpy`, `dramatiq`); fastapi/uvicorn/httpx/sqlalchemy/redis are already core.
+The backend defaults to SQLite; add `psycopg` (see the `memory-pg` extra) for
+Postgres.
 
 ## Configure
 
-Set the following env vars (see
-[Configuration Reference](../../reference/configuration.md) for the full
-`regulus` section):
+Zeroth talks to Regulus over HTTP, controlled by the `regulus` settings section
+(prefix `ZEROTH_REGULUS__`):
 
 ```bash
 ZEROTH_REGULUS__ENABLED=true
-ZEROTH_REGULUS__BASE_URL=http://regulus:8080/v1
-ZEROTH_REGULUS__API_KEY=<regulus-token>
+ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1   # in-process mount
 ```
 
-When `ZEROTH_REGULUS__ENABLED=true`, agent nodes are wrapped in a cost check
-before execution. The orchestrator halts the run if the budget is exceeded,
-and the halt is recorded in the audit trail.
+The bundled backend has its **own** settings (prefix `ECP_`), database, and JWT
+auth — independent of Zeroth's. Set at least:
 
-## Compose excerpt
+```bash
+ECP_DATABASE_URL=sqlite+pysqlite:////var/lib/zeroth/econ_plane.db
+ECP_JWT_SECRET=<a-strong-secret>
+```
 
-Add a `regulus` service alongside `zeroth` in whatever compose/manifest
-you run:
+## Topology A — in-process mount (recommended)
+
+When `ZEROTH_REGULUS__ENABLED=true`, the Zeroth app mounts the bundled backend
+at `/regulus` (its schema is initialized from Zeroth's lifespan). The mount sits
+behind Zeroth's API-key gate, and econ_plane enforces its own JWT on top; Zeroth's
+self-calls authenticate automatically (see "Self-auth" below). One process serves
+both. Point the base URL at the mount:
+
+```bash
+ZEROTH_REGULUS__ENABLED=true
+ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1
+```
+
+If the `regulus` extra is not installed, the mount is skipped with a warning and
+Zeroth still boots (econ simply stays disabled / fail-open).
+
+## Topology B — separate process
+
+> Note: whenever `ZEROTH_REGULUS__ENABLED=true` and the `regulus` extra is
+> installed, Zeroth *also* mounts an in-process copy at `/regulus` regardless of
+> where `BASE_URL` points. In a separate-process deployment that mount is simply
+> unused — point `BASE_URL` at the standalone backend below.
+
+Run the bundled backend on its own port and point Zeroth at it:
+
+```bash
+uv run uvicorn econ_plane.main:app --port 8000      # the Regulus backend
+ZEROTH_REGULUS__BASE_URL=http://regulus:8000/v1     # in Zeroth's env
+```
 
 ```yaml
 services:
   zeroth:
     environment:
       ZEROTH_REGULUS__ENABLED: "true"
-      ZEROTH_REGULUS__BASE_URL: "http://regulus:8080/v1"
-    depends_on:
-      - regulus
-
+      ZEROTH_REGULUS__BASE_URL: "http://regulus:8000/v1"
+    depends_on: [regulus]
   regulus:
-    image: regulus-backend:latest
+    image: zeroth-core:latest          # same image; runs econ_plane.main:app
+    command: uvicorn econ_plane.main:app --host 0.0.0.0 --port 8000
     environment:
-      REGULUS_PORT: "8080"
-    networks:
-      - zeroth-net
-```
-
-## Standalone deployment
-
-If you run `zeroth-core` as a [standalone service](standalone-service.md),
-add the same three env vars to `/etc/zeroth/zeroth.env`:
-
-```bash
-ZEROTH_REGULUS__ENABLED=true
-ZEROTH_REGULUS__BASE_URL=https://regulus.internal.example.com/v1
-ZEROTH_REGULUS__API_KEY=<regulus-token>
+      ECP_JWT_SECRET: "${ECP_JWT_SECRET}"
 ```
 
 ## Verify
 
-1. Start a graph run with a cost-capped contract (see the
-   [budget cap cookbook recipe](../cookbook/budget-cap.md)).
-2. Watch the orchestrator halt the run when the budget is exceeded.
-3. Inspect the audit trail — the `econ.halt` event carries the Regulus
-   decision metadata.
-
 ```bash
-curl -f http://localhost:8000/healthz
-curl -s http://regulus:8080/healthz
+# in-process:
+curl -s http://127.0.0.1:8000/regulus/health        # -> {"status":"ok"}
+# separate process:
+curl -s http://localhost:8000/health                 # -> {"status":"ok"}
 ```
 
-## Common gotchas
+## Behavior & gotchas
 
-- **Fail-closed on unreachable Regulus:** if `ZEROTH_REGULUS__ENABLED=true`
-  and Regulus is unreachable, cost-checked nodes fail closed. Disable the
-  integration or fix connectivity before running production traffic.
-- **Version pinning:** confirm `econ-instrumentation-sdk>=0.1.1` is resolved
-  in your lockfile.
-- **Clock skew:** Regulus uses signed budget windows. Keep NTP running on
-  both hosts or you will see spurious "budget expired" halts.
-- **API key leakage:** `ZEROTH_REGULUS__API_KEY` is a secret. Put it in your
-  secret store, not in the compose file.
+- **Fail-open (decision D-12).** If Regulus is unreachable *or rejects the
+  request*, budget enforcement **allows** the run and cost reads return
+  unavailable — Regulus never blocks execution. This is deliberate.
+- **Self-auth (how cost events flow).** econ_plane protects its ingest and KPI
+  endpoints with its own JWT, and the in-process mount also sits behind Zeroth's
+  API-key gate. Zeroth's self-calls (SDK ingest, budget, cost) carry **both**: a
+  freshly minted econ_plane Admin JWT (signed with `ECP_JWT_SECRET`, short TTL)
+  and Zeroth's own first service `X-API-Key`. So cost events persist as long as
+  `ECP_JWT_SECRET` is set and at least one Zeroth service key
+  (`ZEROTH_SERVICE_API_KEYS_JSON`) is configured. With no Zeroth service key the
+  self-calls carry only the Bearer; in the gated in-process topology that yields
+  `401` → fail-open (events drop), so configure a service key for in-process use.
+  (`ZEROTH_REGULUS__API_KEY` remains unused — the bundled flow does not need it.)
+- **Reaching `/regulus` externally** requires Zeroth's `X-API-Key` (no bypass);
+  econ's open token issuer is therefore *not* internet-exposed by enabling the
+  mount.
+- **Settings isolation.** Zeroth uses the `ZEROTH_` prefix; the bundled backend
+  uses `ECP_`. They do not collide.
+- **Migrations.** SQLite needs none (schema is created at startup). The Alembic
+  chain under `src/econ_plane/_migrations` is for offline Postgres ops only.
 
 ## Related references
 
 - [Economics concept page](../../concepts/econ.md)
-- [Python API Reference — econ](../../reference/python-api/econ.md)
 - [Configuration Reference](../../reference/configuration.md)
+- Provenance / re-sync: `src/econ_instrumentation/VENDOR.md`,
+  `src/econ_plane/VENDOR.md`
