@@ -169,10 +169,13 @@ def _auto_layout(graph: Graph) -> dict[str, dict[str, float]]:
     for edge in graph.edges:
         adjacency[edge.source_node_id].append(edge.target_node_id)
 
+    # Seed the BFS from entry_step, or the first node if entry_step is unset —
+    # otherwise every node collapses into the depth-0 column.
+    seed = graph.entry_step or (graph.nodes[0].node_id if graph.nodes else None)
     depth: dict[str, int] = {}
-    if graph.entry_step:
-        depth[graph.entry_step] = 0
-        queue = deque([graph.entry_step])
+    if seed is not None:
+        depth[seed] = 0
+        queue = deque([seed])
         while queue:
             current = queue.popleft()
             for target in adjacency[current]:
@@ -180,9 +183,15 @@ def _auto_layout(graph: Graph) -> dict[str, dict[str, float]]:
                     depth[target] = depth[current] + 1
                     queue.append(target)
 
+    # Nodes unreachable from the seed go in a column past the reached ones
+    # rather than colliding with the entry node at depth 0.
+    orphan_depth = (max(depth.values()) + 1) if depth else 0
+    for node in graph.nodes:
+        depth.setdefault(node.node_id, orphan_depth)
+
     by_depth: dict[int, list[str]] = defaultdict(list)
     for node in graph.nodes:
-        by_depth[depth.get(node.node_id, 0)].append(node.node_id)
+        by_depth[depth[node.node_id]].append(node.node_id)
 
     positions: dict[str, dict[str, float]] = {}
     for level, node_ids in by_depth.items():
@@ -193,14 +202,24 @@ def _auto_layout(graph: Graph) -> dict[str, dict[str, float]]:
 
 def _graph_to_detail(graph: Graph) -> WorkflowDetailResponse:
     """Map a core Graph model to a Studio WorkflowDetailResponse."""
-    studio_meta = graph.metadata.get("studio", {})
-    node_positions = studio_meta.get("node_positions", {})
-    viewport_data = studio_meta.get("viewport", {})
+    studio_meta = graph.metadata.get("studio")
+    studio_meta = studio_meta if isinstance(studio_meta, dict) else {}
+    stored_positions = studio_meta.get("node_positions")
+    stored_positions = stored_positions if isinstance(stored_positions, dict) else {}
+    viewport_data = studio_meta.get("viewport")
+    viewport_data = viewport_data if isinstance(viewport_data, dict) else {}
 
-    # No stored layout (graph deployed outside the Studio): lay it out so the
-    # canvas doesn't render every node stacked at the origin.
-    if not node_positions:
-        node_positions = _auto_layout(graph)
+    # Fill any node missing a valid stored position from an auto-layout, so a
+    # graph deployed outside the Studio (no positions) OR one with only a
+    # partial positions map doesn't stack un-positioned nodes at the origin.
+    need_layout = any(not isinstance(stored_positions.get(n.node_id), dict) for n in graph.nodes)
+    layout = _auto_layout(graph) if need_layout else {}
+    node_positions = {}
+    for node in graph.nodes:
+        stored = stored_positions.get(node.node_id)
+        node_positions[node.node_id] = (
+            stored if isinstance(stored, dict) else layout.get(node.node_id, {"x": 0, "y": 0})
+        )
 
     nodes = []
     for node in graph.nodes:
