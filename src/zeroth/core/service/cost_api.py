@@ -10,6 +10,8 @@ import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
+from zeroth.core.service.authorization import Permission, require_permission
+
 
 class TenantCostResponse(BaseModel):
     """Response for GET /v1/tenants/{tenant_id}/cost (per D-14)."""
@@ -48,6 +50,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
     @app.get("/tenants/{tenant_id}/cost", response_model=TenantCostResponse)
     async def get_tenant_cost(request: Request, tenant_id: str) -> TenantCostResponse:
         """Return cumulative spend for a tenant (per D-14, D-16)."""
+        await require_permission(request, Permission.METRICS_READ)
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:
@@ -75,6 +78,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
     )
     async def get_deployment_cost(request: Request, deployment_ref: str) -> DeploymentCostResponse:
         """Return cumulative spend for a deployment (per D-15, D-16)."""
+        await require_permission(request, Permission.METRICS_READ)
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:

@@ -31,6 +31,7 @@ from zeroth.core.graph.models import (
     RetrievalNodeData,
     SubgraphNode,
 )
+from zeroth.core.service.authorization import Permission, require_permission
 from zeroth.core.service.studio_schemas import (
     CreateWorkflowRequest,
     NodeTypeResponse,
@@ -281,6 +282,7 @@ def _graph_to_summary(graph: Graph) -> WorkflowSummaryResponse:
 @router.get("/workflows", response_model=list[WorkflowSummaryResponse])
 async def list_workflows(request: Request) -> list[WorkflowSummaryResponse]:
     """List all workflows as summaries."""
+    await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
     graphs = await repo.list()
     # Exclude archived workflows from the list
@@ -297,6 +299,7 @@ async def create_workflow(
     request: Request,
 ) -> WorkflowDetailResponse:
     """Create a new workflow with default Studio metadata."""
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph_id = str(uuid4())
     graph = Graph(
@@ -318,6 +321,7 @@ async def create_workflow(
 @router.get("/workflows/{workflow_id}", response_model=WorkflowDetailResponse)
 async def get_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
     """Get a workflow with full detail including nodes, edges, and viewport."""
+    await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
     graph = await repo.get(workflow_id)
     if graph is None:
@@ -338,6 +342,7 @@ async def update_workflow(
     into real executable graph nodes (and ``edges`` into graph edges), so the
     canvas authors the actual graph, not just visual metadata.
     """
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph = await repo.get(workflow_id)
     if graph is None:
@@ -398,6 +403,7 @@ async def update_workflow(
 )
 async def clone_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
     """Clone a published workflow into a new editable draft version."""
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph = await repo.get(workflow_id)
     if graph is None:
@@ -414,6 +420,7 @@ async def clone_workflow(workflow_id: str, request: Request) -> WorkflowDetailRe
 @router.delete("/workflows/{workflow_id}", status_code=204)
 async def delete_workflow(workflow_id: str, request: Request) -> Response:
     """Archive a workflow (soft delete)."""
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph = await repo.get(workflow_id)
     if graph is None:
@@ -424,6 +431,7 @@ async def delete_workflow(workflow_id: str, request: Request) -> Response:
 
 
 @router.get("/node-types", response_model=list[NodeTypeResponse])
-def list_node_types() -> list[NodeTypeResponse]:
+async def list_node_types(request: Request) -> list[NodeTypeResponse]:
     """Return all available node types with their port definitions."""
+    await require_permission(request, Permission.WORKFLOW_READ)
     return _NODE_TYPES

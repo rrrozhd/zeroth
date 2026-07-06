@@ -8,11 +8,14 @@ round trips (per D-10, D-11). Fails open when Regulus is unreachable
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 import httpx
 from cachetools import TTLCache
+
+logger = logging.getLogger(__name__)
 
 
 class BudgetEnforcer:
@@ -75,6 +78,15 @@ class BudgetEnforcer:
                 allowed = spend < cap
                 self._cache[tenant_id] = {"allowed": allowed, "spend": spend, "cap": cap}
                 return allowed, spend, cap
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             # Fail-open: Regulus unavailability must not block execution (D-12).
+            # But a silent fail-open means budget governance can evaporate with
+            # no trace — emit a warning so operators can see caps aren't being
+            # enforced and alert on it.
+            logger.warning(
+                "budget check failed open for tenant %s: %s (%s) — spend cap NOT enforced",
+                tenant_id,
+                exc.__class__.__name__,
+                exc,
+            )
             return True, 0.0, float("inf")
