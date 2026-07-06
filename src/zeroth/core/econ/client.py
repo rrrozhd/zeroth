@@ -6,6 +6,8 @@ with a clean stop() method that flushes pending events before shutdown.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from econ_instrumentation import ExecutionEvent
 from econ_instrumentation.client import InstrumentationClient
 
@@ -24,12 +26,14 @@ class RegulusClient:
         base_url: str = "http://localhost:8000/v1",
         timeout: float = 5.0,
         enabled: bool = True,
+        headers_provider: Callable[[], dict[str, str]] | None = None,
     ) -> None:
         self._base_url = base_url
         self._client = InstrumentationClient(
             base_url=base_url,
             timeout=timeout,
             enabled=enabled,
+            headers_provider=headers_provider,
         )
 
     @property

@@ -8,6 +8,7 @@ round trips (per D-10, D-11). Fails open when Regulus is unreachable
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -33,11 +34,13 @@ class BudgetEnforcer:
         *,
         cache_ttl: int = 30,
         timeout: float = 5.0,
+        headers_provider: Callable[[], dict[str, str]] | None = None,
         _transport: Any = None,
     ) -> None:
         self._base_url = regulus_base_url.rstrip("/")
         self._timeout = timeout
         self._cache: TTLCache[str, dict[str, float | bool]] = TTLCache(maxsize=1024, ttl=cache_ttl)
+        self._headers_provider = headers_provider
         self._transport = _transport
 
     async def check_budget(self, tenant_id: str) -> tuple[bool, float, float]:
@@ -58,10 +61,12 @@ class BudgetEnforcer:
             if self._transport is not None:
                 client_kwargs["transport"] = httpx.MockTransport(self._transport)
 
+            headers = self._headers_provider() if self._headers_provider is not None else None
             async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.get(
                     f"{self._base_url}/dashboard/kpis",
                     params={"tenant_id": tenant_id},
+                    headers=headers,
                 )
                 resp.raise_for_status()
                 data = resp.json()

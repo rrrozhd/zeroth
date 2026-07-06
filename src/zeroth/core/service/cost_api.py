@@ -32,6 +32,16 @@ class DeploymentCostResponse(BaseModel):
     currency: str = "USD"
 
 
+def _regulus_self_auth_headers(request: Request) -> dict[str, str] | None:
+    """Self-auth headers for calling the (possibly in-process/gated) Regulus mount.
+
+    Returns ``None`` when no provider is configured (separate-process, unauth
+    topology) so behavior is unchanged there.
+    """
+    provider = getattr(request.app.state, "regulus_self_auth_headers", None)
+    return provider() if provider is not None else None
+
+
 def register_cost_routes(app: FastAPI | APIRouter) -> None:
     """Register cost attribution query routes on the FastAPI app."""
 
@@ -47,6 +57,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
                 resp = await client.get(
                     f"{regulus_base_url}/dashboard/kpis",
                     params={"tenant_id": tenant_id},
+                    headers=_regulus_self_auth_headers(request),
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -73,6 +84,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
                 resp = await client.get(
                     f"{regulus_base_url}/dashboard/kpis",
                     params={"deployment_ref": deployment_ref},
+                    headers=_regulus_self_auth_headers(request),
                 )
                 resp.raise_for_status()
                 data = resp.json()
