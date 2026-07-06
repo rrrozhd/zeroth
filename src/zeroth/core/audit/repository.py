@@ -6,6 +6,7 @@ NodeAuditRecord objects using an async database.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 
 from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
@@ -23,6 +24,12 @@ class AuditRepository:
 
     def __init__(self, database: AsyncDatabase):
         self._database: AsyncDatabase = database
+        # Chain writes read the current head then insert; concurrent fan-out
+        # branches on separate connections would otherwise both chain off the
+        # same predecessor and silently fork the tamper-evident digest chain.
+        # A process-wide lock serializes the read-head+insert critical section;
+        # multi-process deployments additionally need DB-level enforcement.
+        self._chain_lock = asyncio.Lock()
 
     async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         """Save an audit record to the database.
@@ -30,7 +37,7 @@ class AuditRepository:
         Writes are append-only. Duplicate audit IDs are rejected so history
         cannot be silently rewritten.
         """
-        async with self._database.transaction() as connection:
+        async with self._chain_lock, self._database.transaction() as connection:
             previous = await self._latest_for_run(connection, record.run_id)
             chained = compute_chained_record(
                 record,
