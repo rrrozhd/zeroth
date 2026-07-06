@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 from contextlib import asynccontextmanager
 from typing import Protocol
@@ -68,7 +69,24 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         if getattr(app.state.bootstrap, "regulus_client", None) is not None:
             try:
                 from econ_plane.common.bootstrap import bootstrap as econ_plane_bootstrap
+                from econ_plane.config import settings as ecp_settings
                 from econ_plane.connectors.service import init_otel_metrics
+
+                # Fail closed on the placeholder JWT secret: the mounted control
+                # plane signs its Admin tokens with ECP_JWT_SECRET, so booting on
+                # the shipped default silently makes those tokens forgeable.
+                # Refuse unless the operator explicitly opts into insecure local
+                # dev (ECP_ALLOW_INSECURE_JWT_SECRET=1), which keeps the getting-
+                # started flow working while making production safe by default.
+                if ecp_settings.jwt_secret == "change-me" and os.environ.get(
+                    "ECP_ALLOW_INSECURE_JWT_SECRET"
+                ) not in ("1", "true", "yes"):
+                    raise RuntimeError(
+                        "Regulus is mounted in-process but ECP_JWT_SECRET is the "
+                        "insecure default 'change-me'. Set ECP_JWT_SECRET to a "
+                        "strong secret, or set ECP_ALLOW_INSECURE_JWT_SECRET=1 for "
+                        "local development only. See SECURITY.md."
+                    )
 
                 econ_plane_bootstrap()
                 init_otel_metrics()  # no-op unless ECP_OTEL_METRICS_ENABLED
@@ -270,6 +288,18 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             response = await call_next(request)
             response.headers["X-Correlation-ID"] = get_correlation_id()
             return response
+
+        # Block the bundled control plane's open token issuer over HTTP. econ_plane
+        # mints an Admin JWT for any caller of POST /**/auth/token with no credential
+        # check of its own; once mounted, that would let any authenticated Zeroth
+        # principal escalate to econ Admin (and read cross-tenant KPIs). Zeroth's own
+        # self-calls mint their econ token in-process (service_auth.mint_econ_service_token),
+        # never via this endpoint, so blocking it breaks nothing internal. Return 404 so
+        # the issuer is simply absent from the HTTP surface. See SECURITY.md.
+        if path.startswith("/regulus/") and path.rstrip("/").endswith("/auth/token"):
+            cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
+            set_correlation_id(cid)
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
         # Propagate or generate a correlation ID for the lifetime of this request.
         cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
