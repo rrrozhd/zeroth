@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.4"
+version = "0.4.1"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -24,7 +24,12 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "fastapi>=0.115",
+    # Upper bound: FastAPI 0.136 changed include_router to keep nested
+    # _IncludedRouter objects instead of flattening routes onto app.routes,
+    # which empties the OpenAPI schema of our /v1 + studio routes (routing still
+    # works, but the schema and client generation break). Lift once the app is
+    # adapted to the new inclusion model.
+    "fastapi>=0.115,<0.136",
     "httpx>=0.27",
     "pydantic>=2.10",
     "pydantic-settings>=2.13",
