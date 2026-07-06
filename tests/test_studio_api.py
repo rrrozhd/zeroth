@@ -10,20 +10,46 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from zeroth.core.graph.repository import GraphRepository
+from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.core.service.studio_api import router as studio_router
 from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
 
 
-def _make_app(graph_repo: GraphRepository | None = None) -> FastAPI:
-    """Create a minimal FastAPI app with Studio routes and no auth middleware."""
+def _make_app(
+    graph_repo: GraphRepository | None = None,
+    *,
+    roles: list[ServiceRole] | None = None,
+) -> FastAPI:
+    """Create a minimal FastAPI app with Studio routes.
+
+    Injects an authenticated principal the way the production auth middleware
+    would, so route-level RBAC (require_permission) is exercised. Defaults to an
+    ADMIN principal so behavioral tests see the routes' happy path; pass ``roles``
+    to assert authorization boundaries.
+    """
     app = FastAPI()
     bootstrap = MagicMock()
     if graph_repo is not None:
         bootstrap.graph_repository = graph_repo
     else:
         bootstrap.graph_repository = MagicMock(spec=GraphRepository)
+    # Denial auditing no-ops without a repository; keep it None so authz-failure
+    # tests don't try to serialize MagicMock attributes into a NodeAuditRecord.
+    bootstrap.audit_repository = None
     app.state.bootstrap = bootstrap
+
+    principal = AuthenticatedPrincipal(
+        subject="test",
+        auth_method=AuthMethod.API_KEY,
+        roles=roles if roles is not None else [ServiceRole.ADMIN],
+    )
+
+    @app.middleware("http")
+    async def _inject_principal(request, call_next):
+        request.state.principal = principal
+        return await call_next(request)
+
     app.include_router(studio_router)
     return app
 
@@ -434,3 +460,36 @@ class TestStudioAutoLayout:
         layout = _auto_layout(graph)
         # Not every node stacked in the x=0 column.
         assert len({p["x"] for p in layout.values()}) > 1
+
+
+class TestAuthorization:
+    """Route-level RBAC on the Studio surface (require_permission)."""
+
+    def test_reviewer_cannot_create_workflow(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo, roles=[ServiceRole.REVIEWER])
+        client = TestClient(app)
+        resp = client.post("/api/studio/v1/workflows", json={"name": "x"})
+        assert resp.status_code == 403
+
+    def test_reviewer_can_list_workflows(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo, roles=[ServiceRole.REVIEWER])
+        client = TestClient(app)
+        resp = client.get("/api/studio/v1/workflows")
+        assert resp.status_code == 200
+
+    def test_operator_can_create_workflow(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo, roles=[ServiceRole.OPERATOR])
+        client = TestClient(app)
+        resp = client.post("/api/studio/v1/workflows", json={"name": "x"})
+        assert resp.status_code == 201
+
+    def test_roleless_principal_cannot_read_or_write(self) -> None:
+        repo = _make_repo()
+        app = _make_app(repo, roles=[])
+        client = TestClient(app)
+        assert client.get("/api/studio/v1/workflows").status_code == 403
+        assert client.post("/api/studio/v1/workflows", json={"name": "x"}).status_code == 403
+        assert client.get("/api/studio/v1/node-types").status_code == 403

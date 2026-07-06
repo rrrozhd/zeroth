@@ -91,19 +91,34 @@ def test_mount_absent_when_regulus_disabled() -> None:
     assert "/regulus" not in paths
 
 
-def test_open_token_issuer_is_gated_behind_zeroth_api_key() -> None:
-    """Decision 1: mounting must not auto-expose econ's open token issuer."""
+def test_open_token_issuer_is_unreachable_over_http() -> None:
+    """Decision 1: mounting must not expose econ's open Admin-token issuer.
+
+    econ_plane mints an Admin JWT for any caller of POST /**/auth/token with no
+    credential check. Zeroth blocks that endpoint at its gate (404) so no external
+    caller -- authenticated or not -- can escalate to econ Admin. Zeroth's own
+    self-calls mint the token in-process, never via this endpoint.
+    """
     app = create_app(_GatedBootstrap())
     assert "/regulus" in {getattr(r, "path", "") for r in app.routes}
 
     body = {"sub": "x", "email": "x@x.io", "roles": ["Admin"]}
     with TestClient(app) as client:
-        # No Zeroth API key -> blocked at Zeroth's gate before reaching econ.
-        assert client.post("/regulus/v1/auth/token", json=body).status_code == 401
-        # With the Zeroth API key -> reaches econ, which mints the token.
-        ok = client.post("/regulus/v1/auth/token", json=body, headers={"X-API-Key": _ZEROTH_KEY})
-        assert ok.status_code == 200
-        assert "access_token" in ok.json()
+        # No Zeroth API key -> 404 (blocked before the gate even authenticates).
+        assert client.post("/regulus/v1/auth/token", json=body).status_code == 404
+        # Even WITH a valid Zeroth API key -> still 404: the issuer is not on the
+        # HTTP surface, so an authenticated principal cannot mint an econ Admin token.
+        blocked = client.post(
+            "/regulus/v1/auth/token", json=body, headers={"X-API-Key": _ZEROTH_KEY}
+        )
+        assert blocked.status_code == 404
+        # Trailing-slash variant is blocked too.
+        assert (
+            client.post(
+                "/regulus/v1/auth/token/", json=body, headers={"X-API-Key": _ZEROTH_KEY}
+            ).status_code
+            == 404
+        )
 
 
 def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
