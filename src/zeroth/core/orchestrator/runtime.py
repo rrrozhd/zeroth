@@ -764,11 +764,15 @@ class RuntimeOrchestrator:
                 audit_ref = f"{run.run_id}:branch:{ctx.branch_index}:audit:{audit_seq}"
                 ctx.audit_refs.append(audit_ref)
 
+                # Redact the branch snapshots once so BOTH the audit record and
+                # the run-history entry persist redacted — resolved secrets in a
+                # fan-out branch must not reach the stored run record (execution
+                # history) or the typed audit columns.
+                redacted_branch_input = self._redact_for_audit(dict(branch_output))
+                redacted_branch_output = self._redact_for_audit(dict(ds_output))
+
                 # Write audit record if audit repo available
                 if self.audit_repository is not None:
-                    # Redact the branch record like the completed/failed sites so
-                    # resolved secrets never reach the snapshots or the typed
-                    # tool_calls / memory_interactions columns.
                     redacted_branch_audit = self._redact_for_audit(dict(ds_audit_with_branch))
                     branch_tool_calls, branch_memory = self._typed_audit_fields(
                         redacted_branch_audit
@@ -785,21 +789,21 @@ class RuntimeOrchestrator:
                             attempt=1,
                             status="completed",
                             completed_at=datetime.now(UTC),
-                            input_snapshot=self._redact_for_audit(dict(branch_output)),
-                            output_snapshot=self._redact_for_audit(dict(ds_output)),
+                            input_snapshot=redacted_branch_input,
+                            output_snapshot=redacted_branch_output,
                             execution_metadata=redacted_branch_audit,
                             tool_calls=branch_tool_calls,
                             memory_interactions=branch_memory,
                         )
                     )
 
-                # Append to branch execution history
+                # Append to branch execution history (redacted, matching the audit record)
                 ctx.execution_history.append(
                     RunHistoryEntry(
                         node_id=ds_node_id,
                         status="completed",
-                        input_snapshot=dict(branch_output),
-                        output_snapshot=dict(ds_output),
+                        input_snapshot=redacted_branch_input,
+                        output_snapshot=redacted_branch_output,
                         audit_ref=audit_ref,
                     )
                 )
@@ -2074,8 +2078,11 @@ class RuntimeOrchestrator:
                         error=error if error is None else str(error),
                     )
                 )
-            except Exception:
-                # A malformed tool-call record must not abort the whole audit write.
+            except Exception as exc:
+                # A malformed tool-call record must not abort the whole audit
+                # write — but log it, since silently dropping a call from the
+                # typed/queryable columns under-reports in a governance system.
+                logger.warning("audit: dropping malformed tool_call from typed fields: %s", exc)
                 continue
 
         memory_interactions: list[MemoryAccessRecord] = []
@@ -2084,7 +2091,10 @@ class RuntimeOrchestrator:
                 continue
             try:
                 memory_interactions.append(MemoryAccessRecord.model_validate(dict(mi)))
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "audit: dropping malformed memory_interaction from typed fields: %s", exc
+                )
                 continue
         return tool_calls, memory_interactions
 
