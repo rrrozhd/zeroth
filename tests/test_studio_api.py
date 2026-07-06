@@ -420,5 +420,17 @@ class TestStudioAutoLayout:
         )
         detail = _graph_to_detail(graph)
         positions = {n.id: (n.position.x, n.position.y) for n in detail.nodes}
-        # Stored layout is respected verbatim; auto-layout does not kick in.
+        # Stored position for 'a' is respected verbatim; the un-positioned nodes
+        # b/c are filled from auto-layout rather than stacking at the origin.
         assert positions["a"] == (5, 7)
+        assert positions["b"] != (0, 0)
+        assert positions["c"] != (0, 0)
+        assert positions["b"] != positions["c"]
+
+    def test_no_entry_step_does_not_collapse_to_one_column(self) -> None:
+        from zeroth.core.service.studio_api import _auto_layout
+
+        graph = _branching_graph().model_copy(update={"entry_step": ""})  # falsy entry_step
+        layout = _auto_layout(graph)
+        # Not every node stacked in the x=0 column.
+        assert len({p["x"] for p in layout.values()}) > 1
