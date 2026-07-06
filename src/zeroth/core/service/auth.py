@@ -222,5 +222,8 @@ async def record_service_denial(
             },
             error=error,
             started_at=datetime.now(UTC),
+            # Denials are terminal — stamp completed_at so the Audit view doesn't
+            # render "Completed —" for forbidden / unauthenticated records.
+            completed_at=datetime.now(UTC),
         )
     )
