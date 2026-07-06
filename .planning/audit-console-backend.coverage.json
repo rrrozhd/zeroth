@@ -1,0 +1,40 @@
+[
+  {"part": "runtime.py::_typed_audit_fields", "tests": "tests/orchestrator/test_typed_audit_fields.py", "status": "done", "findings": [
+    {"loc": "runtime.py:2077-2088", "cat": "r", "tier": "P2", "conf": "verified", "what": "both loops except Exception: continue with no logging -> silent under-report of tool/memory in typed columns", "fix": "logger.warning before continue"},
+    {"loc": "runtime.py:2081-2088", "cat": "r", "tier": "P3", "conf": "likely", "what": "memory loop uses strict model_validate(extra=forbid) vs coerce-tolerant tool loop; asymmetric", "fix": "mirror tolerant mapping for memory"}
+  ]},
+  {"part": "runtime.py completed-site (~1693)", "status": "done", "findings": []},
+  {"part": "runtime.py failed-site (~1755)", "status": "done", "findings": []},
+  {"part": "runtime.py branch-site (~777)", "tests": "tests/parallel/*", "status": "done", "findings": [
+    {"loc": "runtime.py:798-805", "cat": "r", "tier": "P1", "conf": "confirmed", "what": "branch RunHistoryEntry snapshots NOT redacted (audit record IS) -> resolved secrets at rest in run.execution_history", "fix": "redact branch_output/ds_output snapshots, reuse redacted_branch_audit"},
+    {"loc": "runtime.py:777 -> audit/repository.py", "cat": "r", "tier": "P1", "conf": "likely", "what": "PRE-EXISTING concurrency: branch audit writes via gather; read-head->insert not atomic -> tamper-evident chain can fork under parallelism (sqlite busy_timeout hides it as silent fork)", "fix": "serialize per-run audit writes / BEGIN IMMEDIATE; repro first"}
+  ]},
+  {"part": "runtime.py enforcement-site (~1856)", "status": "done", "findings": []},
+  {"part": "studio_api.py::_auto_layout", "tests": "tests/test_studio_api.py::TestStudioAutoLayout", "status": "done", "findings": [
+    {"loc": "studio_api.py:173,185", "cat": "i", "tier": "P2", "conf": "fits", "what": "falsy entry_step or unreachable nodes -> all collapse to depth-0 x=0 column", "fix": "seed BFS from nodes[0]; give unreached nodes own columns"}
+  ]},
+  {"part": "studio_api.py::_graph_to_detail", "tests": "tests/test_studio_api.py", "status": "done", "findings": [
+    {"loc": "studio_api.py:202,207", "cat": "r", "tier": "P3", "conf": "confirmed", "what": "all-or-nothing guard: partial node_positions strands un-positioned nodes at (0,0)", "fix": "per-node fallback: node_positions.get(id) or layout.get(id)"},
+    {"loc": "studio_api.py:196-207", "cat": "r", "tier": "P2", "conf": "likely", "what": "non-Mapping metadata['studio']/node_positions crashes .get() (boundary data)", "fix": "coerce defensively with isinstance checks"}
+  ]},
+  {"part": "audit/models.py validator", "tests": "tests/audit/*", "status": "done", "findings": [
+    {"loc": "audit/models.py:143-150 + write sites", "cat": "i", "tier": "P2", "conf": "fits", "what": "completed_at(arg now) < started_at(default factory later) -> clamp always fires -> zero duration, started_at=construction time not node start", "fix": "capture real node start, pass started_at; add clamp unit test"},
+    {"loc": "audit/models.py:143-150", "cat": "r", "tier": "P3", "conf": "likely", "what": "clamp runs on every path incl model_validate on read -> masks genuine inversions (clock skew/backfill) silently", "fix": "scope to sub-second gaps and/or log when clamp fires"}
+  ]},
+  {"part": "approvals/service.py completed_at", "tests": "tests/service/test_e2e_phase5.py", "status": "done", "findings": []},
+  {"part": "ui.tsx StatusBadge/labels/tones", "tests": "none", "status": "done", "findings": [
+    {"loc": "ui.tsx:88-136", "cat": "r", "tier": "P1", "conf": "confirmed", "what": "real backend statuses render gray: run terminated_by_loop_guard/queued/waiting_interrupt, audit error/forbidden/unauthenticated/unavailable/cancelled; 3d08705 covered happy-path only; queued emitted but only pending wired", "fix": "add tones (red for error/forbidden/terminated_by_loop_guard; amber for queued/waiting_interrupt/unavailable; zinc for cancelled) + labels"},
+    {"loc": "ui.tsx:96 vs 132", "cat": "i", "tier": "P3", "conf": "moderate", "what": "approval_api blue tone (in-flight color) + terminal 'Approval resolved' label; resolved/approved siblings are emerald -> two 'resolved' meanings differ in color", "fix": "emerald tone or decision-neutral label"}
+  ]},
+  {"part": "SEAM: runtime typed fields -> evidence.py", "tests": "tests/service/test_evidence_api.py", "status": "done", "findings": []},
+  {"part": "SEAM: agent-runtime producers -> _typed_audit_fields", "status": "done", "findings": [
+    {"loc": "tests/orchestrator/test_typed_audit_fields.py", "cat": "i", "tier": "P3", "conf": "fits", "what": "branch typed-field application untested end-to-end (SubgraphNode branch may carry no extra -> silently empty); no E2E fan-out test asserts populated typed fields", "fix": "add parallel E2E test with spy audit repo"}
+  ]},
+  {"part": "SEAM: ui.tsx labels <-> backend status vocabulary", "tests": "none", "status": "done", "findings": [
+    {"loc": "ui.tsx vs run_api.py:38-46 / authorization statuses", "cat": "r", "tier": "P1", "conf": "confirmed", "what": "see ui.tsx tone-gap finding above; full vocab enumerated: run={queued,running,paused_for_approval,waiting_interrupt,succeeded,failed,terminated_by_policy,terminated_by_loop_guard,dead_letter}; audit adds {error,ok,forbidden,unauthenticated,unavailable,cancelled,approval_api}", "fix": "align tone/label maps to full vocabulary"}
+  ]},
+  {"part": "LIVE FLOW: run->audit->studio + branch-redaction-with-secret repro", "tests": "manual repro", "status": "done", "findings": [
+    {"loc": "runtime.py:769 (repro)", "cat": "r", "tier": "P2", "conf": "confirmed", "what": "branch redaction fix verified: raw-map leaks secret into typed cols, redact-then-map (bfa07f7) yields [REDACTED]", "fix": "N/A confirms fix; promote repro to tests/"},
+    {"loc": "8064/8065/8063 live", "cat": "r", "tier": "P3", "conf": "confirmed", "what": "typed fields populate (04/05) + auto-layout positions spread (03) through real worker->API->studio", "fix": "N/A"}
+  ]}
+]
