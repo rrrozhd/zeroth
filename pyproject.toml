@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.5"
+version = "0.5.1"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -48,6 +48,9 @@ dependencies = [
     "mcp>=1.7,<2.0",
     "redis>=5.3.1",
 ]
+
+[project.scripts]
+zeroth-core = "zeroth.core.cli:main"
 
 [project.optional-dependencies]
 memory-pg = [
