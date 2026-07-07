@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.4.4"
+version = "0.4.4.1"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -99,7 +99,12 @@ docs = [
     "mkdocs>=1.6,<2.0",
     "mkdocs-material>=9.7.6,<10",
     "pymdown-extensions>=10.8",
-    "mkdocs-section-index>=0.3.9",
+    # Pinned to 0.3.9: 0.3.10+ added a dependency on `properdocs` (an MkDocs
+    # fork) whose package ships machinery that can silently redirect all
+    # mkdocs.* imports to itself, and prints solicitation banners during
+    # builds. Keep this pin until section-index drops that dependency or the
+    # docs stack is migrated deliberately.
+    "mkdocs-section-index==0.3.9",
     "mkdocstrings[python]>=0.26,<1",
 ]
 
