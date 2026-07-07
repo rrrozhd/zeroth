@@ -217,3 +217,97 @@ async def test_budget_fails_open_on_bad_token_but_sends_headers() -> None:
     # ...but the self-auth headers were attached to the outbound request.
     assert seen.get("x-api-key") == _ZEROTH_KEY
     assert seen.get("authorization", "").startswith("Bearer ")
+
+
+@pytest.mark.asyncio
+async def test_tenant_budget_cap_persists_and_trips_the_enforcer() -> None:
+    """End-to-end budget closure: a cap set on the bundled econ plane, plus an
+    ingested execution that exceeds it, makes the REAL /budget/status payload
+    deny — parsed by the actual BudgetEnforcer, not a hand-mocked contract.
+
+    This is the contract test whose absence let the enforcer ship pointed at
+    /dashboard/kpis reading fields that endpoint never returned.
+    """
+    import httpx
+
+    app = create_app(_GatedBootstrap())
+    provider = app.state.regulus_self_auth_headers
+    headers = provider()
+
+    with TestClient(app) as client:
+        # Set a one-cent cap for tenant "acme" on the mounted econ plane.
+        put = client.put(
+            "/regulus/v1/budget/tenants/acme",
+            headers=headers,
+            json={"budget_cap_usd": 0.01},
+        )
+        assert put.status_code == 200, put.text
+        assert put.json()["budget_cap_usd"] == 0.01
+
+        # Ingest spend above the cap, carrying the first-class tenant_id the
+        # SDK event now emits.
+        ingest = client.post(
+            "/regulus/v1/instrumentation/executions",
+            headers=headers,
+            json={
+                "execution_id": "exec_budget_trip",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "capability_id": "node-agent",
+                "implementation_id": "openai/gpt-4o-mini",
+                "model_version": "gpt-4o-mini",
+                "token_cost_usd": "0.02",
+                "tool_cost_usd": "0.0",
+                "compute_cost_usd": "0.0",
+                "latency_ms": 10,
+                "compute_time_ms": 5,
+                "tenant_id": "acme",
+                "metadata": {"run_id": "r1"},
+            },
+        )
+        assert ingest.status_code == 200, ingest.text
+
+        status = client.get(
+            "/regulus/v1/budget/status",
+            params={"tenant_id": "acme"},
+            headers=headers,
+        )
+        assert status.status_code == 200, status.text
+        real_payload = status.json()
+        assert real_payload["total_cost_usd"] >= 0.02
+        assert real_payload["budget_cap_usd"] == 0.01
+
+    # Feed the REAL payload through the enforcer and assert it targets the
+    # real endpoint path.
+    requested: dict[str, str] = {}
+
+    def handler(request):
+        requested["path"] = request.url.path
+        return httpx.Response(200, json=real_payload)
+
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    allowed, spend, cap = await enforcer.check_budget("acme")
+
+    assert requested["path"] == "/v1/budget/status"
+    assert allowed is False
+    assert spend >= 0.02
+    assert cap == 0.01
+
+
+@pytest.mark.asyncio
+async def test_enforcer_treats_missing_cap_as_unlimited() -> None:
+    """A tenant with no configured cap (budget_cap_usd null) is unlimited,
+    not a fail-open warning."""
+    import httpx
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={"tenant_id": "capless", "total_cost_usd": 12.5, "budget_cap_usd": None},
+        )
+
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    allowed, spend, cap = await enforcer.check_budget("capless")
+
+    assert allowed is True
+    assert spend == 12.5
+    assert cap == float("inf")

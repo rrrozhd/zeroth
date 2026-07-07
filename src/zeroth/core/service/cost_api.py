@@ -24,6 +24,14 @@ class TenantCostResponse(BaseModel):
     currency: str = "USD"
 
 
+class TenantBudgetRequest(BaseModel):
+    """Request body for PUT /v1/tenants/{tenant_id}/budget."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    budget_cap_usd: float
+
+
 class DeploymentCostResponse(BaseModel):
     """Response for GET /v1/deployments/{deployment_ref}/cost (per D-15)."""
 
@@ -49,7 +57,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
 
     @app.get("/tenants/{tenant_id}/cost", response_model=TenantCostResponse)
     async def get_tenant_cost(request: Request, tenant_id: str) -> TenantCostResponse:
-        """Return cumulative spend for a tenant (per D-14, D-16)."""
+        """Return month-to-date spend and cap for a tenant (per D-14, D-16)."""
         await require_permission(request, Permission.METRICS_READ)
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
@@ -58,8 +66,35 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
         try:
             async with httpx.AsyncClient(timeout=regulus_timeout) as client:
                 resp = await client.get(
-                    f"{regulus_base_url}/dashboard/kpis",
+                    f"{regulus_base_url}/budget/status",
                     params={"tenant_id": tenant_id},
+                    headers=_regulus_self_auth_headers(request),
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return TenantCostResponse(
+                    tenant_id=tenant_id,
+                    total_cost_usd=float(data.get("total_cost_usd", 0)),
+                    budget_cap_usd=data.get("budget_cap_usd"),
+                )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail=f"Regulus backend error: {exc}") from exc
+
+    @app.put("/tenants/{tenant_id}/budget", response_model=TenantCostResponse)
+    async def set_tenant_budget(
+        request: Request, tenant_id: str, body: TenantBudgetRequest
+    ) -> TenantCostResponse:
+        """Set the tenant spend cap enforced before LLM calls and fan-out."""
+        await require_permission(request, Permission.METRICS_ADMIN)
+        regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
+        regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
+        if regulus_base_url is None:
+            raise HTTPException(status_code=503, detail="Regulus backend not configured")
+        try:
+            async with httpx.AsyncClient(timeout=regulus_timeout) as client:
+                resp = await client.put(
+                    f"{regulus_base_url}/budget/tenants/{tenant_id}",
+                    json={"budget_cap_usd": body.budget_cap_usd},
                     headers=_regulus_self_auth_headers(request),
                 )
                 resp.raise_for_status()

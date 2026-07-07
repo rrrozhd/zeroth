@@ -107,6 +107,7 @@ class InstrumentedProviderAdapter:
             capability_id=self._node_id,
             implementation_id=request.model_name,
             model_version=request.model_name,
+            tenant_id=self._tenant_id,
             token_cost_usd=estimated_cost,
             latency_ms=elapsed_ms,
             compute_time_ms=elapsed_ms,

@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from econ_plane.auth.deps import require_roles
 from econ_plane.auth.schemas import UserClaims
 from econ_plane.database import get_db
-from econ_plane.enforcement.schemas import DecisionRequest, EnforcementActionCreate, EnforcementActionOut, PolicyActionOut
-from econ_plane.enforcement.service import create_action, decide_action, list_actions, list_policy_actions
+from econ_plane.enforcement.schemas import BudgetStatusOut, DecisionRequest, EnforcementActionCreate, EnforcementActionOut, PolicyActionOut, TenantBudgetUpsert
+from econ_plane.enforcement.service import create_action, decide_action, get_budget_status, list_actions, list_policy_actions, upsert_tenant_budget
 
 router = APIRouter(tags=["enforcement", "policy"])
 
@@ -66,3 +66,23 @@ def reject(
     if row is None:
         raise HTTPException(status_code=404, detail="Action not found")
     return EnforcementActionOut.model_validate(row)
+
+
+@router.get("/budget/status", response_model=BudgetStatusOut)
+def budget_status(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
+) -> BudgetStatusOut:
+    return BudgetStatusOut(**get_budget_status(db, tenant_id))
+
+
+@router.put("/budget/tenants/{tenant_id}", response_model=BudgetStatusOut)
+def set_tenant_budget(
+    tenant_id: str,
+    payload: TenantBudgetUpsert,
+    db: Session = Depends(get_db),
+    _user: UserClaims = Depends(require_roles("Admin")),
+) -> BudgetStatusOut:
+    upsert_tenant_budget(db, tenant_id, payload.budget_cap_usd)
+    return BudgetStatusOut(**get_budget_status(db, tenant_id))
