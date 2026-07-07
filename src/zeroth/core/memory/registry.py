@@ -41,6 +41,10 @@ class InMemoryConnectorRegistry:
         """Add a connector to the registry under the given name."""
         self._entries[memory_ref] = (manifest, connector)
 
+    def unregister(self, memory_ref: str) -> None:
+        """Remove a connector from the registry. Missing refs are a no-op."""
+        self._entries.pop(memory_ref, None)
+
     def resolve(self, memory_ref: str) -> tuple[ConnectorManifest, Any]:
         """Look up a connector by name. Raises KeyError if not registered."""
         try:

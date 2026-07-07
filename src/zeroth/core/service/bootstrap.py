@@ -23,8 +23,10 @@ from zeroth.core.graph.versioning import graph_version_ref
 from zeroth.core.guardrails.config import GuardrailConfig
 from zeroth.core.guardrails.dead_letter import DeadLetterManager
 from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.core.memory.factory import register_memory_connectors
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.core.memory.runtime_configs import load_persisted_connectors
 from zeroth.core.observability.metrics import MetricsCollector
 from zeroth.core.observability.queue_gauge import QueueDepthGauge
 from zeroth.core.observability.tracing import configure_tracing
@@ -124,6 +126,8 @@ class ServiceBootstrap:
     budget_enforcer: object | None = None
     # Phase 14: Memory connector registry (populated at bootstrap).
     memory_registry: InMemoryConnectorRegistry | None = None
+    # Runtime-managed connector configs (console CRUD; persisted across boots).
+    memory_connector_config_repository: MemoryConnectorConfigRepository | None = None
     # Phase 20: Memory resolver for dispatch-time injection.
     memory_resolver: object | None = None
     # Phase 17: Database reference for health probes.
@@ -334,6 +338,11 @@ async def bootstrap_service(
         memory_registry, settings, redis_client=redis_client, pg_conninfo=pg_conninfo
     )
 
+    # Runtime-managed connectors: re-register persisted console-authored
+    # configs on top of the env-based ones. Bad rows are logged and skipped.
+    memory_connector_config_repository = MemoryConnectorConfigRepository(database)
+    await load_persisted_connectors(memory_registry, memory_connector_config_repository)
+
     # Phase 20: Create resolver from populated registry for AgentRunner injection.
     memory_resolver = MemoryConnectorResolver(
         registry=memory_registry,
@@ -480,6 +489,7 @@ async def bootstrap_service(
         regulus_client=regulus_client,
         budget_enforcer=budget_enforcer,
         memory_registry=memory_registry,
+        memory_connector_config_repository=memory_connector_config_repository,
         memory_resolver=memory_resolver,
         webhook_service=webhook_service_obj,
         webhook_repository=webhook_repository,

@@ -76,7 +76,7 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       optionsFrom: "connectors",
       required: true,
       placeholder: "key_value",
-      hint: "The registered memory connector to query — the list comes from this deployment.",
+      hint: "The registered memory connector to query — the list comes from this deployment. Manage them on the Connectors page.",
     },
     {
       key: "query_key",
