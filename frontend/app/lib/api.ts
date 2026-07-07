@@ -21,6 +21,7 @@ export type AuditRecordList = S["AuditRecordListResponse"];
 export type NodeAuditRecord = S["NodeAuditRecord"];
 export type DeploymentCost = S["DeploymentCostResponse"];
 export type DeploymentSummary = S["DeploymentSummaryResponse"];
+export type ConnectorSummary = S["ConnectorSummaryResponse"];
 export type WorkflowSummary = S["WorkflowSummaryResponse"];
 export type WorkflowDetail = S["WorkflowDetailResponse"];
 export type UpdateWorkflowRequest = S["UpdateWorkflowRequest"];
@@ -139,6 +140,13 @@ export async function listAudits(): Promise<AuditRecordList> {
 /** All persisted deployment versions; `serving` marks this service's own. */
 export function listDeployments(): Promise<DeploymentSummary[]> {
   return apiFetch<DeploymentSummary[]>("/v1/deployments");
+}
+
+// ---- Memory connectors ----
+
+/** Registered memory connectors — the resolvable connector_ref values. */
+export function listConnectors(): Promise<ConnectorSummary[]> {
+  return apiFetch<ConnectorSummary[]>("/v1/connectors");
 }
 
 // ---- Cost (deployment-scoped) ----

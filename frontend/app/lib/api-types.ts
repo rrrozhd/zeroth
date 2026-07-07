@@ -243,6 +243,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Connectors
+         * @description All memory connectors registered for this deployment, by ref.
+         *
+         *     These are the values a retrieval node's ``connector_ref`` (and an
+         *     agent's ``memory_refs``) can resolve at run time.
+         */
+        get: operations["list_connectors_v1_connectors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/deployments": {
         parameters: {
             query?: never;
@@ -953,6 +976,20 @@ export interface components {
          * @enum {string}
          */
         AuthMethod: "api_key" | "bearer";
+        /**
+         * ConnectorSummaryResponse
+         * @description One registered memory connector, as shown in the console.
+         */
+        ConnectorSummaryResponse: {
+            /** Backend */
+            backend: string;
+            /** Connector Type */
+            connector_type: string;
+            /** Ref */
+            ref: string;
+            /** Scope */
+            scope: string;
+        };
         /**
          * CreateSubscriptionRequest
          * @description Request body for creating a webhook subscription.
@@ -2251,6 +2288,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_connectors_v1_connectors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSummaryResponse"][];
                 };
             };
         };

@@ -48,6 +48,10 @@ class InMemoryConnectorRegistry:
         except KeyError as exc:
             raise KeyError(memory_ref) from exc
 
+    def list(self) -> dict[str, tuple[ConnectorManifest, Any]]:
+        """All registered entries by ref (shallow copy; used by /v1/connectors)."""
+        return dict(self._entries)
+
 
 class MemoryConnectorResolver:
     """Turns memory ref names into fully resolved, ready-to-use bindings.

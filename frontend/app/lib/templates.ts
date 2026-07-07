@@ -51,8 +51,11 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description:
       "Answer questions using your own knowledge: a retrieval step fetches relevant context, then an agent answers strictly from it.",
     nodes: [
+      // key_value is one of the three connectors every deployment registers,
+      // so the template resolves out of the box; swap it for a vector backend
+      // (pgvector/chroma/elasticsearch) in the node editor when configured.
       node("retrieval-context", "retrieval", "Fetch context", 0, {
-        connector_ref: "docs",
+        connector_ref: "key_value",
         top_k: 5,
       }),
       node("agent-answer", "agent", "Answer with context", 280, {
