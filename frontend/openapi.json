@@ -856,6 +856,46 @@
         "title": "DeploymentStatus",
         "type": "string"
       },
+      "DeploymentSummaryResponse": {
+        "additionalProperties": false,
+        "description": "One persisted deployment version, as shown in the console.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "graph_version_ref": {
+            "title": "Graph Version Ref",
+            "type": "string"
+          },
+          "serving": {
+            "title": "Serving",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deployment_ref",
+          "version",
+          "graph_version_ref",
+          "status",
+          "serving",
+          "created_at"
+        ],
+        "title": "DeploymentSummaryResponse",
+        "type": "object"
+      },
       "DeploymentVersionMetadataResponse": {
         "additionalProperties": false,
         "description": "Public metadata for one deployed version.",
@@ -3075,6 +3115,32 @@
           }
         },
         "summary": "Get Artifact",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/deployments": {
+      "get": {
+        "description": "All persisted deployment versions, newest first.\n\n``serving`` marks the deployment version this service instance was\nbootstrapped with (the one /health reports).",
+        "operationId": "list_deployments_v1_deployments_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeploymentSummaryResponse"
+                  },
+                  "title": "Response List Deployments V1 Deployments Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Deployments",
         "tags": [
           "v1"
         ]

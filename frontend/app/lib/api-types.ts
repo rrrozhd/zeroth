@@ -243,6 +243,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Deployments
+         * @description All persisted deployment versions, newest first.
+         *
+         *     ``serving`` marks the deployment version this service instance was
+         *     bootstrapped with (the one /health reports).
+         */
+        get: operations["list_deployments_v1_deployments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/deployments/{deployment_ref}/approvals": {
         parameters: {
             query?: never;
@@ -1084,6 +1107,24 @@ export interface components {
          * @enum {string}
          */
         DeploymentStatus: "active" | "superseded";
+        /**
+         * DeploymentSummaryResponse
+         * @description One persisted deployment version, as shown in the console.
+         */
+        DeploymentSummaryResponse: {
+            /** Created At */
+            created_at: string;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Version Ref */
+            graph_version_ref: string;
+            /** Serving */
+            serving: boolean;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
+        };
         /**
          * DeploymentVersionMetadataResponse
          * @description Public metadata for one deployed version.
@@ -2210,6 +2251,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_deployments_v1_deployments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentSummaryResponse"][];
                 };
             };
         };
