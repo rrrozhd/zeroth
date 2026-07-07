@@ -217,6 +217,45 @@ async def test_per_branch_audit_linked_to_parent(sqlite_db) -> None:
         assert audit.run_id == run.run_id
 
 
+@pytest.mark.asyncio
+async def test_failed_branch_dispatch_records_failed_audit(sqlite_db) -> None:
+    """A branch-node dispatch failure persists a failed-status, branch-scoped audit record."""
+
+    def _raise(_request):
+        raise RuntimeError("authentication failed: OPENAI_API_KEY is unset")
+
+    failing_sink = _make_agent_runner(
+        input_model=BranchItemInput,
+        output_model=ProcessedOutput,
+        handler=_raise,
+    )
+    audit_repo = AuditRepository(sqlite_db)
+    orchestrator = _make_orchestrator(
+        {"source": _source_runner(), "sink": failing_sink},
+        sqlite_db,
+        audit_repository=audit_repo,
+    )
+
+    run = await orchestrator.run_graph(_fan_out_graph(), {"value": 1})
+
+    assert run.status is RunStatus.FAILED
+    assert run.failure_state is not None
+    assert run.failure_state.reason == "parallel_execution_failed"
+    audits = await audit_repo.list_by_run(run.run_id)
+    # Fail-fast cancels sibling branches, so at least the first failing
+    # branch must have left a failed-status record; cancelled branches
+    # must not write audit records.
+    failed_audits = [a for a in audits if a.status == "failed"]
+    assert failed_audits
+    for audit in failed_audits:
+        assert audit.node_id == "sink"
+        assert audit.error is not None
+        assert audit.execution_metadata["error_type"] == "AgentProviderError"
+        assert "branch_id" in audit.execution_metadata
+        branch_index = audit.execution_metadata["branch_index"]
+        assert audit.audit_id == f"{run.run_id}:branch:{branch_index}:audit:1"
+
+
 # ---------------------------------------------------------------------------
 # Policy tests
 # ---------------------------------------------------------------------------
