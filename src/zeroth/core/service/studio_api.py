@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import ValidationError
 
 from zeroth.core.graph import GraphRepository
+from zeroth.core.graph.errors import GraphLifecycleError
 from zeroth.core.graph.models import (
     AgentNode,
     AgentNodeData,
@@ -31,11 +32,13 @@ from zeroth.core.graph.models import (
     RetrievalNodeData,
     SubgraphNode,
 )
+from zeroth.core.graph.validation_errors import GraphValidationError
 from zeroth.core.service.authorization import Permission, require_permission
 from zeroth.core.service.studio_schemas import (
     CreateWorkflowRequest,
     NodeTypeResponse,
     PortDefinitionResponse,
+    StudioContractResponse,
     StudioEdgeResponse,
     StudioNodeResponse,
     StudioPosition,
@@ -256,6 +259,7 @@ def _graph_to_detail(graph: Graph) -> WorkflowDetailResponse:
         name=graph.name,
         version=graph.version,
         status=graph.status.value,
+        entry_step=graph.entry_step,
         nodes=nodes,
         edges=edges,
         viewport=viewport,
@@ -358,6 +362,11 @@ async def update_workflow(
     if body.name is not None:
         updates["name"] = body.name
 
+    # Entrypoint authoring: required by the publish validator, so the canvas
+    # must be able to set it. Empty string clears the entrypoint.
+    if body.entry_step is not None:
+        updates["entry_step"] = body.entry_step or None
+
     # Structural authoring: build real nodes/edges. nodes+edges are set together
     # so the Graph validator sees a consistent set (edges must reference nodes).
     if body.nodes is not None:
@@ -394,6 +403,79 @@ async def update_workflow(
         ) from exc
     saved = await repo.save(updated_graph)
     return _graph_to_detail(saved)
+
+
+@router.post(
+    "/workflows/{workflow_id}/publish",
+    response_model=WorkflowDetailResponse,
+)
+async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
+    """Validate and publish the draft, making it immutable and deployable.
+
+    Validation failures return 422 with the structured issue list so the
+    canvas can point at the offending node/edge.
+    """
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
+    repo = _get_graph_repository(request)
+    try:
+        published = await repo.publish(workflow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Workflow not found") from exc
+    except GraphValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "workflow failed publish validation",
+                "issues": [
+                    {
+                        "severity": issue.severity.value,
+                        "code": issue.code.value,
+                        "message": issue.message,
+                        "node_id": issue.node_id,
+                        "edge_id": issue.edge_id,
+                    }
+                    for issue in exc.report.errors
+                ],
+            },
+        ) from exc
+    except GraphLifecycleError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _graph_to_detail(published)
+
+
+@router.get("/contracts", response_model=list[StudioContractResponse])
+async def list_contracts(request: Request) -> list[StudioContractResponse]:
+    """List registered contracts (latest version each) for contract-ref pickers."""
+    await require_permission(request, Permission.WORKFLOW_READ)
+    registry = request.app.state.bootstrap.contract_registry
+    contracts: list[StudioContractResponse] = []
+    for name in await registry.list_names():
+        record = await registry.get(name)
+        contracts.append(
+            StudioContractResponse(
+                name=record.name,
+                version=record.version,
+                json_schema=record.json_schema,
+            )
+        )
+    return contracts
+
+
+@router.get("/workflows/{workflow_id}/diff")
+async def diff_workflow(
+    workflow_id: str,
+    left: int,
+    right: int,
+    request: Request,
+) -> dict:
+    """Structured diff between two versions of a workflow."""
+    await require_permission(request, Permission.WORKFLOW_READ)
+    repo = _get_graph_repository(request)
+    try:
+        diff = await repo.diff(workflow_id, left, right)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Workflow version not found") from exc
+    return diff.model_dump(mode="json")
 
 
 @router.post(
