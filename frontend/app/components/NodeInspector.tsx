@@ -44,10 +44,11 @@ export const FIELD_SPECS: Record<string, Field[]> = {
     {
       key: "manifest_ref",
       label: "Manifest ref",
-      kind: "text",
+      kind: "select",
+      optionsFrom: "manifests",
       required: true,
       placeholder: "tools/my_tool",
-      hint: "The registered manifest that provides the code to run.",
+      hint: "Registered code unit to run — the list comes from this deployment. Code is registered in Python (the medium-code path), not authored here.",
     },
     {
       key: "execution_mode",
