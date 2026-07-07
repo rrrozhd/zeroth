@@ -3623,7 +3623,7 @@ wheels = [
 
 [[package]]
 name = "zeroth-core"
-version = "0.4.2.1"
+version = "0.4.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
