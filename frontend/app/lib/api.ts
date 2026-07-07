@@ -20,6 +20,7 @@ export type ApprovalResolutionResponse = S["ApprovalResolutionResponse"];
 export type AuditRecordList = S["AuditRecordListResponse"];
 export type NodeAuditRecord = S["NodeAuditRecord"];
 export type DeploymentCost = S["DeploymentCostResponse"];
+export type DeploymentSummary = S["DeploymentSummaryResponse"];
 export type WorkflowSummary = S["WorkflowSummaryResponse"];
 export type WorkflowDetail = S["WorkflowDetailResponse"];
 export type UpdateWorkflowRequest = S["UpdateWorkflowRequest"];
@@ -131,6 +132,13 @@ export async function resolveApproval(
 export async function listAudits(): Promise<AuditRecordList> {
   const ref = await deploymentRef();
   return apiFetch<AuditRecordList>(`/v1/deployments/${encodeURIComponent(ref)}/audits`);
+}
+
+// ---- Deployments ----
+
+/** All persisted deployment versions; `serving` marks this service's own. */
+export function listDeployments(): Promise<DeploymentSummary[]> {
+  return apiFetch<DeploymentSummary[]>("/v1/deployments");
 }
 
 // ---- Cost (deployment-scoped) ----

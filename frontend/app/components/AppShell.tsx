@@ -7,13 +7,15 @@ import { getApiBase, getApiKey, isConfigured, setConfig } from "@/app/lib/config
 import { getHealth } from "@/app/lib/api";
 import { Button, Input, useConnected } from "@/app/components/ui";
 
+// Studio right after Overview: authoring is the center of the product, so it
+// gets the most prominent slot; the operate/govern views follow.
 const LINKS = [
   { href: "/", label: "Overview" },
+  { href: "/studio", label: "Studio" },
   { href: "/runs", label: "Runs" },
   { href: "/approvals", label: "Approvals" },
   { href: "/audit", label: "Audit" },
   { href: "/cost", label: "Cost" },
-  { href: "/studio", label: "Studio" },
   { href: "/guide", label: "Guide" },
 ];
 

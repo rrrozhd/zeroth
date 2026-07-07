@@ -354,6 +354,10 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_artifact_routes(v1_router)
     register_template_routes(v1_router)
 
+    from zeroth.core.service.deployment_api import register_deployment_routes
+
+    register_deployment_routes(v1_router)
+
     app.include_router(v1_router)
 
     # Backward-compatible aliases: same routes without /v1/ prefix,
@@ -368,6 +372,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_webhook_routes(compat_router)
     register_artifact_routes(compat_router)
     register_template_routes(compat_router)
+    register_deployment_routes(compat_router)
 
     app.include_router(compat_router)
 
