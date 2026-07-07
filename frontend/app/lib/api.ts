@@ -18,6 +18,7 @@ export type ApprovalRecord = S["ApprovalRecord"];
 export type ApprovalResolutionRequest = S["ApprovalResolutionRequest"];
 export type ApprovalResolutionResponse = S["ApprovalResolutionResponse"];
 export type AuditRecordList = S["AuditRecordListResponse"];
+export type AuditTimeline = S["AuditTimelineResponse"];
 export type NodeAuditRecord = S["NodeAuditRecord"];
 export type DeploymentCost = S["DeploymentCostResponse"];
 export type DeploymentSummary = S["DeploymentSummaryResponse"];
@@ -107,8 +108,9 @@ export function submitRun(body: {
   });
 }
 
-export function getRunTimeline(runId: string): Promise<unknown> {
-  return apiFetch<unknown>(`/v1/runs/${encodeURIComponent(runId)}/timeline`);
+/** Ordered per-node audit timeline for one run. */
+export function getRunTimeline(runId: string): Promise<AuditTimeline> {
+  return apiFetch<AuditTimeline>(`/v1/runs/${encodeURIComponent(runId)}/timeline`);
 }
 
 // ---- Approvals (deployment-scoped) ----
