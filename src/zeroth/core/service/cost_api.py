@@ -10,6 +10,8 @@ import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
+from zeroth.core.service.authorization import Permission, require_permission
+
 
 class TenantCostResponse(BaseModel):
     """Response for GET /v1/tenants/{tenant_id}/cost (per D-14)."""
@@ -32,12 +34,23 @@ class DeploymentCostResponse(BaseModel):
     currency: str = "USD"
 
 
+def _regulus_self_auth_headers(request: Request) -> dict[str, str] | None:
+    """Self-auth headers for calling the (possibly in-process/gated) Regulus mount.
+
+    Returns ``None`` when no provider is configured (separate-process, unauth
+    topology) so behavior is unchanged there.
+    """
+    provider = getattr(request.app.state, "regulus_self_auth_headers", None)
+    return provider() if provider is not None else None
+
+
 def register_cost_routes(app: FastAPI | APIRouter) -> None:
     """Register cost attribution query routes on the FastAPI app."""
 
     @app.get("/tenants/{tenant_id}/cost", response_model=TenantCostResponse)
     async def get_tenant_cost(request: Request, tenant_id: str) -> TenantCostResponse:
         """Return cumulative spend for a tenant (per D-14, D-16)."""
+        await require_permission(request, Permission.METRICS_READ)
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:
@@ -47,6 +60,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
                 resp = await client.get(
                     f"{regulus_base_url}/dashboard/kpis",
                     params={"tenant_id": tenant_id},
+                    headers=_regulus_self_auth_headers(request),
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -64,6 +78,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
     )
     async def get_deployment_cost(request: Request, deployment_ref: str) -> DeploymentCostResponse:
         """Return cumulative spend for a deployment (per D-15, D-16)."""
+        await require_permission(request, Permission.METRICS_READ)
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:
@@ -73,6 +88,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
                 resp = await client.get(
                     f"{regulus_base_url}/dashboard/kpis",
                     params={"deployment_ref": deployment_ref},
+                    headers=_regulus_self_auth_headers(request),
                 )
                 resp.raise_for_status()
                 data = resp.json()

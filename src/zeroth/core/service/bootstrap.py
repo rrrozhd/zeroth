@@ -261,10 +261,22 @@ async def bootstrap_service(
     budget_enforcer: object | None = None
     cost_estimator: object | None = None
     if settings.regulus.enabled:
+        # Self-auth for calls to the bundled control plane: X-API-Key (Zeroth's
+        # own first service key, to pass the gated /regulus mount) + a fresh
+        # econ_plane Admin JWT. Degrades gracefully when no Zeroth key exists
+        # (Bearer only -> 401 -> fail-open). See econ.service_auth.
+        from zeroth.core.econ.service_auth import make_self_auth_headers_provider
+
+        _self_api_key = (
+            resolved_auth_config.api_keys[0].secret if resolved_auth_config.api_keys else None
+        )
+        regulus_self_auth = make_self_auth_headers_provider(_self_api_key)
+
         regulus_client = RegulusClient(
             base_url=settings.regulus.base_url,
             timeout=settings.regulus.request_timeout,
             enabled=True,
+            headers_provider=regulus_self_auth,
         )
         # BudgetEnforcer wired here once econ.budget module lands (Plan 13-02).
         try:
@@ -274,6 +286,7 @@ async def bootstrap_service(
                 regulus_base_url=settings.regulus.base_url,
                 cache_ttl=settings.regulus.budget_cache_ttl,
                 timeout=settings.regulus.request_timeout,
+                headers_provider=regulus_self_auth,
             )
         except ImportError:
             pass

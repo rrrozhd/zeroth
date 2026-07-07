@@ -14,6 +14,28 @@ or the [Governance Walkthrough](https://rrrozhd.github.io/zeroth-core/tutorials/
 
 ---
 
+## Quickstart
+
+One command clones the repo, installs everything, and serves a working demo
+deployment — a deployed Q&A graph on `http://127.0.0.1:8000` with the web
+console at `/console/`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rrrozhd/zeroth-core/main/scripts/quickstart.sh | bash
+```
+
+(Prefer to read before you run? `curl -fsSLO …/quickstart.sh`, inspect it, then
+`bash quickstart.sh`. From an existing checkout just run `./scripts/quickstart.sh`.)
+
+The script installs [uv](https://docs.astral.sh/uv/) if missing, provisions
+Python 3.12, builds the web console when Node 20+ is available, prompts for an
+`OPENAI_API_KEY` (optional — without one you can still explore the console and
+Studio), and starts the service. Open **<http://127.0.0.1:8000/console/>** and
+connect with the demo key `demo-operator-key` — the console's Guide page and
+workflow templates take it from there.
+
+---
+
 ## Install
 
 ```bash
@@ -142,8 +164,8 @@ Zeroth is implemented as a **modular monolith** — all subsystems live in a sin
 
 ```bash
 # Clone the repository
-git clone https://github.com/rrrozhd/zeroth.git
-cd zeroth
+git clone https://github.com/rrrozhd/zeroth-core.git
+cd zeroth-core
 
 # Install dependencies
 uv sync
@@ -239,8 +261,22 @@ Zeroth optimizes for:
 ## Web Console
 
 An in-repo web console (`frontend/`) for operating and authoring Zeroth apps —
-a Next.js **static export** that talks to the platform's HTTP API. It is built
-once and runs in **two modes from the same bundle**:
+a Next.js **static export** that talks to the platform's HTTP API.
+
+| | |
+|---|---|
+| ![Overview — deployment health and getting-started checklist](docs/assets/console/overview.png) | ![Studio — workflow templates and graph list](docs/assets/console/studio.png) |
+| ![Graph editor — RAG template on the canvas](docs/assets/console/editor.png) | ![Node editor — inline help and field hints](docs/assets/console/node-editor.png) |
+
+**Start from a template, not a blank canvas.** Studio ships ready-made example
+graphs — *Grounded Q&A (RAG)*, *Approval-gated action*, *Tool → Agent
+pipeline* — that instantiate as fully editable drafts in one click. Every node
+config field carries a hint and example value, each node type explains itself
+in the editor, and the built-in **Guide** page covers concepts, the
+zero-to-run walkthrough, a node type reference, and an API quickstart. Empty
+states across Runs, Approvals, and Audit explain how each view gets populated.
+
+The console is built once and runs in **two modes from the same bundle**:
 
 - **Mounted** — when a build is present, the FastAPI app serves it at
   `/console` on the same origin as the API. One deployment ships both API and
@@ -252,9 +288,11 @@ once and runs in **two modes from the same bundle**:
 The console reads its API base URL and `X-API-Key` from the browser at runtime
 (localStorage), so the same artifact works in both modes.
 
-**What it covers:** an overview/health dashboard; runs (submit + a live-polling
-detail view); approvals (approve/reject); per-node audit; deployment cost; and a
-Studio with workflow CRUD and a React Flow graph canvas.
+**What it covers:** an overview/health dashboard with a getting-started
+checklist; runs (submit with example payloads + a live-polling detail view);
+approvals (approve/reject); per-node audit; deployment cost; a Studio with
+workflow templates, CRUD, and a React Flow graph canvas; and an in-console
+Guide.
 
 > **Studio authoring edits draft graph structure.** On a *draft* you can add the
 > five executable node types (agent, executable_unit, human_approval, retrieval,
@@ -286,16 +324,6 @@ export ZEROTH_CONSOLE_CORS_ORIGINS="http://localhost:3000"
 If no build is present (Python-only install / CI with no Node), the mount is
 skipped silently and the API is unaffected. See [frontend/README.md](frontend/README.md)
 for development details.
-
----
-
-## Studio
-
-Zeroth's canvas UI for authoring and inspecting workflows lives in a separate repo:
-
-**[rrrozhd/zeroth-studio](https://github.com/rrrozhd/zeroth-studio)** — Vue 3 + Vue Flow frontend that speaks to `zeroth-core` over HTTP.
-
-The studio was split out in v3.0 Phase 29 to let the two projects ship on independent release cadences. A cross-repo [compatibility matrix](https://github.com/rrrozhd/zeroth-studio#compatibility) documents which studio versions pair with which core versions.
 
 ---
 

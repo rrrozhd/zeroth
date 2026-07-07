@@ -23,6 +23,8 @@ class Permission(StrEnum):
     METRICS_READ = "metrics:read"
     WEBHOOK_ADMIN = "webhook:admin"
     TEMPLATE_ADMIN = "template:admin"
+    WORKFLOW_READ = "workflow:read"
+    WORKFLOW_ADMIN = "workflow:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
@@ -31,12 +33,18 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         Permission.RUN_CREATE,
         Permission.RUN_READ,
         Permission.APPROVAL_READ,
+        # Operators author graphs (the medium-code build path). Cost/spend
+        # (METRICS_READ) stays admin-only, consistent with the /metrics endpoint.
+        Permission.WORKFLOW_READ,
+        Permission.WORKFLOW_ADMIN,
     },
     ServiceRole.REVIEWER: {
         Permission.DEPLOYMENT_READ,
         Permission.RUN_READ,
         Permission.APPROVAL_READ,
         Permission.APPROVAL_RESOLVE,
+        # Reviewers see graphs but don't author them.
+        Permission.WORKFLOW_READ,
     },
     ServiceRole.ADMIN: set(Permission),
 }

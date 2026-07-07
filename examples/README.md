@@ -53,6 +53,24 @@ runtime → ship it as an API → governance → advanced.
 | `32_observability.py`             | `MetricsCollector` + correlation IDs; renders Prometheus exposition text.       |
 | `33_mcp_tools.py`                 | `MCPServerConfig` wired onto an `AgentConfig`. Points at the real discovery flow in `zeroth.core.agent_runtime.mcp`. |
 
+### 4× · Real backends — real LLM *and* real stores
+
+These two need a running store (one Docker command each) in addition to
+`OPENAI_API_KEY`. Unlike `05_memory.py` (hermetic: in-memory connector +
+canned provider) they exercise a real connector against a real backend,
+so you can watch state actually persist and retrieval actually rank. Each
+prints `SKIP` and exits `0` when its key or store is missing.
+
+| File                         | What it teaches                                                                                                              | Needs       |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `40_real_redis_memory.py`    | Cross-process conversation memory in a real `RedisThreadMemoryConnector`: run it twice and the second process recalls the first. | Redis + LLM |
+| `41_real_vector_rag.py`      | Semantic recall (RAG) over a real `ChromaDBMemoryConnector` with live OpenAI embeddings; prints the `search()` hits before the grounded answer. | Chroma + LLM |
+
+> Both drive the connector **directly** (thread read/append; vector
+> `search`) rather than the orchestrator's automatic memory injection,
+> which is run-scoped today and so does not carry state across runs. See
+> each file's "Note on the shape" docstring.
+
 ## Shared helpers
 
 * **`_common.py`** — collapses the 40-line SQLite-migrate-contracts-graph-deploy-bootstrap dance into one `running_service(...)` async context manager. Read it once and you'll understand what every numbered example is doing under the hood.
@@ -82,6 +100,17 @@ OPENAI_API_KEY=sk-... uv run python examples/00_hello.py
 OPENAI_API_KEY=sk-... uv run python examples/01_first_graph.py
 OPENAI_API_KEY=sk-... uv run python examples/02_multi_agent.py
 OPENAI_API_KEY=sk-... uv run python examples/10_serve_in_python.py
+
+# Needs OPENAI_API_KEY + a running store (one Docker command each).
+docker run -d --name zeroth-ex-redis -p 16379:6379 redis:7-alpine
+OPENAI_API_KEY=sk-... ZEROTH_EXAMPLE_REDIS_URL=redis://localhost:16379/0 \
+    uv run python examples/40_real_redis_memory.py "My name is Dato and my favorite color is teal."
+OPENAI_API_KEY=sk-... ZEROTH_EXAMPLE_REDIS_URL=redis://localhost:16379/0 \
+    uv run python examples/40_real_redis_memory.py "What is my favorite color?"   # fresh process recalls
+
+docker run -d --name zeroth-ex-chroma -p 18000:8000 chromadb/chroma:1.5.6
+OPENAI_API_KEY=sk-... ZEROTH_EXAMPLE_CHROMA_PORT=18000 \
+    uv run python examples/41_real_vector_rag.py "What does Zeroth do?"
 
 # HTTP flow (starts a real uvicorn on :8021, no API key required).
 uv run python examples/20_approval_gate.py

@@ -182,3 +182,29 @@ async def test_audit_continuity_verifier_detects_tampering_and_preserves_superse
     tampered_report = await verifier.verify_run("run-verify")
     assert tampered_report.verified is False
     assert tampered_report.failed_audit_id == "audit:2"
+
+
+async def test_concurrent_writes_same_run_keep_a_linear_digest_chain(sqlite_db) -> None:
+    """Parallel fan-out branches write audit records for one run concurrently.
+
+    The tamper-evident previous_record_digest chain must stay linear — no two
+    records may chain off the same predecessor (a silent fork), or the run's
+    continuity can no longer be verified.
+    """
+    import asyncio
+
+    repository = AuditRepository(sqlite_db)
+    n = 8
+    records = [_record(audit_id=f"race:{i}", run_id="run-race", node_id=f"n{i}") for i in range(n)]
+    await asyncio.gather(*(repository.write(r) for r in records))
+
+    written = await repository.list(AuditQuery(run_id="run-race"))
+    assert len(written) == n
+
+    previous = [r.previous_record_digest for r in written]
+    non_null_prev = [p for p in previous if p is not None]
+    assert previous.count(None) == 1, f"expected 1 genesis record, got {previous.count(None)}"
+    assert len(non_null_prev) == len(set(non_null_prev)), "digest chain forked (shared predecessor)"
+
+    report = await AuditContinuityVerifier(repository).verify_run("run-race")
+    assert report.verified is True, f"chain continuity broken: {report}"

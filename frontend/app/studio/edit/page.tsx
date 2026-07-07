@@ -35,6 +35,7 @@ import {
   type StudioNode,
   type WorkflowDetail,
 } from "@/app/lib/api";
+import { WORKFLOW_TEMPLATES } from "@/app/lib/templates";
 
 const nodeTypes = { studio: StudioNodeView };
 
@@ -198,6 +199,73 @@ function Editor({ id }: { id: string }) {
     [rf, setNodes],
   );
 
+  // Populate the empty canvas with a small working example (the RAG template)
+  // so a fresh draft never has to start from nothing.
+  const insertExample = useCallback(() => {
+    const t = WORKFLOW_TEMPLATES[0];
+    setNodes(
+      t.nodes.map((n) => {
+        const d = (n.data ?? {}) as { label?: string; config?: Cfg };
+        return {
+          id: n.id,
+          type: "studio",
+          position: { x: n.position.x, y: n.position.y },
+          data: {
+            label: d.label ?? n.id,
+            studioType: n.type,
+            ports: portsFor(n.type, palette),
+            config: d.config ?? {},
+          },
+        };
+      }),
+    );
+    setEdges(
+      t.edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.source_handle ?? undefined,
+        targetHandle: e.target_handle ?? undefined,
+      })),
+    );
+    window.setTimeout(() => rf?.fitView({ maxZoom: 1, padding: 0.25 }), 0);
+  }, [palette, rf, setNodes, setEdges]);
+
+  // One-click cleanup: topological left-to-right layout (roots on the left,
+  // each node one column right of its furthest predecessor), columns centered
+  // vertically, then re-center the viewport on the result.
+  const tidyLayout = useCallback(() => {
+    setNodes((ns) => {
+      if (ns.length < 2) return ns;
+      const level = new Map<string, number>(ns.map((n) => [n.id, 0]));
+      // Longest-path relaxation; the pass cap keeps cycles from looping forever.
+      for (let pass = 0; pass < ns.length; pass++) {
+        let changed = false;
+        for (const e of edges) {
+          const next = (level.get(e.source) ?? 0) + 1;
+          if (next > (level.get(e.target) ?? 0)) {
+            level.set(e.target, next);
+            changed = true;
+          }
+        }
+        if (!changed) break;
+      }
+      const columns = new Map<number, string[]>();
+      ns.forEach((n) => {
+        const l = level.get(n.id) ?? 0;
+        columns.set(l, [...(columns.get(l) ?? []), n.id]);
+      });
+      const pos = new Map<string, { x: number; y: number }>();
+      columns.forEach((ids, l) => {
+        ids.forEach((id, i) => {
+          pos.set(id, { x: l * 280, y: (i - (ids.length - 1) / 2) * 120 });
+        });
+      });
+      return ns.map((n) => ({ ...n, position: pos.get(n.id) ?? n.position }));
+    });
+    window.setTimeout(() => rf?.fitView({ maxZoom: 1, padding: 0.25 }), 0);
+  }, [edges, rf, setNodes]);
+
   const patchNode = useCallback(
     (nodeId: string, patch: Partial<{ label: string; config: Cfg }>) => {
       setNodes((ns) =>
@@ -278,7 +346,15 @@ function Editor({ id }: { id: string }) {
 
       {error && <ErrorBox message={error} />}
 
-      <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
+      {/* Amber is reserved for the read-only warning; routine draft editing gets a
+          neutral note so the banner still means something when it matters. */}
+      <div
+        className={
+          readOnly
+            ? "rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
+            : "rounded-lg border border-border bg-surface px-3 py-2 text-xs text-muted"
+        }
+      >
         {readOnly ? (
           <>
             This workflow is <strong>published</strong> and read-only. Clone it to a draft
@@ -311,7 +387,7 @@ function Editor({ id }: { id: string }) {
                   </span>
                   <span className="min-w-0">
                     <span className="block text-sm font-medium">{t.label}</span>
-                    <span className="block truncate text-xs text-muted">
+                    <span className="line-clamp-2 block text-xs text-muted">
                       {NODE_META[t.type]?.blurb ?? t.category}
                     </span>
                   </span>
@@ -356,10 +432,24 @@ function Editor({ id }: { id: string }) {
               <Background />
               <Controls />
               <MiniMap pannable zoomable />
+              {!readOnly && nodes.length > 1 && (
+                <Panel position="top-right">
+                  <Button size="sm" onClick={tidyLayout} title="Auto-arrange and center the graph">
+                    Tidy layout
+                  </Button>
+                </Panel>
+              )}
               {nodes.length === 0 && (
                 <Panel position="top-center">
                   <div className="mt-12 rounded-lg border border-dashed border-border bg-surface/80 px-4 py-3 text-center text-sm text-muted">
                     Add a node from the palette to start building.
+                    {!readOnly && (
+                      <div className="mt-2">
+                        <Button size="sm" onClick={insertExample}>
+                          Insert example graph
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </Panel>
               )}
@@ -395,6 +485,13 @@ function NodeEditorDialog({
   onDelete: () => void;
 }) {
   const d = node.data as { studioType: string; label: string; config: Cfg };
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // Move focus into the dialog on open so keyboard users aren't left behind
+  // on the canvas.
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -411,6 +508,7 @@ function NodeEditorDialog({
     >
       <div
         role="dialog"
+        aria-modal="true"
         aria-label={`Edit ${d.label}`}
         className="w-full max-w-md rounded-xl border border-border bg-surface shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
@@ -425,7 +523,7 @@ function NodeEditorDialog({
               <div className="text-[11px] uppercase tracking-wide text-muted">{d.studioType}</div>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+          <Button ref={closeRef} variant="ghost" size="sm" onClick={onClose} aria-label="Close">
             ✕
           </Button>
         </header>

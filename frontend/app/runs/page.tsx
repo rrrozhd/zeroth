@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   ApiErrorNote,
@@ -13,6 +14,7 @@ import {
   Mono,
   NotConnected,
   PageHeader,
+  Skeleton,
   StatusBadge,
   Textarea,
   useAsync,
@@ -44,17 +46,27 @@ export default function RunsPage() {
     setSelected(new URLSearchParams(window.location.search).get("run_id"));
   }, []);
 
+  // Keep the URL in sync so run details are deep-linkable and reload-safe.
+  function select(id: string | null) {
+    setSelected(id);
+    window.history.replaceState(
+      null,
+      "",
+      id ? `?run_id=${id}` : window.location.pathname,
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="Runs" subtitle="Submit and inspect runs." />
       {!connected ? (
         <NotConnected />
       ) : selected ? (
-        <RunDetail runId={selected} onBack={() => setSelected(null)} />
+        <RunDetail runId={selected} onBack={() => select(null)} />
       ) : (
         <>
-          <SubmitRun onSubmitted={setSelected} />
-          <RunList onSelect={setSelected} />
+          <SubmitRun onSubmitted={select} />
+          <RunList onSelect={select} />
         </>
       )}
     </div>
@@ -73,14 +85,17 @@ function RunList({ onSelect }: { onSelect: (id: string) => void }) {
       }
     >
       {error && <ApiErrorNote error={error} />}
-      {data && data.runs.length === 0 && <Empty>No runs yet.</Empty>}
+      {loading && !data && <Skeleton rows={4} />}
+      {data && data.runs.length === 0 && (
+        <Empty>No runs yet — submit one above to see it appear here.</Empty>
+      )}
       {data && data.runs.length > 0 && (
         <ul className="divide-y divide-border">
           {data.runs.map((r) => (
             <li key={r.run_id}>
               <button
                 onClick={() => onSelect(r.run_id)}
-                className="flex w-full items-center justify-between gap-3 py-2.5 text-left hover:opacity-80"
+                className="-mx-2 flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
               >
                 <span className="truncate font-mono text-xs text-muted">{r.run_id}</span>
                 <span className="flex shrink-0 items-center gap-3 text-xs text-muted">
@@ -95,6 +110,23 @@ function RunList({ onSelect }: { onSelect: (id: string) => void }) {
     </Card>
   );
 }
+
+// Ready-made payloads to fill the form with — the real shape is defined by the
+// deployed graph's input contract, these just show the common patterns.
+const PAYLOAD_EXAMPLES: { label: string; payload: Record<string, unknown> }[] = [
+  { label: "Question", payload: { question: "What is Zeroth?" } },
+  {
+    label: "Document",
+    payload: {
+      document: "Paste the text to process here.",
+      instructions: "Summarize the key points.",
+    },
+  },
+  {
+    label: "Structured task",
+    payload: { task: "generate_report", parameters: { period: "2026-Q2" } },
+  },
+];
 
 function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
   const [payload, setPayload] = useState('{\n  "question": "What is Zeroth?"\n}');
@@ -129,7 +161,7 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
     <Card title="Submit a run">
       <div className="space-y-3">
         {error && <ErrorBox message={error} />}
-        <Field label="Input payload (JSON)">
+        <Field label="Input payload (JSON)" hint="the shape is set by your graph's input contract">
           <Textarea
             value={payload}
             onChange={(e) => setPayload(e.target.value)}
@@ -137,6 +169,19 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
             className="font-mono text-xs"
           />
         </Field>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span>Examples:</span>
+          {PAYLOAD_EXAMPLES.map((ex) => (
+            <button
+              key={ex.label}
+              type="button"
+              onClick={() => setPayload(JSON.stringify(ex.payload, null, 2))}
+              className="rounded-full border border-border px-2.5 py-0.5 transition-colors hover:border-accent/40 hover:text-accent"
+            >
+              {ex.label}
+            </button>
+          ))}
+        </div>
         <Field label="Thread ID" hint="optional">
           <Input
             value={thread}
@@ -208,8 +253,16 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
 
             {data.approval_paused_state && (
               <div>
-                <div className="mb-1 font-medium text-amber-700 dark:text-amber-400">
-                  Awaiting approval
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <span className="font-medium text-amber-700 dark:text-amber-400">
+                    Awaiting approval
+                  </span>
+                  <Link
+                    href="/approvals"
+                    className="text-xs font-medium text-accent hover:underline"
+                  >
+                    Resolve in Approvals →
+                  </Link>
                 </div>
                 <Json value={data.approval_paused_state} />
               </div>
