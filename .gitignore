@@ -76,3 +76,6 @@ examples_service.sqlite
 
 # Local verification screenshots
 /verify-*.png
+
+# zeroth-console package: built frontend export copied in by scripts/build_console_dist.sh
+packaging/console/src/zeroth_console/static/

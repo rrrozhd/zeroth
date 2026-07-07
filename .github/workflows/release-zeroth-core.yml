@@ -52,6 +52,20 @@ jobs:
       - name: Build sdist + wheel
         run: uv build
 
+      - name: Set up Node (console build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build console static export + zeroth-console dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd frontend && npm ci --no-fund --no-audit && npm run build)
+          ./scripts/build_console_dist.sh --skip-frontend-build
+
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
@@ -83,6 +97,13 @@ jobs:
           pip install --upgrade pip
           pip install dist/*.whl
           python -c "import zeroth.core; print('zeroth.core path:', zeroth.core.__path__)"
+          # Console dist: the bundled static export must resolve and mount.
+          python -c "
+          from zeroth.core.service.console_ui import find_console_dir
+          d = find_console_dir()
+          assert d is not None and (d / 'index.html').is_file(), f'console dir: {d}'
+          print('zeroth-console static export OK:', d)
+          "
 
   test-wheel:
     name: Run pytest against built wheel
@@ -170,7 +191,7 @@ jobs:
             if pip install \
                 --index-url https://test.pypi.org/simple/ \
                 --extra-index-url https://pypi.org/simple/ \
-                "zeroth-core==${VERSION}"; then
+                "zeroth-core==${VERSION}" "zeroth-console==${VERSION}"; then
               INSTALLED=1
               break
             fi

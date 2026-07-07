@@ -70,6 +70,27 @@ def test_find_console_dir_missing_returns_none(monkeypatch, tmp_path: Path) -> N
     assert find_console_dir() is None
 
 
+def test_find_console_dir_falls_back_to_installed_package(
+    monkeypatch, tmp_path: Path, console_dir: Path
+) -> None:
+    """With no env override and no repo build, the zeroth-console package wins."""
+    import sys
+    from types import SimpleNamespace
+
+    import zeroth.core.service.console_ui as console_ui
+
+    monkeypatch.delenv("ZEROTH_CONSOLE_DIR", raising=False)
+    # Point the module's repo-root detection at an empty tree so the
+    # source-checkout candidate (frontend/out) can't resolve.
+    monkeypatch.setattr(
+        console_ui, "__file__", str(tmp_path / "a" / "b" / "c" / "d" / "console_ui.py")
+    )
+    monkeypatch.setitem(
+        sys.modules, "zeroth_console", SimpleNamespace(console_dir=lambda: console_dir)
+    )
+    assert find_console_dir() == console_dir
+
+
 def test_console_cors_origins_parsing(monkeypatch) -> None:
     monkeypatch.setenv("ZEROTH_CONSOLE_CORS_ORIGINS", "http://a.test, http://b.test ,")
     assert console_cors_origins() == ["http://a.test", "http://b.test"]
