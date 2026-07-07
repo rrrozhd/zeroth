@@ -171,3 +171,57 @@ async def test_reviewer_can_list_audits(sqlite_db) -> None:
         )
 
     assert r.status_code == 200
+
+
+async def test_audit_verification_endpoint_reports_intact_and_tampered_chains(sqlite_db) -> None:
+    """GET /deployments/{ref}/audit-verification exposes the continuity verifier:
+    an intact chain verifies; an in-place record edit flips it to failed."""
+    import json
+
+    service, deployment = await deploy_service(sqlite_db, agent_graph(graph_id="graph-verify"))
+    await service.audit_repository.write(
+        _record(audit_id="audit:v1", run_id="run-v", deployment_ref=deployment.deployment_ref)
+    )
+    await service.audit_repository.write(
+        _record(
+            audit_id="audit:v2",
+            run_id="run-v",
+            deployment_ref=deployment.deployment_ref,
+            node_id="finish",
+        )
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        ok = client.get(
+            f"/deployments/{deployment.deployment_ref}/audit-verification",
+            headers=admin_headers(),
+        )
+        assert ok.status_code == 200, ok.text
+        payload = ok.json()
+        assert payload["verified"] is True
+        assert payload["record_count"] == 2
+
+        tampered = await service.audit_repository.get("audit:v2")
+        tampered_payload = tampered.model_copy(update={"status": "tampered"}).model_dump(
+            mode="json"
+        )
+        async with sqlite_db.transaction() as connection:
+            await connection.execute(
+                "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
+                (json.dumps(tampered_payload, sort_keys=True), "audit:v2"),
+            )
+
+        bad = client.get(
+            f"/deployments/{deployment.deployment_ref}/audit-verification",
+            headers=admin_headers(),
+        )
+        assert bad.status_code == 200
+        payload = bad.json()
+        assert payload["verified"] is False
+        assert payload["failed_audit_id"] == "audit:v2"

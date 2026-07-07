@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.approvals.models import ApprovalRecord
 from zeroth.core.audit import (
+    AuditContinuityVerifier,
     AuditQuery,
     AuditRedactionConfig,
     AuditTimelineAssembler,
@@ -52,6 +53,18 @@ class AuditRecordListResponse(BaseModel):
 
     deployment_ref: str
     records: list[NodeAuditRecord] = Field(default_factory=list)
+
+
+class AuditVerificationResponse(BaseModel):
+    """Result of verifying the tamper-evident digest chain for a scope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str
+    verified: bool
+    record_count: int = 0
+    failed_audit_id: str | None = None
+    error: str | None = None
 
 
 class AuditTimelineResponse(BaseModel):
@@ -200,6 +213,62 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
             deployment_ref=deployment.deployment_ref,
             run_id=run_id,
             entries=list(timeline.entries),
+        )
+
+    @app.get(
+        "/runs/{run_id}/audit-verification",
+        response_model=AuditVerificationResponse,
+    )
+    async def verify_run_audit_chain(
+        request: Request,
+        run_id: str,
+    ) -> AuditVerificationResponse:
+        """Verify the tamper-evident digest chain over a run's audit records."""
+        bootstrap = _bootstrap(request)
+        deployment = bootstrap.deployment
+        await require_permission(request, Permission.AUDIT_READ)
+        await require_deployment_scope(request, deployment)
+        run = await bootstrap.run_repository.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+        if run.deployment_ref != deployment.deployment_ref:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+        await require_resource_scope(
+            request,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+            not_found_detail="run not found",
+        )
+
+        report = await AuditContinuityVerifier(bootstrap.audit_repository).verify_run(run_id)
+        return AuditVerificationResponse(
+            scope=report.scope,
+            verified=report.verified,
+            record_count=report.record_count,
+            failed_audit_id=report.failed_audit_id,
+            error=report.error,
+        )
+
+    @app.get(
+        "/deployments/{deployment_ref}/audit-verification",
+        response_model=AuditVerificationResponse,
+    )
+    async def verify_deployment_audit_chain(
+        request: Request,
+        deployment_ref: str,
+    ) -> AuditVerificationResponse:
+        """Verify digest-chain continuity across every run of a deployment."""
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.AUDIT_READ)
+        report = await AuditContinuityVerifier(bootstrap.audit_repository).verify_deployment(
+            deployment.deployment_ref
+        )
+        return AuditVerificationResponse(
+            scope=report.scope,
+            verified=report.verified,
+            record_count=report.record_count,
+            failed_audit_id=report.failed_audit_id,
+            error=report.error,
         )
 
     @app.get(
