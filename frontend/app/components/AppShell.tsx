@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getApiBase, getApiKey, isConfigured, setConfig } from "@/app/lib/config";
+import { getLastWorkflowId } from "@/app/lib/lastWorkflow";
 import { getHealth } from "@/app/lib/api";
 import { Button, Input, useConnected } from "@/app/components/ui";
 
@@ -23,6 +24,16 @@ export function Header() {
   const pathname = usePathname();
   const active = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  // Studio deep-links to the last-edited workflow. Resolved after mount (and
+  // re-resolved on every route change) so server HTML and the first client
+  // render agree on href="/studio" — reading localStorage during render would
+  // be a hydration mismatch.
+  const [studioHref, setStudioHref] = useState("/studio");
+  useEffect(() => {
+    const last = getLastWorkflowId();
+    setStudioHref(last ? `/studio/edit?id=${encodeURIComponent(last)}` : "/studio");
+  }, [pathname]);
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface/80 backdrop-blur">
@@ -50,7 +61,7 @@ export function Header() {
           {LINKS.map((l) => (
             <Link
               key={l.href}
-              href={l.href}
+              href={l.href === "/studio" ? studioHref : l.href}
               aria-current={active(l.href) ? "page" : undefined}
               className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
                 active(l.href)
