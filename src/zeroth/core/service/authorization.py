@@ -45,6 +45,10 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         Permission.APPROVAL_RESOLVE,
         # Reviewers see graphs but don't author them.
         Permission.WORKFLOW_READ,
+        # Reviewing evidence is the role's purpose: the audit trail is
+        # read-only governance data, same tier as runs and approvals.
+        # Cost/spend (METRICS_READ) stays admin-only.
+        Permission.AUDIT_READ,
     },
     ServiceRole.ADMIN: set(Permission),
 }

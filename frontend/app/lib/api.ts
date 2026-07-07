@@ -22,6 +22,7 @@ export type NodeAuditRecord = S["NodeAuditRecord"];
 export type DeploymentCost = S["DeploymentCostResponse"];
 export type DeploymentSummary = S["DeploymentSummaryResponse"];
 export type ConnectorSummary = S["ConnectorSummaryResponse"];
+export type ManifestSummary = S["ManifestSummaryResponse"];
 export type WorkflowSummary = S["WorkflowSummaryResponse"];
 export type WorkflowDetail = S["WorkflowDetailResponse"];
 export type UpdateWorkflowRequest = S["UpdateWorkflowRequest"];
@@ -135,6 +136,20 @@ export async function listAudits(): Promise<AuditRecordList> {
   return apiFetch<AuditRecordList>(`/v1/deployments/${encodeURIComponent(ref)}/audits`);
 }
 
+/** Audit records for one graph node, newest first. The endpoint filters by
+    `node_id` but has no limit param, so the cap is applied client-side
+    (records come back oldest-first — created_at order). */
+export async function listNodeAudits(
+  nodeId: string,
+  limit = 20,
+): Promise<NodeAuditRecord[]> {
+  const ref = await deploymentRef();
+  const res = await apiFetch<AuditRecordList>(
+    `/v1/deployments/${encodeURIComponent(ref)}/audits?node_id=${encodeURIComponent(nodeId)}`,
+  );
+  return (res.records ?? []).slice(-limit).reverse();
+}
+
 // ---- Deployments ----
 
 /** All persisted deployment versions; `serving` marks this service's own. */
@@ -147,6 +162,13 @@ export function listDeployments(): Promise<DeploymentSummary[]> {
 /** Registered memory connectors — the resolvable connector_ref values. */
 export function listConnectors(): Promise<ConnectorSummary[]> {
   return apiFetch<ConnectorSummary[]>("/v1/connectors");
+}
+
+// ---- Manifests ----
+
+/** Registered executable units & agent runners — the resolvable manifest_ref values. */
+export function listManifests(): Promise<ManifestSummary[]> {
+  return apiFetch<ManifestSummary[]>("/v1/manifests");
 }
 
 // ---- Cost (deployment-scoped) ----
