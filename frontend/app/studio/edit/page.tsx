@@ -3,7 +3,8 @@
 import "@xyflow/react/dist/style.css";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   addEdge,
   Background,
@@ -23,19 +24,23 @@ import {
 import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
 import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
 import { StudioNodeView, type Port } from "@/app/components/StudioNodeView";
-import { Button, ErrorBox } from "@/app/components/ui";
+import { Button, ErrorBox, StatusBadge } from "@/app/components/ui";
 import {
+  ApiError,
   cloneWorkflow,
   errMsg,
   getWorkflow,
   listConnectors,
   listNodeTypes,
+  listWorkflows,
   updateWorkflow,
   type NodeType,
   type StudioEdge,
   type StudioNode,
   type WorkflowDetail,
+  type WorkflowSummary,
 } from "@/app/lib/api";
+import { setLastWorkflowId } from "@/app/lib/lastWorkflow";
 import { WORKFLOW_TEMPLATES } from "@/app/lib/templates";
 
 const nodeTypes = { studio: StudioNodeView };
@@ -96,10 +101,18 @@ function toStudioEdges(edges: Edge[]): StudioEdge[] {
 }
 
 export default function StudioEditPage() {
-  const [id, setId] = useState<string | null>(null);
-  useEffect(() => {
-    setId(new URLSearchParams(window.location.search).get("id"));
-  }, []);
+  // Static export requires a Suspense boundary around useSearchParams; keeping
+  // the hook in a child also lets client-side ?id= changes (the quick-switcher)
+  // reach the keyed editor below.
+  return (
+    <Suspense fallback={null}>
+      <StudioEditQuery />
+    </Suspense>
+  );
+}
+
+function StudioEditQuery() {
+  const id = useSearchParams().get("id");
 
   if (!id) {
     return (
@@ -112,8 +125,10 @@ export default function StudioEditPage() {
     );
   }
 
+  // Keyed by id: switching workflows client-side remounts the editor (and its
+  // React Flow store) so load() runs fresh for the new graph.
   return (
-    <ReactFlowProvider>
+    <ReactFlowProvider key={id}>
       <Editor id={id} />
     </ReactFlowProvider>
   );
@@ -136,23 +151,33 @@ function Editor({ id }: { id: string }) {
   // Registered memory connectors — feeds the retrieval node's connector
   // dropdown. Non-fatal if unavailable (the field degrades to a text input).
   const [connectorRefs, setConnectorRefs] = useState<string[]>([]);
+  // Other workflows in this deployment — feeds the quick-switcher card.
+  // Non-fatal if unavailable (the card just doesn't render).
+  const [others, setOthers] = useState<WorkflowSummary[]>([]);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [detail, types, connectors] = await Promise.all([
+      const [detail, types, connectors, all] = await Promise.all([
         getWorkflow(id),
         listNodeTypes(),
         listConnectors().catch(() => []),
+        listWorkflows().catch(() => []),
       ]);
       setName(detail.name);
       setStatus(detail.status);
       setPalette(types);
       setConnectorRefs(connectors.map((c) => c.ref));
+      setOthers(all.filter((w) => w.id !== id));
       setNodes(toRfNodes(detail, types));
       setEdges(toRfEdges(detail));
+      setLastWorkflowId(id);
     } catch (e) {
+      // A stored id that 404s must not keep steering the Studio nav link back
+      // to a dead editor page.
+      if (e instanceof ApiError && e.status === 404) setLastWorkflowId(null);
       setError(errMsg(e));
     } finally {
       setLoading(false);
@@ -363,7 +388,13 @@ function Editor({ id }: { id: string }) {
           <Panel position="top-left">
             <div className="w-72 space-y-2">
               <div className="rounded-xl border border-border bg-surface p-3 shadow-md shadow-black/[0.06]">
-                <Link href="/studio" className="text-xs text-muted hover:underline">
+                {/* Clearing the remembered id here keeps the list reachable:
+                    the nav's Studio link otherwise points back at this editor. */}
+                <Link
+                  href="/studio"
+                  onClick={() => setLastWorkflowId(null)}
+                  className="text-xs text-muted hover:underline"
+                >
                   ← Studio
                 </Link>
                 <input
@@ -413,6 +444,40 @@ function Editor({ id }: { id: string }) {
                   ))}
                 </div>
               </div>
+
+              {others.length > 0 && (
+                <div className="rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
+                  <button
+                    onClick={() => setSwitcherOpen((o) => !o)}
+                    aria-expanded={switcherOpen}
+                    className="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold"
+                  >
+                    Workflows ({others.length})
+                    <span
+                      aria-hidden
+                      className={`text-xs text-muted transition-transform ${switcherOpen ? "rotate-180" : ""}`}
+                    >
+                      ▾
+                    </span>
+                  </button>
+                  {switcherOpen && (
+                    <div className="max-h-40 space-y-0.5 overflow-y-auto border-t border-border p-1.5">
+                      {others.map((w) => (
+                        <Link
+                          key={w.id}
+                          href={`/studio/edit?id=${encodeURIComponent(w.id)}`}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-sm transition-colors hover:border-border hover:bg-accent/[0.04]"
+                        >
+                          <span className="min-w-0 truncate">{w.name}</span>
+                          <span className="shrink-0">
+                            <StatusBadge status={w.status} />
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <p className="px-1 text-xs text-muted">
                 Click a node to edit it.{" "}
