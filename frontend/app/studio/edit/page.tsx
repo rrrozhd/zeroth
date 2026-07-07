@@ -23,7 +23,7 @@ import {
 import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
 import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
 import { StudioNodeView, type Port } from "@/app/components/StudioNodeView";
-import { Button, Card, ErrorBox } from "@/app/components/ui";
+import { Button, ErrorBox } from "@/app/components/ui";
 import {
   cloneWorkflow,
   errMsg,
@@ -318,145 +318,144 @@ function Editor({ id }: { id: string }) {
   const editing = nodes.find((n) => n.id === editingId);
   const readOnly = status === "published";
 
+  // Full-bleed canvas (n8n-style): the editor escapes the centered page
+  // column and fills the viewport below the sticky h-14 header; title,
+  // palette, and actions float over the graph as panels.
   return (
-    <div className="space-y-4">
-      <div>
-        <Link href="/studio" className="text-sm text-muted hover:underline">
-          ← Studio
-        </Link>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={readOnly}
-            aria-label="Workflow name"
-            className="-ml-2 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1 text-2xl font-semibold tracking-tight hover:border-border focus-visible:border-accent disabled:opacity-70"
-          />
-          {readOnly ? (
-            <Button variant="primary" onClick={clone} disabled={cloning}>
-              {cloning ? "Cloning…" : "Clone to draft"}
-            </Button>
-          ) : (
-            <Button variant="primary" onClick={save} disabled={saveState === "saving"}>
-              {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Save"}
-            </Button>
-          )}
+    <div ref={paneRef} className="fixed inset-x-0 bottom-0 top-14">
+      {loading ? (
+        <div className="flex h-full items-center justify-center text-sm text-muted">
+          Loading graph…
         </div>
-      </div>
-
-      {error && <ErrorBox message={error} />}
-
-      {/* Amber is reserved for the read-only warning; routine draft editing gets a
-          neutral note so the banner still means something when it matters. */}
-      <div
-        className={
-          readOnly
-            ? "rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
-            : "rounded-lg border border-border bg-surface px-3 py-2 text-xs text-muted"
-        }
-      >
-        {readOnly ? (
-          <>
-            This workflow is <strong>published</strong> and read-only. Clone it to a draft
-            to edit its structure.
-          </>
-        ) : (
-          <>
-            Editing a <strong>draft</strong>: nodes, edges, config, and layout save to this
-            draft. Fields marked <span className="font-semibold">*</span> are required for the
-            graph to publish. Publishing &amp; running additionally need contracts, a
-            registered runner, and a deployment (the medium-code path).
-          </>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-4 lg:flex-row">
-        <aside className="w-full shrink-0 lg:w-60">
-          <Card title="Add node">
-            <div className="space-y-1.5">
-              {palette.map((t) => (
-                <button
-                  key={t.type}
-                  onClick={() => addNode(t)}
-                  disabled={readOnly}
-                  title={readOnly ? "Clone to a draft to edit" : `Add ${t.label}`}
-                  className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent/[0.04] disabled:opacity-50 disabled:hover:border-transparent disabled:hover:bg-transparent"
-                >
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
-                    <NodeGlyph type={t.type} className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">{t.label}</span>
-                    <span className="line-clamp-2 block text-xs text-muted">
-                      {NODE_META[t.type]?.blurb ?? t.category}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </Card>
-          <p className="mt-2 px-1 text-xs text-muted">
-            Click a node to edit it. Select a node or edge and press{" "}
-            <kbd className="rounded border border-border bg-surface px-1">Backspace</kbd> to
-            delete.
-          </p>
-        </aside>
-
-        <div
-          ref={paneRef}
-          className="h-[60vh] flex-1 overflow-hidden rounded-xl border border-border bg-surface lg:h-[70vh]"
+      ) : (
+        <ReactFlow
+          aria-label="Workflow graph editor"
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          nodesFocusable
+          deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onInit={setRf}
+          onNodeClick={(_, node) => setEditingId(node.id)}
+          fitView
+          fitViewOptions={{ maxZoom: 1, padding: 0.25 }}
+          minZoom={0.3}
+          defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
+          proOptions={{ hideAttribution: true }}
         >
-          {loading ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted">
-              Loading graph…
+          <Background />
+          <Controls />
+          <MiniMap pannable zoomable />
+
+          {/* Floating title + palette */}
+          <Panel position="top-left">
+            <div className="w-72 space-y-2">
+              <div className="rounded-xl border border-border bg-surface p-3 shadow-md shadow-black/[0.06]">
+                <Link href="/studio" className="text-xs text-muted hover:underline">
+                  ← Studio
+                </Link>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={readOnly}
+                  aria-label="Workflow name"
+                  className="-ml-1.5 mt-0.5 w-full rounded-lg border border-transparent bg-transparent px-1.5 py-0.5 text-lg font-semibold tracking-tight hover:border-border focus-visible:border-accent disabled:opacity-70"
+                />
+                {/* Amber is reserved for the read-only warning; routine draft
+                    editing gets a neutral note so it means something when it matters. */}
+                {readOnly ? (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                    <strong>Published</strong> &amp; read-only — clone to a draft to edit.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted">
+                    Draft — nodes, edges, config &amp; layout save here. Fields marked{" "}
+                    <span className="font-semibold">*</span> are required to publish.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
+                <div className="border-b border-border px-3 py-2 text-sm font-semibold">
+                  Add node
+                </div>
+                <div className="max-h-[42vh] space-y-1 overflow-y-auto p-2">
+                  {palette.map((t) => (
+                    <button
+                      key={t.type}
+                      onClick={() => addNode(t)}
+                      disabled={readOnly}
+                      title={readOnly ? "Clone to a draft to edit" : `Add ${t.label}`}
+                      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent/[0.04] disabled:opacity-50 disabled:hover:border-transparent disabled:hover:bg-transparent"
+                    >
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
+                        <NodeGlyph type={t.type} className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{t.label}</span>
+                        <span className="line-clamp-2 block text-xs text-muted">
+                          {NODE_META[t.type]?.blurb ?? t.category}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="px-1 text-xs text-muted">
+                Click a node to edit it.{" "}
+                <kbd className="rounded border border-border bg-surface px-1">Backspace</kbd>{" "}
+                deletes the selection.
+              </p>
             </div>
-          ) : (
-            <ReactFlow
-              aria-label="Workflow graph editor"
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              nodesFocusable
-              deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onInit={setRf}
-              onNodeClick={(_, node) => setEditingId(node.id)}
-              fitView
-              fitViewOptions={{ maxZoom: 1, padding: 0.25 }}
-              minZoom={0.3}
-              defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
-              proOptions={{ hideAttribution: true }}
-            >
-              <Background />
-              <Controls />
-              <MiniMap pannable zoomable />
-              {!readOnly && nodes.length > 1 && (
-                <Panel position="top-right">
+          </Panel>
+
+          {/* Floating actions */}
+          <Panel position="top-right">
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
+                {!readOnly && nodes.length > 1 && (
                   <Button size="sm" onClick={tidyLayout} title="Auto-arrange and center the graph">
                     Tidy layout
                   </Button>
-                </Panel>
+                )}
+                {readOnly ? (
+                  <Button variant="primary" onClick={clone} disabled={cloning}>
+                    {cloning ? "Cloning…" : "Clone to draft"}
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={save} disabled={saveState === "saving"}>
+                    {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Save"}
+                  </Button>
+                )}
+              </div>
+              {error && (
+                <div className="max-w-sm">
+                  <ErrorBox message={error} />
+                </div>
               )}
-              {nodes.length === 0 && (
-                <Panel position="top-center">
-                  <div className="mt-12 rounded-lg border border-dashed border-border bg-surface/80 px-4 py-3 text-center text-sm text-muted">
-                    Add a node from the palette to start building.
-                    {!readOnly && (
-                      <div className="mt-2">
-                        <Button size="sm" onClick={insertExample}>
-                          Insert example graph
-                        </Button>
-                      </div>
-                    )}
+            </div>
+          </Panel>
+
+          {nodes.length === 0 && (
+            <Panel position="top-center">
+              <div className="mt-12 rounded-lg border border-dashed border-border bg-surface/80 px-4 py-3 text-center text-sm text-muted">
+                Add a node from the palette to start building.
+                {!readOnly && (
+                  <div className="mt-2">
+                    <Button size="sm" onClick={insertExample}>
+                      Insert example graph
+                    </Button>
                   </div>
-                </Panel>
-              )}
-            </ReactFlow>
+                )}
+              </div>
+            </Panel>
           )}
-        </div>
-      </div>
+        </ReactFlow>
+      )}
 
       {editing && (
         <NodeEditorDialog
