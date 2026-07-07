@@ -1165,6 +1165,48 @@
         "title": "LivenessResponse",
         "type": "object"
       },
+      "ManifestSummaryResponse": {
+        "additionalProperties": false,
+        "description": "One registered executable unit or agent runner, as shown in the console.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "manifest_ref": {
+            "title": "Manifest Ref",
+            "type": "string"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime"
+          }
+        },
+        "required": [
+          "manifest_ref",
+          "kind"
+        ],
+        "title": "ManifestSummaryResponse",
+        "type": "object"
+      },
       "MemoryAccessRecord": {
         "additionalProperties": false,
         "description": "A record of a single memory read or write during a node execution.\n\nTracks which memory store was accessed, what operation was performed\n(e.g. read, write, delete), and the key/value involved.",
@@ -3898,6 +3940,32 @@
           }
         },
         "summary": "Post Verify Attestation",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/manifests": {
+      "get": {
+        "description": "All executable units and agent runners registered for this deployment.\n\nThese are the values an executable_unit node's ``manifest_ref`` can\nreference, plus the runner names agent nodes bind to at run time.",
+        "operationId": "list_manifests_v1_manifests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ManifestSummaryResponse"
+                  },
+                  "title": "Response List Manifests V1 Manifests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Manifests",
         "tags": [
           "v1"
         ]
