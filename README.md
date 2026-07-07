@@ -45,15 +45,16 @@ pip install zeroth-core
 Optional extras pull in swappable backends (base install stays minimal):
 
 ```bash
+pip install "zeroth-core[console]"       # Bundled web console UI (no Node needed)
 pip install "zeroth-core[memory-pg]"     # Postgres + pgvector memory backend
 pip install "zeroth-core[memory-chroma]" # Chroma memory backend
 pip install "zeroth-core[memory-es]"     # Elasticsearch memory backend
 pip install "zeroth-core[dispatch]"      # Distributed worker (redis + arq)
 pip install "zeroth-core[sandbox]"       # Sandbox sidecar marker
-pip install "zeroth-core[all]"           # Everything above
+pip install "zeroth-core[all]"           # All backends above (console stays separate)
 ```
 
-Available extras: `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `all`.
+Available extras: `console`, `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `all`.
 
 ---
 
@@ -303,12 +304,16 @@ Guide.
 > wiring.
 
 ```bash
-# Build the static export (requires Node; produces frontend/out/)
+# Easiest: the [console] extra ships the pre-built UI as the zeroth-console
+# package — no Node toolchain required. Any Zeroth service then serves it
+# at http://<host>/console/ automatically.
+pip install "zeroth-core[console]"
+
+# From a source checkout: build the static export yourself (requires Node;
+# produces frontend/out/, which takes precedence over the installed package)
 cd frontend && npm install && npm run build
 
-# Mounted: any Zeroth service auto-mounts frontend/out at /console.
-# Override the location with ZEROTH_CONSOLE_DIR=/path/to/out
-# Then open http://<host>/console/
+# Override the assets location explicitly with ZEROTH_CONSOLE_DIR=/path/to/out
 
 # Standalone dev against a running API on :8000
 npm run dev                       # serves http://localhost:3000/console/
@@ -318,7 +323,7 @@ export ZEROTH_CONSOLE_CORS_ORIGINS="http://localhost:3000"
 
 | Env var | Purpose |
 | ------- | ------- |
-| `ZEROTH_CONSOLE_DIR` | Explicit path to the built `out/` dir (defaults to `frontend/out`). |
+| `ZEROTH_CONSOLE_DIR` | Explicit path to the built `out/` dir (default resolution: `frontend/out` in a checkout, then the installed `zeroth-console` package). |
 | `ZEROTH_CONSOLE_CORS_ORIGINS` | Comma-separated origins allowed to call the API cross-origin (standalone mode). Unset = no CORS (mounted mode). |
 
 If no build is present (Python-only install / CI with no Node), the mount is

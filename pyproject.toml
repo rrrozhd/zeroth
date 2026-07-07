@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.4.3"
+version = "0.4.4"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -80,6 +80,12 @@ regulus = [
     "numpy>=1.26",
     "dramatiq>=1.17",
 ]
+# Bundled web console UI (packaging/console): the built static export as a
+# companion package so no Node toolchain is needed. Deliberately NOT part of
+# [all] — a headless [all] install shouldn't pull UI assets.
+console = [
+    "zeroth-console",
+]
 all = [
     "zeroth-core[memory-pg]",
     "zeroth-core[memory-chroma]",
@@ -113,6 +119,11 @@ packages = ["src/zeroth", "src/econ_instrumentation", "src/econ_plane"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv.sources]
+# Resolve the [console] extra from the in-repo package during development —
+# published metadata keeps the plain name and resolves from PyPI.
+zeroth-console = { path = "packaging/console" }
 
 [dependency-groups]
 dev = [
