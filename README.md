@@ -1,4 +1,9 @@
-# Zeroth
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo/zeroth-logo-dark.svg">
+    <img src="docs/assets/logo/zeroth-logo.svg" alt="Zeroth" width="260">
+  </picture>
+</p>
 
 A governed medium-code platform for building, running, and deploying production-grade multi-agent systems as standalone API services.
 
