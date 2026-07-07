@@ -139,16 +139,26 @@ export function NodeInspector({
   studioType,
   label,
   config,
+  inputContractRef,
+  outputContractRef,
+  contractOptions,
   onLabelChange,
   onConfigChange,
+  onContractRefChange,
   readOnly = false,
   dynamicOptions,
 }: {
   studioType: string;
   label: string;
   config: Record<string, unknown>;
+  /** Contract bindings — node-level fields (NodeBase), not config keys. */
+  inputContractRef?: string | null;
+  outputContractRef?: string | null;
+  /** Registered contract names from GET /api/studio/v1/contracts. */
+  contractOptions?: string[];
   onLabelChange: (v: string) => void;
   onConfigChange: (next: Record<string, unknown>) => void;
+  onContractRefChange?: (which: "input" | "output", ref: string | null) => void;
   readOnly?: boolean;
   /** Runtime-fetched option lists, keyed by Field.optionsFrom (e.g. connectors). */
   dynamicOptions?: Record<string, string[] | undefined>;
@@ -251,11 +261,88 @@ export function NodeInspector({
         );
       })}
 
+      {onContractRefChange && (
+        <fieldset className="space-y-4 border-t border-border pt-4">
+          <legend className="sr-only">Contract bindings</legend>
+          <ContractPicker
+            label="Input contract"
+            hint="Validates the payload entering this node. Blank = unvalidated."
+            value={inputContractRef ?? null}
+            options={contractOptions ?? []}
+            readOnly={readOnly}
+            inputCls={inputCls}
+            onChange={(ref) => onContractRefChange("input", ref)}
+          />
+          <ContractPicker
+            label="Output contract"
+            hint="Validates what this node emits downstream. Blank = unvalidated."
+            value={outputContractRef ?? null}
+            options={contractOptions ?? []}
+            readOnly={readOnly}
+            inputCls={inputCls}
+            onChange={(ref) => onContractRefChange("output", ref)}
+          />
+        </fieldset>
+      )}
+
       {fields.some((f) => f.required) && (
         <p className="text-xs text-muted">
           <span className="text-red-600 dark:text-red-400">*</span> required for the graph to publish.
         </p>
       )}
     </div>
+  );
+}
+
+// Contract dropdown fed by the deployment's contract registry; degrades to a
+// text input while the registry is empty/unreachable (same as dynamic selects).
+function ContractPicker({
+  label,
+  hint,
+  value,
+  options,
+  readOnly,
+  inputCls,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: string | null;
+  options: string[];
+  readOnly: boolean;
+  inputCls: string;
+  onChange: (ref: string | null) => void;
+}) {
+  const str = value ?? "";
+  // Keep a saved ref that isn't registered selectable instead of coercing it.
+  const opts = str && !options.includes(str) ? [str, ...options] : options;
+  return (
+    <label className="block text-sm">
+      <span className="mb-1 block font-medium">{label}</span>
+      {options.length > 0 ? (
+        <select
+          value={str}
+          disabled={readOnly}
+          onChange={(e) => onChange(e.target.value || null)}
+          className={inputCls}
+        >
+          <option value="">(none)</option>
+          {opts.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          value={str}
+          placeholder="contract name"
+          disabled={readOnly}
+          onChange={(e) => onChange(e.target.value || null)}
+          className={inputCls}
+        />
+      )}
+      <span className="mt-1 block text-xs font-normal text-muted">{hint}</span>
+    </label>
   );
 }

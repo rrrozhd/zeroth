@@ -500,6 +500,53 @@
         "title": "AuditTimelineResponse",
         "type": "object"
       },
+      "AuditVerificationResponse": {
+        "additionalProperties": false,
+        "description": "Result of verifying the tamper-evident digest chain for a scope.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "failed_audit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Audit Id"
+          },
+          "record_count": {
+            "default": 0,
+            "title": "Record Count",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scope",
+          "verified"
+        ],
+        "title": "AuditVerificationResponse",
+        "type": "object"
+      },
       "AuthMethod": {
         "description": "Supported request authentication methods.",
         "enum": [
@@ -641,6 +688,37 @@
           "backend_type"
         ],
         "title": "ConnectorUpdateRequest",
+        "type": "object"
+      },
+      "CreateDeploymentRequest": {
+        "additionalProperties": false,
+        "description": "Request body for POST /v1/deployments.",
+        "properties": {
+          "deployment_ref": {
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "graph_id": {
+            "title": "Graph Id",
+            "type": "string"
+          },
+          "graph_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Version"
+          }
+        },
+        "required": [
+          "deployment_ref",
+          "graph_id"
+        ],
+        "title": "CreateDeploymentRequest",
         "type": "object"
       },
       "CreateSubscriptionRequest": {
@@ -1714,6 +1792,21 @@
         "title": "ReadinessResponse",
         "type": "object"
       },
+      "RollbackDeploymentRequest": {
+        "additionalProperties": false,
+        "description": "Request body for POST /v1/deployments/{deployment_ref}/rollback.",
+        "properties": {
+          "target_graph_version": {
+            "title": "Target Graph Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_graph_version"
+        ],
+        "title": "RollbackDeploymentRequest",
+        "type": "object"
+      },
       "RunEvidenceResponse": {
         "additionalProperties": false,
         "description": "Review-friendly evidence bundle for a single run.",
@@ -2092,6 +2185,30 @@
         "title": "ServiceRole",
         "type": "string"
       },
+      "StudioContractResponse": {
+        "description": "A registered contract, for canvas contract-ref pickers.",
+        "properties": {
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "StudioContractResponse",
+        "type": "object"
+      },
       "StudioEdgeResponse": {
         "description": "An edge as represented in the Studio frontend.",
         "properties": {
@@ -2259,6 +2376,21 @@
         "title": "TemplateResponse",
         "type": "object"
       },
+      "TenantBudgetRequest": {
+        "additionalProperties": false,
+        "description": "Request body for PUT /v1/tenants/{tenant_id}/budget.",
+        "properties": {
+          "budget_cap_usd": {
+            "title": "Budget Cap Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "budget_cap_usd"
+        ],
+        "title": "TenantBudgetRequest",
+        "type": "object"
+      },
       "TenantCostResponse": {
         "additionalProperties": false,
         "description": "Response for GET /v1/tenants/{tenant_id}/cost (per D-14).",
@@ -2387,6 +2519,17 @@
               }
             ],
             "title": "Edges"
+          },
+          "entry_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Step"
           },
           "name": {
             "anyOf": [
@@ -2655,6 +2798,17 @@
             "title": "Edges",
             "type": "array"
           },
+          "entry_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Step"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -2742,6 +2896,32 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/studio/v1/contracts": {
+      "get": {
+        "description": "List registered contracts (latest version each) for contract-ref pickers.",
+        "operationId": "list_contracts_api_studio_v1_contracts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StudioContractResponse"
+                  },
+                  "title": "Response List Contracts Api Studio V1 Contracts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Contracts",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
     "/api/studio/v1/node-types": {
       "get": {
         "description": "Return all available node types with their port definitions.",
@@ -3000,6 +3180,112 @@
           }
         },
         "summary": "Clone Workflow",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
+    "/api/studio/v1/workflows/{workflow_id}/diff": {
+      "get": {
+        "description": "Structured diff between two versions of a workflow.",
+        "operationId": "diff_workflow_api_studio_v1_workflows__workflow_id__diff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "left",
+            "required": true,
+            "schema": {
+              "title": "Left",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "right",
+            "required": true,
+            "schema": {
+              "title": "Right",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Diff Workflow Api Studio V1 Workflows  Workflow Id  Diff Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diff Workflow",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
+    "/api/studio/v1/workflows/{workflow_id}/publish": {
+      "post": {
+        "description": "Validate and publish the draft, making it immutable and deployable.\n\nValidation failures return 422 with the structured issue list so the\ncanvas can point at the offending node/edge.",
+        "operationId": "publish_workflow_api_studio_v1_workflows__workflow_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Workflow",
         "tags": [
           "studio"
         ]
@@ -3516,6 +3802,46 @@
         "tags": [
           "v1"
         ]
+      },
+      "post": {
+        "description": "Create a deployment version from a published graph.\n\nCompletes the authoring loop without Python: publish the graph\n(studio API), deploy it here, then restart the service with\n``ZEROTH_DEPLOYMENT_REF`` set to the new ref to serve it.",
+        "operationId": "create_deployment_v1_deployments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Deployment",
+        "tags": [
+          "v1"
+        ]
       }
     },
     "/v1/deployments/{deployment_ref}/approvals": {
@@ -3761,6 +4087,49 @@
           }
         },
         "summary": "Get Attestation",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/deployments/{deployment_ref}/audit-verification": {
+      "get": {
+        "description": "Verify digest-chain continuity across every run of a deployment.",
+        "operationId": "verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Deployment Audit Chain",
         "tags": [
           "v1"
         ]
@@ -4125,6 +4494,59 @@
         ]
       }
     },
+    "/v1/deployments/{deployment_ref}/rollback": {
+      "post": {
+        "description": "Create a new deployment version pinned to an earlier graph version.",
+        "operationId": "rollback_deployment_v1_deployments__deployment_ref__rollback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rollback Deployment",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/deployments/{deployment_ref}/timeline": {
       "get": {
         "operationId": "get_deployment_timeline_v1_deployments__deployment_ref__timeline_get",
@@ -4344,6 +4766,49 @@
           }
         },
         "summary": "Get Run",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/audit-verification": {
+      "get": {
+        "description": "Verify the tamper-evident digest chain over a run's audit records.",
+        "operationId": "verify_run_audit_chain_v1_runs__run_id__audit_verification_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Run Audit Chain",
         "tags": [
           "v1"
         ]
@@ -4595,9 +5060,62 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/budget": {
+      "put": {
+        "description": "Set the tenant spend cap enforced before LLM calls and fan-out.",
+        "operationId": "set_tenant_budget_v1_tenants__tenant_id__budget_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantBudgetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantCostResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Tenant Budget",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/cost": {
       "get": {
-        "description": "Return cumulative spend for a tenant (per D-14, D-16).",
+        "description": "Return month-to-date spend and cap for a tenant (per D-14, D-16).",
         "operationId": "get_tenant_cost_v1_tenants__tenant_id__cost_get",
         "parameters": [
           {
