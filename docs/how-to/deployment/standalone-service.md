@@ -36,7 +36,7 @@ Create `/etc/zeroth/zeroth.env` with at least the following (excerpt — see the
 ZEROTH_DATABASE__BACKEND=postgres
 ZEROTH_DATABASE__POSTGRES_DSN=postgresql://zeroth:secret@db:5432/zeroth
 ZEROTH_DATABASE__ENCRYPTION_KEY=<base64-32-bytes>
-ZEROTH_AUTH__API_KEYS_JSON={"ops":"<opaque-token>"}
+ZEROTH_SERVICE_API_KEYS_JSON='[{"credential_id":"ops","secret":"<opaque-token>","subject":"ops","roles":["admin"]}]'
 ZEROTH_DISPATCH__ARQ_ENABLED=true
 ZEROTH_REDIS__HOST=127.0.0.1
 ZEROTH_REDIS__PORT=6379
@@ -51,22 +51,22 @@ Run Alembic before the first start:
 
 ## Run
 
-The `zeroth-core serve` console script wraps uvicorn with TLS + migration
-logic from `zeroth.core.service.entrypoint`. For systemd control, call
-uvicorn directly against the `app_factory`:
+The `zeroth-core serve` console script runs migrations, bootstraps the
+service (including agent runners built from the deployment's graph), and
+serves uvicorn with TLS from `zeroth.core.service.entrypoint` — bootstrap
+and server share one event loop, which the durable run worker requires.
+Use it directly under systemd (`Type=simple`):
 
 ```bash
-/opt/zeroth/venv/bin/uvicorn zeroth.core.service.entrypoint:app_factory \
-  --factory \
-  --host 127.0.0.1 \
-  --port 8000 \
-  --workers 4 \
-  --proxy-headers
+/opt/zeroth/venv/bin/zeroth-core serve --port 8000
 ```
 
-The `--factory` flag is required — the entrypoint exposes `app_factory`
-rather than a module-level `app`, so the settings + database bootstrap runs
-once per worker.
+Do **not** serve `zeroth.core.service.entrypoint:app_factory` through
+`uvicorn --factory`: uvicorn calls the factory inside its running event
+loop, where the bootstrap's `asyncio.run()` raises `RuntimeError`. For
+horizontal scale, run one `zeroth-core serve` process per port behind
+your reverse proxy (each instance polls the shared run queue; Postgres
+`SKIP LOCKED` leasing keeps them from double-claiming runs).
 
 ### systemd unit
 
@@ -79,8 +79,7 @@ After=network.target postgresql.service
 Type=simple
 User=zeroth
 EnvironmentFile=/etc/zeroth/zeroth.env
-ExecStart=/opt/zeroth/venv/bin/uvicorn zeroth.core.service.entrypoint:app_factory \
-  --factory --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers
+ExecStart=/opt/zeroth/venv/bin/zeroth-core serve --port 8000
 Restart=on-failure
 RestartSec=5
 
@@ -110,7 +109,7 @@ server {
 ## Verify
 
 ```bash
-curl -I https://api.example.com/healthz
+curl -I https://api.example.com/health/ready
 systemctl status zeroth
 ```
 
@@ -119,8 +118,10 @@ surface you can now exercise through the proxy.
 
 ## Common gotchas
 
-- **Missing `--factory`:** without it, uvicorn imports `app_factory` as a
-  module attribute and the service never bootstraps.
+- **Serving `app_factory` via `uvicorn --factory`:** the factory calls
+  `asyncio.run()` and uvicorn invokes it inside a running loop —
+  `RuntimeError: asyncio.run() cannot be called from a running event loop`.
+  Use `zeroth-core serve`.
 - **Migrations not run:** the `zeroth-core serve` console script runs
   `alembic upgrade head` automatically; raw `uvicorn` does not. Run it once
   before first start, and after every upgrade.
