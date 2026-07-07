@@ -24,16 +24,29 @@ import {
 import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
 import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
 import { StudioNodeView, type Port } from "@/app/components/StudioNodeView";
-import { Button, ErrorBox, StatusBadge } from "@/app/components/ui";
+import {
+  ApiErrorNote,
+  Button,
+  Empty,
+  ErrorBox,
+  fmtTime,
+  fmtUsd,
+  Json,
+  Skeleton,
+  StatusBadge,
+} from "@/app/components/ui";
 import {
   ApiError,
   cloneWorkflow,
   errMsg,
   getWorkflow,
   listConnectors,
+  listManifests,
+  listNodeAudits,
   listNodeTypes,
   listWorkflows,
   updateWorkflow,
+  type NodeAuditRecord,
   type NodeType,
   type StudioEdge,
   type StudioNode,
@@ -201,6 +214,9 @@ function Editor({ id }: { id: string }) {
   // Registered memory connectors — feeds the retrieval node's connector
   // dropdown. Non-fatal if unavailable (the field degrades to a text input).
   const [connectorRefs, setConnectorRefs] = useState<string[]>([]);
+  // Registered executable-unit manifests — feeds the executable_unit node's
+  // manifest_ref dropdown. Same degrade-to-text fallback as connectors.
+  const [manifestRefs, setManifestRefs] = useState<string[]>([]);
   // Other workflows in this deployment — feeds the quick-switcher card.
   // Non-fatal if unavailable (the card just doesn't render).
   const [others, setOthers] = useState<WorkflowSummary[]>([]);
@@ -213,16 +229,20 @@ function Editor({ id }: { id: string }) {
     setLoading(true);
     setError(null);
     try {
-      const [detail, types, connectors, all] = await Promise.all([
+      const [detail, types, connectors, manifests, all] = await Promise.all([
         getWorkflow(id),
         listNodeTypes(),
         listConnectors().catch(() => []),
+        listManifests().catch(() => []),
         listWorkflows().catch(() => []),
       ]);
       setName(detail.name);
       setStatus(detail.status);
       setPalette(types);
       setConnectorRefs(connectors.map((c) => c.ref));
+      setManifestRefs(
+        manifests.filter((m) => m.kind === "executable_unit").map((m) => m.manifest_ref),
+      );
       setOthers(all.filter((w) => w.id !== id));
       const rfNodes = toRfNodes(detail, types);
       const rfEdges = toRfEdges(detail);
@@ -821,6 +841,7 @@ function Editor({ id }: { id: string }) {
           node={editing}
           readOnly={readOnly}
           connectorRefs={connectorRefs}
+          manifestRefs={manifestRefs}
           onClose={() => setEditingId(null)}
           onPatch={(patch) => patchNode(editing.id, patch)}
           onDelete={() => deleteNode(editing.id)}
@@ -834,6 +855,7 @@ function NodeEditorDialog({
   node,
   readOnly,
   connectorRefs,
+  manifestRefs,
   onClose,
   onPatch,
   onDelete,
@@ -841,12 +863,17 @@ function NodeEditorDialog({
   node: Node;
   readOnly: boolean;
   connectorRefs: string[];
+  manifestRefs: string[];
   onClose: () => void;
   onPatch: (patch: Partial<{ label: string; config: Cfg }>) => void;
   onDelete: () => void;
 }) {
   const d = node.data as { studioType: string; label: string; config: Cfg };
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [tab, setTab] = useState<"config" | "activity">("config");
+  // Activity mounts lazily on first visit (its fetch runs on mount) and then
+  // stays mounted-but-hidden so toggling tabs doesn't refetch.
+  const [activityOpened, setActivityOpened] = useState(false);
 
   // Move focus into the dialog on open so keyboard users aren't left behind
   // on the canvas.
@@ -889,16 +916,38 @@ function NodeEditorDialog({
           </Button>
         </header>
 
+        <div className="flex gap-1.5 border-b border-border px-4 py-2.5" role="group">
+          <TabButton active={tab === "config"} onClick={() => setTab("config")}>
+            Config
+          </TabButton>
+          <TabButton
+            active={tab === "activity"}
+            onClick={() => {
+              setTab("activity");
+              setActivityOpened(true);
+            }}
+          >
+            Activity
+          </TabButton>
+        </div>
+
         <div className="max-h-[60vh] overflow-auto p-4">
-          <NodeInspector
-            studioType={d.studioType}
-            label={d.label}
-            config={d.config}
-            readOnly={readOnly}
-            dynamicOptions={{ connectors: connectorRefs }}
-            onLabelChange={(label) => onPatch({ label })}
-            onConfigChange={(config) => onPatch({ config })}
-          />
+          <div className={tab === "config" ? "" : "hidden"}>
+            <NodeInspector
+              studioType={d.studioType}
+              label={d.label}
+              config={d.config}
+              readOnly={readOnly}
+              dynamicOptions={{ connectors: connectorRefs, manifests: manifestRefs }}
+              onLabelChange={(label) => onPatch({ label })}
+              onConfigChange={(config) => onPatch({ config })}
+            />
+          </div>
+          {activityOpened && (
+            <div className={tab === "activity" ? "" : "hidden"}>
+              <NodeActivity nodeId={node.id} />
+            </div>
+          )}
         </div>
 
         <footer className="flex items-center justify-between border-t border-border px-4 py-3">
@@ -914,6 +963,109 @@ function NodeEditorDialog({
           </Button>
         </footer>
       </div>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
+        active
+          ? "border-accent/30 bg-accent/10 text-accent"
+          : "border-border text-muted hover:bg-accent/[0.04] hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Per-node execution history: the deployment's audit records filtered to this
+// node id. Draft nodes have never run, so they land on the empty state.
+function NodeActivity({ nodeId }: { nodeId: string }) {
+  const [records, setRecords] = useState<NodeAuditRecord[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRecords(null);
+    setError(null);
+    listNodeAudits(nodeId)
+      .then((r) => {
+        if (!cancelled) setRecords(r);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(errMsg(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nodeId]);
+
+  if (error) return <ApiErrorNote error={error} />;
+  if (records === null) return <Skeleton rows={3} />;
+  if (records.length === 0) {
+    return (
+      <Empty>
+        No executions recorded for this node yet — audits appear after the deployed graph
+        runs.
+      </Empty>
+    );
+  }
+
+  const totalCost = records.reduce((sum, r) => sum + (r.cost_usd ?? 0), 0);
+  const hasCost = records.some((r) => r.cost_usd != null);
+
+  return (
+    <div className="text-sm">
+      <p className="mb-2 text-xs text-muted">
+        {records.length} execution{records.length === 1 ? "" : "s"} shown, newest first
+        {hasCost && <> · total {fmtUsd(totalCost)}</>}
+      </p>
+      <ul className="divide-y divide-border">
+        {records.map((r) => (
+          <li key={r.audit_id} className="space-y-1.5 py-2.5 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+              <StatusBadge status={r.status} />
+              {r.started_at && <span>{fmtTime(r.started_at)}</span>}
+              {r.cost_usd != null && <span>{fmtUsd(r.cost_usd)}</span>}
+              {r.attempt != null && <span>attempt {r.attempt}</span>}
+            </div>
+            {r.error && (
+              <div className="text-xs text-red-700 dark:text-red-400">{r.error}</div>
+            )}
+            {(r.tool_calls?.length ?? 0) > 0 && (
+              <details>
+                <summary className="cursor-pointer text-xs text-muted">
+                  Tool calls ({r.tool_calls!.length})
+                </summary>
+                <div className="mt-1.5">
+                  <Json value={r.tool_calls} />
+                </div>
+              </details>
+            )}
+            {r.output_snapshot != null && (
+              <details>
+                <summary className="cursor-pointer text-xs text-muted">Output snapshot</summary>
+                <div className="mt-1.5">
+                  <Json value={r.output_snapshot} />
+                </div>
+              </details>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

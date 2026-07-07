@@ -238,6 +238,26 @@ export default function GuidePage() {
         </p>
       </Card>
 
+      <Card title="Executable units & where code lives">
+        <p className="text-sm leading-relaxed text-muted">
+          An executable-unit node runs code that was{" "}
+          <span className="font-medium text-foreground">registered in Python</span> at
+          bootstrap — the medium-code path. You register a manifest (a{" "}
+          <Mono>NativeUnitManifest</Mono>, <Mono>WrappedCommandUnitManifest</Mono>, or{" "}
+          <Mono>ProjectUnitManifest</Mono>) together with its handler on the{" "}
+          <Mono>ExecutableUnitRegistry</Mono>, then reference it by ref on the canvas:
+        </p>
+        <code className="mt-3 block overflow-x-auto whitespace-nowrap rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-muted dark:bg-zinc-800">
+          registry.register(&quot;tools/summarize&quot;, manifest, input_model=In,
+          output_model=Out, handler=summarize)
+        </code>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          Code is never authored in the console — the canvas only wires registered units into
+          the graph. The Manifest ref dropdown in the node editor and{" "}
+          <Mono>GET /v1/manifests</Mono> list exactly what this deployment has registered.
+        </p>
+      </Card>
+
       <Card title="Call the deployment from your app">
         <p className="text-sm leading-relaxed text-muted">
           Anything the console does, your application can do — the console is a client of the same

@@ -150,3 +150,24 @@ async def test_audit_api_exposes_run_and_deployment_timelines_in_order(sqlite_db
         "audit:early",
         "audit:late",
     ]
+
+
+async def test_reviewer_can_list_audits(sqlite_db) -> None:
+    """AUDIT_READ belongs to the reviewer role: evidence review is its purpose."""
+    from tests.service.helpers import reviewer_headers
+
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-reviewer"))
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        r = client.get(
+            f"/deployments/{service.deployment.deployment_ref}/audits",
+            headers=reviewer_headers(),
+        )
+
+    assert r.status_code == 200
