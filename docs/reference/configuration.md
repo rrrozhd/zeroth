@@ -41,8 +41,8 @@ Service authentication settings.
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_SERVICE_API_KEYS_JSON` | `str \| None` | `None` | yes | JSON **list** of credential objects: `[{"credential_id", "secret", "subject", "roles", "tenant_id"?, "workspace_id"?}]` |
-| `ZEROTH_SERVICE_BEARER_JSON` | `str \| None` | `None` | yes | JSON bearer/JWT verification config (issuer, audience, jwks) |
+| `ZEROTH_SERVICE_API_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ | JSON **list** of credential objects: `[{"credential_id", "secret", "subject", "roles", "tenant_id"?, "workspace_id"?}]` |
+| `ZEROTH_SERVICE_BEARER_JSON` | `SecretStr \| None` | `None` | ✓ | JSON bearer/JWT verification config (issuer, audience, jwks) |
 
 ## Regulus
 
