@@ -1,0 +1,41 @@
+# Zeroth on Postgres. `docker compose up` then seed once:
+#   docker compose run --rm zeroth zeroth-core seed-demo
+#
+# Set ZEROTH_SERVICE_API_KEYS_JSON (and provider keys like OPENAI_API_KEY)
+# in an .env file next to this compose file.
+
+services:
+  zeroth:
+    build:
+      context: .
+      args:
+        # psycopg for the Postgres backend below.
+        ZEROTH_EXTRAS: memory-pg
+    ports:
+      - "8000:8000"
+    environment:
+      ZEROTH_DATABASE__BACKEND: postgres
+      ZEROTH_DATABASE__POSTGRES_DSN: postgresql://zeroth:zeroth@db:5432/zeroth
+      ZEROTH_SERVICE_API_KEYS_JSON: ${ZEROTH_SERVICE_API_KEYS_JSON:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: zeroth
+      POSTGRES_PASSWORD: zeroth
+      POSTGRES_DB: zeroth
+    volumes:
+      - zeroth-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zeroth"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  zeroth-pg:
