@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 from contextlib import asynccontextmanager
 from typing import Protocol
@@ -62,6 +63,37 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # When the bundled Regulus control plane is mounted in-process, initialize
+        # its own schema + seed data here: Starlette does not run a mounted
+        # sub-app's startup events, so econ_plane.main's on_startup never fires.
+        if getattr(app.state.bootstrap, "regulus_client", None) is not None:
+            try:
+                from econ_plane.common.bootstrap import bootstrap as econ_plane_bootstrap
+                from econ_plane.config import settings as ecp_settings
+                from econ_plane.connectors.service import init_otel_metrics
+
+                # Fail closed on the placeholder JWT secret: the mounted control
+                # plane signs its Admin tokens with ECP_JWT_SECRET, so booting on
+                # the shipped default silently makes those tokens forgeable.
+                # Refuse unless the operator explicitly opts into insecure local
+                # dev (ECP_ALLOW_INSECURE_JWT_SECRET=1), which keeps the getting-
+                # started flow working while making production safe by default.
+                if ecp_settings.jwt_secret == "change-me" and os.environ.get(
+                    "ECP_ALLOW_INSECURE_JWT_SECRET"
+                ) not in ("1", "true", "yes"):
+                    raise RuntimeError(
+                        "Regulus is mounted in-process but ECP_JWT_SECRET is the "
+                        "insecure default 'change-me'. Set ECP_JWT_SECRET to a "
+                        "strong secret, or set ECP_ALLOW_INSECURE_JWT_SECRET=1 for "
+                        "local development only. See SECURITY.md."
+                    )
+
+                econ_plane_bootstrap()
+                init_otel_metrics()  # no-op unless ECP_OTEL_METRICS_ENABLED
+                logger.info("Initialized bundled Regulus control plane")
+            except ImportError:
+                pass
+
         worker = getattr(app.state.bootstrap, "worker", None)
         poll_task: asyncio.Task | None = None
         queue_gauge_task: asyncio.Task | None = None
@@ -201,6 +233,36 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         app.state.regulus_base_url = _regulus_settings.base_url
         app.state.regulus_timeout = _regulus_settings.request_timeout
 
+        # Self-auth headers for Zeroth's own calls to the (possibly in-process,
+        # gated) Regulus mount: Zeroth's first service API key + a fresh
+        # econ_plane Admin JWT. Used by the cost API; the SDK client and budget
+        # enforcer get the same provider via bootstrap.
+        from zeroth.core.econ.service_auth import make_self_auth_headers_provider
+
+        _auth_cfg = getattr(bootstrap, "auth_config", None)
+        _self_api_key = _auth_cfg.api_keys[0].secret if _auth_cfg and _auth_cfg.api_keys else None
+        app.state.regulus_self_auth_headers = make_self_auth_headers_provider(_self_api_key)
+
+        # Mount the bundled Regulus economic control plane in-process under
+        # /regulus (source lives in-repo at src/econ_plane). Guarded so a plain
+        # `zeroth-core` install without the `regulus` extra still boots. The
+        # mount sits behind Zeroth's API-key auth (no bypass); econ_plane then
+        # enforces its own JWT on protected routes. Zeroth's econ client/budget/
+        # cost reach it over HTTP via ZEROTH_REGULUS__BASE_URL (point at
+        # http://<host>/regulus/v1 in-process), carrying both credentials so the
+        # fail-open boundary (D-12) is preserved. The backend keeps its own
+        # ECP_-prefixed settings, database, and JWT auth.
+        try:
+            from econ_plane.main import app as econ_plane_app
+
+            app.mount("/regulus", econ_plane_app)
+            logger.info("Mounted bundled Regulus control plane at /regulus")
+        except ImportError:
+            logger.warning(
+                "Regulus is enabled but econ_plane is not importable; install the "
+                "'regulus' extra (uv sync --extra regulus) to mount it in-process."
+            )
+
     # Register health probe routes BEFORE auth middleware (per D-07).
     from zeroth.core.service.health import register_health_routes
 
@@ -226,6 +288,18 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             response = await call_next(request)
             response.headers["X-Correlation-ID"] = get_correlation_id()
             return response
+
+        # Block the bundled control plane's open token issuer over HTTP. econ_plane
+        # mints an Admin JWT for any caller of POST /**/auth/token with no credential
+        # check of its own; once mounted, that would let any authenticated Zeroth
+        # principal escalate to econ Admin (and read cross-tenant KPIs). Zeroth's own
+        # self-calls mint their econ token in-process (service_auth.mint_econ_service_token),
+        # never via this endpoint, so blocking it breaks nothing internal. Return 404 so
+        # the issuer is simply absent from the HTTP surface. See SECURITY.md.
+        if path.startswith("/regulus/") and path.rstrip("/").endswith("/auth/token"):
+            cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
+            set_correlation_id(cid)
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
         # Propagate or generate a correlation ID for the lifetime of this request.
         cid = request.headers.get("X-Correlation-ID") or new_correlation_id()

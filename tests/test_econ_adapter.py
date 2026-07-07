@@ -184,9 +184,7 @@ async def test_runner_copies_cost_fields_to_audit_record(
         tenant_id="tenant-1",
         deployment_ref="deploy-1",
     )
-    req = ProviderRequest(
-        model_name="openai/gpt-4o", messages=[{"role": "user", "content": "hi"}]
-    )
+    req = ProviderRequest(model_name="openai/gpt-4o", messages=[{"role": "user", "content": "hi"}])
     result = await adapter.ainvoke(req)
 
     # Simulate what the runner would do: copy cost fields to a dict (audit record)
@@ -199,3 +197,60 @@ async def test_runner_copies_cost_fields_to_audit_record(
     assert "cost_usd" in record
     assert "cost_event_id" in record
     assert record["cost_usd"] > 0
+
+
+async def test_cache_hit_attributes_zero_cost_and_emits_no_event(mock_regulus_client):
+    """A cache hit attributes zero marginal cost and emits no Regulus event.
+
+    The orchestrator wraps the runner's provider with InstrumentedProviderAdapter as
+    the *outermost* adapter, so an inner CachingProviderAdapter's hit still flows
+    through this adapter. Without the cache-hit short-circuit, every hit would
+    re-estimate cost on the cached tokens, stamp a fresh cost_usd, and fire a
+    duplicate ExecutionEvent for a call that never reached a model.
+    """
+    from zeroth.core.agent_runtime.provider import CallableProviderAdapter
+    from zeroth.core.agent_runtime.resilience import CachingProviderAdapter
+    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
+    from zeroth.core.econ.cost import CostEstimator
+
+    calls = {"n": 0}
+    usage = TokenUsage(
+        input_tokens=1000, output_tokens=500, total_tokens=1500, model_name="openai/gpt-4o-mini"
+    )
+
+    def _model(_request):
+        calls["n"] += 1
+        return ProviderResponse(content="hello", token_usage=usage)
+
+    adapter = InstrumentedProviderAdapter(
+        inner=CachingProviderAdapter(CallableProviderAdapter(_model)),
+        regulus_client=mock_regulus_client,
+        cost_estimator=CostEstimator(),
+        node_id="test-node",
+        run_id="run-1",
+        tenant_id="tenant-1",
+        deployment_ref="deploy-1",
+    )
+    request = ProviderRequest(
+        model_name="openai/gpt-4o-mini", messages=[{"role": "user", "content": "hi"}]
+    )
+
+    first = await adapter.ainvoke(request)
+    second = await adapter.ainvoke(request)
+
+    # The model ran once; the second call was served from cache.
+    assert calls["n"] == 1
+    assert first.metadata.get("cache_hit") is False
+    assert second.metadata.get("cache_hit") is True
+
+    # Cold miss: real cost attributed and a Regulus event emitted.
+    assert first.cost_usd is not None and first.cost_usd > 0
+    assert first.cost_event_id is not None
+
+    # Cache hit: zero marginal cost, no new event, avoided spend recorded.
+    assert second.cost_usd == 0.0
+    assert second.cost_event_id is None
+    assert second.metadata.get("cache_saved_usd", 0.0) > 0
+
+    # Exactly one event total -- the cold miss, not the hit.
+    mock_regulus_client.track_execution.assert_called_once()

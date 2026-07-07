@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+# The bundled Regulus control plane fails closed on the placeholder JWT secret
+# ("change-me") when mounted in-process. Set a real test secret before any
+# econ_plane import so the mount tests exercise the production-like path rather
+# than the insecure-default guard. Must run at collection import time.
+os.environ.setdefault("ECP_JWT_SECRET", "test-econ-jwt-secret-not-a-real-key")
+
+from zeroth.core.service.bootstrap import run_migrations  # noqa: E402
+from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
 
 
 @pytest.fixture

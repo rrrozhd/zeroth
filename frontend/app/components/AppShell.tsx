@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getApiBase, getApiKey, isConfigured, setConfig } from "@/app/lib/config";
 import { getHealth } from "@/app/lib/api";
-import { Button, Input } from "@/app/components/ui";
+import { Button, Input, useConnected } from "@/app/components/ui";
 
 const LINKS = [
   { href: "/", label: "Overview" },
@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/audit", label: "Audit" },
   { href: "/cost", label: "Cost" },
   { href: "/studio", label: "Studio" },
+  { href: "/guide", label: "Guide" },
 ];
 
 export function Header() {
@@ -23,7 +24,10 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 overflow-x-auto px-6">
+      {/* overflow-x-auto must stay on the nav only: putting it on this row
+          clips the Connect popover to the 56px header strip (and focusing the
+          popover's first field then scrolls the nav out of view). */}
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="grid h-6 w-6 place-items-center rounded-md bg-accent text-[13px] font-bold text-accent-fg">
             0
@@ -31,7 +35,7 @@ export function Header() {
           <span className="text-sm font-semibold tracking-tight">Zeroth</span>
         </Link>
 
-        <nav aria-label="Primary" className="flex shrink-0 items-center gap-0.5">
+        <nav aria-label="Primary" className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
           {LINKS.map((l) => (
             <Link
               key={l.href}
@@ -88,6 +92,7 @@ function DeploymentChip() {
 }
 
 function ConnectPopover() {
+  const connected = useConnected();
   const [open, setOpen] = useState(false);
   const [base, setBase] = useState("");
   const [key, setKey] = useState("");
@@ -132,15 +137,16 @@ function ConnectPopover() {
 
   return (
     <div className="relative" ref={ref}>
+      {/* Primary CTA only while unconfigured — once connected it's a settings affordance. */}
       <Button
         ref={triggerRef}
         size="sm"
-        variant={open ? "default" : "primary"}
+        variant={open || connected ? "default" : "primary"}
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((o) => !o)}
       >
-        Connect
+        {connected ? "Connection" : "Connect"}
       </Button>
       {open && (
         <form

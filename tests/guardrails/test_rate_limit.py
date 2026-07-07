@@ -33,13 +33,15 @@ async def test_token_bucket_different_keys_are_independent(sqlite_db) -> None:
     bucket_a = "tenant:a"
     bucket_b = "tenant:b"
 
-    # Exhaust bucket_a with capacity=1.
-    await limiter.check_and_consume(bucket_a, capacity=1.0, refill_rate=100.0)
-    rejected = await limiter.check_and_consume(bucket_a, capacity=1.0, refill_rate=100.0)
+    # Exhaust bucket_a with capacity=1. Refill rate must be zero: at 100
+    # tokens/s, any >10ms scheduling gap between the two calls refills the
+    # bucket and the rejection assertion flakes under machine load.
+    await limiter.check_and_consume(bucket_a, capacity=1.0, refill_rate=0.0)
+    rejected = await limiter.check_and_consume(bucket_a, capacity=1.0, refill_rate=0.0)
     assert rejected is False
 
     # bucket_b is independent.
-    allowed = await limiter.check_and_consume(bucket_b, capacity=1.0, refill_rate=100.0)
+    allowed = await limiter.check_and_consume(bucket_b, capacity=1.0, refill_rate=0.0)
     assert allowed is True
 
 

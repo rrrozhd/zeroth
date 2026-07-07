@@ -76,7 +76,9 @@ body {
   --xy-controls-button-border-color: var(--border);
   --xy-minimap-background-color: var(--surface);
   --xy-minimap-mask-background-color: color-mix(in srgb, var(--app-bg) 62%, transparent);
-  --xy-minimap-node-background-color: var(--border);
+  /* muted, not border: border-on-surface is ~1.3:1 in dark mode, which makes
+     the minimap read as an empty box. */
+  --xy-minimap-node-background-color: var(--muted);
   --xy-edge-stroke: var(--muted);
 }
 

@@ -470,6 +470,15 @@ wheels = [
 ]
 
 [[package]]
+name = "dnspython"
+version = "2.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/8b/57666417c0f90f08bcafa776861060426765fdb422eb10212086fb811d26/dnspython-2.8.0.tar.gz", hash = "sha256:181d3c6996452cb1189c4046c61599b84a5a86e099562ffde77d26984ff26d0f", size = 368251, upload-time = "2025-09-07T18:58:00.022Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/5a/18ad964b0086c6e62e2e7500f7edc89e3faa45033c71c1893d34eed2b2de/dnspython-2.8.0-py3-none-any.whl", hash = "sha256:01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af", size = 331094, upload-time = "2025-09-07T18:57:58.071Z" },
+]
+
+[[package]]
 name = "docker"
 version = "7.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -484,16 +493,24 @@ wheels = [
 ]
 
 [[package]]
-name = "econ-instrumentation-sdk"
-version = "0.1.1"
+name = "dramatiq"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/29/fb/78b1b689c4a121fc762ab6f00674cfa7246980678117edb03cbb168e5f9f/dramatiq-2.2.0.tar.gz", hash = "sha256:70c9278b0a9b880aeb23b8e09c9d43b1421ac8e807ef18903f6dd059130474a1", size = 108462, upload-time = "2026-06-17T11:18:34.629Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/57/a9be0b205b24e794c833a5295497f914776eb4d606d5a25a5b290e8b75ec/dramatiq-2.2.0-py3-none-any.whl", hash = "sha256:2b2aa244b4098e154600c47cdb2c04cec6c3af44e9e159c319c6fc8b6f0ba90e", size = 127342, upload-time = "2026-06-17T11:18:33.433Z" },
+]
+
+[[package]]
+name = "ecdsa"
+version = "0.19.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "httpx" },
-    { name = "pydantic" },
+    { name = "six" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/87/810ea1e227a70c32e6f6b766bdb710b1fe230aa6b327d24dc7cecde63f83/econ_instrumentation_sdk-0.1.1.tar.gz", hash = "sha256:d89454bec11f6fa67be6f565d595314a722524a343534db785aeae3a2cb15299", size = 19980, upload-time = "2026-04-10T21:56:50.606Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/ca/8de7744cb3bc966c85430ca2d0fcaeea872507c6a4cf6e007f7fe269ed9d/ecdsa-0.19.2.tar.gz", hash = "sha256:62635b0ac1ca2e027f82122b5b81cb706edc38cd91c63dda28e4f3455a2bf930", size = 202432, upload-time = "2026-03-26T09:58:17.675Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/13/0b/083d2012c70bf8c8bc86163b780f8f2a9fad9468492315600654764147c7/econ_instrumentation_sdk-0.1.1-py3-none-any.whl", hash = "sha256:04947c466bbe9fdbfc24f913e2b22acef78ea0bd9bdc014939b9ecdc4065211d", size = 31372, upload-time = "2026-04-10T21:56:52.012Z" },
+    { url = "https://files.pythonhosted.org/packages/51/79/119091c98e2bf49e24ed9f3ae69f816d715d2904aefa6a2baa039a2ba0b0/ecdsa-0.19.2-py2.py3-none-any.whl", hash = "sha256:840f5dc5e375c68f36c1a7a5b9caad28f95daa65185c9253c0c08dd952bb7399", size = 150818, upload-time = "2026-03-26T09:58:15.808Z" },
 ]
 
 [[package]]
@@ -526,6 +543,19 @@ wheels = [
 [package.optional-dependencies]
 async = [
     { name = "aiohttp" },
+]
+
+[[package]]
+name = "email-validator"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dnspython" },
+    { name = "idna" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f5/22/900cb125c76b7aaa450ce02fd727f452243f2e91a61af068b40adba60ea9/email_validator-2.3.0.tar.gz", hash = "sha256:9fc05c37f2f6cf439ff414f8fc46d917929974a82244c20eb10231ba60c54426", size = 51238, upload-time = "2025-08-26T13:09:06.831Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/15/545e2b6cf2e3be84bc1ed85613edd75b8aea69807a71c26f4ca6a9258e82/email_validator-2.3.0-py3-none-any.whl", hash = "sha256:80f13f623413e6b197ae73bb10bf4eb0908faf509ad8362c5edeb0be7fd450b4", size = 35604, upload-time = "2025-08-26T13:09:05.858Z" },
 ]
 
 [[package]]
@@ -2285,6 +2315,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyasn1"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/5f/6583902b6f79b399c9c40674ac384fd9cd77805f9e6205075f828ef11fb2/pyasn1-0.6.3.tar.gz", hash = "sha256:697a8ecd6d98891189184ca1fa05d1bb00e2f84b5977c481452050549c8a72cf", size = 148685, upload-time = "2026-03-17T01:06:53.382Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5d/a0/7d793dce3fa811fe047d6ae2431c672364b462850c6235ae306c0efd025f/pyasn1-0.6.3-py3-none-any.whl", hash = "sha256:a80184d120f0864a52a073acc6fc642847d0be408e7c7252f31390c0f4eadcde", size = 83997, upload-time = "2026-03-17T01:06:52.036Z" },
+]
+
+[[package]]
 name = "pybase64"
 version = "1.4.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2595,6 +2634,25 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
+]
+
+[[package]]
+name = "python-jose"
+version = "3.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ecdsa" },
+    { name = "pyasn1" },
+    { name = "rsa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/77/3a1c9039db7124eb039772b935f2244fbb73fc8ee65b9acf2375da1c07bf/python_jose-3.5.0.tar.gz", hash = "sha256:fb4eaa44dbeb1c26dcc69e4bd7ec54a1cb8dd64d3b4d81ef08d90ff453f2b01b", size = 92726, upload-time = "2025-05-28T17:31:54.288Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/c3/0bd11992072e6a1c513b16500a5d07f91a24017c5909b02c72c62d7ad024/python_jose-3.5.0-py2.py3-none-any.whl", hash = "sha256:abd1202f23d34dfad2c3d28cb8617b90acf34132c7afd60abd0b0b7d3cb55771", size = 34624, upload-time = "2025-05-28T17:31:52.802Z" },
+]
+
+[package.optional-dependencies]
+cryptography = [
+    { name = "cryptography" },
 ]
 
 [[package]]
@@ -2942,6 +3000,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/85/70/92482ccffb96f5441aab93e26c4d66489eb599efdcf96fad90c14bbfb976/rpds_py-0.30.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:dbd936cde57abfee19ab3213cf9c26be06d60750e60a8e4dd85d1ab12c8b1f40", size = 556030, upload-time = "2025-11-30T20:24:10.956Z" },
     { url = "https://files.pythonhosted.org/packages/20/53/7c7e784abfa500a2b6b583b147ee4bb5a2b3747a9166bab52fec4b5b5e7d/rpds_py-0.30.0-cp314-cp314t-win32.whl", hash = "sha256:dc824125c72246d924f7f796b4f63c1e9dc810c7d9e2355864b3c3a73d59ade0", size = 211570, upload-time = "2025-11-30T20:24:12.735Z" },
     { url = "https://files.pythonhosted.org/packages/d0/02/fa464cdfbe6b26e0600b62c528b72d8608f5cc49f96b8d6e38c95d60c676/rpds_py-0.30.0-cp314-cp314t-win_amd64.whl", hash = "sha256:27f4b0e92de5bfbc6f86e43959e6edd1425c33b5e69aab0984a72047f2bcf1e3", size = 226532, upload-time = "2025-11-30T20:24:14.634Z" },
+]
+
+[[package]]
+name = "rsa"
+version = "4.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyasn1" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/da/8a/22b7beea3ee0d44b1916c0c1cb0ee3af23b700b6da9f04991899d0c555d4/rsa-4.9.1.tar.gz", hash = "sha256:e7bdbfdb5497da4c07dfd35530e1a902659db6ff241e39d9953cad06ebd0ae75", size = 29034, upload-time = "2025-04-16T09:51:18.218Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/8d/0133e4eb4beed9e425d9a98ed6e081a55d195481b7632472be1af08d2f6b/rsa-4.9.1-py3-none-any.whl", hash = "sha256:68635866661c6836b8d39430f97a996acbd61bfa49406748ea243539fe239762", size = 34696, upload-time = "2025-04-16T09:51:17.142Z" },
 ]
 
 [[package]]
@@ -3553,13 +3623,12 @@ wheels = [
 
 [[package]]
 name = "zeroth-core"
-version = "0.2.0"
+version = "0.4.2.3"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
     { name = "cachetools" },
-    { name = "econ-instrumentation-sdk" },
     { name = "fastapi" },
     { name = "governai" },
     { name = "httpx" },
@@ -3581,12 +3650,16 @@ dependencies = [
 all = [
     { name = "arq" },
     { name = "chromadb-client" },
+    { name = "dramatiq" },
     { name = "elasticsearch", extra = ["async"] },
+    { name = "email-validator" },
+    { name = "numpy" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
     { name = "pgvector" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
+    { name = "python-jose", extra = ["cryptography"] },
     { name = "redis" },
 ]
 dispatch = [
@@ -3615,6 +3688,12 @@ otel = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
 ]
+regulus = [
+    { name = "dramatiq" },
+    { name = "email-validator" },
+    { name = "numpy" },
+    { name = "python-jose", extra = ["cryptography"] },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -3634,9 +3713,10 @@ requires-dist = [
     { name = "arq", marker = "extra == 'dispatch'", specifier = ">=0.27" },
     { name = "cachetools", specifier = ">=5.5" },
     { name = "chromadb-client", marker = "extra == 'memory-chroma'", specifier = ">=1.5.6" },
-    { name = "econ-instrumentation-sdk", specifier = ">=0.1.1" },
+    { name = "dramatiq", marker = "extra == 'regulus'", specifier = ">=1.17" },
     { name = "elasticsearch", extras = ["async"], marker = "extra == 'memory-es'", specifier = ">=8.0,<9" },
-    { name = "fastapi", specifier = ">=0.115" },
+    { name = "email-validator", marker = "extra == 'regulus'", specifier = ">=2.2" },
+    { name = "fastapi", specifier = ">=0.115,<0.136" },
     { name = "governai", specifier = ">=0.2.3" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain-litellm", specifier = ">=0.3.4" },
@@ -3646,6 +3726,7 @@ requires-dist = [
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.7.6,<10" },
     { name = "mkdocs-section-index", marker = "extra == 'docs'", specifier = ">=0.3.9" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.26,<1" },
+    { name = "numpy", marker = "extra == 'regulus'", specifier = ">=1.26" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.27" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.27" },
     { name = "pgvector", marker = "extra == 'memory-pg'", specifier = ">=0.4.2" },
@@ -3656,6 +3737,7 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10" },
     { name = "pymdown-extensions", marker = "extra == 'docs'", specifier = ">=10.8" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "python-jose", extras = ["cryptography"], marker = "extra == 'regulus'", specifier = ">=3.3" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "redis", specifier = ">=5.3.1" },
     { name = "redis", marker = "extra == 'dispatch'", specifier = ">=5.0.0" },
@@ -3667,9 +3749,10 @@ requires-dist = [
     { name = "zeroth-core", extras = ["memory-es"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["memory-pg"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["otel"], marker = "extra == 'all'" },
+    { name = "zeroth-core", extras = ["regulus"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["sandbox"], marker = "extra == 'all'" },
 ]
-provides-extras = ["memory-pg", "memory-chroma", "memory-es", "dispatch", "sandbox", "otel", "all", "docs"]
+provides-extras = ["memory-pg", "memory-chroma", "memory-es", "dispatch", "sandbox", "otel", "regulus", "all", "docs"]
 
 [package.metadata.requires-dev]
 dev = [

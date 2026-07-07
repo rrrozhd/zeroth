@@ -31,6 +31,7 @@ from zeroth.core.graph.models import (
     RetrievalNodeData,
     SubgraphNode,
 )
+from zeroth.core.service.authorization import Permission, require_permission
 from zeroth.core.service.studio_schemas import (
     CreateWorkflowRequest,
     NodeTypeResponse,
@@ -169,10 +170,13 @@ def _auto_layout(graph: Graph) -> dict[str, dict[str, float]]:
     for edge in graph.edges:
         adjacency[edge.source_node_id].append(edge.target_node_id)
 
+    # Seed the BFS from entry_step, or the first node if entry_step is unset —
+    # otherwise every node collapses into the depth-0 column.
+    seed = graph.entry_step or (graph.nodes[0].node_id if graph.nodes else None)
     depth: dict[str, int] = {}
-    if graph.entry_step:
-        depth[graph.entry_step] = 0
-        queue = deque([graph.entry_step])
+    if seed is not None:
+        depth[seed] = 0
+        queue = deque([seed])
         while queue:
             current = queue.popleft()
             for target in adjacency[current]:
@@ -180,9 +184,15 @@ def _auto_layout(graph: Graph) -> dict[str, dict[str, float]]:
                     depth[target] = depth[current] + 1
                     queue.append(target)
 
+    # Nodes unreachable from the seed go in a column past the reached ones
+    # rather than colliding with the entry node at depth 0.
+    orphan_depth = (max(depth.values()) + 1) if depth else 0
+    for node in graph.nodes:
+        depth.setdefault(node.node_id, orphan_depth)
+
     by_depth: dict[int, list[str]] = defaultdict(list)
     for node in graph.nodes:
-        by_depth[depth.get(node.node_id, 0)].append(node.node_id)
+        by_depth[depth[node.node_id]].append(node.node_id)
 
     positions: dict[str, dict[str, float]] = {}
     for level, node_ids in by_depth.items():
@@ -193,14 +203,24 @@ def _auto_layout(graph: Graph) -> dict[str, dict[str, float]]:
 
 def _graph_to_detail(graph: Graph) -> WorkflowDetailResponse:
     """Map a core Graph model to a Studio WorkflowDetailResponse."""
-    studio_meta = graph.metadata.get("studio", {})
-    node_positions = studio_meta.get("node_positions", {})
-    viewport_data = studio_meta.get("viewport", {})
+    studio_meta = graph.metadata.get("studio")
+    studio_meta = studio_meta if isinstance(studio_meta, dict) else {}
+    stored_positions = studio_meta.get("node_positions")
+    stored_positions = stored_positions if isinstance(stored_positions, dict) else {}
+    viewport_data = studio_meta.get("viewport")
+    viewport_data = viewport_data if isinstance(viewport_data, dict) else {}
 
-    # No stored layout (graph deployed outside the Studio): lay it out so the
-    # canvas doesn't render every node stacked at the origin.
-    if not node_positions:
-        node_positions = _auto_layout(graph)
+    # Fill any node missing a valid stored position from an auto-layout, so a
+    # graph deployed outside the Studio (no positions) OR one with only a
+    # partial positions map doesn't stack un-positioned nodes at the origin.
+    need_layout = any(not isinstance(stored_positions.get(n.node_id), dict) for n in graph.nodes)
+    layout = _auto_layout(graph) if need_layout else {}
+    node_positions = {}
+    for node in graph.nodes:
+        stored = stored_positions.get(node.node_id)
+        node_positions[node.node_id] = (
+            stored if isinstance(stored, dict) else layout.get(node.node_id, {"x": 0, "y": 0})
+        )
 
     nodes = []
     for node in graph.nodes:
@@ -262,6 +282,7 @@ def _graph_to_summary(graph: Graph) -> WorkflowSummaryResponse:
 @router.get("/workflows", response_model=list[WorkflowSummaryResponse])
 async def list_workflows(request: Request) -> list[WorkflowSummaryResponse]:
     """List all workflows as summaries."""
+    await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
     graphs = await repo.list()
     # Exclude archived workflows from the list
@@ -278,6 +299,7 @@ async def create_workflow(
     request: Request,
 ) -> WorkflowDetailResponse:
     """Create a new workflow with default Studio metadata."""
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph_id = str(uuid4())
     graph = Graph(
@@ -299,6 +321,7 @@ async def create_workflow(
 @router.get("/workflows/{workflow_id}", response_model=WorkflowDetailResponse)
 async def get_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
     """Get a workflow with full detail including nodes, edges, and viewport."""
+    await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
     graph = await repo.get(workflow_id)
     if graph is None:
@@ -319,6 +342,7 @@ async def update_workflow(
     into real executable graph nodes (and ``edges`` into graph edges), so the
     canvas authors the actual graph, not just visual metadata.
     """
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph = await repo.get(workflow_id)
     if graph is None:
@@ -379,6 +403,7 @@ async def update_workflow(
 )
 async def clone_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
     """Clone a published workflow into a new editable draft version."""
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph = await repo.get(workflow_id)
     if graph is None:
@@ -395,6 +420,7 @@ async def clone_workflow(workflow_id: str, request: Request) -> WorkflowDetailRe
 @router.delete("/workflows/{workflow_id}", status_code=204)
 async def delete_workflow(workflow_id: str, request: Request) -> Response:
     """Archive a workflow (soft delete)."""
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph = await repo.get(workflow_id)
     if graph is None:
@@ -405,6 +431,7 @@ async def delete_workflow(workflow_id: str, request: Request) -> Response:
 
 
 @router.get("/node-types", response_model=list[NodeTypeResponse])
-def list_node_types() -> list[NodeTypeResponse]:
+async def list_node_types(request: Request) -> list[NodeTypeResponse]:
     """Return all available node types with their port definitions."""
+    await require_permission(request, Permission.WORKFLOW_READ)
     return _NODE_TYPES

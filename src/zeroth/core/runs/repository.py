@@ -457,9 +457,7 @@ class _RunThreadStore:
             )
         else:
             if (
-                thread.graph_version_ref != run.graph_version_ref
-                or thread.deployment_ref != run.deployment_ref
-                or thread.tenant_id != run.tenant_id
+                thread.tenant_id != run.tenant_id
                 or thread.workspace_id != run.workspace_id
             ):
                 raise ValueError("thread identity mismatch")
@@ -493,9 +491,7 @@ class _RunThreadStore:
             )
         else:
             if (
-                thread.graph_version_ref != graph_version_ref
-                or thread.deployment_ref != deployment_ref
-                or thread.tenant_id != tenant_id
+                thread.tenant_id != tenant_id
                 or thread.workspace_id != workspace_id
             ):
                 raise ValueError("thread identity mismatch")

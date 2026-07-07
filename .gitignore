@@ -71,3 +71,7 @@ examples_service.sqlite
 /ops-*.png
 /canvas-*.png
 /cost-*.png
+.publish-audit.md
+
+# Local verification screenshots
+/verify-*.png
