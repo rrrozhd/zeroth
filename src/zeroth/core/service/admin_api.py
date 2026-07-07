@@ -59,7 +59,11 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
         offset: int = 0,
     ) -> AdminRunListResponse:
         bootstrap = _bootstrap(request)
-        await require_permission(request, Permission.RUN_ADMIN)
+        # Listing is read-only and every individual run is already readable
+        # via GET /runs/{run_id} under RUN_READ — gating the list at
+        # RUN_ADMIN only hid the console's run history from operators.
+        # Mutations below (cancel/replay/interrupt) stay RUN_ADMIN.
+        await require_permission(request, Permission.RUN_READ)
         await require_deployment_scope(request, bootstrap.deployment)
         deployment_ref = bootstrap.deployment.deployment_ref
         runs = await bootstrap.run_repository.list_runs(
