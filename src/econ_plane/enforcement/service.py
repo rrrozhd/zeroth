@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from econ_plane.common.tenant import resolve_tenant_id
 from econ_plane.connectors.service import enqueue_connector_event
 from econ_plane.config import settings
-from econ_plane.enforcement.models import AuditLog, EnforcementAction, PolicyAction, TrafficPolicy
+from econ_plane.enforcement.models import AuditLog, EnforcementAction, PolicyAction, TenantBudget, TrafficPolicy
 from econ_plane.enforcement.schemas import EnforcementActionCreate
 
 
@@ -189,6 +189,55 @@ def decide_action(db: Session, action_id: int, decision: str, approver_sub: str,
         created_at=datetime.now(timezone.utc),
     )
     db.add(audit)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def get_budget_status(db: Session, tenant_id: str) -> dict:
+    """Month-to-date spend (execution_events cost columns) vs the tenant's cap."""
+    from econ_plane.instrumentation.models import ExecutionEvent
+
+    now = datetime.now(timezone.utc)
+    window_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    spend = db.execute(
+        select(
+            func.coalesce(
+                func.sum(
+                    ExecutionEvent.token_cost_usd
+                    + ExecutionEvent.tool_cost_usd
+                    + ExecutionEvent.compute_cost_usd
+                ),
+                0,
+            )
+        ).where(
+            ExecutionEvent.tenant_id == tenant_id,
+            ExecutionEvent.timestamp >= window_start.replace(tzinfo=None),
+        )
+    ).scalar_one()
+    row = db.execute(
+        select(TenantBudget).where(TenantBudget.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    return {
+        "tenant_id": tenant_id,
+        "total_cost_usd": float(spend or 0),
+        "budget_cap_usd": row.budget_cap_usd if row is not None else None,
+        "window": "month_to_date",
+        "window_start": window_start,
+    }
+
+
+def upsert_tenant_budget(db: Session, tenant_id: str, budget_cap_usd: float) -> TenantBudget:
+    row = db.execute(
+        select(TenantBudget).where(TenantBudget.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if row is None:
+        row = TenantBudget(tenant_id=tenant_id, budget_cap_usd=budget_cap_usd, updated_at=now)
+        db.add(row)
+    else:
+        row.budget_cap_usd = budget_cap_usd
+        row.updated_at = now
     db.commit()
     db.refresh(row)
     return row

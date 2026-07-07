@@ -54,3 +54,15 @@ class PolicyActionOut(BaseModel):
 
 class DecisionRequest(BaseModel):
     reason: str = ""
+
+
+class TenantBudgetUpsert(BaseModel):
+    budget_cap_usd: float = Field(ge=0)
+
+
+class BudgetStatusOut(BaseModel):
+    tenant_id: str
+    total_cost_usd: float
+    budget_cap_usd: float | None = None
+    window: str = "month_to_date"
+    window_start: datetime | None = None

@@ -21,6 +21,7 @@ class Permission(StrEnum):
     AUDIT_READ = "audit:read"
     RUN_ADMIN = "run:admin"
     METRICS_READ = "metrics:read"
+    METRICS_ADMIN = "metrics:admin"
     WEBHOOK_ADMIN = "webhook:admin"
     TEMPLATE_ADMIN = "template:admin"
     WORKFLOW_READ = "workflow:read"
