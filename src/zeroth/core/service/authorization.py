@@ -14,6 +14,7 @@ class Permission(StrEnum):
     """Permissions enforced by the Phase 6 service surface."""
 
     DEPLOYMENT_READ = "deployment:read"
+    DEPLOYMENT_ADMIN = "deployment:admin"
     RUN_CREATE = "run:create"
     RUN_READ = "run:read"
     APPROVAL_READ = "approval:read"
@@ -32,6 +33,10 @@ class Permission(StrEnum):
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
     ServiceRole.OPERATOR: {
         Permission.DEPLOYMENT_READ,
+        # Deploying a published graph is the tail of the operator authoring
+        # loop (author -> publish -> deploy); serving swaps remain an ops
+        # action (restart with the new deployment_ref).
+        Permission.DEPLOYMENT_ADMIN,
         Permission.RUN_CREATE,
         Permission.RUN_READ,
         Permission.APPROVAL_READ,

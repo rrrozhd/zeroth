@@ -54,6 +54,8 @@ class UpdateWorkflowRequest(BaseModel):
     nodes: list[StudioNodeResponse] | None = None
     edges: list[StudioEdgeResponse] | None = None
     viewport: StudioViewport | None = None
+    # Entrypoint node id. Omit to leave unchanged; send "" to clear.
+    entry_step: str | None = None
 
 
 class WorkflowSummaryResponse(BaseModel):
@@ -73,10 +75,19 @@ class WorkflowDetailResponse(BaseModel):
     name: str
     version: int
     status: str
+    entry_step: str | None = None
     nodes: list[StudioNodeResponse]
     edges: list[StudioEdgeResponse]
     viewport: StudioViewport
     updated_at: str
+
+
+class StudioContractResponse(BaseModel):
+    """A registered contract, for canvas contract-ref pickers."""
+
+    name: str
+    version: int
+    json_schema: dict = Field(default_factory=dict)
 
 
 class PortDefinitionResponse(BaseModel):
