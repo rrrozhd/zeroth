@@ -24,7 +24,10 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 overflow-x-auto px-6">
+      {/* overflow-x-auto must stay on the nav only: putting it on this row
+          clips the Connect popover to the 56px header strip (and focusing the
+          popover's first field then scrolls the nav out of view). */}
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="grid h-6 w-6 place-items-center rounded-md bg-accent text-[13px] font-bold text-accent-fg">
             0
@@ -32,7 +35,7 @@ export function Header() {
           <span className="text-sm font-semibold tracking-tight">Zeroth</span>
         </Link>
 
-        <nav aria-label="Primary" className="flex shrink-0 items-center gap-0.5">
+        <nav aria-label="Primary" className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
           {LINKS.map((l) => (
             <Link
               key={l.href}
