@@ -659,7 +659,12 @@ function Editor({ id }: { id: string }) {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onInit={setRf}
-          onNodeClick={(_, node) => setEditingId(node.id)}
+          // n8n-style: single click only selects (so ⌘C/multi-select feel
+          // natural); the config dialog opens on double-click.
+          onNodeDoubleClick={(_, node) => setEditingId(node.id)}
+          selectionOnDrag
+          panOnDrag={[1, 2]}
+          panOnScroll
           fitView
           fitViewOptions={{ maxZoom: 1, padding: 0.25 }}
           minZoom={0.3}
@@ -766,9 +771,12 @@ function Editor({ id }: { id: string }) {
               )}
 
               <p className="px-1 text-xs text-muted">
-                Click a node to edit it.{" "}
+                Click selects · drag a box to multi-select · double-click edits ·{" "}
+                <kbd className="rounded border border-border bg-surface px-1">⌘C</kbd>/
+                <kbd className="rounded border border-border bg-surface px-1">⌘V</kbd> copies
+                across workflows ·{" "}
                 <kbd className="rounded border border-border bg-surface px-1">Backspace</kbd>{" "}
-                deletes the selection.
+                deletes · scroll or middle-drag pans.
               </p>
             </div>
           </Panel>
