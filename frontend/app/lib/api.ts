@@ -86,6 +86,11 @@ export class ApiError extends Error {
   }
 }
 
+// Ceiling for any single request. A wedged backend (accepts connections,
+// never replies — e.g. blocked middleware) must surface as an error, not an
+// eternal loading state.
+const REQUEST_TIMEOUT_MS = 20_000;
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const base = getApiBase();
   const key = getApiKey();
@@ -96,9 +101,21 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   let res: Response;
   try {
-    res = await fetch(`${base}${path}`, { ...init, headers });
+    res = await fetch(`${base}${path}`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      ...init, // caller-supplied signal (if any) wins over the default
+      headers,
+    });
   } catch (e) {
     const where = base || "this origin";
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      throw new ApiError(
+        0,
+        `No response from ${where}${path} after ${REQUEST_TIMEOUT_MS / 1000}s — ` +
+          "the service accepted the connection but never replied. It may be wedged; " +
+          "try restarting it or check the API base under Connect.",
+      );
+    }
     throw new ApiError(0, `Network error reaching ${where}${path}: ${(e as Error).message}`);
   }
 
