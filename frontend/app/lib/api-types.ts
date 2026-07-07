@@ -255,11 +255,72 @@ export interface paths {
          * @description All memory connectors registered for this deployment, by ref.
          *
          *     These are the values a retrieval node's ``connector_ref`` (and an
-         *     agent's ``memory_refs``) can resolve at run time.
+         *     agent's ``memory_refs``) can resolve at run time. Runtime-managed
+         *     connectors include their backend_type and secret-masked params;
+         *     env-sourced connectors return ``params=None``.
          */
         get: operations["list_connectors_v1_connectors_get"];
         put?: never;
+        /**
+         * Create Connector
+         * @description Create a runtime-managed connector: build, register live, persist.
+         *
+         *     Backend construction is cheap and may connect lazily (pgvector opens
+         *     its first connection on first use) -- use POST /connectors/{ref}/test
+         *     for a real connectivity check.
+         */
+        post: operations["create_connector_v1_connectors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Connector
+         * @description Reconfigure an existing runtime-managed connector (rebuild + re-register).
+         */
+        put: operations["update_connector_v1_connectors__ref__put"];
         post?: never;
+        /**
+         * Delete Connector
+         * @description Delete a runtime-managed connector (env-sourced ones cannot be deleted).
+         */
+        delete: operations["delete_connector_v1_connectors__ref__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/{ref}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Connector
+         * @description Probe the LIVE connector with a tiny write+read round-trip.
+         *
+         *     Works for both env-sourced and runtime connectors. Connection
+         *     failures never raise 500 -- they come back as ``ok=false`` with the
+         *     error message. The probe is capped at 5 seconds.
+         *
+         *     Note: pgvector's write path generates an embedding via litellm, so
+         *     probing a pgvector connector performs one (tiny) embedding API call.
+         */
+        post: operations["test_connector_v1_connectors__ref__test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1000,18 +1061,67 @@ export interface components {
          */
         AuthMethod: "api_key" | "bearer";
         /**
+         * ConnectorCreateRequest
+         * @description Payload for creating a runtime-managed connector.
+         */
+        ConnectorCreateRequest: {
+            /** Backend Type */
+            backend_type: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /** Ref */
+            ref: string;
+        };
+        /**
          * ConnectorSummaryResponse
          * @description One registered memory connector, as shown in the console.
          */
         ConnectorSummaryResponse: {
             /** Backend */
             backend: string;
+            /** Backend Type */
+            backend_type?: string | null;
             /** Connector Type */
             connector_type: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            } | null;
             /** Ref */
             ref: string;
             /** Scope */
             scope: string;
+            /**
+             * Source
+             * @default env
+             */
+            source: string;
+        };
+        /**
+         * ConnectorTestResponse
+         * @description Result of a live connectivity probe against a registered connector.
+         */
+        ConnectorTestResponse: {
+            /** Detail */
+            detail?: string | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Ok */
+            ok: boolean;
+        };
+        /**
+         * ConnectorUpdateRequest
+         * @description Payload for reconfiguring an existing runtime-managed connector.
+         */
+        ConnectorUpdateRequest: {
+            /** Backend Type */
+            backend_type: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
         };
         /**
          * CreateSubscriptionRequest
@@ -2345,6 +2455,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConnectorSummaryResponse"][];
+                };
+            };
+        };
+    };
+    create_connector_v1_connectors_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_connector_v1_connectors__ref__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_connector_v1_connectors__ref__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_connector_v1_connectors__ref__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

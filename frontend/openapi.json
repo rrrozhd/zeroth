@@ -509,6 +509,31 @@
         "title": "AuthMethod",
         "type": "string"
       },
+      "ConnectorCreateRequest": {
+        "additionalProperties": false,
+        "description": "Payload for creating a runtime-managed connector.",
+        "properties": {
+          "backend_type": {
+            "title": "Backend Type",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "backend_type"
+        ],
+        "title": "ConnectorCreateRequest",
+        "type": "object"
+      },
       "ConnectorSummaryResponse": {
         "additionalProperties": false,
         "description": "One registered memory connector, as shown in the console.",
@@ -517,9 +542,32 @@
             "title": "Backend",
             "type": "string"
           },
+          "backend_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend Type"
+          },
           "connector_type": {
             "title": "Connector Type",
             "type": "string"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Params"
           },
           "ref": {
             "title": "Ref",
@@ -527,6 +575,11 @@
           },
           "scope": {
             "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "default": "env",
+            "title": "Source",
             "type": "string"
           }
         },
@@ -537,6 +590,57 @@
           "backend"
         ],
         "title": "ConnectorSummaryResponse",
+        "type": "object"
+      },
+      "ConnectorTestResponse": {
+        "additionalProperties": false,
+        "description": "Result of a live connectivity probe against a registered connector.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "number"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "latency_ms"
+        ],
+        "title": "ConnectorTestResponse",
+        "type": "object"
+      },
+      "ConnectorUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Payload for reconfiguring an existing runtime-managed connector.",
+        "properties": {
+          "backend_type": {
+            "title": "Backend Type",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "backend_type"
+        ],
+        "title": "ConnectorUpdateRequest",
         "type": "object"
       },
       "CreateSubscriptionRequest": {
@@ -3194,7 +3298,7 @@
     },
     "/v1/connectors": {
       "get": {
-        "description": "All memory connectors registered for this deployment, by ref.\n\nThese are the values a retrieval node's ``connector_ref`` (and an\nagent's ``memory_refs``) can resolve at run time.",
+        "description": "All memory connectors registered for this deployment, by ref.\n\nThese are the values a retrieval node's ``connector_ref`` (and an\nagent's ``memory_refs``) can resolve at run time. Runtime-managed\nconnectors include their backend_type and secret-masked params;\nenv-sourced connectors return ``params=None``.",
         "operationId": "list_connectors_v1_connectors_get",
         "responses": {
           "200": {
@@ -3213,6 +3317,176 @@
           }
         },
         "summary": "List Connectors",
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "description": "Create a runtime-managed connector: build, register live, persist.\n\nBackend construction is cheap and may connect lazily (pgvector opens\nits first connection on first use) -- use POST /connectors/{ref}/test\nfor a real connectivity check.",
+        "operationId": "create_connector_v1_connectors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Connector",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/connectors/{ref}": {
+      "delete": {
+        "description": "Delete a runtime-managed connector (env-sourced ones cannot be deleted).",
+        "operationId": "delete_connector_v1_connectors__ref__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Connector",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "description": "Reconfigure an existing runtime-managed connector (rebuild + re-register).",
+        "operationId": "update_connector_v1_connectors__ref__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Connector",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/connectors/{ref}/test": {
+      "post": {
+        "description": "Probe the LIVE connector with a tiny write+read round-trip.\n\nWorks for both env-sourced and runtime connectors. Connection\nfailures never raise 500 -- they come back as ``ok=false`` with the\nerror message. The probe is capped at 5 seconds.\n\nNote: pgvector's write path generates an embedding via litellm, so\nprobing a pgvector connector performs one (tiny) embedding API call.",
+        "operationId": "test_connector_v1_connectors__ref__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorTestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Connector",
         "tags": [
           "v1"
         ]

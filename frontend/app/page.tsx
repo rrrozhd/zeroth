@@ -43,6 +43,12 @@ const QUICK_LINKS: { href: string; title: string; desc: string; icon: string }[]
     icon: "M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6",
   },
   {
+    href: "/connectors",
+    title: "Connectors",
+    desc: "Memory & retrieval backends",
+    icon: "M12 2C6.5 2 2 3.6 2 5.5v13C2 20.4 6.5 22 12 22s10-1.6 10-3.5v-13C22 3.6 17.5 2 12 2z M2 5.5C2 7.4 6.5 9 12 9s10-1.6 10-3.5 M2 12c0 1.9 4.5 3.5 10 3.5s10-1.6 10-3.5",
+  },
+  {
     href: "/guide",
     title: "Guide",
     desc: "Concepts & how-to",

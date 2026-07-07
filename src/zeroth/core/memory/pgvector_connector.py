@@ -8,6 +8,7 @@ Per D-10, D-11, D-14 from Phase 14 planning.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from collections.abc import Awaitable, Callable
@@ -31,15 +32,16 @@ class PgvectorMemoryConnector:
     """Memory connector backed by Postgres with pgvector extension.
 
     Uses HNSW index for fast approximate nearest-neighbor search with
-    cosine similarity. Accepts an async connection factory rather than
-    managing connections directly.
+    cosine similarity. Accepts an async connection factory (or a DSN
+    string, which is wrapped into one) rather than managing connections
+    directly.
     """
 
     connector_type = "pgvector"
 
     def __init__(
         self,
-        conn_factory: Callable[[], Awaitable[psycopg.AsyncConnection]],
+        conn_factory: Callable[[], Awaitable[psycopg.AsyncConnection]] | str,
         *,
         table_name: str = "zeroth_memory_vectors",
         embedding_model: str = DEFAULT_EMBEDDING_MODEL,
@@ -49,6 +51,13 @@ class PgvectorMemoryConnector:
             raise ValueError(
                 f"invalid pgvector table_name {table_name!r}: must match {_IDENT_RE.pattern}"
             )
+        if isinstance(conn_factory, str):
+            dsn = conn_factory
+
+            def _connect() -> Awaitable[psycopg.AsyncConnection]:
+                return psycopg.AsyncConnection.connect(dsn)
+
+            conn_factory = _connect
         self._conn_factory = conn_factory
         self._table = table_name
         self._embedding_model = embedding_model
@@ -168,7 +177,11 @@ class PgvectorMemoryConnector:
         """Convert a database row tuple to a MemoryEntry."""
         value = row[1]
         if isinstance(value, str):
-            value = json.loads(value)
+            # psycopg already decodes jsonb, so a str here is either a raw
+            # serialized payload (older drivers/TEXT columns) or a genuine
+            # JSON string primitive like "ok" — only the former re-parses.
+            with contextlib.suppress(ValueError):
+                value = json.loads(value)
         return MemoryEntry(
             key=row[0],
             value=value,

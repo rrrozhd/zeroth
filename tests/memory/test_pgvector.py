@@ -309,3 +309,17 @@ class TestPgvectorLive:
                 await cleanup.commit()
             finally:
                 await cleanup.close()
+
+
+def test_row_to_entry_keeps_string_primitive_values():
+    """jsonb string primitives arrive pre-decoded; they must not be re-parsed."""
+    from datetime import UTC, datetime
+
+    from zeroth.core.memory.pgvector_connector import PgvectorMemoryConnector
+
+    connector = PgvectorMemoryConnector.__new__(PgvectorMemoryConnector)
+    now = datetime.now(UTC)
+    entry = connector._row_to_entry(("k", "ok", "shared", "__shared__", {}, now, now))
+    assert entry.value == "ok"
+    entry = connector._row_to_entry(("k", '{"a": 1}', "shared", "__shared__", {}, now, now))
+    assert entry.value == {"a": 1}

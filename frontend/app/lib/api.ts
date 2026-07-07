@@ -23,6 +23,9 @@ export type NodeAuditRecord = S["NodeAuditRecord"];
 export type DeploymentCost = S["DeploymentCostResponse"];
 export type DeploymentSummary = S["DeploymentSummaryResponse"];
 export type ConnectorSummary = S["ConnectorSummaryResponse"];
+export type ConnectorCreateRequest = S["ConnectorCreateRequest"];
+export type ConnectorUpdateRequest = S["ConnectorUpdateRequest"];
+export type ConnectorTestResponse = S["ConnectorTestResponse"];
 export type ManifestSummary = S["ManifestSummaryResponse"];
 export type WorkflowSummary = S["WorkflowSummaryResponse"];
 export type WorkflowDetail = S["WorkflowDetailResponse"];
@@ -164,6 +167,40 @@ export function listDeployments(): Promise<DeploymentSummary[]> {
 /** Registered memory connectors — the resolvable connector_ref values. */
 export function listConnectors(): Promise<ConnectorSummary[]> {
   return apiFetch<ConnectorSummary[]>("/v1/connectors");
+}
+
+/** Create a runtime-managed connector (requires CONNECTOR_ADMIN). */
+export function createConnector(body: ConnectorCreateRequest): Promise<ConnectorSummary> {
+  return apiFetch<ConnectorSummary>("/v1/connectors", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Reconfigure an existing runtime-managed connector (rebuild + re-register). */
+export function updateConnector(
+  ref: string,
+  body: ConnectorUpdateRequest,
+): Promise<ConnectorSummary> {
+  return apiFetch<ConnectorSummary>(`/v1/connectors/${encodeURIComponent(ref)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Delete a runtime-managed connector (env-sourced ones 409). */
+export function deleteConnector(ref: string): Promise<void> {
+  return apiFetch<void>(`/v1/connectors/${encodeURIComponent(ref)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Live connectivity probe — works for env and runtime connectors alike. */
+export function testConnector(ref: string): Promise<ConnectorTestResponse> {
+  return apiFetch<ConnectorTestResponse>(
+    `/v1/connectors/${encodeURIComponent(ref)}/test`,
+    { method: "POST" },
+  );
 }
 
 // ---- Manifests ----
