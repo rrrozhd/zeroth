@@ -231,6 +231,41 @@ function Editor({ id }: { id: string }) {
     window.setTimeout(() => rf?.fitView({ maxZoom: 1, padding: 0.25 }), 0);
   }, [palette, rf, setNodes, setEdges]);
 
+  // One-click cleanup: topological left-to-right layout (roots on the left,
+  // each node one column right of its furthest predecessor), columns centered
+  // vertically, then re-center the viewport on the result.
+  const tidyLayout = useCallback(() => {
+    setNodes((ns) => {
+      if (ns.length < 2) return ns;
+      const level = new Map<string, number>(ns.map((n) => [n.id, 0]));
+      // Longest-path relaxation; the pass cap keeps cycles from looping forever.
+      for (let pass = 0; pass < ns.length; pass++) {
+        let changed = false;
+        for (const e of edges) {
+          const next = (level.get(e.source) ?? 0) + 1;
+          if (next > (level.get(e.target) ?? 0)) {
+            level.set(e.target, next);
+            changed = true;
+          }
+        }
+        if (!changed) break;
+      }
+      const columns = new Map<number, string[]>();
+      ns.forEach((n) => {
+        const l = level.get(n.id) ?? 0;
+        columns.set(l, [...(columns.get(l) ?? []), n.id]);
+      });
+      const pos = new Map<string, { x: number; y: number }>();
+      columns.forEach((ids, l) => {
+        ids.forEach((id, i) => {
+          pos.set(id, { x: l * 280, y: (i - (ids.length - 1) / 2) * 120 });
+        });
+      });
+      return ns.map((n) => ({ ...n, position: pos.get(n.id) ?? n.position }));
+    });
+    window.setTimeout(() => rf?.fitView({ maxZoom: 1, padding: 0.25 }), 0);
+  }, [edges, rf, setNodes]);
+
   const patchNode = useCallback(
     (nodeId: string, patch: Partial<{ label: string; config: Cfg }>) => {
       setNodes((ns) =>
@@ -352,7 +387,7 @@ function Editor({ id }: { id: string }) {
                   </span>
                   <span className="min-w-0">
                     <span className="block text-sm font-medium">{t.label}</span>
-                    <span className="block truncate text-xs text-muted">
+                    <span className="line-clamp-2 block text-xs text-muted">
                       {NODE_META[t.type]?.blurb ?? t.category}
                     </span>
                   </span>
@@ -397,6 +432,13 @@ function Editor({ id }: { id: string }) {
               <Background />
               <Controls />
               <MiniMap pannable zoomable />
+              {!readOnly && nodes.length > 1 && (
+                <Panel position="top-right">
+                  <Button size="sm" onClick={tidyLayout} title="Auto-arrange and center the graph">
+                    Tidy layout
+                  </Button>
+                </Panel>
+              )}
               {nodes.length === 0 && (
                 <Panel position="top-center">
                   <div className="mt-12 rounded-lg border border-dashed border-border bg-surface/80 px-4 py-3 text-center text-sm text-muted">
