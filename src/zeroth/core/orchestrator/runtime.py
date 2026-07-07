@@ -760,7 +760,13 @@ class RuntimeOrchestrator:
                     }
                 else:
                     # Dispatch the downstream node with branch-isolated payload
-                    ds_output, ds_audit = await self._dispatch_node(ds_node, run, branch_output)
+                    try:
+                        ds_output, ds_audit = await self._dispatch_node(ds_node, run, branch_output)
+                    except Exception as exc:
+                        await self._record_failed_branch_execution_audit(
+                            run, ds_node, ds_node_id, branch_output, exc, ctx
+                        )
+                        raise
 
                 # Increment global step tracker
                 await step_tracker.increment()
@@ -1811,6 +1817,67 @@ class RuntimeOrchestrator:
                 status="rejected" if is_rejection else "failed",
                 started_at=node_started_at,
                 completed_at=completed_at,
+                input_snapshot=self._redact_for_audit(dict(input_payload)),
+                output_snapshot={},
+                execution_metadata=redacted_audit_record,
+                token_usage=token_usage,
+                cost_usd=redacted_audit_record.get("cost_usd"),
+                cost_event_id=redacted_audit_record.get("cost_event_id"),
+                error=str(error),
+                tool_calls=tool_calls,
+                memory_interactions=memory_interactions,
+            )
+        )
+
+    async def _record_failed_branch_execution_audit(
+        self,
+        run: Run,
+        node: Node,
+        node_id: str,
+        input_payload: Mapping[str, Any],
+        error: Exception,
+        ctx: BranchContext,
+    ) -> None:
+        """Persist a branch-scoped audit record for a failed branch-node dispatch.
+
+        Mirrors _record_failed_execution_audit: errors that attach an
+        audit_record (content blocks, integrity rejections, paid-then-failed
+        calls) are governance rejections; bare infrastructure errors still
+        must leave a trail — a failed branch node with no audit record is
+        indistinguishable from a node that never ran.
+        """
+        if self.audit_repository is None:
+            return
+        carried_audit = getattr(error, "audit_record", None)
+        is_rejection = isinstance(carried_audit, Mapping)
+        audit_record: dict[str, Any] = (
+            dict(carried_audit) if is_rejection else {"error_type": type(error).__name__}
+        )
+        audit_record["branch_id"] = ctx.branch_id
+        audit_record["branch_index"] = ctx.branch_index
+        audit_seq = len(ctx.audit_refs) + 1
+        audit_ref = f"{run.run_id}:branch:{ctx.branch_index}:audit:{audit_seq}"
+        ctx.audit_refs.append(audit_ref)
+        redacted_audit_record = self._redact_for_audit(audit_record)
+        # Promote cost/token fields so spend incurred before the failure stays
+        # visible in the audit trail (and to econ.waste.analyze_run).
+        token_usage_data = redacted_audit_record.get("token_usage")
+        token_usage = (
+            TokenUsage.model_validate(token_usage_data) if token_usage_data is not None else None
+        )
+        tool_calls, memory_interactions = self._typed_audit_fields(redacted_audit_record)
+        await self.audit_repository.write(
+            NodeAuditRecord(
+                audit_id=audit_ref,
+                run_id=run.run_id,
+                thread_id=run.thread_id,
+                node_id=node_id,
+                node_version=node.node_version,
+                graph_version_ref=run.graph_version_ref,
+                deployment_ref=run.deployment_ref,
+                attempt=1,
+                status="rejected" if is_rejection else "failed",
+                completed_at=datetime.now(UTC),
                 input_snapshot=self._redact_for_audit(dict(input_payload)),
                 output_snapshot={},
                 execution_metadata=redacted_audit_record,
