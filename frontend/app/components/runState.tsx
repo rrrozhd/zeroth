@@ -22,6 +22,16 @@ export function useNodeRunState(nodeId: string): NodeRunState | undefined {
   return useContext(RunStateContext)[nodeId];
 }
 
+// Publish-validation overlay: node id -> worst issue severity from the last
+// failed publish. Same rule as the run overlay — NEVER in node.data, so a
+// failed publish can't schedule saves or pollute the undo stack.
+export const PublishIssuesContext = createContext<Record<string, "error" | "warning">>({});
+
+/** Publish-issue marker for one canvas node; undefined = no issues. */
+export function useNodeIssue(nodeId: string): "error" | "warning" | undefined {
+  return useContext(PublishIssuesContext)[nodeId];
+}
+
 const DONE = new Set(["completed", "succeeded", "ok"]);
 const FAILED = new Set([
   "failed",

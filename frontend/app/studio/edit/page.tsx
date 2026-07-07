@@ -26,6 +26,7 @@ import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
 import {
   deriveNodeStates,
   entryPhase,
+  PublishIssuesContext,
   RunStateContext,
   type NodeRunState,
 } from "@/app/components/runState";
@@ -38,7 +39,9 @@ import {
   Field,
   fmtTime,
   fmtUsd,
+  Input,
   Json,
+  Mono,
   Skeleton,
   StatusBadge,
   Textarea,
@@ -46,25 +49,34 @@ import {
 import {
   ApiError,
   cloneWorkflow,
+  createDeployment,
+  diffWorkflow,
   errMsg,
   getHealth,
   getRun,
   getRunTimeline,
   getWorkflow,
   listConnectors,
+  listContracts,
   listManifests,
   listNodeAudits,
   listNodeTypes,
   listRuns,
   listWorkflows,
+  publishIssuesOf,
+  publishWorkflow,
   submitRun,
   updateWorkflow,
+  type DeploymentSummary,
+  type DiffEntry,
   type NodeAuditRecord,
   type NodeType,
+  type PublishIssue,
   type RunStatus,
   type StudioEdge,
   type StudioNode,
   type WorkflowDetail,
+  type WorkflowDiff,
   type WorkflowSummary,
 } from "@/app/lib/api";
 import { setLastWorkflowId } from "@/app/lib/lastWorkflow";
@@ -73,6 +85,14 @@ import { WORKFLOW_TEMPLATES } from "@/app/lib/templates";
 const nodeTypes = { studio: StudioNodeView };
 
 type Cfg = Record<string, unknown>;
+
+// Editable slice of a canvas node's data (inspector writes through patchNode).
+type NodePatch = Partial<{
+  label: string;
+  config: Cfg;
+  inputContractRef: string | null;
+  outputContractRef: string | null;
+}>;
 
 function portsFor(type: string, types: NodeType[]): Port[] {
   return (types.find((t) => t.type === type)?.ports ?? []) as Port[];
@@ -102,6 +122,8 @@ type ClipboardPayload = {
     studioType: string;
     label: string;
     config: Cfg;
+    inputContractRef?: string | null;
+    outputContractRef?: string | null;
     position: { x: number; y: number };
   }[];
   edges: {
@@ -116,7 +138,12 @@ type ClipboardPayload = {
 
 function toRfNodes(detail: WorkflowDetail, types: NodeType[]): Node[] {
   return detail.nodes.map((n) => {
-    const data = (n.data ?? {}) as { label?: string; config?: Cfg };
+    const data = (n.data ?? {}) as {
+      label?: string;
+      config?: Cfg;
+      input_contract_ref?: string | null;
+      output_contract_ref?: string | null;
+    };
     return {
       id: n.id,
       type: "studio",
@@ -126,6 +153,10 @@ function toRfNodes(detail: WorkflowDetail, types: NodeType[]): Node[] {
         studioType: n.type,
         ports: portsFor(n.type, types),
         config: data.config ?? {},
+        // Node-level contract bindings must round-trip — dropping them here
+        // would silently strip contracts from graphs authored in Python.
+        inputContractRef: data.input_contract_ref ?? null,
+        outputContractRef: data.output_contract_ref ?? null,
       },
     };
   });
@@ -143,12 +174,23 @@ function toRfEdges(detail: WorkflowDetail): Edge[] {
 
 function toStudioNodes(nodes: Node[]): StudioNode[] {
   return nodes.map((n) => {
-    const d = n.data as { studioType: string; label: string; config: Cfg };
+    const d = n.data as {
+      studioType: string;
+      label: string;
+      config: Cfg;
+      inputContractRef?: string | null;
+      outputContractRef?: string | null;
+    };
     return {
       id: n.id,
       type: d.studioType,
       position: { x: n.position.x, y: n.position.y },
-      data: { label: d.label, config: d.config },
+      data: {
+        label: d.label,
+        config: d.config,
+        input_contract_ref: d.inputContractRef ?? null,
+        output_contract_ref: d.outputContractRef ?? null,
+      },
     };
   });
 }
@@ -202,6 +244,10 @@ function Editor({ id }: { id: string }) {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [name, setName] = useState("");
   const [status, setStatus] = useState<string>("");
+  // The graph's entrypoint node id ("" = unset). Required to publish; saved
+  // through PUT alongside the structure ("" clears it server-side).
+  const [entryStep, setEntryStep] = useState("");
+  const [version, setVersion] = useState(1);
   const [palette, setPalette] = useState<NodeType[]>([]);
   const [rf, setRf] = useState<ReactFlowInstance<Node, Edge> | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -231,6 +277,8 @@ function Editor({ id }: { id: string }) {
   // Registered executable-unit manifests — feeds the executable_unit node's
   // manifest_ref dropdown. Same degrade-to-text fallback as connectors.
   const [manifestRefs, setManifestRefs] = useState<string[]>([]);
+  // Registered contracts — feeds the inspector's contract-ref pickers.
+  const [contractNames, setContractNames] = useState<string[]>([]);
   // Other workflows in this deployment — feeds the quick-switcher card.
   // Non-fatal if unavailable (the card just doesn't render).
   const [others, setOthers] = useState<WorkflowSummary[]>([]);
@@ -238,6 +286,13 @@ function Editor({ id }: { id: string }) {
   // Run overlay per node id, painted by the RunPanel. Lives in context (not
   // node.data) so runs never dirty the autosave signature or undo history.
   const [runStates, setRunStates] = useState<Record<string, NodeRunState>>({});
+  // Structured issue list from the last failed publish (422); same context
+  // rule as run state — never stored in node.data.
+  const [publishIssues, setPublishIssues] = useState<PublishIssue[] | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [justPublished, setJustPublished] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const readOnly = status === "published";
   const sig = useMemo(() => graphSig(nodes, edges), [nodes, edges]);
@@ -247,20 +302,24 @@ function Editor({ id }: { id: string }) {
     setLoading(true);
     setError(null);
     try {
-      const [detail, types, connectors, manifests, all] = await Promise.all([
+      const [detail, types, connectors, manifests, contracts, all] = await Promise.all([
         getWorkflow(id),
         listNodeTypes(),
         listConnectors().catch(() => []),
         listManifests().catch(() => []),
+        listContracts().catch(() => []),
         listWorkflows().catch(() => []),
       ]);
       setName(detail.name);
       setStatus(detail.status);
+      setEntryStep(detail.entry_step ?? "");
+      setVersion(detail.version);
       setPalette(types);
       setConnectorRefs(connectors.map((c) => c.ref));
       setManifestRefs(
         manifests.filter((m) => m.kind === "executable_unit").map((m) => m.manifest_ref),
       );
+      setContractNames(contracts.map((c) => c.name));
       setOthers(all.filter((w) => w.id !== id));
       const rfNodes = toRfNodes(detail, types);
       const rfEdges = toRfEdges(detail);
@@ -269,7 +328,11 @@ function Editor({ id }: { id: string }) {
       setLastWorkflowId(id);
       // Baseline for autosave + undo: the freshly loaded graph counts as saved
       // and is history entry 0 (clone() re-loads, so this also resets both).
-      lastSavedSigRef.current = JSON.stringify([graphSig(rfNodes, rfEdges), detail.name]);
+      lastSavedSigRef.current = JSON.stringify([
+        graphSig(rfNodes, rfEdges),
+        detail.name,
+        detail.entry_step ?? "",
+      ]);
       lastHistSigRef.current = graphSig(rfNodes, rfEdges);
       histRef.current = { stack: [{ nodes: rfNodes, edges: rfEdges }], index: 0 };
       setHistState({ canUndo: false, canRedo: false });
@@ -326,6 +389,8 @@ function Editor({ id }: { id: string }) {
             studioType: t.type,
             ports: t.ports,
             config: { ...(DEFAULT_CONFIG[t.type] ?? {}) },
+            inputContractRef: null,
+            outputContractRef: null,
           },
         });
       });
@@ -349,6 +414,8 @@ function Editor({ id }: { id: string }) {
             studioType: n.type,
             ports: portsFor(n.type, palette),
             config: d.config ?? {},
+            inputContractRef: null,
+            outputContractRef: null,
           },
         };
       }),
@@ -401,7 +468,7 @@ function Editor({ id }: { id: string }) {
   }, [edges, rf, setNodes]);
 
   const patchNode = useCallback(
-    (nodeId: string, patch: Partial<{ label: string; config: Cfg }>) => {
+    (nodeId: string, patch: NodePatch) => {
       setNodes((ns) =>
         ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n)),
       );
@@ -431,11 +498,13 @@ function Editor({ id }: { id: string }) {
     try {
       await updateWorkflow(id, {
         name,
+        // "" clears the entrypoint server-side (null would mean "no change").
+        entry_step: entryStep,
         nodes: toStudioNodes(nodes),
         edges: toStudioEdges(edges),
         viewport: rf ? rf.getViewport() : { x: 0, y: 0, zoom: 1 },
       });
-      lastSavedSigRef.current = JSON.stringify([graphSig(nodes, edges), name]);
+      lastSavedSigRef.current = JSON.stringify([graphSig(nodes, edges), name, entryStep]);
       setSavedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       setSaveState("saved");
     } catch (e) {
@@ -448,18 +517,18 @@ function Editor({ id }: { id: string }) {
         window.setTimeout(() => void saveNowRef.current(), 0);
       }
     }
-  }, [id, name, nodes, edges, rf]);
+  }, [id, name, entryStep, nodes, edges, rf]);
   saveNowRef.current = saveNow;
 
-  // Debounced autosave (drafts only): any structural or name change after the
-  // initial load schedules a save 1.5s after the last change.
+  // Debounced autosave (drafts only): any structural, name, or entrypoint
+  // change after the initial load schedules a save 1.5s after the last change.
   useEffect(() => {
     if (!loadedRef.current || readOnly) return;
-    if (JSON.stringify([sig, name]) === lastSavedSigRef.current) return;
+    if (JSON.stringify([sig, name, entryStep]) === lastSavedSigRef.current) return;
     setSaveState("dirty");
     const t = window.setTimeout(() => void saveNowRef.current(), 1500);
     return () => window.clearTimeout(t);
-  }, [sig, name, readOnly]);
+  }, [sig, name, entryStep, readOnly]);
 
   // Debounced history push: drags collapse into one entry. Undo/redo set
   // lastHistSigRef themselves, so applying a snapshot is never re-recorded.
@@ -505,12 +574,20 @@ function Editor({ id }: { id: string }) {
     const ids = new Set(sel.map((n) => n.id));
     const payload: ClipboardPayload = {
       nodes: sel.map((n) => {
-        const d = n.data as { studioType: string; label: string; config: Cfg };
+        const d = n.data as {
+          studioType: string;
+          label: string;
+          config: Cfg;
+          inputContractRef?: string | null;
+          outputContractRef?: string | null;
+        };
         return {
           id: n.id,
           studioType: d.studioType,
           label: d.label,
           config: d.config,
+          inputContractRef: d.inputContractRef ?? null,
+          outputContractRef: d.outputContractRef ?? null,
           position: { x: n.position.x, y: n.position.y },
         };
       }),
@@ -572,6 +649,8 @@ function Editor({ id }: { id: string }) {
         studioType: n.studioType,
         ports: portsFor(n.studioType, palette),
         config: { ...(n.config ?? {}) },
+        inputContractRef: n.inputContractRef ?? null,
+        outputContractRef: n.outputContractRef ?? null,
       },
     }));
     const pastedEdges: Edge[] = (Array.isArray(clip.edges) ? clip.edges : [])
@@ -627,6 +706,7 @@ function Editor({ id }: { id: string }) {
     setError(null);
     try {
       await cloneWorkflow(id);
+      setJustPublished(false);
       await load(); // same id now resolves to the new editable draft version
     } catch (e) {
       setError(errMsg(e));
@@ -634,6 +714,54 @@ function Editor({ id }: { id: string }) {
       setCloning(false);
     }
   }
+
+  // Publish validates against the *saved* draft, so flush the debounced
+  // autosave first (including a queued follow-up save) or stale state gets
+  // validated.
+  async function publish() {
+    setPublishing(true);
+    setError(null);
+    setPublishIssues(null);
+    try {
+      await saveNowRef.current();
+      while (saveInFlightRef.current || savePendingRef.current) {
+        await new Promise((r) => window.setTimeout(r, 100));
+      }
+      await publishWorkflow(id);
+      setJustPublished(true);
+      await load(); // status flips to published; editor becomes read-only
+    } catch (e) {
+      const issues = publishIssuesOf(e);
+      if (issues) setPublishIssues(issues);
+      else setError(errMsg(e));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  // Jump the canvas to a node referenced by a publish issue.
+  const focusNode = useCallback(
+    (nodeId: string) => {
+      const n = nodes.find((x) => x.id === nodeId);
+      if (!n) return;
+      setNodes((ns) => ns.map((x) => ({ ...x, selected: x.id === nodeId })));
+      // Aim at the node's approximate center (nodes are ~180px wide).
+      rf?.setCenter(n.position.x + 90, n.position.y + 24, { zoom: 1.1, duration: 300 });
+    },
+    [nodes, rf, setNodes],
+  );
+
+  // node id -> worst severity, for the canvas issue rings.
+  const issueByNode = useMemo(() => {
+    const out: Record<string, "error" | "warning"> = {};
+    for (const i of publishIssues ?? []) {
+      if (!i.node_id) continue;
+      if (i.severity === "error" || !out[i.node_id]) {
+        out[i.node_id] = i.severity === "error" ? "error" : "warning";
+      }
+    }
+    return out;
+  }, [publishIssues]);
 
   const editing = nodes.find((n) => n.id === editingId);
 
@@ -648,6 +776,7 @@ function Editor({ id }: { id: string }) {
         </div>
       ) : (
         <RunStateContext.Provider value={runStates}>
+        <PublishIssuesContext.Provider value={issueByNode}>
         <ReactFlow
           aria-label="Workflow graph editor"
           nodes={nodes}
@@ -706,6 +835,40 @@ function Editor({ id }: { id: string }) {
                     Draft — nodes, edges, config &amp; layout save here. Fields marked{" "}
                     <span className="font-semibold">*</span> are required to publish.
                   </p>
+                )}
+                {nodes.length > 0 && (
+                  <label className="mt-2 block text-xs">
+                    <span className="mb-1 flex items-baseline gap-2">
+                      <span className="font-medium">
+                        Entry step
+                        {!readOnly && (
+                          <span className="text-red-600 dark:text-red-400"> *</span>
+                        )}
+                      </span>
+                      <span className="font-normal text-muted">where a run starts</span>
+                    </span>
+                    <select
+                      value={entryStep}
+                      disabled={readOnly}
+                      onChange={(e) => setEntryStep(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-surface px-2 py-1 text-xs focus-visible:border-accent disabled:opacity-60"
+                    >
+                      <option value="">Select…</option>
+                      {/* A stale entrypoint (node deleted/renamed) stays selectable
+                          so it isn't silently coerced; publish will flag it. */}
+                      {entryStep && !nodes.some((n) => n.id === entryStep) && (
+                        <option value={entryStep}>{entryStep} (missing)</option>
+                      )}
+                      {nodes.map((n) => {
+                        const d = n.data as { label?: string };
+                        return (
+                          <option key={n.id} value={n.id}>
+                            {d.label && d.label !== n.id ? `${d.label} — ${n.id}` : n.id}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
                 )}
               </div>
 
@@ -823,14 +986,42 @@ function Editor({ id }: { id: string }) {
                     Tidy layout
                   </Button>
                 )}
+                {version > 1 && (
+                  <Button
+                    size="sm"
+                    onClick={() => setHistoryOpen(true)}
+                    title="Compare versions of this workflow"
+                  >
+                    History
+                  </Button>
+                )}
                 {readOnly ? (
-                  <Button variant="primary" onClick={clone} disabled={cloning}>
-                    {cloning ? "Cloning…" : "Clone to draft"}
-                  </Button>
+                  <>
+                    <Button onClick={clone} disabled={cloning}>
+                      {cloning ? "Cloning…" : "Clone to draft"}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={() => setDeployOpen(true)}
+                      title="Create a deployment version from this published graph"
+                    >
+                      Deploy
+                    </Button>
+                  </>
                 ) : (
-                  <Button variant="primary" onClick={saveNow} disabled={saveState === "saving"}>
-                    Save
-                  </Button>
+                  <>
+                    <Button onClick={saveNow} disabled={saveState === "saving"}>
+                      Save
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={publish}
+                      disabled={publishing || nodes.length === 0}
+                      title="Validate and publish this draft, making it immutable and deployable"
+                    >
+                      {publishing ? "Publishing…" : "Publish"}
+                    </Button>
+                  </>
                 )}
               </div>
               {copied !== null && (
@@ -838,10 +1029,23 @@ function Editor({ id }: { id: string }) {
                   Copied {copied} node{copied === 1 ? "" : "s"}
                 </span>
               )}
+              {justPublished && readOnly && (
+                <p className="max-w-sm rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  Published v{version} — use <strong>Deploy</strong> to create a deployment
+                  version from it.
+                </p>
+              )}
               {error && (
                 <div className="max-w-sm">
                   <ErrorBox message={error} />
                 </div>
+              )}
+              {publishIssues && (
+                <PublishIssuesPanel
+                  issues={publishIssues}
+                  onFocusNode={focusNode}
+                  onDismiss={() => setPublishIssues(null)}
+                />
               )}
             </div>
           </Panel>
@@ -868,6 +1072,7 @@ function Editor({ id }: { id: string }) {
             onStates={setRunStates}
           />
         </ReactFlow>
+        </PublishIssuesContext.Provider>
         </RunStateContext.Provider>
       )}
 
@@ -877,9 +1082,22 @@ function Editor({ id }: { id: string }) {
           readOnly={readOnly}
           connectorRefs={connectorRefs}
           manifestRefs={manifestRefs}
+          contractNames={contractNames}
           onClose={() => setEditingId(null)}
           onPatch={(patch) => patchNode(editing.id, patch)}
           onDelete={() => deleteNode(editing.id)}
+        />
+      )}
+
+      {deployOpen && (
+        <DeployDialog workflowId={id} version={version} onClose={() => setDeployOpen(false)} />
+      )}
+
+      {historyOpen && (
+        <HistoryDialog
+          workflowId={id}
+          currentVersion={version}
+          onClose={() => setHistoryOpen(false)}
         />
       )}
     </div>
@@ -891,6 +1109,7 @@ function NodeEditorDialog({
   readOnly,
   connectorRefs,
   manifestRefs,
+  contractNames,
   onClose,
   onPatch,
   onDelete,
@@ -899,11 +1118,18 @@ function NodeEditorDialog({
   readOnly: boolean;
   connectorRefs: string[];
   manifestRefs: string[];
+  contractNames: string[];
   onClose: () => void;
-  onPatch: (patch: Partial<{ label: string; config: Cfg }>) => void;
+  onPatch: (patch: NodePatch) => void;
   onDelete: () => void;
 }) {
-  const d = node.data as { studioType: string; label: string; config: Cfg };
+  const d = node.data as {
+    studioType: string;
+    label: string;
+    config: Cfg;
+    inputContractRef?: string | null;
+    outputContractRef?: string | null;
+  };
   const closeRef = useRef<HTMLButtonElement>(null);
   const [tab, setTab] = useState<"config" | "activity">("config");
   // Activity mounts lazily on first visit (its fetch runs on mount) and then
@@ -972,10 +1198,16 @@ function NodeEditorDialog({
               studioType={d.studioType}
               label={d.label}
               config={d.config}
+              inputContractRef={d.inputContractRef ?? null}
+              outputContractRef={d.outputContractRef ?? null}
+              contractOptions={contractNames}
               readOnly={readOnly}
               dynamicOptions={{ connectors: connectorRefs, manifests: manifestRefs }}
               onLabelChange={(label) => onPatch({ label })}
               onConfigChange={(config) => onPatch({ config })}
+              onContractRefChange={(which, ref) =>
+                onPatch(which === "input" ? { inputContractRef: ref } : { outputContractRef: ref })
+              }
             />
           </div>
           {activityOpened && (
@@ -1449,6 +1681,393 @@ function NodeActivity({ nodeId }: { nodeId: string }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// Issue list from a failed publish (422): each entry names the check that
+// failed and, where it has one, the offending node — clicking jumps there.
+function PublishIssuesPanel({
+  issues,
+  onFocusNode,
+  onDismiss,
+}: {
+  issues: PublishIssue[];
+  onFocusNode: (nodeId: string) => void;
+  onDismiss: () => void;
+}) {
+  const errors = issues.filter((i) => i.severity === "error").length;
+  return (
+    <div className="w-96 max-w-[90vw] rounded-xl border border-red-300 bg-surface shadow-md shadow-black/[0.06] dark:border-red-900/60">
+      <header className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+        <span className="text-sm font-semibold text-red-700 dark:text-red-400">
+          Can&apos;t publish yet ({errors} error{errors === 1 ? "" : "s"})
+        </span>
+        <Button variant="ghost" size="sm" onClick={onDismiss} aria-label="Dismiss issues">
+          ✕
+        </Button>
+      </header>
+      <ul className="max-h-[40vh] divide-y divide-border overflow-y-auto px-3 py-1">
+        {issues.map((issue, i) => (
+          <li key={i} className="space-y-1 py-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-full px-2 py-0.5 font-medium ${
+                  issue.severity === "error"
+                    ? "bg-red-500/12 text-red-700 dark:text-red-400"
+                    : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                }`}
+              >
+                {issue.severity}
+              </span>
+              <span className="font-mono text-muted">{issue.code}</span>
+            </div>
+            <p className="leading-relaxed">{issue.message}</p>
+            {issue.node_id && (
+              <button
+                onClick={() => onFocusNode(issue.node_id!)}
+                className="font-mono font-medium text-accent hover:underline"
+              >
+                {issue.node_id} →
+              </button>
+            )}
+            {issue.edge_id && !issue.node_id && (
+              <span className="font-mono text-muted">edge {issue.edge_id}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="border-t border-border px-3 py-2 text-xs text-muted">
+        Fix the errors above, then publish again. Warnings don&apos;t block.
+      </p>
+    </div>
+  );
+}
+
+// Create a deployment version from this published graph (DEPLOYMENT_ADMIN).
+// Serving the new version still needs a service restart — the note below.
+function DeployDialog({
+  workflowId,
+  version,
+  onClose,
+}: {
+  workflowId: string;
+  version: number;
+  onClose: () => void;
+}) {
+  const [ref, setRef] = useState("");
+  const [prefilled, setPrefilled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<DeploymentSummary | null>(null);
+
+  // Prefill with the serving deployment's ref — deploying the next version of
+  // the deployment this service runs is the common upgrade path.
+  useEffect(() => {
+    let cancelled = false;
+    getHealth()
+      .then((h) => {
+        if (!cancelled) {
+          setRef((r) => r || h.deployment_ref);
+          setPrefilled(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPrefilled(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function deploy() {
+    if (!ref.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setCreated(
+        await createDeployment({
+          deployment_ref: ref.trim(),
+          graph_id: workflowId,
+          graph_version: version,
+        }),
+      );
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-20"
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Deploy workflow"
+        className="w-full max-w-md rounded-xl border border-border bg-surface shadow-xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="text-sm font-semibold">Deploy published v{version}</div>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+            ✕
+          </Button>
+        </header>
+
+        <div className="space-y-3 p-4 text-sm">
+          {created ? (
+            <>
+              <p className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                Deployment <strong>{created.deployment_ref}</strong> v{created.version} created
+                from <Mono>{created.graph_version_ref}</Mono>.
+              </p>
+              <div className="text-xs leading-relaxed text-muted">
+                A service instance serves one deployment per process, so the new version
+                isn&apos;t live yet. Restart the service with
+                <pre className="mt-1.5 overflow-x-auto rounded-lg bg-zinc-50 p-2 font-mono text-xs text-zinc-700 ring-1 ring-border dark:bg-zinc-900/60 dark:text-zinc-300">
+                  {`ZEROTH_DEPLOYMENT_REF=${created.deployment_ref}`}
+                </pre>
+                to serve it.
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs leading-relaxed text-muted">
+                Creates a new deployment version pinned to this published graph. Requires a
+                key with deployment-admin permission.
+              </p>
+              <Field
+                label="Deployment ref"
+                hint="new versions of an existing ref stack under it"
+              >
+                <Input
+                  value={ref}
+                  onChange={(e) => setRef(e.target.value)}
+                  placeholder={prefilled ? "my-service" : "loading…"}
+                  className="font-mono"
+                />
+              </Field>
+              {error && <ApiErrorNote error={error} />}
+            </>
+          )}
+        </div>
+
+        <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+          {created ? (
+            <Button variant="primary" size="sm" onClick={onClose}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button size="sm" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={deploy}
+                disabled={busy || !ref.trim()}
+              >
+                {busy ? "Deploying…" : "Deploy"}
+              </Button>
+            </>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+const DIFF_BUCKETS: { key: keyof WorkflowDiff; label: string }[] = [
+  { key: "node_changes", label: "Nodes" },
+  { key: "edge_changes", label: "Edges" },
+  { key: "condition_changes", label: "Conditions" },
+  { key: "contract_changes", label: "Contracts" },
+  { key: "policy_changes", label: "Policies" },
+  { key: "memory_connector_changes", label: "Memory connectors" },
+  { key: "executable_unit_binding_changes", label: "Executable bindings" },
+];
+
+const CHANGE_TONE: Record<DiffEntry["change_type"], string> = {
+  added: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  removed: "bg-red-500/12 text-red-700 dark:text-red-400",
+  modified: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+};
+
+// Version history as a structured diff ("git diff for graphs"): pick two
+// versions of this workflow id and see what changed, grouped by category.
+function HistoryDialog({
+  workflowId,
+  currentVersion,
+  onClose,
+}: {
+  workflowId: string;
+  currentVersion: number;
+  onClose: () => void;
+}) {
+  const [left, setLeft] = useState(currentVersion - 1);
+  const [right, setRight] = useState(currentVersion);
+  const [diff, setDiff] = useState<WorkflowDiff | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const versions = Array.from({ length: currentVersion }, (_, i) => i + 1);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDiff(null);
+    setError(null);
+    diffWorkflow(workflowId, left, right)
+      .then((d) => {
+        if (!cancelled) setDiff(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(errMsg(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowId, left, right]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const isEmpty =
+    diff !== null && DIFF_BUCKETS.every(({ key }) => (diff[key] as DiffEntry[]).length === 0);
+  const selectCls =
+    "rounded-lg border border-border bg-surface px-2 py-1 text-xs focus-visible:border-accent";
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-16"
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Version history"
+        className="w-full max-w-2xl rounded-xl border border-border bg-surface shadow-xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold">Version history</div>
+            <div className="text-xs text-muted">
+              structured diff between two versions of this workflow
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted">from</span>
+              <select
+                value={left}
+                onChange={(e) => setLeft(Number(e.target.value))}
+                className={selectCls}
+                aria-label="Left version"
+              >
+                {versions.map((v) => (
+                  <option key={v} value={v}>
+                    v{v}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted">to</span>
+              <select
+                value={right}
+                onChange={(e) => setRight(Number(e.target.value))}
+                className={selectCls}
+                aria-label="Right version"
+              >
+                {versions.map((v) => (
+                  <option key={v} value={v}>
+                    v{v}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+              ✕
+            </Button>
+          </div>
+        </header>
+
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto p-4">
+          {error ? (
+            <ApiErrorNote error={error} />
+          ) : diff === null ? (
+            <Skeleton rows={3} />
+          ) : isEmpty ? (
+            <Empty>
+              No differences between v{left} and v{right}.
+            </Empty>
+          ) : (
+            DIFF_BUCKETS.map(({ key, label }) => {
+              const entries = diff[key] as DiffEntry[];
+              if (entries.length === 0) return null;
+              return (
+                <section key={key}>
+                  <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
+                    {label} ({entries.length})
+                  </h3>
+                  <ul className="divide-y divide-border rounded-lg border border-border">
+                    {entries.map((e, i) => (
+                      <li key={`${e.entity_id}-${i}`} className="space-y-1.5 px-3 py-2 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${CHANGE_TONE[e.change_type]}`}
+                          >
+                            {e.change_type}
+                          </span>
+                          <Mono>{e.entity_id}</Mono>
+                          {e.changed_fields.length > 0 && (
+                            <span className="text-xs text-muted">
+                              {e.changed_fields.join(", ")}
+                            </span>
+                          )}
+                        </div>
+                        {(e.before !== null || e.after !== null) && (
+                          <details>
+                            <summary className="cursor-pointer text-xs text-muted">
+                              before / after
+                            </summary>
+                            <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                              <div>
+                                <div className="mb-1 text-xs text-muted">v{left}</div>
+                                {e.before !== null ? <Json value={e.before} /> : <Empty>—</Empty>}
+                              </div>
+                              <div>
+                                <div className="mb-1 text-xs text-muted">v{right}</div>
+                                {e.after !== null ? <Json value={e.after} /> : <Empty>—</Empty>}
+                              </div>
+                            </div>
+                          </details>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 }

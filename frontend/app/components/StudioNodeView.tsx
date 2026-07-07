@@ -2,7 +2,7 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { NodeGlyph } from "@/app/components/nodeMeta";
-import { useNodeRunState, type NodeRunState } from "@/app/components/runState";
+import { useNodeIssue, useNodeRunState, type NodeRunState } from "@/app/components/runState";
 import { fmtUsd } from "@/app/components/ui";
 
 export type Port = { id: string; type: string; direction: string; label: string };
@@ -30,13 +30,17 @@ const RUN_RING: Record<NodeRunState["phase"], string> = {
 export function StudioNodeView({ id, data, selected }: NodeProps) {
   const d = data as StudioNodeData;
   const run = useNodeRunState(id);
+  const issue = useNodeIssue(id);
   const inputs = d.ports.filter((p) => p.direction === "input");
   const outputs = d.ports.filter((p) => p.direction === "output");
 
   // The run ring replaces the selection ring while an overlay is painted;
-  // selection keeps its accent border either way.
+  // selection keeps its accent border either way. Publish issues paint their
+  // own ring, but a live run overlay outranks them.
+  const issueRing =
+    issue === "error" ? "ring-2 ring-red-500/60" : issue ? "ring-2 ring-amber-500/60" : "";
   const border = selected ? "border-accent" : "border-border hover:shadow-md";
-  const ring = run ? RUN_RING[run.phase] : selected ? "ring-2 ring-accent/30" : "";
+  const ring = run ? RUN_RING[run.phase] : issueRing || (selected ? "ring-2 ring-accent/30" : "");
 
   return (
     <div
@@ -50,6 +54,16 @@ export function StudioNodeView({ id, data, selected }: NodeProps) {
         <div className="text-[10px] uppercase tracking-wide text-muted">{d.studioType}</div>
       </div>
 
+      {!run && issue && (
+        <span
+          title={issue === "error" ? "Publish blocked by this node" : "Publish warning"}
+          className={`absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full text-[9px] font-bold text-white shadow-sm ${
+            issue === "error" ? "bg-red-500" : "bg-amber-500"
+          }`}
+        >
+          !
+        </span>
+      )}
       {(run?.phase === "succeeded" || run?.phase === "failed") && (
         <span
           title={run.phase === "succeeded" ? "Succeeded" : "Failed"}
