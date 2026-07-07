@@ -32,7 +32,10 @@ def find_console_dir() -> Path | None:
 
     Resolution order:
       1. ``$ZEROTH_CONSOLE_DIR`` — explicit override (any deployment layout).
-      2. ``frontend/out`` relative to the repo root — source checkout / dev.
+      2. ``frontend/out`` relative to the repo root — source checkout / dev,
+         where a fresh local build should win over an installed package.
+      3. The optional ``zeroth-console`` package — the ``[console]`` extra
+         (``pip install "zeroth-core[console]"``), for Python-only installs.
     A directory only counts if it contains an ``index.html``.
     """
     override = os.environ.get(_ENV_DIR)
@@ -43,7 +46,15 @@ def find_console_dir() -> Path | None:
     # src/zeroth/core/service/console_ui.py -> repo root is 4 parents up.
     repo_root = Path(__file__).resolve().parents[4]
     candidate = repo_root / "frontend" / "out"
-    return candidate if (candidate / "index.html").is_file() else None
+    if (candidate / "index.html").is_file():
+        return candidate
+
+    try:
+        from zeroth_console import console_dir
+    except ImportError:
+        return None
+    packaged = console_dir()
+    return packaged if (packaged / "index.html").is_file() else None
 
 
 def console_cors_origins() -> list[str]:

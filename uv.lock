@@ -3622,8 +3622,13 @@ wheels = [
 ]
 
 [[package]]
+name = "zeroth-console"
+version = "0.4.4"
+source = { directory = "packaging/console" }
+
+[[package]]
 name = "zeroth-core"
-version = "0.4.3"
+version = "0.4.4"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -3661,6 +3666,9 @@ all = [
     { name = "psycopg-pool" },
     { name = "python-jose", extra = ["cryptography"] },
     { name = "redis" },
+]
+console = [
+    { name = "zeroth-console" },
 ]
 dispatch = [
     { name = "arq" },
@@ -3744,6 +3752,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "tenacity", specifier = ">=8.2" },
     { name = "uvicorn", specifier = ">=0.30" },
+    { name = "zeroth-console", marker = "extra == 'console'", directory = "packaging/console" },
     { name = "zeroth-core", extras = ["dispatch"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["memory-chroma"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["memory-es"], marker = "extra == 'all'" },
@@ -3752,7 +3761,7 @@ requires-dist = [
     { name = "zeroth-core", extras = ["regulus"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["sandbox"], marker = "extra == 'all'" },
 ]
-provides-extras = ["memory-pg", "memory-chroma", "memory-es", "dispatch", "sandbox", "otel", "regulus", "all", "docs"]
+provides-extras = ["memory-pg", "memory-chroma", "memory-es", "dispatch", "sandbox", "otel", "regulus", "console", "all", "docs"]
 
 [package.metadata.requires-dev]
 dev = [
