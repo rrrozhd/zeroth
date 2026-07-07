@@ -509,6 +509,36 @@
         "title": "AuthMethod",
         "type": "string"
       },
+      "ConnectorSummaryResponse": {
+        "additionalProperties": false,
+        "description": "One registered memory connector, as shown in the console.",
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "connector_type": {
+            "title": "Connector Type",
+            "type": "string"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "connector_type",
+          "scope",
+          "backend"
+        ],
+        "title": "ConnectorSummaryResponse",
+        "type": "object"
+      },
       "CreateSubscriptionRequest": {
         "additionalProperties": false,
         "description": "Request body for creating a webhook subscription.",
@@ -3115,6 +3145,32 @@
           }
         },
         "summary": "Get Artifact",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/connectors": {
+      "get": {
+        "description": "All memory connectors registered for this deployment, by ref.\n\nThese are the values a retrieval node's ``connector_ref`` (and an\nagent's ``memory_refs``) can resolve at run time.",
+        "operationId": "list_connectors_v1_connectors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorSummaryResponse"
+                  },
+                  "title": "Response List Connectors V1 Connectors Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Connectors",
         "tags": [
           "v1"
         ]

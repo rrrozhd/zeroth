@@ -13,6 +13,10 @@ type Field = {
   kind: "text" | "textarea" | "number" | "select";
   required?: boolean;
   options?: string[];
+  /** Key into the dynamicOptions prop — options fetched at runtime (e.g. the
+      deployment's registered memory connectors). Falls back to a text input
+      while no dynamic options are available. */
+  optionsFrom?: string;
   placeholder?: string;
   hint?: string;
 };
@@ -66,11 +70,19 @@ export const FIELD_SPECS: Record<string, Field[]> = {
   retrieval: [
     {
       key: "connector_ref",
-      label: "Connector ref",
-      kind: "text",
+      label: "Connector",
+      kind: "select",
+      optionsFrom: "connectors",
       required: true,
-      placeholder: "docs",
-      hint: "The memory/knowledge connector to query.",
+      placeholder: "key_value",
+      hint: "The registered memory connector to query — the list comes from this deployment.",
+    },
+    {
+      key: "query_key",
+      label: "Query key",
+      kind: "text",
+      placeholder: "query",
+      hint: "Input field holding the search text. Default: query.",
     },
     {
       key: "top_k",
@@ -78,6 +90,20 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       kind: "number",
       placeholder: "5",
       hint: "How many matches to pass downstream.",
+    },
+    {
+      key: "scope",
+      label: "Scope",
+      kind: "select",
+      options: ["shared", "thread", "run"],
+      hint: "shared = whole deployment; thread = this conversation; run = this run only.",
+    },
+    {
+      key: "as_name",
+      label: "Output name",
+      kind: "text",
+      placeholder: "retrieved",
+      hint: "Payload field the chunks are attached under. Default: retrieved.",
     },
   ],
   subgraph: [
@@ -115,6 +141,7 @@ export function NodeInspector({
   onLabelChange,
   onConfigChange,
   readOnly = false,
+  dynamicOptions,
 }: {
   studioType: string;
   label: string;
@@ -122,6 +149,8 @@ export function NodeInspector({
   onLabelChange: (v: string) => void;
   onConfigChange: (next: Record<string, unknown>) => void;
   readOnly?: boolean;
+  /** Runtime-fetched option lists, keyed by Field.optionsFrom (e.g. connectors). */
+  dynamicOptions?: Record<string, string[] | undefined>;
 }) {
   const fields = FIELD_SPECS[studioType] ?? [];
 
@@ -158,6 +187,17 @@ export function NodeInspector({
       {fields.map((f) => {
         const value = config[f.key];
         const str = value === undefined || value === null ? "" : String(value);
+        // Dynamic selects degrade to a text input while their options haven't
+        // loaded (or the API predates the endpoint) so the field stays editable.
+        let options = f.options;
+        if (f.optionsFrom) options = dynamicOptions?.[f.optionsFrom];
+        const asSelect =
+          f.kind === "select" && (f.optionsFrom ? (options?.length ?? 0) > 0 : true);
+        // Keep a saved value that isn't in the list selectable rather than
+        // silently coercing it to the first option.
+        if (asSelect && str && !(options ?? []).includes(str)) {
+          options = [str, ...(options ?? [])];
+        }
         return (
           <label key={f.key} className="block text-sm">
             <span className="mb-1 block font-medium">
@@ -173,14 +213,23 @@ export function NodeInspector({
                 rows={4}
                 className={inputCls}
               />
-            ) : f.kind === "select" ? (
+            ) : asSelect ? (
               <select
                 value={str}
                 disabled={readOnly}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 className={inputCls}
               >
-                {(f.options ?? []).map((o) => (
+                {f.required ? (
+                  !str && (
+                    <option value="" disabled>
+                      Select…
+                    </option>
+                  )
+                ) : (
+                  <option value="">(default)</option>
+                )}
+                {(options ?? []).map((o) => (
                   <option key={o} value={o}>
                     {o}
                   </option>
