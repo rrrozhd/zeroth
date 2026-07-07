@@ -52,7 +52,8 @@ def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
     """Determine overall readiness status from per-dependency checks.
 
     Rules:
-    - If database or redis has status != "ok" -> "unhealthy"
+    - If the database is not "ok", or a *configured* redis errors -> "unhealthy"
+      (redis "unavailable" means not configured/disabled — informational only)
     - If only regulus has status != "ok" -> "degraded"
     - Otherwise -> "ok"
     """
@@ -61,7 +62,7 @@ def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
     regulus_status = checks.get("regulus")
 
     if (db_status and db_status.status != "ok") or (
-        redis_status and redis_status.status != "ok"
+        redis_status and redis_status.status not in {"ok", "unavailable"}
     ):
         return "unhealthy"
 
@@ -142,9 +143,10 @@ def register_health_routes(app: FastAPI) -> None:
 
             settings = get_settings()
             rs = settings.redis
-            scheme = "rediss" if rs.tls else "redis"
-            auth = f":{rs.password.get_secret_value()}@" if rs.password else ""
-            redis_url = f"{scheme}://{auth}{rs.host}:{rs.port}/{rs.db}"
+            if rs.mode != "disabled":
+                scheme = "rediss" if rs.tls else "redis"
+                auth = f":{rs.password.get_secret_value()}@" if rs.password else ""
+                redis_url = f"{scheme}://{auth}{rs.host}:{rs.port}/{rs.db}"
         except Exception:
             pass
 

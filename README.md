@@ -7,7 +7,7 @@
 
 A governed medium-code platform for building, running, and deploying production-grade multi-agent systems as standalone API services.
 
-Zeroth treats an agentic application as an **explicit executable graph** rather than an opaque prompt chain. Every node boundary is typed, every executable unit runs inside a governed sandbox, memory is attachable and shareable, and audits are recorded per node. The result is a system you can reason about, govern, and deploy with confidence.
+Zeroth treats an agentic application as an **explicit executable graph** rather than an opaque prompt chain. Every node boundary is typed, executable units can run inside a hardened Docker/sidecar sandbox (the default local backend is for development), memory is attachable and shareable, and audits are recorded per node. The result is a system you can reason about, govern, and deploy with confidence.
 
 ---
 
@@ -38,6 +38,18 @@ Python 3.12, builds the web console when Node 20+ is available, prompts for an
 Studio), and starts the service. Open **<http://127.0.0.1:8000/console/>** and
 connect with the demo key `demo-operator-key` — the console's Guide page and
 workflow templates take it from there.
+
+No clone needed — the pip install alone can serve a runnable demo:
+
+```bash
+pip install zeroth-core
+zeroth-core seed-demo   # creates schema + a deployed single-agent graph;
+                        # prints the export + curl commands for your first run
+zeroth-core serve
+```
+
+Or containerized: `docker build -t zeroth-core . && docker run -p 8000:8000 zeroth-core`
+(see `Dockerfile` and `docker-compose.yml`).
 
 ---
 
@@ -247,7 +259,7 @@ Zeroth supports three ways to define executable units:
 | **Wrapped Command** | Existing script, binary, or command with a manifest | Integrating existing tools without rewriting them |
 | **Project Unit** | Uploaded project/archive with build + run manifest | Complex workloads with dependencies |
 
-All executable units run inside sandboxed environments with resource constraints, cached environment reuse, and integrity verification.
+Executable units run under a configurable sandbox backend — hardened Docker (read-only root, all capabilities dropped, no-new-privileges) or a sidecar, with resource constraints, cached environment reuse, and integrity verification. The default `local` backend runs units as host subprocesses with env filtering only: choose Docker or sidecar for untrusted code.
 
 ---
 
