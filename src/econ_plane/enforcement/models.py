@@ -71,3 +71,12 @@ class AuditLog(Base):
     entity_id: Mapped[str] = mapped_column(String(128))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class TenantBudget(Base):
+    __tablename__ = "tenant_budgets"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    budget_cap_usd: Mapped[float] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(DateTime)

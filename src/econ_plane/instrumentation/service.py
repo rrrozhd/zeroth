@@ -33,7 +33,7 @@ def ingest_execution(db: Session, payload: ExecutionEventCreate) -> tuple[str, E
             raise ValueError("execution_id already exists with a different join_key")
         return "duplicate", existing
 
-    tenant_id = resolve_tenant_id(payload.tenant_id)
+    tenant_id = resolve_tenant_id(payload.tenant_id or metadata.get("tenant_id"))
     experiment = active_experiment(db, payload.capability_id, mode="AB")
     if experiment is not None and join_key:
         assignment_input = join_key

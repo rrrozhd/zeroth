@@ -67,14 +67,16 @@ class BudgetEnforcer:
             headers = self._headers_provider() if self._headers_provider is not None else None
             async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.get(
-                    f"{self._base_url}/dashboard/kpis",
+                    f"{self._base_url}/budget/status",
                     params={"tenant_id": tenant_id},
                     headers=headers,
                 )
                 resp.raise_for_status()
                 data = resp.json()
                 spend = float(data.get("total_cost_usd", 0))
-                cap = float(data.get("budget_cap_usd", float("inf")))
+                # No configured cap comes back as null — unlimited, not an error.
+                cap_raw = data.get("budget_cap_usd")
+                cap = float(cap_raw) if cap_raw is not None else float("inf")
                 allowed = spend < cap
                 self._cache[tenant_id] = {"allowed": allowed, "spend": spend, "cap": cap}
                 return allowed, spend, cap

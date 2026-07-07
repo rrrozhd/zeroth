@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 class ExecutionEvent(BaseModel):
     execution_id: str = Field(default_factory=lambda: f"exec_{uuid4().hex}")
     join_key: str | None = None
+    tenant_id: str | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     capability_id: str
     implementation_id: str
