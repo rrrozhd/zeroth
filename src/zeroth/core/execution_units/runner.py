@@ -160,6 +160,10 @@ class ExecutableUnitRegistry:
         """Return True if a binding with this ref string exists."""
         return manifest_ref in self._bindings
 
+    def list(self) -> dict[str, ExecutableUnitBinding]:
+        """All registered bindings by manifest ref (shallow copy; used by /v1/manifests)."""
+        return dict(self._bindings)
+
 
 class ExecutableUnitRunner:
     """The main class that actually runs executable units.

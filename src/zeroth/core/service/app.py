@@ -356,9 +356,11 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     from zeroth.core.service.connector_api import register_connector_routes
     from zeroth.core.service.deployment_api import register_deployment_routes
+    from zeroth.core.service.manifest_api import register_manifest_routes
 
     register_deployment_routes(v1_router)
     register_connector_routes(v1_router)
+    register_manifest_routes(v1_router)
 
     app.include_router(v1_router)
 
@@ -376,6 +378,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_template_routes(compat_router)
     register_deployment_routes(compat_router)
     register_connector_routes(compat_router)
+    register_manifest_routes(compat_router)
 
     app.include_router(compat_router)
 

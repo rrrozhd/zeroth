@@ -513,6 +513,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/manifests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Manifests
+         * @description All executable units and agent runners registered for this deployment.
+         *
+         *     These are the values an executable_unit node's ``manifest_ref`` can
+         *     reference, plus the runner names agent nodes bind to at run time.
+         */
+        get: operations["list_manifests_v1_manifests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics": {
         parameters: {
             query?: never;
@@ -1276,6 +1299,20 @@ export interface components {
              * @default ok
              */
             status: string;
+        };
+        /**
+         * ManifestSummaryResponse
+         * @description One registered executable unit or agent runner, as shown in the console.
+         */
+        ManifestSummaryResponse: {
+            /** Description */
+            description?: string | null;
+            /** Kind */
+            kind: string;
+            /** Manifest Ref */
+            manifest_ref: string;
+            /** Runtime */
+            runtime?: string | null;
         };
         /**
          * MemoryAccessRecord
@@ -2750,6 +2787,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_manifests_v1_manifests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManifestSummaryResponse"][];
                 };
             };
         };
