@@ -23,31 +23,45 @@ import {
 } from "@xyflow/react";
 import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
 import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
+import {
+  deriveNodeStates,
+  entryPhase,
+  RunStateContext,
+  type NodeRunState,
+} from "@/app/components/runState";
 import { StudioNodeView, type Port } from "@/app/components/StudioNodeView";
 import {
   ApiErrorNote,
   Button,
   Empty,
   ErrorBox,
+  Field,
   fmtTime,
   fmtUsd,
   Json,
   Skeleton,
   StatusBadge,
+  Textarea,
 } from "@/app/components/ui";
 import {
   ApiError,
   cloneWorkflow,
   errMsg,
+  getHealth,
+  getRun,
+  getRunTimeline,
   getWorkflow,
   listConnectors,
   listManifests,
   listNodeAudits,
   listNodeTypes,
+  listRuns,
   listWorkflows,
+  submitRun,
   updateWorkflow,
   type NodeAuditRecord,
   type NodeType,
+  type RunStatus,
   type StudioEdge,
   type StudioNode,
   type WorkflowDetail,
@@ -221,9 +235,13 @@ function Editor({ id }: { id: string }) {
   // Non-fatal if unavailable (the card just doesn't render).
   const [others, setOthers] = useState<WorkflowSummary[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // Run overlay per node id, painted by the RunPanel. Lives in context (not
+  // node.data) so runs never dirty the autosave signature or undo history.
+  const [runStates, setRunStates] = useState<Record<string, NodeRunState>>({});
 
   const readOnly = status === "published";
   const sig = useMemo(() => graphSig(nodes, edges), [nodes, edges]);
+  const nodeIds = useMemo(() => nodes.map((n) => n.id), [nodes]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -629,6 +647,7 @@ function Editor({ id }: { id: string }) {
           Loading graph…
         </div>
       ) : (
+        <RunStateContext.Provider value={runStates}>
         <ReactFlow
           aria-label="Workflow graph editor"
           nodes={nodes}
@@ -833,7 +852,15 @@ function Editor({ id }: { id: string }) {
               </div>
             </Panel>
           )}
+
+          <RunPanel
+            workflowId={id}
+            nodeIds={nodeIds}
+            others={others}
+            onStates={setRunStates}
+          />
         </ReactFlow>
+        </RunStateContext.Provider>
       )}
 
       {editing && (
@@ -988,6 +1015,354 @@ function TabButton({
     >
       {children}
     </button>
+  );
+}
+
+// Same active set as the Runs page — statuses that keep the 1.5s poll going.
+const RUN_ACTIVE = new Set([
+  "running",
+  "pending",
+  "queued",
+  "in_progress",
+  "paused",
+  "awaiting_approval",
+]);
+
+function isActiveStatus(s: string | null | undefined): boolean {
+  return !!s && RUN_ACTIVE.has(s.toLowerCase());
+}
+
+// n8n-style bottom bar: run the deployed graph from the canvas and watch the
+// nodes light up live, or replay a past run's timeline as the same overlay.
+// All state here is ephemeral — it never touches nodes/edges (see runState.tsx),
+// so running can't dirty autosave or the undo stack.
+function RunPanel({
+  workflowId,
+  nodeIds,
+  others,
+  onStates,
+}: {
+  workflowId: string;
+  nodeIds: string[];
+  others: WorkflowSummary[];
+  onStates: (s: Record<string, NodeRunState>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // undefined = health check in flight; null = unreachable/no deployment.
+  const [deployedId, setDeployedId] = useState<string | null | undefined>(undefined);
+  const [payload, setPayload] = useState('{\n  "question": "What is Zeroth?"\n}');
+  const [runId, setRunId] = useState<string | null>(null);
+  const [run, setRun] = useState<RunStatus | null>(null);
+  const [failedNode, setFailedNode] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pastOpen, setPastOpen] = useState(false);
+  const [past, setPast] = useState<RunStatus[] | null>(null);
+  const [pastError, setPastError] = useState<string | null>(null);
+  const [selectedPast, setSelectedPast] = useState<string | null>(null);
+  // The poll tick reads node ids through a ref so nodes added/moved mid-run
+  // are picked up without restarting the interval.
+  const nodeIdsRef = useRef(nodeIds);
+  nodeIdsRef.current = nodeIds;
+
+  // POST /v1/runs always executes the deployment's graph, so only the
+  // workflow whose id matches health.graph_version_ref ("graphId@version")
+  // can be run from this canvas.
+  useEffect(() => {
+    let cancelled = false;
+    getHealth()
+      .then((h) => {
+        if (!cancelled) setDeployedId(h.graph_version_ref.split("@")[0]);
+      })
+      .catch(() => {
+        if (!cancelled) setDeployedId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isDeployed = deployedId != null && deployedId === workflowId;
+  const polling = runId !== null && (run === null || isActiveStatus(run.status));
+
+  // Poll status + timeline while the submitted run is active; cleanup covers
+  // unmount and workflow switch (the editor remounts per workflow id).
+  useEffect(() => {
+    if (!runId) return;
+    let stopped = false;
+    let timer = 0;
+    async function tick(): Promise<boolean> {
+      try {
+        const [status, tl] = await Promise.all([
+          getRun(runId!),
+          getRunTimeline(runId!).catch(() => null),
+        ]);
+        if (stopped) return false;
+        const entries = tl?.entries ?? [];
+        const active = isActiveStatus(status.status);
+        setRun(status);
+        const failed = entries.filter((e) => entryPhase(e) === "failed");
+        setFailedNode(failed.length > 0 ? failed[failed.length - 1].node_id : null);
+        onStates(
+          deriveNodeStates(entries, { allNodeIds: nodeIdsRef.current, runActive: active }),
+        );
+        return active;
+      } catch (e) {
+        if (!stopped) setError(errMsg(e));
+        return false;
+      }
+    }
+    (async () => {
+      const active = await tick();
+      if (stopped || !active) return;
+      timer = window.setInterval(async () => {
+        const stillActive = await tick();
+        if (!stillActive) window.clearInterval(timer);
+      }, 1500);
+    })();
+    return () => {
+      stopped = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [runId, onStates]);
+
+  async function submit() {
+    setError(null);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      setError("Input payload is not valid JSON.");
+      return;
+    }
+    setSubmitting(true);
+    setSelectedPast(null);
+    setRunId(null);
+    setRun(null);
+    setFailedNode(null);
+    // Immediate feedback: everything waits until timeline entries arrive.
+    onStates(
+      Object.fromEntries(
+        nodeIdsRef.current.map((n): [string, NodeRunState] => [n, { phase: "waiting" }]),
+      ),
+    );
+    try {
+      const res = await submitRun({ input_payload: parsed });
+      setRunId(res.run_id);
+    } catch (e) {
+      setError(errMsg(e));
+      onStates({});
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function clear() {
+    setRunId(null); // stops the poll via effect cleanup
+    setRun(null);
+    setFailedNode(null);
+    setSelectedPast(null);
+    setError(null);
+    onStates({});
+  }
+
+  async function togglePast() {
+    const next = !pastOpen;
+    setPastOpen(next);
+    if (next && past === null && pastError === null) {
+      try {
+        setPast((await listRuns()).runs.slice(0, 10));
+      } catch (e) {
+        setPastError(errMsg(e));
+      }
+    }
+  }
+
+  // Replay: one timeline fetch, no polling — paints the same overlay a live
+  // run does, plus that run's output/failure below.
+  async function selectPast(r: RunStatus) {
+    setRunId(null);
+    setSelectedPast(r.run_id);
+    setError(null);
+    try {
+      const [status, tl] = await Promise.all([
+        getRun(r.run_id),
+        getRunTimeline(r.run_id).catch(() => null),
+      ]);
+      const entries = tl?.entries ?? [];
+      setRun(status);
+      const failed = entries.filter((e) => entryPhase(e) === "failed");
+      setFailedNode(failed.length > 0 ? failed[failed.length - 1].node_id : null);
+      onStates(deriveNodeStates(entries));
+    } catch (e) {
+      setError(errMsg(e));
+    }
+  }
+
+  if (!open) {
+    return (
+      <Panel position="bottom-center">
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-1.5 text-sm font-medium shadow-md shadow-black/[0.06] transition-colors hover:border-accent/40 hover:text-accent"
+        >
+          <span aria-hidden>▶</span> Run
+          {run && <StatusBadge status={run.status} />}
+        </button>
+      </Panel>
+    );
+  }
+
+  const deployedWf = others.find((w) => w.id === deployedId);
+
+  return (
+    <Panel position="bottom-center">
+      <div className="w-[26rem] max-w-[90vw] rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
+        <header className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            Run
+            {run && <StatusBadge status={run.status} />}
+            {polling && <span className="text-xs font-normal text-muted">auto-refreshing…</span>}
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)} aria-label="Collapse run panel">
+            ▾
+          </Button>
+        </header>
+
+        <div className="max-h-[45vh] space-y-3 overflow-y-auto p-3">
+          {deployedId === undefined ? (
+            <p className="text-xs text-muted">Checking which graph is deployed…</p>
+          ) : !isDeployed ? (
+            <p className="text-xs text-muted">
+              Only the deployed graph can run. Publish &amp; deploy this workflow
+              {deployedWf ? (
+                <>
+                  , or open{" "}
+                  <Link
+                    href={`/studio/edit?id=${encodeURIComponent(deployedWf.id)}`}
+                    className="font-medium text-accent hover:underline"
+                  >
+                    {deployedWf.name}
+                  </Link>{" "}
+                  to run it.
+                </>
+              ) : (
+                " to run it here."
+              )}
+            </p>
+          ) : (
+            <>
+              <Field label="Input payload (JSON)" hint="shape set by the graph's input contract">
+                <Textarea
+                  value={payload}
+                  onChange={(e) => setPayload(e.target.value)}
+                  rows={3}
+                  className="font-mono text-xs"
+                />
+              </Field>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={submit}
+                  disabled={submitting || polling}
+                >
+                  {submitting ? "Submitting…" : polling ? "Running…" : "Run"}
+                </Button>
+                {(run !== null || runId !== null) && (
+                  <Button size="sm" onClick={clear}>
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+
+          {error && <ErrorBox message={error} />}
+
+          {run && (
+            <div className="space-y-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span className="font-mono">{run.run_id}</span>
+                {run.current_step && <span>step: {run.current_step}</span>}
+              </div>
+              {run.failure_state != null && (
+                <div>
+                  <div className="mb-1 text-xs font-medium text-red-700 dark:text-red-400">
+                    Failed
+                    {failedNode && (
+                      <>
+                        {" "}
+                        at <span className="font-mono">{failedNode}</span>
+                      </>
+                    )}
+                  </div>
+                  <Json value={run.failure_state} />
+                </div>
+              )}
+              {run.terminal_output != null && (
+                <details>
+                  <summary className="cursor-pointer text-xs text-muted">Output</summary>
+                  <div className="mt-1.5">
+                    <Json value={run.terminal_output} />
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+
+          <div>
+            <button
+              onClick={togglePast}
+              aria-expanded={pastOpen}
+              className="flex w-full items-center justify-between text-xs font-semibold text-muted transition-colors hover:text-foreground"
+            >
+              Past runs
+              <span
+                aria-hidden
+                className={`transition-transform ${pastOpen ? "rotate-180" : ""}`}
+              >
+                ▾
+              </span>
+            </button>
+            {pastOpen && (
+              <div className="mt-1.5">
+                {pastError ? (
+                  <ApiErrorNote error={pastError} />
+                ) : past === null ? (
+                  <Skeleton rows={2} />
+                ) : past.length === 0 ? (
+                  <Empty>No runs yet.</Empty>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {past.map((r) => (
+                      <li key={r.run_id}>
+                        <button
+                          onClick={() => selectPast(r)}
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-left text-xs transition-colors ${
+                            selectedPast === r.run_id
+                              ? "border-accent/30 bg-accent/10"
+                              : "border-transparent hover:border-border hover:bg-accent/[0.04]"
+                          }`}
+                        >
+                          <span className="truncate font-mono text-muted">{r.run_id}</span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            {r.current_step && (
+                              <span className="text-muted">{r.current_step}</span>
+                            )}
+                            <StatusBadge status={r.status} />
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </Panel>
   );
 }
 
