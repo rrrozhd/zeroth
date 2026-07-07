@@ -54,8 +54,23 @@ class RedisSettings(BaseModel):
 class AuthSettings(BaseModel):
     """Service authentication settings."""
 
-    api_keys_json: str | None = None
-    bearer_json: str | None = None
+    # The service reads these through ServiceAuthConfig.from_env (service/auth.py),
+    # which uses flat ZEROTH_SERVICE_* names rather than the nested ZEROTH_AUTH__*
+    # scheme — the `env` override keeps the generated configuration reference
+    # pointing at the names the service actually honors.
+    api_keys_json: SecretStr | None = Field(
+        default=None,
+        description=(
+            'JSON **list** of credential objects: `[{"credential_id", "secret", '
+            '"subject", "roles", "tenant_id"?, "workspace_id"?}]`'
+        ),
+        json_schema_extra={"env": "ZEROTH_SERVICE_API_KEYS_JSON"},
+    )
+    bearer_json: SecretStr | None = Field(
+        default=None,
+        description="JSON bearer/JWT verification config (issuer, audience, jwks)",
+        json_schema_extra={"env": "ZEROTH_SERVICE_BEARER_JSON"},
+    )
 
 
 class MemorySettings(BaseModel):
