@@ -1769,16 +1769,25 @@ class RuntimeOrchestrator:
         started_at: datetime | None = None,
     ) -> None:
         """Persist an audit record for execution failures that happen before completion."""
-        audit_record = getattr(error, "audit_record", None)
-        if self.audit_repository is None or not isinstance(audit_record, Mapping):
+        if self.audit_repository is None:
             return
+        carried_audit = getattr(error, "audit_record", None)
+        # Errors that attach an audit_record (content blocks, integrity rejections,
+        # paid-then-failed calls) are governance rejections. Bare infrastructure
+        # errors (provider auth/network failures, dispatcher errors) carry nothing,
+        # but still must leave a trail — a failed node with no audit record is
+        # indistinguishable from a node that never ran.
+        is_rejection = isinstance(carried_audit, Mapping)
+        audit_record: dict[str, Any] = (
+            dict(carried_audit) if is_rejection else {"error_type": type(error).__name__}
+        )
         audit_refs = list(run.audit_refs)
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
         run.audit_refs = audit_refs
         completed_at = datetime.now(UTC)
         node_started_at = started_at or completed_at
-        redacted_audit_record = self._redact_for_audit(dict(audit_record))
+        redacted_audit_record = self._redact_for_audit(audit_record)
         # Promote cost/token fields so spend incurred before the failure -- a paid
         # LLM call that then failed validation or was content-blocked -- is not lost
         # from the audit trail (and stays visible to econ.waste.analyze_run).
@@ -1799,7 +1808,7 @@ class RuntimeOrchestrator:
                 graph_version_ref=run.graph_version_ref,
                 deployment_ref=run.deployment_ref,
                 attempt=1,
-                status="rejected",
+                status="rejected" if is_rejection else "failed",
                 started_at=node_started_at,
                 completed_at=completed_at,
                 input_snapshot=self._redact_for_audit(dict(input_payload)),
