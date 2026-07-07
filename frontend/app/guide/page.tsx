@@ -138,7 +138,7 @@ const NODE_EXAMPLES: Record<string, string> = {
   agent: '{ "instruction": "Summarize the input…", "model_provider": "openai/gpt-4o" }',
   executable_unit: '{ "manifest_ref": "tools/my_tool", "execution_mode": "native" }',
   human_approval: '{ "sla_timeout_seconds": 86400 }',
-  retrieval: '{ "connector_ref": "docs", "top_k": 5 }',
+  retrieval: '{ "connector_ref": "key_value", "top_k": 5 }',
   subgraph: '{ "graph_ref": "my-subflow", "version": 2 }',
 };
 
@@ -204,6 +204,38 @@ export default function GuidePage() {
             </li>
           ))}
         </ul>
+      </Card>
+
+      <Card title="Retrieval connectors">
+        <p className="text-sm leading-relaxed text-muted">
+          A retrieval node queries a{" "}
+          <span className="font-medium text-foreground">memory connector</span> registered on
+          the deployment — its Connector dropdown lists exactly what this deployment can
+          resolve. Three in-memory connectors (<Mono>ephemeral</Mono>, <Mono>key_value</Mono>,{" "}
+          <Mono>thread</Mono>) are always available for dev; production backends are enabled
+          per deployment via settings and their install extra:
+        </p>
+        <ul className="mt-3 space-y-1.5 text-sm text-muted">
+          <li>
+            <Mono>pgvector</Mono> — Postgres vector search: <Mono>zeroth-core[memory-pg]</Mono>{" "}
+            + <Mono>ZEROTH_PGVECTOR__ENABLED=true</Mono>
+          </li>
+          <li>
+            <Mono>chroma</Mono> — ChromaDB: <Mono>zeroth-core[memory-chroma]</Mono> +{" "}
+            <Mono>ZEROTH_CHROMA__ENABLED=true</Mono>
+          </li>
+          <li>
+            <Mono>elasticsearch</Mono> — Elasticsearch: <Mono>zeroth-core[memory-es]</Mono> +{" "}
+            <Mono>ZEROTH_ELASTICSEARCH__ENABLED=true</Mono>
+          </li>
+          <li>
+            <Mono>redis_kv</Mono> / <Mono>redis_thread</Mono> — Redis-backed stores when Redis
+            is configured
+          </li>
+        </ul>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          The API lists them at <Mono>GET /v1/connectors</Mono>.
+        </p>
       </Card>
 
       <Card title="Call the deployment from your app">

@@ -28,6 +28,7 @@ import {
   cloneWorkflow,
   errMsg,
   getWorkflow,
+  listConnectors,
   listNodeTypes,
   updateWorkflow,
   type NodeType,
@@ -132,15 +133,23 @@ function Editor({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [cloning, setCloning] = useState(false);
+  // Registered memory connectors — feeds the retrieval node's connector
+  // dropdown. Non-fatal if unavailable (the field degrades to a text input).
+  const [connectorRefs, setConnectorRefs] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [detail, types] = await Promise.all([getWorkflow(id), listNodeTypes()]);
+      const [detail, types, connectors] = await Promise.all([
+        getWorkflow(id),
+        listNodeTypes(),
+        listConnectors().catch(() => []),
+      ]);
       setName(detail.name);
       setStatus(detail.status);
       setPalette(types);
+      setConnectorRefs(connectors.map((c) => c.ref));
       setNodes(toRfNodes(detail, types));
       setEdges(toRfEdges(detail));
     } catch (e) {
@@ -461,6 +470,7 @@ function Editor({ id }: { id: string }) {
         <NodeEditorDialog
           node={editing}
           readOnly={readOnly}
+          connectorRefs={connectorRefs}
           onClose={() => setEditingId(null)}
           onPatch={(patch) => patchNode(editing.id, patch)}
           onDelete={() => deleteNode(editing.id)}
@@ -473,12 +483,14 @@ function Editor({ id }: { id: string }) {
 function NodeEditorDialog({
   node,
   readOnly,
+  connectorRefs,
   onClose,
   onPatch,
   onDelete,
 }: {
   node: Node;
   readOnly: boolean;
+  connectorRefs: string[];
   onClose: () => void;
   onPatch: (patch: Partial<{ label: string; config: Cfg }>) => void;
   onDelete: () => void;
@@ -533,6 +545,7 @@ function NodeEditorDialog({
             label={d.label}
             config={d.config}
             readOnly={readOnly}
+            dynamicOptions={{ connectors: connectorRefs }}
             onLabelChange={(label) => onPatch({ label })}
             onConfigChange={(config) => onPatch({ config })}
           />
