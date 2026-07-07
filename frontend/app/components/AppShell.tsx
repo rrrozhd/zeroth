@@ -31,10 +31,19 @@ export function Header() {
           popover's first field then scrolls the nav out of view). */}
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="grid h-6 w-6 place-items-center rounded-md bg-accent text-[13px] font-bold text-accent-fg">
-            0
-          </span>
-          <span className="text-sm font-semibold tracking-tight">Zeroth</span>
+          {/* Brand mark (circled dot); two-tone per color scheme, matching
+              docs/assets/logo/zeroth-mark*.svg. */}
+          <svg viewBox="0 0 100 100" fill="none" role="img" aria-label="Zeroth" className="h-6 w-6">
+            <circle
+              cx="50"
+              cy="50"
+              r="34"
+              strokeWidth="10"
+              className="stroke-[#3d5dd1] dark:stroke-[#7091ec]"
+            />
+            <circle cx="50" cy="50" r="9" className="fill-[#3ba3d7] dark:fill-[#74c2e8]" />
+          </svg>
+          <span className="text-sm font-semibold tracking-tight">zeroth</span>
         </Link>
 
         <nav aria-label="Primary" className="flex min-w-0 items-center gap-0.5 overflow-x-auto">

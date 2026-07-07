@@ -11,6 +11,9 @@ exclude_docs: |
 
 theme:
   name: material
+  # White-stroke mark for the indigo header (both schemes); SVG favicon.
+  logo: assets/logo/zeroth-mark-light.svg
+  favicon: assets/logo/zeroth-favicon.svg
   features:
     - navigation.sections
     - navigation.tabs
