@@ -234,7 +234,11 @@ export default function GuidePage() {
           </li>
         </ul>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          The API lists them at <Mono>GET /v1/connectors</Mono>.
+          Backends can also be added at runtime — no env changes or restart — on the{" "}
+          <Link href="/connectors" className="text-accent hover:underline">
+            Connectors
+          </Link>{" "}
+          page. The API lists them at <Mono>GET /v1/connectors</Mono>.
         </p>
       </Card>
 

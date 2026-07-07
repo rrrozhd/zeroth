@@ -25,6 +25,7 @@ class Permission(StrEnum):
     TEMPLATE_ADMIN = "template:admin"
     WORKFLOW_READ = "workflow:read"
     WORKFLOW_ADMIN = "workflow:admin"
+    CONNECTOR_ADMIN = "connector:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
@@ -37,6 +38,10 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # (METRICS_READ) stays admin-only, consistent with the /metrics endpoint.
         Permission.WORKFLOW_READ,
         Permission.WORKFLOW_ADMIN,
+        # Operators author graphs and the infrastructure bindings those
+        # graphs depend on -- memory connector CRUD is part of that
+        # authoring surface. Reviewers stay read-only.
+        Permission.CONNECTOR_ADMIN,
     },
     ServiceRole.REVIEWER: {
         Permission.DEPLOYMENT_READ,
