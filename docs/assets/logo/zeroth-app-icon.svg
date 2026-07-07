@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none" role="img" aria-label="Zeroth app icon">
+  <rect x="0" y="0" width="100" height="100" rx="22" fill="#20242d"></rect>
+  <circle cx="50" cy="50" r="30" stroke="#7091ec" stroke-width="9"></circle>
+  <circle cx="50" cy="50" r="10" fill="#74c2e8"></circle>
+</svg>
