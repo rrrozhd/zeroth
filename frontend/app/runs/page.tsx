@@ -23,9 +23,11 @@ import {
 import {
   errMsg,
   getRun,
+  getRunAuditVerification,
   getRunTimeline,
   listRuns,
   submitRun,
+  type AuditVerification,
   type RunStatus,
 } from "@/app/lib/api";
 
@@ -236,8 +238,9 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
         {error && <ApiErrorNote error={error} />}
         {data && (
           <div className="space-y-3 text-sm">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <StatusBadge status={data.status} />
+              <AuditVerifiedBadge runId={runId} runStatus={data.status} />
               {active && <span className="text-xs text-muted">auto-refreshing…</span>}
               {data.current_step && (
                 <span className="text-muted">step: {data.current_step}</span>
@@ -283,5 +286,52 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
         {timeline ? <Json value={timeline} /> : <Empty>Not loaded.</Empty>}
       </Card>
     </div>
+  );
+}
+
+// Tamper-evidence marker: verifies the run's audit digest chain. Re-checks on
+// status transitions so the badge covers records appended while running.
+// Renders nothing when unavailable (e.g. the key lacks audit-read) — absence
+// of the feature shouldn't read as a broken chain.
+function AuditVerifiedBadge({ runId, runStatus }: { runId: string; runStatus: string }) {
+  const [result, setResult] = useState<AuditVerification | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRunAuditVerification(runId)
+      .then((r) => {
+        if (!cancelled) setResult(r);
+      })
+      .catch(() => {
+        if (!cancelled) setResult(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, runStatus]);
+
+  if (result === null || result.record_count === 0) return null;
+
+  if (result.verified) {
+    return (
+      <span
+        title={`Audit digest chain intact over ${result.record_count} record${
+          result.record_count === 1 ? "" : "s"
+        }`}
+        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400"
+      >
+        <span aria-hidden>✓</span> Audit chain verified
+      </span>
+    );
+  }
+  return (
+    <span
+      title={`${result.error ?? "Digest chain broken"}${
+        result.failed_audit_id ? ` at ${result.failed_audit_id}` : ""
+      }`}
+      className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+    >
+      <span aria-hidden>✕</span> Audit chain broken
+    </span>
   );
 }
