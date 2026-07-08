@@ -933,14 +933,6 @@ function Editor({ id }: { id: string }) {
                 </div>
               )}
 
-              <p className="px-1 text-xs text-muted">
-                Click selects · drag a box to multi-select · double-click edits ·{" "}
-                <kbd className="rounded border border-border bg-surface px-1">⌘C</kbd>/
-                <kbd className="rounded border border-border bg-surface px-1">⌘V</kbd> copies
-                across workflows ·{" "}
-                <kbd className="rounded border border-border bg-surface px-1">Backspace</kbd>{" "}
-                deletes · scroll or middle-drag pans.
-              </p>
             </div>
           </Panel>
 
@@ -1047,6 +1039,16 @@ function Editor({ id }: { id: string }) {
                   onDismiss={() => setPublishIssues(null)}
                 />
               )}
+              {/* Interaction legend — right side, so the left column stays
+                  palette-only and the text clears the canvas controls. */}
+              <p className="max-w-xs text-right text-xs text-muted">
+                Click selects · drag a box to multi-select · double-click edits ·{" "}
+                <kbd className="rounded border border-border bg-surface px-1">⌘C</kbd>/
+                <kbd className="rounded border border-border bg-surface px-1">⌘V</kbd> copies
+                across workflows ·{" "}
+                <kbd className="rounded border border-border bg-surface px-1">Backspace</kbd>{" "}
+                deletes · scroll or middle-drag pans.
+              </p>
             </div>
           </Panel>
 
