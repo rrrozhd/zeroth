@@ -51,6 +51,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description:
       "Answer questions using your own knowledge: a retrieval step fetches relevant context, then an agent answers strictly from it.",
     nodes: [
+      node("start", "entrypoint", "Start", -280, {}),
       // key_value is one of the three connectors every deployment registers,
       // so the template resolves out of the box; swap it for a vector backend
       // (pgvector/chroma/elasticsearch) in the node editor when configured.
@@ -64,7 +65,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         model_provider: "openai/gpt-4o",
       }),
     ],
-    edges: [edge("retrieval-context", "agent-answer")],
+    edges: [edge("start", "retrieval-context"), edge("retrieval-context", "agent-answer")],
   },
   {
     id: "approval-gate",
@@ -73,6 +74,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description:
       "An agent drafts an action, a human signs it off in the Approvals page, and only then does the tool execute it. The core governance pattern.",
     nodes: [
+      node("start", "entrypoint", "Start", -280, {}),
       node("agent-draft", "agent", "Draft action", 0, {
         instruction:
           "Draft the action to take for the incoming request. Output a short human-readable summary followed by the exact payload you propose to execute.",
@@ -86,7 +88,11 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         execution_mode: "native",
       }),
     ],
-    edges: [edge("agent-draft", "approval-signoff"), edge("approval-signoff", "exec-apply")],
+    edges: [
+      edge("start", "agent-draft"),
+      edge("agent-draft", "approval-signoff"),
+      edge("approval-signoff", "exec-apply"),
+    ],
   },
   {
     id: "tool-pipeline",
@@ -95,6 +101,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     description:
       "Deterministic code prepares the data (an API call, a transform), then an agent analyzes the result and writes the report.",
     nodes: [
+      node("start", "entrypoint", "Start", -280, {}),
       node("exec-prepare", "executable_unit", "Prepare data", 0, {
         manifest_ref: "tools/prepare_input",
         execution_mode: "native",
@@ -105,7 +112,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         model_provider: "openai/gpt-4o",
       }),
     ],
-    edges: [edge("exec-prepare", "agent-analyze")],
+    edges: [edge("start", "exec-prepare"), edge("exec-prepare", "agent-analyze")],
   },
 ];
 

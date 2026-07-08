@@ -220,6 +220,38 @@ class RetrievalNodeData(BaseModel):
     as_name: str = "retrieved"
 
 
+class EntrypointNodeData(BaseModel):
+    """Configuration for the workflow's entrypoint. Deliberately empty.
+
+    The entrypoint's contract lives on the node's shared ``input_contract_ref``
+    — it is the workflow's public input contract, pinned into the deployment
+    snapshot and enforced against every submitted run payload.
+    """
+
+
+class EntrypointNode(NodeBase):
+    """The node where a run enters the graph.
+
+    Declares the workflow's public input contract and passes the (already
+    ingress-validated) payload through unchanged, leaving an audit record of
+    what entered the workflow.
+    """
+
+    node_type: Literal["entrypoint"] = "entrypoint"
+    entrypoint: EntrypointNodeData = Field(default_factory=EntrypointNodeData)
+
+    def to_governed_step_spec(self) -> GovernedStepSpec:
+        """Convert this entrypoint into a spec the execution engine understands."""
+        return GovernedStepSpec(
+            name=self.node_id,
+            tool={
+                "kind": "entrypoint_ref",
+                "input_contract_ref": self.input_contract_ref,
+                "output_contract_ref": self.output_contract_ref,
+            },
+        )
+
+
 class AgentNode(NodeBase):
     """A graph node that runs an AI agent.
 
@@ -347,7 +379,12 @@ class RetrievalNode(NodeBase):
 
 
 Node = Annotated[
-    AgentNode | ExecutableUnitNode | HumanApprovalNode | SubgraphNode | RetrievalNode,
+    EntrypointNode
+    | AgentNode
+    | ExecutableUnitNode
+    | HumanApprovalNode
+    | SubgraphNode
+    | RetrievalNode,
     Field(discriminator="node_type"),
 ]
 

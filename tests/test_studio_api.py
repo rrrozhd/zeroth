@@ -224,6 +224,7 @@ class TestListNodeTypes:
         assert type_names == {
             "agent",
             "code",
+            "entrypoint",
             "executable_unit",
             "human_approval",
             "retrieval",
