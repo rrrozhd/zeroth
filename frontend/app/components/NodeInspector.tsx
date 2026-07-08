@@ -508,9 +508,9 @@ function AgentToolBindings({
 
       {targets.length === 0 && orphans.length === 0 && (
         <p className="rounded-lg bg-accent/[0.06] px-3 py-2 text-xs text-muted">
-          Nothing attached yet. Drag from the violet <span className="font-semibold">Tools ⊕</span>{" "}
-          pill under this node onto the violet dot on top of a Code or Executable Unit node to
-          attach it as a callable tool.
+          Nothing attached yet. Drag from the violet handle on the bottom of this node onto
+          the violet handle on top of a Code or Executable Unit node to attach it as a
+          callable tool.
         </p>
       )}
 
