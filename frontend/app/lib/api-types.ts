@@ -17,7 +17,15 @@ export interface paths {
          */
         get: operations["list_contracts_api_studio_v1_contracts_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Contract
+         * @description Register a schema-only contract authored in the console.
+         *
+         *     The schema is arbitrary JSON Schema — payload validation at run ingress
+         *     honors it exactly. Re-registering an existing name creates the next
+         *     version (the picker lists the latest).
+         */
+        post: operations["create_contract_api_studio_v1_contracts_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1294,6 +1302,22 @@ export interface components {
             };
         };
         /**
+         * CreateContractRequest
+         * @description Request body for registering a schema-only contract from the console.
+         */
+        CreateContractRequest: {
+            /** Json Schema */
+            json_schema: {
+                [key: string]: unknown;
+            };
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+        };
+        /**
          * CreateDeploymentRequest
          * @description Request body for POST /v1/deployments.
          */
@@ -2255,6 +2279,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StudioContractResponse"][];
+                };
+            };
+        };
+    };
+    create_contract_api_studio_v1_contracts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateContractRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioContractResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -90,6 +90,14 @@ class StudioContractResponse(BaseModel):
     json_schema: dict = Field(default_factory=dict)
 
 
+class CreateContractRequest(BaseModel):
+    """Request body for registering a schema-only contract from the console."""
+
+    name: str = Field(min_length=1, max_length=200, pattern=r"^\S+$")
+    json_schema: dict
+    metadata: dict = Field(default_factory=dict)
+
+
 class PortDefinitionResponse(BaseModel):
     """A port on a node type."""
 

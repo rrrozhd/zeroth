@@ -24,6 +24,7 @@ from zeroth.core.contracts.errors import (
     ContractTypeResolutionError,
     ContractVersionExistsError,
 )
+from zeroth.core.contracts.schema_model import check_json_schema, model_from_json_schema
 from zeroth.core.storage import AsyncDatabase
 from zeroth.core.storage.json import from_json_value, to_json_value
 
@@ -213,6 +214,70 @@ class ContractRegistry:
         self._runtime_types[(record.name, record.version)] = model_type
         return record
 
+    async def register_schema(
+        self,
+        name: str,
+        json_schema: Mapping[str, Any],
+        *,
+        metadata: Mapping[str, Any] | None = None,
+        version: int | None = None,
+    ) -> ContractVersion:
+        """Save a schema-only contract (authored as raw JSON Schema, no Python class).
+
+        The stored ``model_path`` is empty — resolution synthesizes a Pydantic
+        model that validates payloads against the schema exactly (see
+        ``contracts.schema_model``). Versioning matches ``register``: same
+        name re-registered gets the next version.
+        """
+        schema = dict(json_schema)
+        check_json_schema(schema)
+        resolved_version = (
+            version if version is not None else await self.latest_version(name) + 1
+        )
+        record = ContractVersion(
+            name=name,
+            version=resolved_version,
+            model_path="",
+            json_schema=schema,
+            metadata=dict(metadata or {}),
+            created_at=await self._now(),
+        )
+        async with self._database.transaction() as connection:
+            existing = await connection.fetch_one(
+                """
+                SELECT 1
+                FROM contract_versions
+                WHERE contract_name = ? AND version = ?
+                """,
+                (record.name, record.version),
+            )
+            if existing is not None:
+                raise ContractVersionExistsError(
+                    f"contract {record.name!r} version {record.version} already exists"
+                )
+            await connection.execute(
+                """
+                INSERT INTO contract_versions (
+                    contract_name,
+                    version,
+                    model_path,
+                    schema_json,
+                    metadata_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.name,
+                    record.version,
+                    record.model_path,
+                    to_json_value(record.json_schema),
+                    to_json_value(record.metadata),
+                    record.created_at,
+                ),
+            )
+        return record
+
     async def register_tool(
         self,
         tool: Tool[Any, Any],
@@ -328,7 +393,12 @@ class ContractRegistry:
         cached = self._runtime_types.get((record.name, record.version))
         if cached is not None:
             return cached
-        resolved = self._import_model_type(record.model_path)
+        if not record.model_path:
+            # Schema-only contract (console-authored): synthesize a model that
+            # validates payloads against the stored JSON Schema exactly.
+            resolved = model_from_json_schema(record.name, record.json_schema)
+        else:
+            resolved = self._import_model_type(record.model_path)
         self._runtime_types[(record.name, record.version)] = resolved
         return resolved
 

@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.6.1"
+version = "0.6.2"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -42,6 +42,7 @@ dependencies = [
     "governai>=0.2.3",
     "tenacity>=8.2",
     "cachetools>=5.5",
+    "jsonschema>=4.22",
     "litellm>=1.83,<2.0",
     "langchain-litellm>=0.3.4",
     "uvicorn>=0.30",

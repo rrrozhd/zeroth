@@ -192,9 +192,11 @@ async def _validate_input_payload(
             ),
         ) from exc
     except ValidationError as exc:
+        # ctx can carry raw exception objects (e.g. the schema-contract
+        # validator's ValueError) which are not JSON-serializable.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=exc.errors(),
+            detail=exc.errors(include_url=False, include_context=False),
         ) from exc
     except Exception as exc:
         raise HTTPException(
