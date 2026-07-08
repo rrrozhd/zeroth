@@ -213,6 +213,14 @@ class AgentNodeData(BaseModel):
     # chat messages ({role: human|ai|tool, content}) and rendered as real
     # conversation turns instead of being dumped inside the input JSON block.
     input_messages_key: str | None = None
+    # Persist the conversation in thread state: stored turns are replayed
+    # before the incoming ones, and each successful run appends the new turns
+    # plus the agent's reply. Requires input_messages_key; runs continue a
+    # conversation by submitting the same thread_id.
+    persist_conversation: bool = False
+    # Cap on conversation turns kept (and replayed) when persisting.
+    # None keeps everything.
+    conversation_max_turns: int | None = Field(default=None, ge=1)
 
 
 class ExecutableUnitNodeData(BaseModel):

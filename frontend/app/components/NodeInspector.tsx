@@ -24,7 +24,7 @@ const CodeEditor = dynamic(() => import("@/app/components/CodeEditor"), {
 type Field = {
   key: string;
   label: string;
-  kind: "text" | "textarea" | "number" | "select" | "code";
+  kind: "text" | "textarea" | "number" | "select" | "code" | "checkbox";
   required?: boolean;
   options?: string[];
   /** Key into the dynamicOptions prop — options fetched at runtime (e.g. the
@@ -76,6 +76,19 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       kind: "text",
       placeholder: "messages",
       hint: "Optional. Name an input field holding a list of chat messages ({role: human | ai | tool, content}) — they become real conversation turns instead of one JSON blob. Blank = plain payload input.",
+    },
+    {
+      key: "persist_conversation",
+      label: "Persist conversation",
+      kind: "checkbox",
+      hint: "Store the conversation in thread state: stored turns replay before incoming ones, and each run appends the new turns plus the agent's reply. Callers continue a conversation by submitting the same thread_id — they only send what's new. Requires a messages input key.",
+    },
+    {
+      key: "conversation_max_turns",
+      label: "Max conversation turns",
+      kind: "number",
+      placeholder: "50",
+      hint: "Cap on turns kept and replayed when persisting. Blank = keep everything.",
     },
   ],
   executable_unit: [
@@ -249,6 +262,14 @@ export function NodeInspector({
     onConfigChange(next);
   }
 
+  function setBoolField(key: string, checked: boolean) {
+    const next = { ...configRef.current };
+    // Unchecked = backend default (false) — drop the key like cleared text.
+    if (checked) next[key] = true;
+    else delete next[key];
+    onConfigChange(next);
+  }
+
   const inputCls = `${fieldInput} disabled:opacity-60`;
 
   return (
@@ -290,7 +311,17 @@ export function NodeInspector({
               {f.label}
               {f.required && <span className="text-red-600 dark:text-red-400"> *</span>}
             </span>
-            {f.kind === "code" ? (
+            {f.kind === "checkbox" ? (
+              <span className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={Boolean(value)}
+                  disabled={readOnly}
+                  onChange={(e) => setBoolField(f.key, e.target.checked)}
+                />
+                <span className="text-xs text-muted">{value ? "On" : "Off"}</span>
+              </span>
+            ) : f.kind === "code" ? (
               <CodeEditor
                 value={str}
                 readOnly={readOnly}
