@@ -327,6 +327,9 @@ class AgentRunner:
                         record,
                         compacted_messages=_compacted_msgs,
                         archived_messages=_archived_msgs,
+                        conversation=self._updated_conversation(
+                            thread_state, validated_input, output
+                        ),
                     )
                     return AgentRunResult(
                         input_data=validated_input.model_dump(mode="json"),
@@ -663,6 +666,7 @@ class AgentRunner:
         *,
         compacted_messages: list[Any] | None = None,
         archived_messages: list[Any] | None = None,
+        conversation: list[Any] | None = None,
     ) -> None:
         """Save the current input, output, and audit record as thread state."""
         if thread_id is None or self.thread_state_store is None:
@@ -677,7 +681,40 @@ class AgentRunner:
             state["compacted_messages"] = compacted_messages
         if archived_messages is not None:
             state["archived_messages"] = archived_messages
+        if conversation is not None:
+            state["conversation"] = conversation
         await self.thread_state_store.checkpoint(thread_id, state)
+
+    def _updated_conversation(
+        self,
+        thread_state: Mapping[str, Any] | None,
+        validated_input: BaseModel,
+        output: BaseModel,
+    ) -> list[Any] | None:
+        """Roll the persistent conversation forward: prior + incoming + reply.
+
+        Only active when the agent both takes message-list input and opts into
+        persistence. The reply is stored as an ``ai`` turn carrying the typed
+        output as JSON, so the next run replays it verbatim.
+        """
+        prompt_config = self.config.prompt_config
+        if not (prompt_config.messages_key and prompt_config.persist_conversation):
+            return None
+        prior: list[Any] = []
+        if thread_state is not None and isinstance(thread_state.get("conversation"), list):
+            prior = list(thread_state["conversation"])
+        incoming = validated_input.model_dump(mode="json").get(prompt_config.messages_key)
+        turns = list(incoming) if isinstance(incoming, list) else []
+        reply = {
+            "role": "ai",
+            "content": json.dumps(
+                output.model_dump(mode="json"), ensure_ascii=False, sort_keys=True
+            ),
+        }
+        conversation = prior + turns + [reply]
+        if prompt_config.conversation_max_turns is not None:
+            conversation = conversation[-prompt_config.conversation_max_turns :]
+        return conversation
 
     async def _load_memory(
         self,
