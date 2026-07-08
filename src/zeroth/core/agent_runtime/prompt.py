@@ -89,6 +89,23 @@ class PromptAssembler:
         ):
             conversation_items = input_dump.pop(prompt_config.messages_key)
 
+        # Persistent conversation: turns stored in thread state replay before
+        # the incoming ones, so a caller submitting the same thread_id only
+        # sends what is new. Lifted out of the thread-state block to avoid
+        # rendering the same turns twice.
+        stored_turns = 0
+        if (
+            prompt_config.messages_key
+            and prompt_config.persist_conversation
+            and isinstance(thread_dump, dict)
+            and isinstance(thread_dump.get("conversation"), list)
+        ):
+            stored = thread_dump.pop("conversation")
+            stored_turns = len(stored)
+            conversation_items = stored + conversation_items
+        if prompt_config.conversation_max_turns is not None:
+            conversation_items = conversation_items[-prompt_config.conversation_max_turns :]
+
         system_parts = [
             f"Agent: {config.name}",
             f"Instruction: {config.instruction}",
@@ -150,6 +167,8 @@ class PromptAssembler:
         }
         if conversation_items:
             metadata["conversation_messages"] = conversation_items
+        if stored_turns:
+            metadata["conversation_stored_turns"] = stored_turns
         return PromptAssembly(
             messages=messages,
             rendered_prompt="\n\n".join(message.content for message in messages),

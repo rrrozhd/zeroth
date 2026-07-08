@@ -66,6 +66,11 @@ class PromptConfig(BaseModel):
     # chat messages ({role: human|ai|tool, content}) and rendered as real
     # conversation turns instead of staying inside the input JSON block.
     messages_key: str | None = None
+    # Replay conversation turns stored in thread state before the incoming
+    # ones, and append new turns + the agent's reply after each run.
+    persist_conversation: bool = False
+    # Cap on conversation turns kept and replayed. None keeps everything.
+    conversation_max_turns: int | None = None
 
 
 class ModelParams(BaseModel):

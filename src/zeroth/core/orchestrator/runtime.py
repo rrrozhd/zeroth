@@ -1534,7 +1534,10 @@ class RuntimeOrchestrator:
         """
         mode = node.agent.thread_participation
         persistence_mode = node.agent.state_persistence.get("mode")
-        if mode == "none" and persistence_mode != "thread":
+        # Persistent conversations live in thread state, so opting in counts
+        # as thread participation even when the mode was left at "none".
+        persists_conversation = getattr(node.agent, "persist_conversation", False)
+        if mode == "none" and persistence_mode != "thread" and not persists_conversation:
             return None
         if self.thread_resolver is not None:
             resolution = await self.thread_resolver.resolve(

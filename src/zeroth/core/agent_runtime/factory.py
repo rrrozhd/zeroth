@@ -85,7 +85,11 @@ async def build_agent_runners(
 
         prompt_config = PromptConfig()
         if data.input_messages_key:
-            prompt_config = PromptConfig(messages_key=data.input_messages_key)
+            prompt_config = PromptConfig(
+                messages_key=data.input_messages_key,
+                persist_conversation=data.persist_conversation,
+                conversation_max_turns=data.conversation_max_turns,
+            )
 
         config = AgentConfig(
             name=node.node_id,

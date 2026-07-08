@@ -373,6 +373,18 @@ class GraphValidator:
                 node_id=node.node_id,
                 path=("nodes", node.node_id, "agent", "model_provider"),
             )
+        if node.agent.persist_conversation and not node.agent.input_messages_key:
+            # Without a messages field there are no turns to persist — a
+            # silent no-op the author almost certainly did not intend.
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_NODE_ATTACHMENT,
+                message="persist_conversation requires input_messages_key to be set",
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=("nodes", node.node_id, "agent", "persist_conversation"),
+            )
         self._validate_ref_list(
             issues,
             graph_id=graph_id,
