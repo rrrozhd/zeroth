@@ -9,6 +9,7 @@
     "gen:api": "uv run --project .. python ../scripts/dump_openapi.py --out openapi.json && openapi-typescript openapi.json -o app/lib/api-types.ts"
   },
   "dependencies": {
+    "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-python": "^6.2.1",
     "@uiw/react-codemirror": "^4.25.10",
     "@xyflow/react": "^12.11.1",

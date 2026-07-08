@@ -37,6 +37,7 @@ from zeroth.core.graph.models import (
 from zeroth.core.graph.validation_errors import GraphValidationError
 from zeroth.core.service.authorization import Permission, require_permission
 from zeroth.core.service.studio_schemas import (
+    CreateContractRequest,
     CreateWorkflowRequest,
     NodeTypeResponse,
     PortDefinitionResponse,
@@ -524,6 +525,38 @@ async def list_contracts(request: Request) -> list[StudioContractResponse]:
             )
         )
     return contracts
+
+
+@router.post("/contracts", response_model=StudioContractResponse, status_code=201)
+async def create_contract(
+    body: CreateContractRequest,
+    request: Request,
+) -> StudioContractResponse:
+    """Register a schema-only contract authored in the console.
+
+    The schema is arbitrary JSON Schema — payload validation at run ingress
+    honors it exactly. Re-registering an existing name creates the next
+    version (the picker lists the latest).
+    """
+    await require_permission(request, Permission.WORKFLOW_ADMIN)
+    from jsonschema.exceptions import SchemaError
+
+    registry = request.app.state.bootstrap.contract_registry
+    try:
+        record = await registry.register_schema(
+            body.name,
+            body.json_schema,
+            metadata={**body.metadata, "authored_in": "studio"},
+        )
+    except SchemaError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"invalid JSON Schema: {exc.message}"
+        ) from exc
+    return StudioContractResponse(
+        name=record.name,
+        version=record.version,
+        json_schema=record.json_schema,
+    )
 
 
 @router.get("/workflows/{workflow_id}/diff")
