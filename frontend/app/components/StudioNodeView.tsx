@@ -112,39 +112,29 @@ export function StudioNodeView({ id, data, selected }: NodeProps) {
           style={{ top: `${((i + 1) / (outputs.length + 1)) * 100}%` }}
         />
       ))}
-      {/* Tool target: where an agent's Tools pill connects. Larger than the
-          data dots and haloed so it reads as a drop target, not decoration. */}
       {toolInputs.map((p, i) => (
         <Handle
           key={p.id}
           id={p.id}
           type="target"
           position={Position.Top}
-          title="Tool — connect from an agent's Tools handle"
+          title="Tool — connect from an agent's bottom handle"
           aria-label={p.label}
-          className="!h-3 !w-3 !border-2 !border-violet-300 !bg-violet-500 ring-2 ring-violet-500/25"
+          className={`h-2.5 w-2.5 ${PORT_TONE[p.type] ?? "!bg-zinc-400"}`}
           style={{ left: `${((i + 1) / (toolInputs.length + 1)) * 100}%` }}
         />
       ))}
-      {/* Tool source: a labeled pill instead of a bare dot — attaching tools
-          is a distinct action and needs a visible affordance to drag from. */}
       {toolOutputs.map((p, i) => (
         <Handle
           key={p.id}
           id={p.id}
           type="source"
           position={Position.Bottom}
-          title="Drag onto a Code or Executable Unit node to attach it as a callable tool"
+          title="Tools — drag onto a Code or Executable Unit node to attach it as a callable tool"
           aria-label={p.label}
-          className="!bottom-[-11px] !h-auto !w-auto !transform-none !cursor-grab !rounded-full !border !border-violet-300 !bg-violet-500 px-2 py-px shadow-sm"
-          style={{
-            left: `calc(${((i + 1) / (toolOutputs.length + 1)) * 100}% - 24px)`,
-          }}
-        >
-          <span className="pointer-events-none select-none text-[9px] font-semibold leading-3 text-white">
-            Tools ⊕
-          </span>
-        </Handle>
+          className={`h-2.5 w-2.5 ${PORT_TONE[p.type] ?? "!bg-zinc-400"}`}
+          style={{ left: `${((i + 1) / (toolOutputs.length + 1)) * 100}%` }}
+        />
       ))}
     </div>
   );
