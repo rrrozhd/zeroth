@@ -68,10 +68,12 @@ pip install "zeroth-core[memory-chroma]" # Chroma memory backend
 pip install "zeroth-core[memory-es]"     # Elasticsearch memory backend
 pip install "zeroth-core[dispatch]"      # Distributed worker (redis + arq)
 pip install "zeroth-core[sandbox]"       # Sandbox sidecar marker
-pip install "zeroth-core[all]"           # All backends above (console stays separate)
+pip install "zeroth-core[otel]"          # OpenTelemetry trace/metric export
+pip install "zeroth-core[regulus]"       # Bundled economic control plane backend
+pip install "zeroth-core[all]"           # Everything above except console
 ```
 
-Available extras: `console`, `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `all`.
+Available extras: `console`, `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `otel`, `regulus`, `all`.
 
 ---
 
@@ -94,13 +96,16 @@ Most agent frameworks prioritize getting something working quickly. Zeroth prior
 
 A **graph** is your application. It defines how agents, executable units, and approval steps connect and interact. Graphs can be cyclic, support branching conditions, and are executed asynchronously.
 
-### Three Node Types
+### Node Types
 
-Zeroth keeps its primitives minimal. Every graph is composed from just three node types:
+Zeroth keeps its primitives minimal. Every graph is composed from a small set of node types:
 
-- **Agent** — an AI-powered node backed by an LLM provider, with optional tool attachments and memory connectors
+- **Entrypoint** — where a run starts; its contract is the workflow's public input shape, validated before anything executes
+- **Agent** — an AI-powered node backed by an LLM provider, with optional memory connectors and tool attachments (other graph units can be attached as callable tools)
 - **Executable Unit** — a sandboxed unit of work (Python code, shell scripts, commands, or full projects) that handles transformations, integrations, routing, and any deterministic processing
 - **Human Approval** — a pause point where a human must review and approve before execution continues
+- **Retrieval** — queries a memory/knowledge connector and passes the top matches downstream (the grounding step in a RAG flow)
+- **Subgraph** — invokes another published graph as a single step, keeping workflows small and composable
 
 ### Contracts
 
@@ -120,13 +125,14 @@ Zeroth enforces governance at multiple layers:
 
 - **Policy** — capability-based rules controlling what agents can do (network access, file writes, memory access, secret usage)
 - **Guardrails** — rate limiting, quota enforcement, and dead-letter queues for failed operations
+- **Budgets** — per-tenant spend caps enforced through the bundled economic control plane, with per-node cost attribution
 - **Audit** — per-node event tracking with secret redaction, timeline assembly, and evidence summaries
 - **Approvals** — human-in-the-loop gates with decision tracking
 - **Secrets** — resolved from secure providers and automatically redacted from logs
 
-### v4.0 Platform Extensions
+### Platform Extensions
 
-Zeroth v4.0 adds six subsystems for production agentic workflows:
+Six further subsystems support production agentic workflows:
 
 - **Resilient HTTP Client** — Platform-provided async HTTP with retry, circuit breaking, and connection pooling for external API calls
 - **Prompt Templates** — Versioned prompt template registry with Jinja2 sandboxed rendering and automatic secret redaction in audit records
@@ -160,6 +166,8 @@ REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template ma
 │  Context Window Mgmt    │  Resilient HTTP Client     │
 ├──────────────────────────────────────────────────────┤
 │  Audit  │  Guardrails  │  Secrets  │  Observability │
+├──────────────────────────────────────────────────────┤
+│  Econ Plane (cost attribution, tenant budget caps)   │
 ├──────────────────────────────────────────────────────┤
 │  Storage (SQLite + Redis)  │  Identity & Auth        │
 └──────────────────────────────────────────────────────┘
@@ -218,33 +226,45 @@ uv run ruff format src/
 ## Project Structure
 
 ```
-src/zeroth/
+src/zeroth/core/
 ├── agent_runtime/      # Agent execution, LLM providers, tool attachments
 ├── approvals/          # Human approval workflows and decision tracking
 ├── artifacts/          # Artifact externalization and retrieval
 ├── audit/              # Per-node event tracking, redaction, evidence
+├── cli.py              # zeroth-core CLI (serve, seed-demo, migrate)
 ├── conditions/         # Branch evaluation and traversal logging
+├── config/             # Runtime settings and configuration reference
 ├── context_window/     # Token tracking and context compaction
 ├── contracts/          # Pydantic-based schema registration and versioning
 ├── deployments/        # Immutable graph snapshots and version management
 ├── dispatch/           # Durable run dispatch and worker supervision
+├── econ/               # Cost estimation, budget enforcement, econ integration
+├── eval/               # Agent evaluation harness: datasets, scorers, CI gate
 ├── execution_units/    # Sandboxed code execution (Docker, Python, shell)
 ├── graph/              # Workflow DAG structure and persistence
 ├── guardrails/         # Rate limiting, quotas, dead-letter queues
-├── http/               # Resilient async HTTP client (http_client) with retry and circuit breaking
+├── http/               # Resilient async HTTP client with retry and circuit breaking
 ├── identity/           # Authentication, principals, roles, scoping
 ├── mappings/           # Data flow definitions between graph nodes
 ├── memory/             # Persistent agent memory connectors
+├── migrations/         # Schema migrations applied at boot
 ├── observability/      # Metrics, correlation IDs, structured logging
 ├── orchestrator/       # Core workflow execution engine
 ├── parallel/           # Fan-out/fan-in concurrent branch execution
 ├── policy/             # Capability-based access control
+├── rag/                # Document ingestion for retrieval (chunk + embed)
 ├── runs/               # Run and thread state persistence
+├── sandbox_sidecar/    # Sidecar sandbox backend
 ├── secrets/            # Secret resolution and redaction
-├── service/            # FastAPI HTTP API and bootstrap
+├── service/            # FastAPI HTTP API, console mount, bootstrap
 ├── storage/            # SQLite, Redis, migrations, encryption
 ├── subgraph/           # Nested graph composition and resolution
-└── templates/          # Versioned prompt template registry
+├── templates/          # Versioned prompt template registry
+└── webhooks/           # Webhook subscriptions, signed delivery, dead-letter
+
+src/econ_plane/         # Bundled Regulus economic control plane backend
+src/econ_instrumentation/  # Vendored instrumentation SDK used by econ/
+frontend/               # Next.js web console (static export, see below)
 ```
 
 ---
@@ -306,19 +326,20 @@ The console is built once and runs in **two modes from the same bundle**:
 The console reads its API base URL and `X-API-Key` from the browser at runtime
 (localStorage), so the same artifact works in both modes.
 
-**What it covers:** an overview/health dashboard with a getting-started
-checklist; runs (submit with example payloads + a live-polling detail view);
-approvals (approve/reject); per-node audit; deployment cost; a Studio with
-workflow templates, CRUD, and a React Flow graph canvas; and an in-console
-Guide.
+**What it covers:** an overview/health dashboard with deployments and a
+getting-started checklist; runs (submit with example payloads, a live-polling
+detail view, and ready-made cURL for the deployed API); approvals
+(approve/reject); per-node audit; deployment cost; connector administration;
+a Studio with workflow templates, CRUD, publish/deploy, and a full-screen
+React Flow canvas; and an in-console Guide.
 
-> **Studio authoring edits draft graph structure.** On a *draft* you can add the
-> five executable node types (agent, executable_unit, human_approval, retrieval,
-> subgraph), edit each node's config, draw edges, and save real graph nodes/edges
-> plus layout. Published graphs are read-only — *clone to a draft* to edit. Note:
-> an authored draft still needs contracts + a registered runner + deployment to
-> actually run; the canvas authors graph *structure*, not the full medium-code
-> wiring.
+> **Studio authoring closes the canvas→run loop.** On a *draft* you can add
+> any of the node types above — plus inline Python **code** nodes that execute
+> in the sandbox — edit each node's config, draw data edges and agent **tool**
+> edges, author JSON-Schema contracts, and pick the entrypoint. Publish the
+> draft, deploy it, and run it straight from the canvas with live per-node
+> status and past-run replay — no Python required. Published graphs are
+> read-only — *clone to a draft* to edit.
 
 ```bash
 # Easiest: the [console] extra ships the pre-built UI as the zeroth-console
