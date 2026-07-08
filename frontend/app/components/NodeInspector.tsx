@@ -1,8 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRef } from "react";
+import { InlineConnectorSettings } from "@/app/components/ConnectorInline";
 import { NODE_META } from "@/app/components/nodeMeta";
 import { fieldInput } from "@/app/components/ui";
+import type { ConnectorSummary } from "@/app/lib/api";
 
 // CodeMirror only loads when a code node's inspector actually opens — it has
 // no business in the other pages' bundles.
@@ -102,7 +105,7 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       optionsFrom: "connectors",
       required: true,
       placeholder: "key_value",
-      hint: "The registered memory connector to query — the list comes from this deployment. Manage them on the Connectors page.",
+      hint: "The registered memory connector to query. Adjust its backend settings right below, or add a new one without leaving this dialog.",
     },
     {
       key: "query_key",
@@ -187,6 +190,8 @@ export function NodeInspector({
   onContractRefChange,
   readOnly = false,
   dynamicOptions,
+  connectors,
+  onConnectorsChanged,
 }: {
   studioType: string;
   label: string;
@@ -202,11 +207,22 @@ export function NodeInspector({
   readOnly?: boolean;
   /** Runtime-fetched option lists, keyed by Field.optionsFrom (e.g. connectors). */
   dynamicOptions?: Record<string, string[] | undefined>;
+  /** Full connector summaries — enables the inline settings panel under
+      connector selects (edit params, test, create) without leaving the dialog. */
+  connectors?: ConnectorSummary[];
+  /** Re-fetch connectors after an inline create/update. */
+  onConnectorsChanged?: () => void | Promise<void>;
 }) {
   const fields = FIELD_SPECS[studioType] ?? [];
 
+  // Async callers (the inline connector panel's create flow) invoke setField
+  // after awaited network calls — spread the latest config, not the click-time
+  // snapshot, so edits made to other fields in the meantime survive.
+  const configRef = useRef(config);
+  configRef.current = config;
+
   function setField(key: string, raw: string, kind: Field["kind"]) {
-    const next = { ...config };
+    const next = { ...configRef.current };
     if (raw === "" && kind !== "code") {
       // Cleared code stays an explicit "" — the backend keeps the inline
       // invariant on drafts and publish is the emptiness gate.
@@ -252,7 +268,8 @@ export function NodeInspector({
           options = [str, ...(options ?? [])];
         }
         return (
-          <label key={f.key} className="block text-sm">
+          <div key={f.key}>
+          <label className="block text-sm">
             <span className="mb-1 block font-medium">
               {f.label}
               {f.required && <span className="text-red-600 dark:text-red-400"> *</span>}
@@ -306,6 +323,19 @@ export function NodeInspector({
             )}
             {f.hint && <span className="mt-1 block text-xs font-normal text-muted">{f.hint}</span>}
           </label>
+          {/* Settings for the selected connector, editable in place — the
+              panel lives outside the <label> so its buttons don't retarget
+              clicks to the select. */}
+          {f.optionsFrom === "connectors" && connectors && (
+            <InlineConnectorSettings
+              selectedRef={str}
+              connectors={connectors}
+              readOnly={readOnly}
+              onSelectRef={(ref) => setField(f.key, ref, f.kind)}
+              onChanged={onConnectorsChanged}
+            />
+          )}
+          </div>
         );
       })}
 
