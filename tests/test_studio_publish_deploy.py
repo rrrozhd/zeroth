@@ -90,6 +90,20 @@ def _agent_node_payload(node_id: str = "agent") -> dict:
     }
 
 
+def _entry_node_payload(node_id: str = "start") -> dict:
+    return {
+        "id": node_id,
+        "type": "entrypoint",
+        "position": {"x": -200, "y": 0},
+        "data": {
+            "label": "Start",
+            "input_contract_ref": "contract://q",
+            "output_contract_ref": "contract://q",
+            "config": {},
+        },
+    }
+
+
 async def _register_contracts(registry: ContractRegistry) -> None:
     await registry.register(_In, name="contract://q")
     await registry.register(_Out, name="contract://a")
@@ -109,7 +123,9 @@ async def test_publish_without_entrypoint_returns_structured_422() -> None:
 
     assert resp.status_code == 422
     issues = resp.json()["detail"]["issues"]
-    assert any(i["code"] == "missing_entrypoint" for i in issues), issues
+    # Canvas workflows must start with an Entrypoint node; the studio surfaces
+    # that as the same structured issue shape core validation uses.
+    assert any(i["code"] == "missing_entrypoint_node" for i in issues), issues
 
 
 async def test_canvas_draft_publishes_and_deploys_without_python() -> None:
@@ -121,13 +137,12 @@ async def test_canvas_draft_publishes_and_deploys_without_python() -> None:
         updated = client.put(
             f"/api/studio/v1/workflows/{created['id']}",
             json={
-                "nodes": [_agent_node_payload()],
-                "edges": [],
-                "entry_step": "agent",
+                "nodes": [_entry_node_payload(), _agent_node_payload()],
+                "edges": [{"id": "e1", "source": "start", "target": "agent"}],
             },
         )
         assert updated.status_code == 200, updated.text
-        assert updated.json()["entry_step"] == "agent"
+        assert updated.json()["entry_step"] == "start"
 
         published = client.post(f"/api/studio/v1/workflows/{created['id']}/publish")
         assert published.status_code == 200, published.text
@@ -157,7 +172,10 @@ async def test_publish_of_missing_or_published_workflow_maps_to_404_409() -> Non
         created = client.post("/api/studio/v1/workflows", json={"name": "wf"}).json()
         client.put(
             f"/api/studio/v1/workflows/{created['id']}",
-            json={"nodes": [_agent_node_payload()], "edges": [], "entry_step": "agent"},
+            json={
+                "nodes": [_entry_node_payload(), _agent_node_payload()],
+                "edges": [{"id": "e1", "source": "start", "target": "agent"}],
+            },
         )
         assert client.post(f"/api/studio/v1/workflows/{created['id']}/publish").status_code == 200
         # Publishing again: no draft version left -> lifecycle conflict.
@@ -188,7 +206,10 @@ async def test_diff_endpoint_compares_versions() -> None:
         created = client.post("/api/studio/v1/workflows", json={"name": "wf"}).json()
         client.put(
             f"/api/studio/v1/workflows/{created['id']}",
-            json={"nodes": [_agent_node_payload()], "edges": [], "entry_step": "agent"},
+            json={
+                "nodes": [_entry_node_payload(), _agent_node_payload()],
+                "edges": [{"id": "e1", "source": "start", "target": "agent"}],
+            },
         )
         client.post(f"/api/studio/v1/workflows/{created['id']}/publish")
         clone = client.post(f"/api/studio/v1/workflows/{created['id']}/clone")

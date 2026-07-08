@@ -109,6 +109,20 @@ def _code_node_payload(source: str, node_id: str = "transform") -> dict:
     }
 
 
+def _entry_node_payload() -> dict:
+    return {
+        "id": "start",
+        "type": "entrypoint",
+        "position": {"x": -200, "y": 0},
+        "data": {
+            "label": "Start",
+            "input_contract_ref": "contract://q",
+            "output_contract_ref": "contract://q",
+            "config": {},
+        },
+    }
+
+
 async def test_code_node_round_trips_and_publish_gates_on_syntax() -> None:
     app, registry = _make_env()
     await _register_contracts(registry)
@@ -121,13 +135,13 @@ async def test_code_node_round_trips_and_publish_gates_on_syntax() -> None:
         updated = client.put(
             wf,
             json={
-                "nodes": [_code_node_payload("def broken(:\n  pass")],
-                "edges": [],
-                "entry_step": "transform",
+                "nodes": [_entry_node_payload(), _code_node_payload("def broken(:\n  pass")],
+                "edges": [{"id": "e1", "source": "start", "target": "transform"}],
             },
         )
         assert updated.status_code == 200, updated.text
-        node = updated.json()["nodes"][0]
+        assert updated.json()["entry_step"] == "start"  # derived from the entrypoint node
+        node = next(n for n in updated.json()["nodes"] if n["id"] == "transform")
         assert node["type"] == "code"  # round-trips as the canvas type
         assert node["data"]["config"]["inline_source"].startswith("def broken")
 
@@ -139,10 +153,18 @@ async def test_code_node_round_trips_and_publish_gates_on_syntax() -> None:
         ), issues
 
         # Valid source publishes, and stays typed "code" when read back.
-        client.put(wf, json={"nodes": [_code_node_payload(TRANSFORM_SOURCE)], "edges": []})
+        client.put(
+            wf,
+            json={
+                "nodes": [_entry_node_payload(), _code_node_payload(TRANSFORM_SOURCE)],
+                "edges": [{"id": "e1", "source": "start", "target": "transform"}],
+            },
+        )
         published = client.post(f"{wf}/publish")
         assert published.status_code == 200, published.text
-        assert published.json()["nodes"][0]["type"] == "code"
+        types = {n["id"]: n["type"] for n in published.json()["nodes"]}
+        assert types["transform"] == "code"
+        assert types["start"] == "entrypoint"
 
 
 async def test_code_node_missing_source_key_still_saves_as_draft() -> None:

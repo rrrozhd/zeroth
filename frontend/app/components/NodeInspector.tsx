@@ -35,6 +35,7 @@ type Field = {
 };
 
 export const FIELD_SPECS: Record<string, Field[]> = {
+  entrypoint: [],
   code: [
     {
       key: "inline_source",
@@ -171,6 +172,7 @@ json.dump(result, sys.stdout)
 // save validates (e.g. execution_mode must be a valid enum value).
 export const DEFAULT_CONFIG: Record<string, Record<string, unknown>> = {
   agent: { instruction: "", model_provider: "" },
+  entrypoint: {},
   code: { inline_source: CODE_STARTER, execution_mode: "inline" },
   executable_unit: { manifest_ref: "", execution_mode: "native" },
   human_approval: {},
@@ -339,7 +341,22 @@ export function NodeInspector({
         );
       })}
 
-      {onContractRefChange && (
+      {onContractRefChange && studioType === "entrypoint" && (
+        <fieldset className="space-y-4 border-t border-border pt-4">
+          <legend className="sr-only">Workflow input contract</legend>
+          <ContractPicker
+            label="Workflow input contract"
+            hint="The shape callers must send to POST /v1/runs — validated at the door. Required to publish."
+            value={inputContractRef ?? null}
+            options={contractOptions ?? []}
+            readOnly={readOnly}
+            inputCls={inputCls}
+            onChange={(ref) => onContractRefChange("input", ref)}
+          />
+        </fieldset>
+      )}
+
+      {onContractRefChange && studioType !== "entrypoint" && (
         <fieldset className="space-y-4 border-t border-border pt-4">
           <legend className="sr-only">Contract bindings</legend>
           <ContractPicker

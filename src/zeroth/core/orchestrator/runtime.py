@@ -27,6 +27,7 @@ from zeroth.core.conditions.models import ConditionContext, TraversalState
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.graph import (
     AgentNode,
+    EntrypointNode,
     ExecutableUnitNode,
     Graph,
     HumanApprovalNode,
@@ -1375,6 +1376,14 @@ class RuntimeOrchestrator:
                 audit_record.setdefault("execution_metadata", {})
                 audit_record["execution_metadata"]["template_memory_bindings"] = tmb_audit_records
             return result.output_data, audit_record
+        if isinstance(node, EntrypointNode):
+            # Ingress pass-through: POST /v1/runs already validated the payload
+            # against the deployment's pinned entry contract. The entrypoint
+            # marks where (and with what) the run entered the workflow.
+            return dict(input_payload), {
+                "execution_mode": "entrypoint",
+                "passthrough": True,
+            }
         if isinstance(node, ExecutableUnitNode):
             enforcement_context = self._enforcement_context_for(run, node.node_id)
             if (
