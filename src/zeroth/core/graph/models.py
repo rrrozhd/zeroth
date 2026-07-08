@@ -162,15 +162,32 @@ class AgentNodeData(BaseModel):
 class ExecutableUnitNodeData(BaseModel):
     """Configuration for a code/script execution step.
 
-    Points to a manifest that describes what to run, how to run it,
-    and how to extract the output.
+    Two authoring paths share this node: a ``manifest_ref`` pointing at a
+    registered unit (the medium-code path), or ``inline_source`` carrying
+    authored code directly (the Studio code node). Exactly one must be set;
+    inline code always runs as a sandboxed subprocess.
     """
 
-    manifest_ref: str
-    execution_mode: Literal["native", "wrapped_command", "project"]
+    manifest_ref: str = ""
+    execution_mode: Literal["native", "wrapped_command", "project", "inline"]
+    inline_source: str | None = None
+    timeout_seconds: int | None = Field(default=None, gt=0)
     runtime_binding: str | None = None
     sandbox_config: dict[str, Any] = Field(default_factory=dict)
     output_extraction_strategy: str = "json_stdout"
+
+    @model_validator(mode="after")
+    def _validate_code_source(self) -> ExecutableUnitNodeData:
+        """Require exactly one of manifest_ref / inline_source, modes aligned."""
+        has_ref = bool(self.manifest_ref.strip())
+        has_inline = self.inline_source is not None
+        if has_ref and has_inline:
+            raise ValueError("manifest_ref and inline_source are mutually exclusive")
+        if has_inline and self.execution_mode != "inline":
+            raise ValueError("inline_source requires execution_mode='inline'")
+        if not has_inline and self.execution_mode == "inline":
+            raise ValueError("execution_mode='inline' requires inline_source")
+        return self
 
 
 class HumanApprovalNodeData(BaseModel):

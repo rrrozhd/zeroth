@@ -29,6 +29,7 @@ from zeroth.core.execution_units.io import (
 )
 from zeroth.core.execution_units.models import (
     ExecutableUnitManifest,
+    InlineUnitManifest,
     NativeUnitManifest,
     ProjectUnitManifest,
     WrappedCommandUnitManifest,
@@ -346,6 +347,10 @@ class ExecutableUnitRunner:
         with tempfile.TemporaryDirectory(prefix="zeroth-eu-") as tempdir:
             sandbox_root = Path(tempdir)
             cwd = self._resolve_workdir(sandbox_root, manifest.run_config.working_directory)
+            if isinstance(manifest, InlineUnitManifest):
+                # Inline units carry their code with them — materialize it as
+                # the entry file the manifest's run command expects.
+                (cwd / "main.py").write_text(manifest.artifact_source.source, encoding="utf-8")
             input_file = cwd / "zeroth-input.json"
             output_file = cwd / "zeroth-output.json"
             injected = inject_input(
@@ -642,7 +647,7 @@ class ExecutableUnitRunner:
 
     def _resource_constraints_for(
         self,
-        manifest: WrappedCommandUnitManifest | ProjectUnitManifest,
+        manifest: WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
         enforcement_context: Mapping[str, Any],
     ) -> ResourceConstraints | None:
         """Translate manifest limits plus policy network mode into sandbox constraints."""
@@ -671,7 +676,7 @@ class ExecutableUnitRunner:
 
     def _command_for(
         self,
-        manifest: WrappedCommandUnitManifest | ProjectUnitManifest,
+        manifest: WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
         argv: Sequence[str] = (),
     ) -> list[str]:
         """Build the full command list from the manifest's config plus extra args."""
