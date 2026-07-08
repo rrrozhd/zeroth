@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   ApiErrorNote,
+  buildRunCurl,
   Button,
   Card,
+  CurlBlock,
   Empty,
   ErrorBox,
   Field,
@@ -20,6 +22,7 @@ import {
   useAsync,
   useConnected,
 } from "@/app/components/ui";
+import { getApiKey } from "@/app/lib/config";
 import {
   errMsg,
   getRun,
@@ -194,6 +197,16 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
         <Button variant="primary" onClick={submit} disabled={busy}>
           {busy ? "Submitting…" : "Submit run"}
         </Button>
+        {/* The same invocation as a shell command — the deployed graph IS an
+            API service; this is how anything outside the console calls it. */}
+        <details>
+          <summary className="cursor-pointer text-xs font-medium text-muted transition-colors hover:text-foreground">
+            Call this API with cURL
+          </summary>
+          <div className="mt-2">
+            <CurlBlock command={buildRunCurl(payload, thread)} secret={getApiKey() || undefined} />
+          </div>
+        </details>
       </div>
     </Card>
   );
