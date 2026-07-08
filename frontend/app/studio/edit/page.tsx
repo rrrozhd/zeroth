@@ -1391,6 +1391,9 @@ function RunPanel({
   // undefined = health check in flight; null = unreachable/no deployment.
   const [deployedId, setDeployedId] = useState<string | null | undefined>(undefined);
   const [payload, setPayload] = useState('{\n  "question": "What is Zeroth?"\n}');
+  // Conversation key sent as thread_id. Prefilled from each run's response so
+  // repeated runs continue the same conversation; cleared = start fresh.
+  const [threadId, setThreadId] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [run, setRun] = useState<RunStatus | null>(null);
   const [failedNode, setFailedNode] = useState<string | null>(null);
@@ -1487,8 +1490,14 @@ function RunPanel({
       ),
     );
     try {
-      const res = await submitRun({ input_payload: parsed });
+      const res = await submitRun({
+        input_payload: parsed,
+        thread_id: threadId.trim() || undefined,
+      });
       setRunId(res.run_id);
+      // The service mints a thread for id-less runs — adopt it so the next
+      // run from this panel continues the conversation.
+      if (res.thread_id) setThreadId(res.thread_id);
     } catch (e) {
       setError(errMsg(e));
       onStates({});
@@ -1600,6 +1609,28 @@ function RunPanel({
                   className="font-mono text-xs"
                 />
               </Field>
+              <Field
+                label="Thread"
+                hint="conversation key — runs sharing it continue one conversation; blank starts fresh"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={threadId}
+                    onChange={(e) => setThreadId(e.target.value)}
+                    placeholder="(new conversation)"
+                    className="font-mono text-xs"
+                  />
+                  {threadId && (
+                    <Button
+                      size="sm"
+                      onClick={() => setThreadId("")}
+                      title="Start a new conversation"
+                    >
+                      New
+                    </Button>
+                  )}
+                </div>
+              </Field>
               <div className="flex items-center gap-2">
                 <Button
                   variant="primary"
@@ -1623,7 +1654,7 @@ function RunPanel({
                 </summary>
                 <div className="mt-2">
                   <CurlBlock
-                    command={buildRunCurl(payload)}
+                    command={buildRunCurl(payload, threadId)}
                     secret={getApiKey() || undefined}
                   />
                 </div>
