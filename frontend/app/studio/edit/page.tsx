@@ -69,6 +69,7 @@ import {
   publishWorkflow,
   submitRun,
   updateWorkflow,
+  type ConnectorSummary,
   type DeploymentSummary,
   type DiffEntry,
   type NodeAuditRecord,
@@ -275,8 +276,9 @@ function Editor({ id }: { id: string }) {
   const histRef = useRef<{ stack: Snapshot[]; index: number }>({ stack: [], index: -1 });
   const pasteSeqRef = useRef(0);
   // Registered memory connectors — feeds the retrieval node's connector
-  // dropdown. Non-fatal if unavailable (the field degrades to a text input).
-  const [connectorRefs, setConnectorRefs] = useState<string[]>([]);
+  // dropdown and its inline settings panel. Non-fatal if unavailable (the
+  // field degrades to a text input).
+  const [connectors, setConnectors] = useState<ConnectorSummary[]>([]);
   // Registered executable-unit manifests — feeds the executable_unit node's
   // manifest_ref dropdown. Same degrade-to-text fallback as connectors.
   const [manifestRefs, setManifestRefs] = useState<string[]>([]);
@@ -305,7 +307,7 @@ function Editor({ id }: { id: string }) {
     setLoading(true);
     setError(null);
     try {
-      const [detail, types, connectors, manifests, contracts, all] = await Promise.all([
+      const [detail, types, conns, manifests, contracts, all] = await Promise.all([
         getWorkflow(id),
         listNodeTypes(),
         listConnectors().catch(() => []),
@@ -318,7 +320,7 @@ function Editor({ id }: { id: string }) {
       setEntryStep(detail.entry_step ?? "");
       setVersion(detail.version);
       setPalette(types);
-      setConnectorRefs(connectors.map((c) => c.ref));
+      setConnectors(conns);
       setManifestRefs(
         manifests.filter((m) => m.kind === "executable_unit").map((m) => m.manifest_ref),
       );
@@ -353,6 +355,17 @@ function Editor({ id }: { id: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Inline connector edits in the node dialog re-fetch the registry; a
+  // transient failure keeps the previous list instead of blanking the
+  // dropdown mid-edit.
+  const reloadConnectors = useCallback(async () => {
+    try {
+      setConnectors(await listConnectors());
+    } catch {
+      /* keep the stale list */
+    }
+  }, []);
 
   const onConnect = useCallback(
     (c: Connection) =>
@@ -1075,7 +1088,8 @@ function Editor({ id }: { id: string }) {
         <NodeEditorDialog
           node={editing}
           readOnly={readOnly}
-          connectorRefs={connectorRefs}
+          connectors={connectors}
+          onConnectorsChanged={reloadConnectors}
           manifestRefs={manifestRefs}
           contractNames={contractNames}
           onClose={() => setEditingId(null)}
@@ -1102,7 +1116,8 @@ function Editor({ id }: { id: string }) {
 function NodeEditorDialog({
   node,
   readOnly,
-  connectorRefs,
+  connectors,
+  onConnectorsChanged,
   manifestRefs,
   contractNames,
   onClose,
@@ -1111,7 +1126,8 @@ function NodeEditorDialog({
 }: {
   node: Node;
   readOnly: boolean;
-  connectorRefs: string[];
+  connectors: ConnectorSummary[];
+  onConnectorsChanged: () => void | Promise<void>;
   manifestRefs: string[];
   contractNames: string[];
   onClose: () => void;
@@ -1197,7 +1213,12 @@ function NodeEditorDialog({
               outputContractRef={d.outputContractRef ?? null}
               contractOptions={contractNames}
               readOnly={readOnly}
-              dynamicOptions={{ connectors: connectorRefs, manifests: manifestRefs }}
+              dynamicOptions={{
+                connectors: connectors.map((c) => c.ref),
+                manifests: manifestRefs,
+              }}
+              connectors={connectors}
+              onConnectorsChanged={onConnectorsChanged}
               onLabelChange={(label) => onPatch({ label })}
               onConfigChange={(config) => onPatch({ config })}
               onContractRefChange={(which, ref) =>

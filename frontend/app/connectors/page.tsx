@@ -16,6 +16,7 @@ import {
   useAsync,
   useConnected,
 } from "@/app/components/ui";
+import { ConnectorParamFields } from "@/app/components/ConnectorInline";
 import {
   createConnector,
   deleteConnector,
@@ -26,113 +27,14 @@ import {
   type ConnectorSummary,
   type ConnectorTestResponse,
 } from "@/app/lib/api";
-
-// --- Backend catalogue: the runtime-creatable connector backends and the
-// param fields each one accepts. Mirrors the server-side param models.
-type ParamField = {
-  key: string;
-  label: string;
-  required?: boolean;
-  kind?: "text" | "number" | "secret";
-  /** Comma-separated input coerced into a string[] in the request body. */
-  list?: boolean;
-  placeholder?: string;
-  hint?: string;
-};
-
-type BackendSpec = { value: string; label: string; desc: string; fields: ParamField[] };
-
-const REDIS_FIELDS: ParamField[] = [
-  {
-    key: "url",
-    label: "URL",
-    required: true,
-    kind: "secret",
-    placeholder: "redis://:password@host:6379/0",
-  },
-  { key: "key_prefix", label: "Key prefix" },
-];
-
-const BACKENDS: BackendSpec[] = [
-  {
-    value: "pgvector",
-    label: "Postgres (pgvector)",
-    desc: "Vector similarity search over a Postgres table with the pgvector extension.",
-    fields: [
-      {
-        key: "dsn",
-        label: "DSN",
-        required: true,
-        kind: "secret",
-        placeholder: "postgresql://user:password@host:5432/db",
-      },
-      { key: "table_name", label: "Table name" },
-      { key: "embedding_model", label: "Embedding model" },
-      { key: "embedding_dimensions", label: "Embedding dimensions", kind: "number" },
-    ],
-  },
-  {
-    value: "chroma",
-    label: "ChromaDB",
-    desc: "Vector search against a running Chroma server.",
-    fields: [
-      { key: "host", label: "Host", required: true, placeholder: "localhost" },
-      { key: "port", label: "Port", kind: "number", placeholder: "8000" },
-      { key: "collection_prefix", label: "Collection prefix" },
-    ],
-  },
-  {
-    value: "elasticsearch",
-    label: "Elasticsearch",
-    desc: "Full-text and vector retrieval against an Elasticsearch cluster.",
-    fields: [
-      {
-        key: "hosts",
-        label: "Hosts",
-        required: true,
-        list: true,
-        placeholder: "http://localhost:9200",
-        hint: "Comma-separated list.",
-      },
-      { key: "index_prefix", label: "Index prefix" },
-    ],
-  },
-  {
-    value: "redis_kv",
-    label: "Redis (key-value)",
-    desc: "Key-value memory store backed by Redis.",
-    fields: REDIS_FIELDS,
-  },
-  {
-    value: "redis_thread",
-    label: "Redis (thread)",
-    desc: "Conversation-thread memory backed by Redis.",
-    fields: REDIS_FIELDS,
-  },
-];
-
-function backendSpec(value: string): BackendSpec {
-  return BACKENDS.find((b) => b.value === value) ?? BACKENDS[0];
-}
-
-/** Build the params object for the request body: blank optional fields are
-    omitted, numbers coerced, comma-lists split into arrays. */
-function buildParams(
-  spec: BackendSpec,
-  values: Record<string, string>,
-): Record<string, unknown> {
-  const params: Record<string, unknown> = {};
-  for (const f of spec.fields) {
-    const raw = (values[f.key] ?? "").trim();
-    if (!raw) continue; // omit blanks — server defaults apply
-    if (f.kind === "number") params[f.key] = Number(raw);
-    else if (f.list) params[f.key] = raw.split(",").map((s) => s.trim()).filter(Boolean);
-    else params[f.key] = raw;
-  }
-  return params;
-}
-
-const REF_RE = /^[a-z0-9_-]+$/;
+import {
+  BACKENDS,
+  backendSpec,
+  buildParams,
+  REF_RE,
+  requiredParamsOk,
+  seedParamValues,
+} from "@/app/lib/connectorBackends";
 
 export default function ConnectorsPage() {
   const connected = useConnected();
@@ -163,7 +65,8 @@ export default function ConnectorsPage() {
             <span className="font-medium text-foreground">env</span> connectors come from
             deployment settings and are read-only here;{" "}
             <span className="font-medium text-foreground">runtime</span> connectors are
-            stored in the platform DB and usable immediately.
+            stored in the platform DB and usable immediately. Runtime connectors can
+            also be adjusted in place from a retrieval node&apos;s settings in the Studio.
           </p>
 
           {error && <ApiErrorNote error={error} />}
@@ -347,15 +250,7 @@ function ConnectorForm({
     setBackendType(editing.backend_type ?? BACKENDS[0].value);
     setRef(editing.ref);
     const spec = backendSpec(editing.backend_type ?? BACKENDS[0].value);
-    const seeded: Record<string, string> = {};
-    for (const f of spec.fields) {
-      // Secrets come back masked — don't round-trip the mask into a PUT.
-      if (f.kind === "secret") continue;
-      const v = (editing.params ?? {})[f.key];
-      if (v === undefined || v === null) continue;
-      seeded[f.key] = Array.isArray(v) ? v.join(", ") : String(v);
-    }
-    setValues(seeded);
+    setValues(seedParamValues(spec, editing.params ?? {}));
     setFormError(null);
     setSaved(false);
   }
@@ -368,9 +263,7 @@ function ConnectorForm({
 
   const spec = backendSpec(backendType);
   const refOk = editing ? true : REF_RE.test(ref);
-  const requiredOk = spec.fields
-    .filter((f) => f.required)
-    .every((f) => (values[f.key] ?? "").trim() !== "");
+  const requiredOk = requiredParamsOk(spec, values);
 
   async function save() {
     setBusy(true);
@@ -436,28 +329,12 @@ function ConnectorForm({
           </Field>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          {spec.fields.map((f) => (
-            <Field
-              key={f.key}
-              label={f.required ? `${f.label} *` : f.label}
-              hint={
-                editing && f.kind === "secret"
-                  ? "Secrets aren't shown — re-enter the full value."
-                  : f.hint
-              }
-            >
-              <Input
-                value={values[f.key] ?? ""}
-                type={f.kind === "number" ? "number" : f.kind === "secret" ? "password" : "text"}
-                autoComplete={f.kind === "secret" ? "off" : undefined}
-                placeholder={f.placeholder}
-                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                className={f.kind === "secret" ? "font-mono" : undefined}
-              />
-            </Field>
-          ))}
-        </div>
+        <ConnectorParamFields
+          spec={spec}
+          values={values}
+          onChange={setValues}
+          reenterSecrets={!!editing}
+        />
 
         <div className="flex items-center gap-3">
           <Button
