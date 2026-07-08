@@ -52,6 +52,8 @@ class ValidationCode(StrEnum):
     INVALID_MERGE_STRATEGY = "invalid_merge_strategy"
     INVALID_REDUCER_REF = "invalid_reducer_ref"
     INVALID_INLINE_SOURCE = "invalid_inline_source"
+    INVALID_TOOL_EDGE = "invalid_tool_edge"
+    INVALID_TOOL_BINDING = "invalid_tool_binding"
 
 
 class ValidationIssue(BaseModel):

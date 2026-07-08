@@ -102,6 +102,26 @@ function portsFor(type: string, types: NodeType[]): Port[] {
   return (types.find((t) => t.type === type)?.ports ?? []) as Port[];
 }
 
+// Tool edges (agent Tools handle -> unit Tool handle) are a separate set of
+// edges from the data flow: violet and dashed on the canvas, kind="tool" in
+// the graph. The handle ids are the ground truth for which set an edge is in.
+type EdgeKind = "data" | "tool";
+
+const TOOL_EDGE_STYLE = { stroke: "#8b5cf6", strokeDasharray: "6 3" };
+
+function edgeKindOf(e: {
+  sourceHandle?: string | null;
+  data?: Record<string, unknown>;
+}): EdgeKind {
+  if ((e.data as { kind?: string } | undefined)?.kind === "tool") return "tool";
+  return e.sourceHandle === "tools" ? "tool" : "data";
+}
+
+/** Canvas props (styling + kind marker) for an edge of the given kind. */
+function edgeKindProps(kind: EdgeKind): Partial<Edge> {
+  return kind === "tool" ? { data: { kind }, style: TOOL_EDGE_STYLE } : { data: { kind } };
+}
+
 // Structural signature for autosave + undo history. Selection lives on the
 // node objects (`selected`), so key off ids/positions/data only — clicking a
 // node must not schedule a save or record a history entry.
@@ -173,6 +193,7 @@ function toRfEdges(detail: WorkflowDetail): Edge[] {
     target: e.target,
     sourceHandle: e.source_handle ?? undefined,
     targetHandle: e.target_handle ?? undefined,
+    ...edgeKindProps(e.kind ?? edgeKindOf({ sourceHandle: e.source_handle })),
   }));
 }
 
@@ -206,6 +227,7 @@ function toStudioEdges(edges: Edge[]): StudioEdge[] {
     target: e.target,
     source_handle: e.sourceHandle ?? null,
     target_handle: e.targetHandle ?? null,
+    kind: edgeKindOf(e),
   }));
 }
 
@@ -381,14 +403,27 @@ function Editor({ id }: { id: string }) {
     }
   }, []);
 
+  // A tool handle only pairs with a tool handle: the agent's Tools source
+  // connects to a unit's Tool target, never to data ports (and vice versa).
+  const isValidConnection = useCallback(
+    (c: Connection | Edge) => (c.sourceHandle === "tools") === (c.targetHandle === "tool-input"),
+    [],
+  );
+
   const onConnect = useCallback(
-    (c: Connection) =>
+    (c: Connection) => {
+      if ((c.sourceHandle === "tools") !== (c.targetHandle === "tool-input")) return;
       setEdges((es) =>
         addEdge(
-          { ...c, id: `e-${c.source}.${c.sourceHandle}-${c.target}.${c.targetHandle}` },
+          {
+            ...c,
+            id: `e-${c.source}.${c.sourceHandle}-${c.target}.${c.targetHandle}`,
+            ...edgeKindProps(c.sourceHandle === "tools" ? "tool" : "data"),
+          },
           es,
         ),
-      ),
+      );
+    },
     [setEdges],
   );
 
@@ -691,6 +726,7 @@ function Editor({ id }: { id: string }) {
         target: idMap.get(e.target)!,
         sourceHandle: e.sourceHandle ?? undefined,
         targetHandle: e.targetHandle ?? undefined,
+        ...edgeKindProps(edgeKindOf({ sourceHandle: e.sourceHandle })),
       }));
     // Pasted nodes become the selection so they can be dragged right away.
     setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(pasted));
@@ -795,6 +831,21 @@ function Editor({ id }: { id: string }) {
 
   const editing = nodes.find((n) => n.id === editingId);
 
+  // Units attached to the node being edited via tool edges — the agent
+  // inspector's "Attached tools" section binds names/descriptions to them.
+  const editingToolTargets = useMemo(() => {
+    if (!editing) return [];
+    return edges
+      .filter((e) => e.source === editing.id && edgeKindOf(e) === "tool")
+      .map((e) => {
+        const target = nodes.find((n) => n.id === e.target);
+        return {
+          id: e.target,
+          label: ((target?.data as { label?: string })?.label ?? e.target) || e.target,
+        };
+      });
+  }, [editing, edges, nodes]);
+
   // Full-bleed canvas (n8n-style): the editor escapes the centered page
   // column and fills the viewport below the sticky h-14 header; title,
   // palette, and actions float over the graph as panels.
@@ -817,6 +868,7 @@ function Editor({ id }: { id: string }) {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          isValidConnection={isValidConnection}
           onInit={setRf}
           // n8n-style: single click only selects (so ⌘C/multi-select feel
           // natural); the config dialog opens on double-click.
@@ -1107,6 +1159,7 @@ function Editor({ id }: { id: string }) {
           manifestRefs={manifestRefs}
           contractNames={contractNames}
           onContractsChanged={refreshContracts}
+          toolTargets={editingToolTargets}
           onClose={() => setEditingId(null)}
           onPatch={(patch) => patchNode(editing.id, patch)}
           onDelete={() => deleteNode(editing.id)}
@@ -1136,6 +1189,7 @@ function NodeEditorDialog({
   manifestRefs,
   contractNames,
   onContractsChanged,
+  toolTargets,
   onClose,
   onPatch,
   onDelete,
@@ -1147,6 +1201,8 @@ function NodeEditorDialog({
   manifestRefs: string[];
   contractNames: string[];
   onContractsChanged?: () => void | Promise<void>;
+  /** Units attached to this node via tool edges (agent nodes only). */
+  toolTargets?: { id: string; label: string }[];
   onClose: () => void;
   onPatch: (patch: NodePatch) => void;
   onDelete: () => void;
@@ -1232,6 +1288,7 @@ function NodeEditorDialog({
               inputContractRef={d.inputContractRef ?? null}
               outputContractRef={d.outputContractRef ?? null}
               contractOptions={contractNames}
+              toolTargets={toolTargets}
               onContractsChanged={onContractsChanged}
               readOnly={readOnly}
               dynamicOptions={{

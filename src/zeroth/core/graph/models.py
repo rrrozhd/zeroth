@@ -137,6 +137,57 @@ class TemplateMemoryBinding(BaseModel):
         return self
 
 
+_TOOL_NAME_PATTERN = r"^[a-zA-Z0-9_-]{1,64}$"
+
+
+class ToolArgument(BaseModel):
+    """One argument of a tool exposed to an agent.
+
+    The description is mandatory: the model only sees the JSON schema built
+    from these entries, so an undescribed argument is unusable in practice.
+    """
+
+    name: str = Field(pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+    type: Literal["string", "number", "integer", "boolean", "object", "array"] = "string"
+    description: str = Field(min_length=1)
+    required: bool = True
+
+    def to_schema_property(self) -> dict[str, Any]:
+        """Render this argument as a JSON Schema property."""
+        return {"type": self.type, "description": self.description}
+
+
+class AgentToolBinding(BaseModel):
+    """Exposes an attached executable-unit node as a callable tool.
+
+    The attachment itself is a tool-kind edge from the agent to the unit;
+    this binding carries what the model needs to call it — an alias distinct
+    from the node id, a description, and described arguments. All three are
+    author-provided, never derived, so the model never sees internal ids.
+    """
+
+    target_node_id: str
+    name: str = Field(pattern=_TOOL_NAME_PATTERN)
+    description: str = Field(min_length=1)
+    arguments: list[ToolArgument] = Field(default_factory=list)
+
+    def parameters_schema(self) -> dict[str, Any]:
+        """Compile the argument list into a JSON Schema object for tool calling."""
+        return {
+            "type": "object",
+            "properties": {arg.name: arg.to_schema_property() for arg in self.arguments},
+            "required": [arg.name for arg in self.arguments if arg.required],
+            "additionalProperties": False,
+        }
+
+    @model_validator(mode="after")
+    def _validate_arguments(self) -> AgentToolBinding:
+        names = [arg.name for arg in self.arguments]
+        if len(names) != len(set(names)):
+            raise ValueError("tool argument names must be unique")
+        return self
+
+
 class AgentNodeData(BaseModel):
     """Configuration for an AI agent step.
 
@@ -147,6 +198,7 @@ class AgentNodeData(BaseModel):
     instruction: str
     model_provider: str
     tool_refs: list[str] = Field(default_factory=list)
+    tool_bindings: list[AgentToolBinding] = Field(default_factory=list)
     memory_refs: list[str] = Field(default_factory=list)
     retry_policy: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: int | None = Field(default=None, ge=1)
@@ -157,6 +209,10 @@ class AgentNodeData(BaseModel):
     template_ref: TemplateReference | None = None
     context_window: ContextWindowSettings | None = None
     template_memory_bindings: list[TemplateMemoryBinding] = Field(default_factory=list)
+    # When set, the input payload field under this key is read as a list of
+    # chat messages ({role: human|ai|tool, content}) and rendered as real
+    # conversation turns instead of being dumped inside the input JSON block.
+    input_messages_key: str | None = None
 
 
 class ExecutableUnitNodeData(BaseModel):
@@ -271,6 +327,7 @@ class AgentNode(NodeBase):
                 "provider_ref": self.agent.model_provider,
                 "instruction_ref": self.agent.instruction,
                 "tool_refs": list(self.agent.tool_refs),
+                "tool_bindings": [binding.model_dump() for binding in self.agent.tool_bindings],
                 "memory_refs": list(self.agent.memory_refs),
                 "input_contract_ref": self.input_contract_ref,
                 "output_contract_ref": self.output_contract_ref,
@@ -392,8 +449,10 @@ Node = Annotated[
 class Edge(BaseModel):
     """A connection between two nodes in the graph.
 
-    Edges define the flow of execution.  They can optionally carry a
+    Data edges define the flow of execution.  They can optionally carry a
     condition (to branch) and a mapping (to transform data between nodes).
+    Tool edges (``kind="tool"``) attach an executable unit to an agent as a
+    callable tool — they are structural, never traversed as control flow.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -401,6 +460,7 @@ class Edge(BaseModel):
     edge_id: str
     source_node_id: str
     target_node_id: str
+    kind: Literal["data", "tool"] = "data"
     mapping: EdgeMapping | None = None
     condition: Condition | None = None
     enabled: bool = True
@@ -512,7 +572,8 @@ class Graph(BaseModel):
         """Build a mapping from each node to its outgoing transition spec."""
         outgoing: dict[str, list[Edge]] = {}
         for edge in self.edges:
-            if not edge.enabled:
+            # Tool edges attach tools; they are not control-flow transitions.
+            if not edge.enabled or edge.kind == "tool":
                 continue
             outgoing.setdefault(edge.source_node_id, []).append(edge)
 

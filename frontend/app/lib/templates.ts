@@ -30,6 +30,7 @@ function edge(source: string, target: string): StudioEdge {
     target,
     source_handle: "output-data",
     target_handle: "input-data",
+    kind: "data",
   };
 }
 

@@ -471,7 +471,12 @@ class RuntimeOrchestrator:
 
                     # Continue normal post-node flow.
                     await self._record_history(
-                        run, node, node_id, input_payload, output_data, audit_record,
+                        run,
+                        node,
+                        node_id,
+                        input_payload,
+                        output_data,
+                        audit_record,
                         started_at=node_started_at,
                     )
                     self._increment_node_visit(run, node_id)
@@ -537,7 +542,12 @@ class RuntimeOrchestrator:
 
                 # Record history and plan next nodes (same post-node flow as normal nodes).
                 await self._record_history(
-                    run, node, node_id, input_payload, output_data, audit_record,
+                    run,
+                    node,
+                    node_id,
+                    input_payload,
+                    output_data,
+                    audit_record,
                     started_at=node_started_at,
                 )
                 self._increment_node_visit(run, node_id)
@@ -551,7 +561,9 @@ class RuntimeOrchestrator:
                 continue
 
             try:
-                output_data, audit_record = await self._dispatch_node(node, run, input_payload)
+                output_data, audit_record = await self._dispatch_node(
+                    node, run, input_payload, graph
+                )
             except Exception as exc:
                 await self._record_failed_execution_audit(
                     run, node, node_id, input_payload, exc, started_at=node_started_at
@@ -621,7 +633,12 @@ class RuntimeOrchestrator:
                 continue
 
             await self._record_history(
-                run, node, node_id, input_payload, output_data, audit_record,
+                run,
+                node,
+                node_id,
+                input_payload,
+                output_data,
+                audit_record,
                 started_at=node_started_at,
             )
             self._increment_node_visit(run, node_id)
@@ -762,7 +779,9 @@ class RuntimeOrchestrator:
                 else:
                     # Dispatch the downstream node with branch-isolated payload
                     try:
-                        ds_output, ds_audit = await self._dispatch_node(ds_node, run, branch_output)
+                        ds_output, ds_audit = await self._dispatch_node(
+                            ds_node, run, branch_output, graph
+                        )
                     except Exception as exc:
                         await self._record_failed_branch_execution_audit(
                             run, ds_node, ds_node_id, branch_output, exc, ctx
@@ -1141,12 +1160,15 @@ class RuntimeOrchestrator:
         node: Node,
         run: Run,
         input_payload: Mapping[str, Any],
+        graph: Graph | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Dispatch a node inside an OBS tracing span.
 
         Wraps every dispatch path (main drive loop and fan-out branches, which
         call this directly) so each node hop produces one span carrying the
         node/run identifiers that also key the metrics and audit records.
+        ``graph`` enables tool-attachment dispatch for agents with tool
+        bindings; callers without it simply run the agent tool-less.
         """
         with start_span(
             "zeroth.node",
@@ -1156,13 +1178,14 @@ class RuntimeOrchestrator:
                 "zeroth.run_id": run.run_id,
             },
         ):
-            return await self._dispatch_node_inner(node, run, input_payload)
+            return await self._dispatch_node_inner(node, run, input_payload, graph)
 
     async def _dispatch_node_inner(
         self,
         node: Node,
         run: Run,
         input_payload: Mapping[str, Any],
+        graph: Graph | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Run a single node and return its output and audit data.
 
@@ -1321,6 +1344,17 @@ class RuntimeOrchestrator:
                     strategy=strategy,
                 )
 
+            # Tool attachments: agents with tool bindings call their attached
+            # executable-unit nodes through an executor bound to this graph.
+            original_tool_executor = getattr(runner, "tool_executor", _MISSING)
+            if (
+                graph is not None
+                and original_tool_executor is not _MISSING
+                and original_tool_executor is None
+                and getattr(node.agent, "tool_bindings", None)
+            ):
+                runner.tool_executor = self._tool_executor_for(graph)
+
             enforcement_context = self._enforcement_context_for(run, node.node_id)
             try:
                 result = await self._run_agent_with_optional_enforcement(
@@ -1352,6 +1386,8 @@ class RuntimeOrchestrator:
                 # Phase 37: Restore original context tracker.
                 if original_context_tracker is not _MISSING:
                     runner.context_tracker = original_context_tracker
+                if original_tool_executor is not _MISSING:
+                    runner.tool_executor = original_tool_executor
                 # Phase 36: Restore original config after template-based override.
                 if effective_instruction is not None and original_config is not _MISSING:
                     runner.config = original_config
@@ -2162,6 +2198,44 @@ class RuntimeOrchestrator:
             )
         return await self.executable_unit_runner.run(manifest_ref, input_payload)
 
+    def _tool_executor_for(self, graph: Graph) -> Any:
+        """Build the executor that runs an agent's attached tool nodes.
+
+        The AgentRunner's tool-call loop hands it the resolved binding (whose
+        ``executable_unit_ref`` is ``node://<node_id>`` for graph attachments)
+        and the model-supplied arguments; the target node runs exactly like it
+        would as a graph step — inline source through the sandboxed subprocess
+        path, manifest refs through the registry.
+        """
+
+        async def execute(binding: Any, arguments: Mapping[str, Any] | None) -> Any:
+            node_id = str(binding.executable_unit_ref).removeprefix("node://")
+            target = self._node_by_id(graph, node_id)
+            if not isinstance(target, ExecutableUnitNode):
+                raise NodeDispatcherError(
+                    f"tool {binding.alias!r} targets {node_id!r}, "
+                    "which is not an executable unit node"
+                )
+            payload = dict(arguments or {})
+            if target.executable_unit.inline_source is not None:
+                from zeroth.core.execution_units.inline import build_inline_binding
+
+                result = await self.executable_unit_runner.run_binding(
+                    build_inline_binding(
+                        target.node_id,
+                        target.executable_unit.inline_source,
+                        timeout_seconds=target.executable_unit.timeout_seconds,
+                    ),
+                    payload,
+                )
+            else:
+                result = await self.executable_unit_runner.run(
+                    target.executable_unit.manifest_ref, payload
+                )
+            return result.output_data
+
+        return execute
+
     def _redact_for_audit(self, value: Any) -> Any:
         """Redact any resolved secret values before persisting audit material."""
         resolver = self.secret_resolver
@@ -2201,9 +2275,7 @@ class RuntimeOrchestrator:
             try:
                 tool_calls.append(
                     ToolCallRecord(
-                        tool_ref=str(
-                            tool.get("executable_unit_ref") or tool.get("tool_ref") or ""
-                        ),
+                        tool_ref=str(tool.get("executable_unit_ref") or tool.get("tool_ref") or ""),
                         alias=str(tool.get("alias") or ""),
                         arguments=_as_dict(tc.get("arguments")) or {},
                         outcome=_as_dict(tc.get("outcome")),
@@ -2357,8 +2429,16 @@ class RuntimeOrchestrator:
         raise KeyError(node_id)
 
     def _edge_for(self, graph: Graph, source_node_id: str, target_node_id: str):
-        """Find the edge connecting two nodes, or None if there isn't one."""
+        """Find the data edge connecting two nodes, or None if there isn't one.
+
+        Tool edges never carry mappings or route payloads, so they are
+        skipped even when they connect the same pair of nodes.
+        """
         for edge in graph.edges:
-            if edge.source_node_id == source_node_id and edge.target_node_id == target_node_id:
+            if (
+                edge.kind != "tool"
+                and edge.source_node_id == source_node_id
+                and edge.target_node_id == target_node_id
+            ):
                 return edge
         return None
