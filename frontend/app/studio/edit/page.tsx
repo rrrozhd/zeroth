@@ -39,6 +39,8 @@ import {
   Field,
   fmtTime,
   fmtUsd,
+  buildRunCurl,
+  CurlBlock,
   Input,
   Json,
   Mono,
@@ -79,6 +81,7 @@ import {
   type WorkflowDiff,
   type WorkflowSummary,
 } from "@/app/lib/api";
+import { getApiKey } from "@/app/lib/config";
 import { setLastWorkflowId } from "@/app/lib/lastWorkflow";
 import { WORKFLOW_TEMPLATES } from "@/app/lib/templates";
 
@@ -1517,6 +1520,19 @@ function RunPanel({
                   </Button>
                 )}
               </div>
+              {/* Same invocation as a shell command — the deployed graph IS an
+                  API service; this is how apps outside the console call it. */}
+              <details>
+                <summary className="cursor-pointer text-xs font-medium text-muted transition-colors hover:text-foreground">
+                  Call this API with cURL
+                </summary>
+                <div className="mt-2">
+                  <CurlBlock
+                    command={buildRunCurl(payload)}
+                    secret={getApiKey() || undefined}
+                  />
+                </div>
+              </details>
             </>
           )}
 
