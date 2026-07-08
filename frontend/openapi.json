@@ -2238,10 +2238,19 @@
         "type": "object"
       },
       "StudioEdgeResponse": {
-        "description": "An edge as represented in the Studio frontend.",
+        "description": "An edge as represented in the Studio frontend.\n\n``kind=\"tool\"`` marks a tool attachment (agent \u2192 executable unit)\nrather than a control-flow connection.",
         "properties": {
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "data",
+            "enum": [
+              "data",
+              "tool"
+            ],
+            "title": "Kind",
             "type": "string"
           },
           "source": {

@@ -16,9 +16,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from zeroth.core.agent_runtime.models import AgentConfig, ModelParams, RetryPolicy
+from zeroth.core.agent_runtime.models import AgentConfig, ModelParams, PromptConfig, RetryPolicy
 from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter, ProviderAdapter
 from zeroth.core.agent_runtime.runner import AgentRunner
+from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
 from zeroth.core.contracts.registry import ContractReference, ContractRegistry
 from zeroth.core.graph.models import AgentNode, Graph
 from zeroth.core.graph.serialization import deserialize_graph
@@ -69,6 +70,23 @@ async def build_agent_runners(
             msg = f"cannot build runner for agent node {node.node_id!r}: model_provider is empty"
             raise AgentRunnerFactoryError(msg)
 
+        # Tool-edge attachments: each binding becomes a declared tool manifest
+        # whose alias/description/parameters the author wrote on the canvas.
+        # The node:// ref routes the call back to the graph node at dispatch.
+        tool_attachments = [
+            ToolAttachmentManifest(
+                alias=binding.name,
+                executable_unit_ref=f"node://{binding.target_node_id}",
+                description=binding.description,
+                parameters_schema=binding.parameters_schema(),
+            )
+            for binding in data.tool_bindings
+        ]
+
+        prompt_config = PromptConfig()
+        if data.input_messages_key:
+            prompt_config = PromptConfig(messages_key=data.input_messages_key)
+
         config = AgentConfig(
             name=node.node_id,
             description=node.display.title or "",
@@ -76,7 +94,9 @@ async def build_agent_runners(
             model_name=data.model_provider,
             input_model=input_model,
             output_model=output_model,
+            tool_attachments=tool_attachments,
             memory_refs=list(data.memory_refs),
+            prompt_config=prompt_config,
             retry_policy=RetryPolicy(**data.retry_policy) if data.retry_policy else RetryPolicy(),
             timeout_seconds=float(data.timeout_seconds) if data.timeout_seconds else None,
             model_params=ModelParams(**data.model_params) if data.model_params else None,

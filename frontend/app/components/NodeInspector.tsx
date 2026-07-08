@@ -70,6 +70,13 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       placeholder: "openai/gpt-4o",
       hint: "provider/model, e.g. openai/gpt-4o or anthropic/claude-sonnet-5.",
     },
+    {
+      key: "input_messages_key",
+      label: "Messages input key",
+      kind: "text",
+      placeholder: "messages",
+      hint: "Optional. Name an input field holding a list of chat messages ({role: human | ai | tool, content}) — they become real conversation turns instead of one JSON blob. Blank = plain payload input.",
+    },
   ],
   executable_unit: [
     {
@@ -188,6 +195,7 @@ export function NodeInspector({
   inputContractRef,
   outputContractRef,
   contractOptions,
+  toolTargets,
   onLabelChange,
   onConfigChange,
   onContractRefChange,
@@ -205,6 +213,8 @@ export function NodeInspector({
   outputContractRef?: string | null;
   /** Registered contract names from GET /api/studio/v1/contracts. */
   contractOptions?: string[];
+  /** Units attached to this agent via tool edges (the bottom Tools handle). */
+  toolTargets?: { id: string; label: string }[];
   onLabelChange: (v: string) => void;
   onConfigChange: (next: Record<string, unknown>) => void;
   onContractRefChange?: (which: "input" | "output", ref: string | null) => void;
@@ -345,6 +355,16 @@ export function NodeInspector({
         );
       })}
 
+      {studioType === "agent" && toolTargets && (
+        <AgentToolBindings
+          targets={toolTargets}
+          bindings={(config.tool_bindings as ToolBinding[] | undefined) ?? []}
+          readOnly={readOnly}
+          inputCls={inputCls}
+          onChange={(next) => onConfigChange({ ...configRef.current, tool_bindings: next })}
+        />
+      )}
+
       {onContractRefChange && studioType === "entrypoint" && (
         <fieldset className="space-y-4 border-t border-border pt-4">
           <legend className="sr-only">Workflow input contract</legend>
@@ -393,6 +413,232 @@ export function NodeInspector({
         </p>
       )}
     </div>
+  );
+}
+
+// Tool bindings authored per attached unit. Field keys map to the backend
+// AgentToolBinding model; the list lives in the agent's config.tool_bindings.
+
+type ToolArg = { name: string; type: string; description: string; required: boolean };
+
+type ToolBinding = {
+  target_node_id: string;
+  name: string;
+  description: string;
+  arguments: ToolArg[];
+};
+
+const TOOL_ARG_TYPES = ["string", "number", "integer", "boolean", "object", "array"];
+
+function AgentToolBindings({
+  targets,
+  bindings,
+  readOnly,
+  inputCls,
+  onChange,
+}: {
+  targets: { id: string; label: string }[];
+  bindings: ToolBinding[];
+  readOnly: boolean;
+  inputCls: string;
+  onChange: (next: ToolBinding[]) => void;
+}) {
+  // Bindings whose unit is no longer attached — publish will reject them, so
+  // surface them here with a one-click cleanup instead of failing silently.
+  const orphans = bindings.filter((b) => !targets.some((t) => t.id === b.target_node_id));
+
+  function upsert(targetId: string, patch: Partial<ToolBinding>) {
+    const exists = bindings.some((b) => b.target_node_id === targetId);
+    onChange(
+      exists
+        ? bindings.map((b) => (b.target_node_id === targetId ? { ...b, ...patch } : b))
+        : [
+            ...bindings,
+            { target_node_id: targetId, name: "", description: "", arguments: [], ...patch },
+          ],
+    );
+  }
+
+  function patchArgs(targetId: string, args: ToolArg[]) {
+    upsert(targetId, { arguments: args });
+  }
+
+  return (
+    <fieldset className="space-y-3 border-t border-border pt-4">
+      <legend className="sr-only">Attached tools</legend>
+      <div>
+        <span className="block text-sm font-medium">Attached tools</span>
+        <span className="mt-0.5 block text-xs text-muted">
+          Units connected to the Tools handle (bottom of the node). The agent can call each
+          one — give it a distinct name, a description, and describe every argument; the
+          model sees only what you write here.
+        </span>
+      </div>
+
+      {targets.length === 0 && orphans.length === 0 && (
+        <p className="rounded-lg bg-accent/[0.06] px-3 py-2 text-xs text-muted">
+          Nothing attached yet. Drag from the violet handle on the bottom of this node to a
+          Code or Executable Unit node to attach it as a callable tool.
+        </p>
+      )}
+
+      {targets.map((t) => {
+        const b = bindings.find((x) => x.target_node_id === t.id);
+        const args = b?.arguments ?? [];
+        return (
+          <div key={t.id} className="space-y-2 rounded-lg border border-border p-2.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-xs font-semibold">{t.label}</span>
+              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
+                {t.id}
+              </span>
+            </div>
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium">
+                Tool name<span className="text-red-600 dark:text-red-400"> *</span>
+              </span>
+              <input
+                value={b?.name ?? ""}
+                placeholder="lookup_customer"
+                disabled={readOnly}
+                onChange={(e) => upsert(t.id, { name: e.target.value })}
+                className={`${inputCls} font-mono`}
+              />
+              <span className="mt-1 block font-normal text-muted">
+                Letters, digits, _ or - only. Must be unique across this agent&apos;s tools.
+              </span>
+            </label>
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium">
+                Description<span className="text-red-600 dark:text-red-400"> *</span>
+              </span>
+              <textarea
+                value={b?.description ?? ""}
+                placeholder="Looks up a customer record by id and returns their profile."
+                disabled={readOnly}
+                onChange={(e) => upsert(t.id, { description: e.target.value })}
+                rows={2}
+                className={inputCls}
+              />
+            </label>
+            <div className="space-y-1.5">
+              <span className="block text-xs font-medium">Arguments</span>
+              {args.map((a, i) => (
+                <div key={i} className="space-y-1.5 rounded border border-border p-2">
+                  <div className="flex gap-1.5">
+                    <input
+                      value={a.name}
+                      placeholder="name"
+                      aria-label="Argument name"
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        patchArgs(
+                          t.id,
+                          args.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
+                        )
+                      }
+                      className={`${inputCls} font-mono`}
+                    />
+                    <select
+                      value={a.type}
+                      aria-label="Argument type"
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        patchArgs(
+                          t.id,
+                          args.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)),
+                        )
+                      }
+                      className={`${inputCls} w-28`}
+                    >
+                      {TOOL_ARG_TYPES.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        aria-label="Remove argument"
+                        onClick={() => patchArgs(t.id, args.filter((_, j) => j !== i))}
+                        className="shrink-0 rounded-lg border border-border px-2 text-xs text-muted hover:text-red-600"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    value={a.description}
+                    placeholder="What this argument means (required)"
+                    aria-label="Argument description"
+                    disabled={readOnly}
+                    onChange={(e) =>
+                      patchArgs(
+                        t.id,
+                        args.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)),
+                      )
+                    }
+                    className={inputCls}
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-muted">
+                    <input
+                      type="checkbox"
+                      checked={a.required}
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        patchArgs(
+                          t.id,
+                          args.map((x, j) => (j === i ? { ...x, required: e.target.checked } : x)),
+                        )
+                      }
+                    />
+                    Required
+                  </label>
+                </div>
+              ))}
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    patchArgs(t.id, [
+                      ...args,
+                      { name: "", type: "string", description: "", required: true },
+                    ])
+                  }
+                  className="text-xs font-medium text-accent hover:underline"
+                >
+                  + Add argument
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {orphans.map((b) => (
+        <div
+          key={b.target_node_id}
+          className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/[0.07] p-2.5 text-xs"
+        >
+          <span className="min-w-0 truncate">
+            <span className="font-semibold">{b.name || "(unnamed tool)"}</span> points at{" "}
+            <span className="font-mono">{b.target_node_id}</span>, which is no longer attached.
+          </span>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() =>
+                onChange(bindings.filter((x) => x.target_node_id !== b.target_node_id))
+              }
+              className="shrink-0 rounded-lg border border-border px-2 py-0.5 font-medium hover:text-red-600"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      ))}
+    </fieldset>
   );
 }
 
