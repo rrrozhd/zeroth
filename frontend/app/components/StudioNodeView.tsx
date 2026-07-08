@@ -15,6 +15,7 @@ export type StudioNodeData = {
 const PORT_TONE: Record<string, string> = {
   control: "!bg-amber-500",
   data: "!bg-blue-500",
+  tool: "!bg-violet-500",
 };
 
 // Run-overlay ring per execution phase; no entry = the default look below.
@@ -26,13 +27,17 @@ const RUN_RING: Record<NodeRunState["phase"], string> = {
 };
 
 /** A graph node rendered with its typed ports as connectable handles:
- *  input ports on the left (targets), output ports on the right (sources). */
+ *  input ports on the left (targets), output ports on the right (sources).
+ *  Tool ports are a separate set of edges — they render on the bottom
+ *  (the agent's Tools source) and top (a unit's Tool target) instead. */
 export function StudioNodeView({ id, data, selected }: NodeProps) {
   const d = data as StudioNodeData;
   const run = useNodeRunState(id);
   const issue = useNodeIssue(id);
-  const inputs = d.ports.filter((p) => p.direction === "input");
-  const outputs = d.ports.filter((p) => p.direction === "output");
+  const inputs = d.ports.filter((p) => p.direction === "input" && p.type !== "tool");
+  const outputs = d.ports.filter((p) => p.direction === "output" && p.type !== "tool");
+  const toolInputs = d.ports.filter((p) => p.direction === "input" && p.type === "tool");
+  const toolOutputs = d.ports.filter((p) => p.direction === "output" && p.type === "tool");
 
   // The run ring replaces the selection ring while an overlay is painted;
   // selection keeps its accent border either way. Publish issues paint their
@@ -105,6 +110,30 @@ export function StudioNodeView({ id, data, selected }: NodeProps) {
           aria-label={p.label}
           className={`h-2.5 w-2.5 ${PORT_TONE[p.type] ?? "!bg-zinc-400"}`}
           style={{ top: `${((i + 1) / (outputs.length + 1)) * 100}%` }}
+        />
+      ))}
+      {toolInputs.map((p, i) => (
+        <Handle
+          key={p.id}
+          id={p.id}
+          type="target"
+          position={Position.Top}
+          title={p.label}
+          aria-label={p.label}
+          className={`h-2.5 w-2.5 ${PORT_TONE[p.type] ?? "!bg-zinc-400"}`}
+          style={{ left: `${((i + 1) / (toolInputs.length + 1)) * 100}%` }}
+        />
+      ))}
+      {toolOutputs.map((p, i) => (
+        <Handle
+          key={p.id}
+          id={p.id}
+          type="source"
+          position={Position.Bottom}
+          title={p.label}
+          aria-label={p.label}
+          className={`h-2.5 w-2.5 ${PORT_TONE[p.type] ?? "!bg-zinc-400"}`}
+          style={{ left: `${((i + 1) / (toolOutputs.length + 1)) * 100}%` }}
         />
       ))}
     </div>

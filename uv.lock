@@ -3604,7 +3604,7 @@ source = { directory = "packaging/console" }
 
 [[package]]
 name = "zeroth-core"
-version = "0.5.5"
+version = "0.7"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -3613,6 +3613,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "governai" },
     { name = "httpx" },
+    { name = "jsonschema" },
     { name = "langchain-litellm" },
     { name = "litellm" },
     { name = "mcp" },
@@ -3703,6 +3704,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<0.136" },
     { name = "governai", specifier = ">=0.2.3" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "jsonschema", specifier = ">=4.22" },
     { name = "langchain-litellm", specifier = ">=0.3.4" },
     { name = "litellm", specifier = ">=1.83,<2.0" },
     { name = "mcp", specifier = ">=1.7,<2.0" },

@@ -116,6 +116,7 @@ class GraphValidator:
         self._validate_nodes(graph, node_map, issues)
         self._validate_entrypoint(graph, node_map, issues)
         self._validate_edges(graph, node_map, edge_ids, adjacency, issues)
+        self._validate_tool_attachments(graph, node_map, issues)
         self._validate_cycles(graph, node_map, adjacency, issues)
         await self._validate_parallel_configs(graph, issues)
 
@@ -157,9 +158,7 @@ class GraphValidator:
                         issues,
                         severity=ValidationSeverity.ERROR,
                         code=ValidationCode.INVALID_REDUCER_REF,
-                        message=(
-                            f"invalid reducer_ref on node {node.node_id!r}: {exc}"
-                        ),
+                        message=(f"invalid reducer_ref on node {node.node_id!r}: {exc}"),
                         graph_id=graph.graph_id,
                         node_id=node.node_id,
                         path=("nodes", node.node_id, "parallel_config", "reducer_ref"),
@@ -206,9 +205,7 @@ class GraphValidator:
             )
             return
         try:
-            contract_version = await self._contract_registry.get(
-                node.output_contract_ref
-            )
+            contract_version = await self._contract_registry.get(node.output_contract_ref)
         except Exception as exc:  # noqa: BLE001 - any registry failure is validation-fatal
             _append_issue(
                 issues,
@@ -610,7 +607,9 @@ class GraphValidator:
                     path=("edges", edge.edge_id, "source_node_id"),
                     details={"source_node_id": edge.source_node_id},
                 )
-            else:
+            elif edge.kind != "tool":
+                # Tool edges attach tools rather than route execution, so they
+                # stay out of the control-flow adjacency (and cycle checks).
                 adjacency[edge.source_node_id].append(edge.target_node_id)
 
             if edge.target_node_id not in node_map:
@@ -625,11 +624,142 @@ class GraphValidator:
                     details={"target_node_id": edge.target_node_id},
                 )
 
+            if edge.kind == "tool":
+                self._validate_tool_edge(graph.graph_id, edge, node_map, issues)
+
             if edge.condition is not None:
                 self._validate_condition(graph.graph_id, edge, issues)
 
             if edge.mapping is not None:
                 self._validate_mapping(graph.graph_id, edge, issues)
+
+    def _validate_tool_edge(
+        self,
+        graph_id: str,
+        edge: Edge,
+        node_map: dict[str, Node],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Check a tool edge's endpoints: agent source, executable-unit target.
+
+        Conditions and mappings belong to control flow; a tool edge carrying
+        either is a sign the author meant a data edge.
+        """
+        source = node_map.get(edge.source_node_id)
+        if source is not None and not isinstance(source, AgentNode):
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_TOOL_EDGE,
+                message="tool edge source must be an agent node",
+                graph_id=graph_id,
+                edge_id=edge.edge_id,
+                path=("edges", edge.edge_id, "source_node_id"),
+                details={"source_node_id": edge.source_node_id},
+            )
+        target = node_map.get(edge.target_node_id)
+        if target is not None and not isinstance(target, ExecutableUnitNode):
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_TOOL_EDGE,
+                message="tool edge target must be an executable unit or code node",
+                graph_id=graph_id,
+                edge_id=edge.edge_id,
+                path=("edges", edge.edge_id, "target_node_id"),
+                details={"target_node_id": edge.target_node_id},
+            )
+        if edge.condition is not None or edge.mapping is not None:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_TOOL_EDGE,
+                message="tool edges cannot carry conditions or mappings",
+                graph_id=graph_id,
+                edge_id=edge.edge_id,
+                path=("edges", edge.edge_id),
+            )
+
+    def _validate_tool_attachments(
+        self,
+        graph: Graph,
+        node_map: dict[str, Node],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Cross-check tool edges against each agent's tool bindings.
+
+        Every attached unit needs exactly one author-provided binding (name,
+        description, argument descriptions — enforced by the binding model),
+        names must be unique per agent, and bindings must not point at units
+        that are no longer attached.
+        """
+        tool_targets: dict[str, list[str]] = defaultdict(list)
+        for edge in graph.edges:
+            if edge.kind == "tool" and edge.enabled:
+                tool_targets[edge.source_node_id].append(edge.target_node_id)
+
+        for node in graph.nodes:
+            if not isinstance(node, AgentNode):
+                continue
+            attached = tool_targets.get(node.node_id, [])
+            bound_targets = [binding.target_node_id for binding in node.agent.tool_bindings]
+
+            for target_id in attached:
+                if bound_targets.count(target_id) == 0:
+                    _append_issue(
+                        issues,
+                        severity=ValidationSeverity.ERROR,
+                        code=ValidationCode.INVALID_TOOL_BINDING,
+                        message=(
+                            f"attached tool {target_id!r} needs a binding with a "
+                            "name, description, and argument descriptions"
+                        ),
+                        graph_id=graph.graph_id,
+                        node_id=node.node_id,
+                        path=("nodes", node.node_id, "agent", "tool_bindings"),
+                        details={"target_node_id": target_id},
+                    )
+                elif bound_targets.count(target_id) > 1:
+                    _append_issue(
+                        issues,
+                        severity=ValidationSeverity.ERROR,
+                        code=ValidationCode.INVALID_TOOL_BINDING,
+                        message=f"attached tool {target_id!r} has multiple bindings",
+                        graph_id=graph.graph_id,
+                        node_id=node.node_id,
+                        path=("nodes", node.node_id, "agent", "tool_bindings"),
+                        details={"target_node_id": target_id},
+                    )
+
+            for binding in node.agent.tool_bindings:
+                if binding.target_node_id not in attached:
+                    _append_issue(
+                        issues,
+                        severity=ValidationSeverity.ERROR,
+                        code=ValidationCode.INVALID_TOOL_BINDING,
+                        message=(
+                            f"tool binding {binding.name!r} points at "
+                            f"{binding.target_node_id!r}, which is not attached by a tool edge"
+                        ),
+                        graph_id=graph.graph_id,
+                        node_id=node.node_id,
+                        path=("nodes", node.node_id, "agent", "tool_bindings"),
+                        details={"target_node_id": binding.target_node_id},
+                    )
+
+            names = [binding.name for binding in node.agent.tool_bindings]
+            duplicates = sorted({name for name in names if names.count(name) > 1})
+            if duplicates:
+                _append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.INVALID_TOOL_BINDING,
+                    message=f"tool names must be unique per agent: {', '.join(duplicates)}",
+                    graph_id=graph.graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "agent", "tool_bindings"),
+                    details={"duplicate_names": duplicates},
+                )
 
     def _validate_condition(
         self,
@@ -704,6 +834,7 @@ class GraphValidator:
                 edge
                 for edge in graph.edges
                 if edge.enabled
+                and edge.kind != "tool"
                 and edge.source_node_id in component
                 and edge.target_node_id in component
             ]

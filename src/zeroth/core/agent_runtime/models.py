@@ -62,6 +62,10 @@ class PromptConfig(BaseModel):
     # Keys whose values get replaced with "***REDACTED***" in prompts and audit logs
     redact_keys: tuple[str, ...] = ("password", "secret", "token")
     extra_context: dict[str, Any] = Field(default_factory=dict)
+    # When set, the input payload field under this key is read as a list of
+    # chat messages ({role: human|ai|tool, content}) and rendered as real
+    # conversation turns instead of staying inside the input JSON block.
+    messages_key: str | None = None
 
 
 class ModelParams(BaseModel):

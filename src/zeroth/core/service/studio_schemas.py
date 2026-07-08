@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -32,13 +32,18 @@ class StudioNodeResponse(BaseModel):
 
 
 class StudioEdgeResponse(BaseModel):
-    """An edge as represented in the Studio frontend."""
+    """An edge as represented in the Studio frontend.
+
+    ``kind="tool"`` marks a tool attachment (agent → executable unit)
+    rather than a control-flow connection.
+    """
 
     id: str
     source: str
     target: str
     source_handle: str | None = None
     target_handle: str | None = None
+    kind: Literal["data", "tool"] = "data"
 
 
 class CreateWorkflowRequest(BaseModel):

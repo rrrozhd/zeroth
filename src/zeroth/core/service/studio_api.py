@@ -71,6 +71,17 @@ def _io_ports() -> list[PortDefinitionResponse]:
     ]
 
 
+# Tool attachment ports render on their own edge of the node (bottom for the
+# agent's source, top for the unit's target) — a separate set of edges from
+# the data flow that leaves through the side handles.
+_AGENT_TOOLS_PORT = PortDefinitionResponse(
+    id="tools", type="tool", direction="output", label="Tools"
+)
+_TOOL_TARGET_PORT = PortDefinitionResponse(
+    id="tool-input", type="tool", direction="input", label="Tool"
+)
+
+
 _NODE_TYPES: list[NodeTypeResponse] = [
     NodeTypeResponse(
         type="entrypoint",
@@ -83,10 +94,23 @@ _NODE_TYPES: list[NodeTypeResponse] = [
             )
         ],
     ),
-    NodeTypeResponse(type="agent", label="Agent", category="core", ports=_io_ports()),
-    NodeTypeResponse(type="code", label="Code", category="core", ports=_io_ports()),
     NodeTypeResponse(
-        type="executable_unit", label="Executable Unit", category="core", ports=_io_ports()
+        type="agent",
+        label="Agent",
+        category="core",
+        ports=[*_io_ports(), _AGENT_TOOLS_PORT],
+    ),
+    NodeTypeResponse(
+        type="code",
+        label="Code",
+        category="core",
+        ports=[*_io_ports(), _TOOL_TARGET_PORT],
+    ),
+    NodeTypeResponse(
+        type="executable_unit",
+        label="Executable Unit",
+        category="core",
+        ports=[*_io_ports(), _TOOL_TARGET_PORT],
     ),
     NodeTypeResponse(
         type="human_approval", label="Human Approval", category="core", ports=_io_ports()
@@ -178,16 +202,23 @@ def _build_node(sn: StudioNodeResponse, graph_version_ref: str) -> Node:
 
 
 def _build_edge(se: StudioEdgeResponse) -> Edge:
-    """Construct a graph Edge from a canvas edge, preserving visual handles."""
+    """Construct a graph Edge from a canvas edge, preserving visual handles.
+
+    An edge drawn from the agent's tools handle is a tool attachment even if
+    an older client doesn't send ``kind`` — the handle id is the ground truth
+    of what the author connected.
+    """
     metadata: dict[str, Any] = {}
     if se.source_handle is not None:
         metadata["source_handle"] = se.source_handle
     if se.target_handle is not None:
         metadata["target_handle"] = se.target_handle
+    kind = "tool" if (se.kind == "tool" or se.source_handle == "tools") else "data"
     return Edge(
         edge_id=se.id,
         source_node_id=se.source,
         target_node_id=se.target,
+        kind=kind,
         metadata=metadata,
     )
 
@@ -277,6 +308,7 @@ def _graph_to_detail(graph: Graph) -> WorkflowDetailResponse:
             target=edge.target_node_id,
             source_handle=edge.metadata.get("source_handle"),
             target_handle=edge.metadata.get("target_handle"),
+            kind=edge.kind,
         )
         for edge in graph.edges
     ]
@@ -436,9 +468,7 @@ async def update_workflow(
     except ValidationError as exc:
         # Only surface error messages — the raw errors() carry the input graph
         # (datetimes) and ctx (exception objects), neither JSON-serializable.
-        raise HTTPException(
-            status_code=422, detail=[e["msg"] for e in exc.errors()]
-        ) from exc
+        raise HTTPException(status_code=422, detail=[e["msg"] for e in exc.errors()]) from exc
     saved = await repo.save(updated_graph)
     return _graph_to_detail(saved)
 
@@ -549,9 +579,7 @@ async def create_contract(
             metadata={**body.metadata, "authored_in": "studio"},
         )
     except SchemaError as exc:
-        raise HTTPException(
-            status_code=422, detail=f"invalid JSON Schema: {exc.message}"
-        ) from exc
+        raise HTTPException(status_code=422, detail=f"invalid JSON Schema: {exc.message}") from exc
     return StudioContractResponse(
         name=record.name,
         version=record.version,

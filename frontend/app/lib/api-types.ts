@@ -1947,10 +1947,19 @@ export interface components {
         /**
          * StudioEdgeResponse
          * @description An edge as represented in the Studio frontend.
+         *
+         *     ``kind="tool"`` marks a tool attachment (agent → executable unit)
+         *     rather than a control-flow connection.
          */
         StudioEdgeResponse: {
             /** Id */
             id: string;
+            /**
+             * Kind
+             * @default data
+             * @enum {string}
+             */
+            kind: "data" | "tool";
             /** Source */
             source: string;
             /** Source Handle */
