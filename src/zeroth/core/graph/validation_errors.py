@@ -51,6 +51,7 @@ class ValidationCode(StrEnum):
     INVALID_OUTPUT_CONTRACT = "invalid_output_contract"
     INVALID_MERGE_STRATEGY = "invalid_merge_strategy"
     INVALID_REDUCER_REF = "invalid_reducer_ref"
+    INVALID_INLINE_SOURCE = "invalid_inline_source"
 
 
 class ValidationIssue(BaseModel):

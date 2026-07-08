@@ -400,7 +400,15 @@ class GraphValidator:
         node: ExecutableUnitNode,
         issues: list[ValidationIssue],
     ) -> None:
-        """Check executable-unit-specific fields like the manifest reference."""
+        """Check executable-unit-specific fields like the manifest reference.
+
+        Inline units (the Studio code node) carry source instead of a manifest
+        ref — for those, gate publish on the source itself: present, within
+        the size cap, and syntactically valid Python.
+        """
+        if node.executable_unit.inline_source is not None:
+            self._validate_inline_source(graph_id, node, issues)
+            return
         if not node.executable_unit.manifest_ref.strip():
             _append_issue(
                 issues,
@@ -410,6 +418,52 @@ class GraphValidator:
                 graph_id=graph_id,
                 node_id=node.node_id,
                 path=("nodes", node.node_id, "executable_unit", "manifest_ref"),
+            )
+
+    def _validate_inline_source(
+        self,
+        graph_id: str,
+        node: ExecutableUnitNode,
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Publish gate for authored code: non-empty, capped, compilable."""
+        from zeroth.core.execution_units.inline import INLINE_SOURCE_MAX_CHARS
+
+        source = node.executable_unit.inline_source or ""
+        path = ("nodes", node.node_id, "executable_unit", "inline_source")
+        if not source.strip():
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_INLINE_SOURCE,
+                message="code is required",
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=path,
+            )
+            return
+        if len(source) > INLINE_SOURCE_MAX_CHARS:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_INLINE_SOURCE,
+                message=f"code exceeds the {INLINE_SOURCE_MAX_CHARS} character limit",
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=path,
+            )
+            return
+        try:
+            compile(source, f"<code node {node.node_id}>", "exec")
+        except SyntaxError as exc:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_INLINE_SOURCE,
+                message=f"syntax error on line {exc.lineno}: {exc.msg}",
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=path,
             )
 
     def _validate_human_approval_node(

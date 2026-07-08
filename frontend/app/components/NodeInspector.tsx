@@ -1,7 +1,17 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { NODE_META } from "@/app/components/nodeMeta";
 import { fieldInput } from "@/app/components/ui";
+
+// CodeMirror only loads when a code node's inspector actually opens — it has
+// no business in the other pages' bundles.
+const CodeEditor = dynamic(() => import("@/app/components/CodeEditor"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[280px] animate-pulse rounded-lg border border-border bg-zinc-100 dark:bg-zinc-800/60" />
+  ),
+});
 
 // Per-type config forms for the executable node types. Field keys map directly
 // to the backend *NodeData models; values live in the canvas node's
@@ -10,7 +20,7 @@ import { fieldInput } from "@/app/components/ui";
 type Field = {
   key: string;
   label: string;
-  kind: "text" | "textarea" | "number" | "select";
+  kind: "text" | "textarea" | "number" | "select" | "code";
   required?: boolean;
   options?: string[];
   /** Key into the dynamicOptions prop — options fetched at runtime (e.g. the
@@ -22,6 +32,22 @@ type Field = {
 };
 
 export const FIELD_SPECS: Record<string, Field[]> = {
+  code: [
+    {
+      key: "inline_source",
+      label: "Code",
+      kind: "code",
+      required: true,
+      hint: "Python, standard library only. Reads the upstream payload as JSON on stdin; whatever it writes to stdout as JSON flows downstream. Sandbox-executed; frozen and content-hashed at publish.",
+    },
+    {
+      key: "timeout_seconds",
+      label: "Timeout (seconds)",
+      kind: "number",
+      placeholder: "30",
+      hint: "Kill the process if it runs longer. Blank = platform default.",
+    },
+  ],
   agent: [
     {
       key: "instruction",
@@ -125,10 +151,24 @@ export const FIELD_SPECS: Record<string, Field[]> = {
   ],
 };
 
+// Starter source for a fresh code node: a working identity transform that
+// documents the stdin/stdout contract by example.
+const CODE_STARTER = `import json
+import sys
+
+data = json.load(sys.stdin)
+
+# Transform the upstream payload here.
+result = {"echo": data}
+
+json.dump(result, sys.stdout)
+`;
+
 // Initial config for a freshly added node — pre-fills required keys so the first
 // save validates (e.g. execution_mode must be a valid enum value).
 export const DEFAULT_CONFIG: Record<string, Record<string, unknown>> = {
   agent: { instruction: "", model_provider: "" },
+  code: { inline_source: CODE_STARTER, execution_mode: "inline" },
   executable_unit: { manifest_ref: "", execution_mode: "native" },
   human_approval: {},
   retrieval: { connector_ref: "" },
@@ -167,7 +207,9 @@ export function NodeInspector({
 
   function setField(key: string, raw: string, kind: Field["kind"]) {
     const next = { ...config };
-    if (raw === "") {
+    if (raw === "" && kind !== "code") {
+      // Cleared code stays an explicit "" — the backend keeps the inline
+      // invariant on drafts and publish is the emptiness gate.
       delete next[key];
     } else {
       next[key] = kind === "number" ? Number(raw) : raw;
@@ -215,7 +257,13 @@ export function NodeInspector({
               {f.label}
               {f.required && <span className="text-red-600 dark:text-red-400"> *</span>}
             </span>
-            {f.kind === "textarea" ? (
+            {f.kind === "code" ? (
+              <CodeEditor
+                value={str}
+                readOnly={readOnly}
+                onChange={(v) => setField(f.key, v, f.kind)}
+              />
+            ) : f.kind === "textarea" ? (
               <textarea
                 value={str}
                 placeholder={f.placeholder}

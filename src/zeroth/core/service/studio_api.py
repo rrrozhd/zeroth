@@ -70,6 +70,7 @@ def _io_ports() -> list[PortDefinitionResponse]:
 
 _NODE_TYPES: list[NodeTypeResponse] = [
     NodeTypeResponse(type="agent", label="Agent", category="core", ports=_io_ports()),
+    NodeTypeResponse(type="code", label="Code", category="core", ports=_io_ports()),
     NodeTypeResponse(
         type="executable_unit", label="Executable Unit", category="core", ports=_io_ports()
     ),
@@ -82,13 +83,24 @@ _NODE_TYPES: list[NodeTypeResponse] = [
 
 
 # Maps the node_type discriminator -> (Node class, data field name, data model).
+# "code" is a canvas-level alias: it authors an ExecutableUnitNode whose data
+# carries inline_source instead of a manifest_ref, so the whole executable-unit
+# machinery (validation, integrity, sandbox, diff, audit) applies unchanged.
 _NODE_BUILDERS: dict[str, tuple[type[Node], str, type]] = {
     "agent": (AgentNode, "agent", AgentNodeData),
+    "code": (ExecutableUnitNode, "executable_unit", ExecutableUnitNodeData),
     "executable_unit": (ExecutableUnitNode, "executable_unit", ExecutableUnitNodeData),
     "human_approval": (HumanApprovalNode, "human_approval", HumanApprovalNodeData),
     "retrieval": (RetrievalNode, "retrieval", RetrievalNodeData),
     "subgraph": (SubgraphNode, "subgraph", SubgraphNodeData),
 }
+
+
+def _studio_type(node: Node) -> str:
+    """Canvas type for a node — code nodes render distinctly from ref-based units."""
+    if isinstance(node, ExecutableUnitNode) and node.executable_unit.inline_source is not None:
+        return "code"
+    return node.node_type
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +139,13 @@ def _build_node(sn: StudioNodeResponse, graph_version_ref: str) -> Node:
         )
     node_cls, field, data_cls = builder
     data = sn.data or {}
-    config = data.get("config") or {}
+    config = dict(data.get("config") or {})
+    if sn.type == "code":
+        # Inline authoring invariants: the mode is always "inline", and the
+        # source key must exist even while empty so a cleared editor still
+        # saves as a draft (publish is what requires real code).
+        config.setdefault("execution_mode", "inline")
+        config.setdefault("inline_source", "")
     label = data.get("label") or sn.id
     try:
         return node_cls(
@@ -231,7 +249,7 @@ def _graph_to_detail(graph: Graph) -> WorkflowDetailResponse:
         nodes.append(
             StudioNodeResponse(
                 id=node.node_id,
-                type=node.node_type,
+                type=_studio_type(node),
                 position=StudioPosition(x=pos.get("x", 0), y=pos.get("y", 0)),
                 data=_node_to_studio_data(node),
             )

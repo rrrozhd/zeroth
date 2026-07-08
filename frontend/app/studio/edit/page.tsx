@@ -1154,7 +1154,10 @@ function NodeEditorDialog({
         role="dialog"
         aria-modal="true"
         aria-label={`Edit ${d.label}`}
-        className="w-full max-w-md rounded-xl border border-border bg-surface shadow-xl"
+        // Code nodes host a real editor — give them room to breathe.
+        className={`w-full rounded-xl border border-border bg-surface shadow-xl ${
+          d.studioType === "code" ? "max-w-2xl" : "max-w-md"
+        }`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">

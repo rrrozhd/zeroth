@@ -217,10 +217,13 @@ class TestListNodeTypes:
         resp = client.get("/api/studio/v1/node-types")
         assert resp.status_code == 200
         data = resp.json()
-        # The palette mirrors the executable graph model's node_type discriminator.
+        # The palette mirrors the executable graph model's node_type
+        # discriminator, plus "code" — the canvas alias for an executable
+        # unit whose source is authored inline.
         type_names = {item["type"] for item in data}
         assert type_names == {
             "agent",
+            "code",
             "executable_unit",
             "human_approval",
             "retrieval",

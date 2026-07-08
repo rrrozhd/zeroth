@@ -1387,11 +1387,27 @@ class RuntimeOrchestrator:
                 is None
             ):
                 self.executable_unit_runner.secret_resolver = self.secret_resolver
-            result = await self._run_executable_unit_with_optional_enforcement(
-                node.executable_unit.manifest_ref,
-                input_payload,
-                enforcement_context=enforcement_context,
-            )
+            if node.executable_unit.inline_source is not None:
+                # Studio code node: the source travels in the graph, so the
+                # binding is synthesized here rather than looked up in the
+                # registry. Runs through the same sandboxed subprocess path.
+                from zeroth.core.execution_units.inline import build_inline_binding
+
+                result = await self.executable_unit_runner.run_binding(
+                    build_inline_binding(
+                        node.node_id,
+                        node.executable_unit.inline_source,
+                        timeout_seconds=node.executable_unit.timeout_seconds,
+                    ),
+                    input_payload,
+                    enforcement_context=enforcement_context,
+                )
+            else:
+                result = await self._run_executable_unit_with_optional_enforcement(
+                    node.executable_unit.manifest_ref,
+                    input_payload,
+                    enforcement_context=enforcement_context,
+                )
             audit_record = dict(result.audit_record)
             if enforcement_context:
                 audit_record["enforcement"] = enforcement_context

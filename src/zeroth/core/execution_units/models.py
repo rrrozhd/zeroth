@@ -20,12 +20,15 @@ class ExecutionMode(StrEnum):
     """How the executable unit was onboarded into the system.
 
     NATIVE means it is a Python function, WRAPPED_COMMAND means it wraps
-    a CLI tool, and PROJECT means it is a full project with build steps.
+    a CLI tool, PROJECT means it is a full project with build steps, and
+    INLINE means the source was authored directly (e.g. in the Studio's
+    code node) and always runs as a sandboxed subprocess.
     """
 
     NATIVE = "native"
     WRAPPED_COMMAND = "wrapped_command"
     PROJECT = "project"
+    INLINE = "inline"
 
 
 class InputMode(StrEnum):
@@ -104,8 +107,24 @@ class ProjectArchiveArtifactSource(ArtifactSource):
     kind: Literal["project_archive"] = "project_archive"
 
 
+class InlineSourceArtifactSource(ArtifactSource):
+    """Artifact source whose code IS the artifact: authored source text.
+
+    ``ref`` carries the content digest (``sha256:...``) so the unit's identity
+    is content-addressed — editing the source changes the identity, and a
+    published graph pins its code cryptographically.
+    """
+
+    kind: Literal["inline_source"] = "inline_source"
+    source: str
+    language: Literal["python"] = "python"
+
+
 ArtifactSourceType = Annotated[
-    PythonModuleArtifactSource | CommandArtifactSource | ProjectArchiveArtifactSource,
+    PythonModuleArtifactSource
+    | CommandArtifactSource
+    | ProjectArchiveArtifactSource
+    | InlineSourceArtifactSource,
     Field(discriminator="kind"),
 ]
 
@@ -289,7 +308,28 @@ class ProjectUnitManifest(ExecutableUnitManifestBase):
         return self
 
 
+class InlineUnitManifest(ExecutableUnitManifestBase):
+    """Manifest for source authored inline (the Studio code node).
+
+    The source text travels in the artifact source itself and is materialized
+    into the sandbox working directory at run time. Inline units always run
+    as sandboxed subprocesses — there is no in-process path for authored code.
+    """
+
+    onboarding_mode: Literal[ExecutionMode.INLINE] = ExecutionMode.INLINE
+    runtime: Literal[RuntimeLanguage.PYTHON] = RuntimeLanguage.PYTHON
+    entrypoint_type: Literal[EntryPointType.COMMAND] = EntryPointType.COMMAND
+    artifact_source: InlineSourceArtifactSource
+
+    @model_validator(mode="after")
+    def _validate_source(self) -> InlineUnitManifest:
+        """Make sure the inline source is not empty."""
+        if not self.artifact_source.source.strip():
+            raise ValueError("inline source must not be empty")
+        return self
+
+
 ExecutableUnitManifest = Annotated[
-    NativeUnitManifest | WrappedCommandUnitManifest | ProjectUnitManifest,
+    NativeUnitManifest | WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
     Field(discriminator="onboarding_mode"),
 ]
