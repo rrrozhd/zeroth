@@ -690,6 +690,34 @@
         "title": "ConnectorUpdateRequest",
         "type": "object"
       },
+      "CreateContractRequest": {
+        "description": "Request body for registering a schema-only contract from the console.",
+        "properties": {
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^\\S+$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "json_schema"
+        ],
+        "title": "CreateContractRequest",
+        "type": "object"
+      },
       "CreateDeploymentRequest": {
         "additionalProperties": false,
         "description": "Request body for POST /v1/deployments.",
@@ -2917,6 +2945,46 @@
           }
         },
         "summary": "List Contracts",
+        "tags": [
+          "studio"
+        ]
+      },
+      "post": {
+        "description": "Register a schema-only contract authored in the console.\n\nThe schema is arbitrary JSON Schema \u2014 payload validation at run ingress\nhonors it exactly. Re-registering an existing name creates the next\nversion (the picker lists the latest).",
+        "operationId": "create_contract_api_studio_v1_contracts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContractRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioContractResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Contract",
         "tags": [
           "studio"
         ]

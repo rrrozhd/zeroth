@@ -1,10 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { InlineConnectorSettings } from "@/app/components/ConnectorInline";
 import { NODE_META } from "@/app/components/nodeMeta";
 import { fieldInput } from "@/app/components/ui";
+import { createContract, errMsg } from "@/app/lib/api";
 import type { ConnectorSummary } from "@/app/lib/api";
 
 // CodeMirror only loads when a code node's inspector actually opens — it has
@@ -194,6 +195,7 @@ export function NodeInspector({
   dynamicOptions,
   connectors,
   onConnectorsChanged,
+  onContractsChanged,
 }: {
   studioType: string;
   label: string;
@@ -214,6 +216,8 @@ export function NodeInspector({
   connectors?: ConnectorSummary[];
   /** Re-fetch connectors after an inline create/update. */
   onConnectorsChanged?: () => void | Promise<void>;
+  /** Re-fetch contracts after an inline create. */
+  onContractsChanged?: () => void | Promise<void>;
 }) {
   const fields = FIELD_SPECS[studioType] ?? [];
 
@@ -352,6 +356,7 @@ export function NodeInspector({
             readOnly={readOnly}
             inputCls={inputCls}
             onChange={(ref) => onContractRefChange("input", ref)}
+            onContractsChanged={onContractsChanged}
           />
         </fieldset>
       )}
@@ -367,6 +372,7 @@ export function NodeInspector({
             readOnly={readOnly}
             inputCls={inputCls}
             onChange={(ref) => onContractRefChange("input", ref)}
+            onContractsChanged={onContractsChanged}
           />
           <ContractPicker
             label="Output contract"
@@ -376,6 +382,7 @@ export function NodeInspector({
             readOnly={readOnly}
             inputCls={inputCls}
             onChange={(ref) => onContractRefChange("output", ref)}
+            onContractsChanged={onContractsChanged}
           />
         </fieldset>
       )}
@@ -391,6 +398,16 @@ export function NodeInspector({
 
 // Contract dropdown fed by the deployment's contract registry; degrades to a
 // text input while the registry is empty/unreachable (same as dynamic selects).
+const CONTRACT_SCHEMA_STARTER = `{
+  "type": "object",
+  "properties": {
+    "field": { "type": "string" }
+  },
+  "required": ["field"],
+  "additionalProperties": false
+}
+`;
+
 function ContractPicker({
   label,
   hint,
@@ -399,6 +416,7 @@ function ContractPicker({
   readOnly,
   inputCls,
   onChange,
+  onContractsChanged,
 }: {
   label: string;
   hint: string;
@@ -407,11 +425,48 @@ function ContractPicker({
   readOnly: boolean;
   inputCls: string;
   onChange: (ref: string | null) => void;
+  onContractsChanged?: () => void | Promise<void>;
 }) {
   const str = value ?? "";
   // Keep a saved ref that isn't registered selectable instead of coercing it.
   const opts = str && !options.includes(str) ? [str, ...options] : options;
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("contract://");
+  const [schemaText, setSchemaText] = useState(CONTRACT_SCHEMA_STARTER);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function create() {
+    setError(null);
+    const name = newName.trim();
+    if (!name || /\s/.test(name)) {
+      setError("Name is required and cannot contain spaces.");
+      return;
+    }
+    let schema: Record<string, unknown>;
+    try {
+      schema = JSON.parse(schemaText);
+    } catch (e) {
+      setError(`Schema is not valid JSON: ${(e as Error).message}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const record = await createContract({ name, json_schema: schema });
+      await onContractsChanged?.();
+      onChange(record.name); // select it on the node right away
+      setCreating(false);
+      setNewName("contract://");
+      setSchemaText(CONTRACT_SCHEMA_STARTER);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
+    <div>
     <label className="block text-sm">
       <span className="mb-1 block font-medium">{label}</span>
       {options.length > 0 ? (
@@ -439,5 +494,65 @@ function ContractPicker({
       )}
       <span className="mt-1 block text-xs font-normal text-muted">{hint}</span>
     </label>
+
+    {/* Define contracts without leaving the dialog: arbitrary JSON Schema,
+        registered versioned in the deployment and selected here on create. */}
+    {!readOnly && !creating && (
+      <button
+        type="button"
+        onClick={() => setCreating(true)}
+        className="mt-1.5 text-xs font-medium text-accent hover:underline"
+      >
+        New contract…
+      </button>
+    )}
+    {creating && (
+      <div className="mt-2 space-y-2 rounded-lg border border-border p-2.5">
+        <label className="block text-xs">
+          <span className="mb-1 block font-medium">Name</span>
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className={`${inputCls} font-mono`}
+          />
+        </label>
+        <label className="block text-xs">
+          <span className="mb-1 block font-medium">JSON Schema</span>
+          <CodeEditor
+            value={schemaText}
+            language="json"
+            height="170px"
+            onChange={setSchemaText}
+          />
+          <span className="mt-1 block font-normal text-muted">
+            Any JSON Schema works — payloads are validated against it exactly.
+            Re-using an existing name registers the next version.
+          </span>
+        </label>
+        {error && (
+          <p className="rounded bg-red-500/10 px-2 py-1 text-xs text-red-700 dark:text-red-400">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setCreating(false)}
+            className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={create}
+            disabled={busy}
+            className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg disabled:opacity-50"
+          >
+            {busy ? "Creating…" : "Create & select"}
+          </button>
+        </div>
+      </div>
+    )}
+    </div>
   );
 }

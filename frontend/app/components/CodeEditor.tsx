@@ -1,5 +1,6 @@
 "use client";
 
+import { json } from "@codemirror/lang-json";
 import { python } from "@codemirror/lang-python";
 import CodeMirror from "@uiw/react-codemirror";
 import { useEffect, useState } from "react";
@@ -9,10 +10,14 @@ import { useEffect, useState } from "react";
 export default function CodeEditor({
   value,
   readOnly = false,
+  language = "python",
+  height = "280px",
   onChange,
 }: {
   value: string;
   readOnly?: boolean;
+  language?: "python" | "json";
+  height?: string;
   onChange: (v: string) => void;
 }) {
   // Follow the OS color scheme, live — the console theme does the same.
@@ -32,9 +37,9 @@ export default function CodeEditor({
         readOnly={readOnly}
         editable={!readOnly}
         onChange={onChange}
-        extensions={[python()]}
+        extensions={[language === "json" ? json() : python()]}
         theme={dark ? "dark" : "light"}
-        height="280px"
+        height={height}
         basicSetup={{
           lineNumbers: true,
           foldGutter: false,

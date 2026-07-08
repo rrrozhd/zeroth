@@ -35,6 +35,7 @@ export type StudioNode = S["StudioNodeResponse"];
 export type StudioEdge = S["StudioEdgeResponse"];
 export type StudioViewport = S["StudioViewport"];
 export type StudioContract = S["StudioContractResponse"];
+export type CreateContractRequest = S["CreateContractRequest"];
 export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
 export type AuditVerification = S["AuditVerificationResponse"];
 
@@ -361,6 +362,15 @@ export function publishIssuesOf(e: unknown): PublishIssue[] | null {
 /** Registered contracts (latest version each) for contract-ref pickers. */
 export function listContracts(): Promise<StudioContract[]> {
   return apiFetch<StudioContract[]>("/api/studio/v1/contracts");
+}
+
+/** Register a schema-only contract authored in the console (WORKFLOW_ADMIN).
+    Re-posting an existing name creates the next version. */
+export function createContract(body: CreateContractRequest): Promise<StudioContract> {
+  return apiFetch<StudioContract>("/api/studio/v1/contracts", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 /** Structured diff between two versions of a workflow. */

@@ -284,6 +284,14 @@ function Editor({ id }: { id: string }) {
   const [manifestRefs, setManifestRefs] = useState<string[]>([]);
   // Registered contracts — feeds the inspector's contract-ref pickers.
   const [contractNames, setContractNames] = useState<string[]>([]);
+  // Re-fetch after the picker's inline "New contract" registers one.
+  const refreshContracts = useCallback(async () => {
+    try {
+      setContractNames((await listContracts()).map((c) => c.name));
+    } catch {
+      /* picker keeps its current list */
+    }
+  }, []);
   // Other workflows in this deployment — feeds the quick-switcher card.
   // Non-fatal if unavailable (the card just doesn't render).
   const [others, setOthers] = useState<WorkflowSummary[]>([]);
@@ -1098,6 +1106,7 @@ function Editor({ id }: { id: string }) {
           onConnectorsChanged={reloadConnectors}
           manifestRefs={manifestRefs}
           contractNames={contractNames}
+          onContractsChanged={refreshContracts}
           onClose={() => setEditingId(null)}
           onPatch={(patch) => patchNode(editing.id, patch)}
           onDelete={() => deleteNode(editing.id)}
@@ -1126,6 +1135,7 @@ function NodeEditorDialog({
   onConnectorsChanged,
   manifestRefs,
   contractNames,
+  onContractsChanged,
   onClose,
   onPatch,
   onDelete,
@@ -1136,6 +1146,7 @@ function NodeEditorDialog({
   onConnectorsChanged: () => void | Promise<void>;
   manifestRefs: string[];
   contractNames: string[];
+  onContractsChanged?: () => void | Promise<void>;
   onClose: () => void;
   onPatch: (patch: NodePatch) => void;
   onDelete: () => void;
@@ -1221,6 +1232,7 @@ function NodeEditorDialog({
               inputContractRef={d.inputContractRef ?? null}
               outputContractRef={d.outputContractRef ?? null}
               contractOptions={contractNames}
+              onContractsChanged={onContractsChanged}
               readOnly={readOnly}
               dynamicOptions={{
                 connectors: connectors.map((c) => c.ref),
