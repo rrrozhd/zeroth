@@ -15,6 +15,7 @@ from zeroth.core.contracts.registry import ContractRegistry
 from zeroth.core.graph.models import (
     AgentNode,
     Edge,
+    EntrypointNode,
     ExecutableUnitNode,
     Graph,
     HumanApprovalNode,
@@ -519,6 +520,59 @@ class GraphValidator:
                 path=("entry_step",),
                 details={"entry_step": graph.entry_step},
             )
+            return
+        self._validate_entrypoint_nodes(graph, issues)
+
+    def _validate_entrypoint_nodes(
+        self,
+        graph: Graph,
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Structural rules for dedicated entrypoint nodes.
+
+        A graph needs at most one; when present it must BE the entry step and
+        nothing may flow into it. (Presence itself is a Studio-authoring rule,
+        enforced at the studio publish route — code-authored graphs may keep a
+        bare entry_step.)
+        """
+        entry_nodes = [node for node in graph.nodes if isinstance(node, EntrypointNode)]
+        if not entry_nodes:
+            return
+        for extra in entry_nodes[1:]:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_NODE_ATTACHMENT,
+                message="a workflow can only have one entrypoint node",
+                graph_id=graph.graph_id,
+                node_id=extra.node_id,
+                path=("nodes", extra.node_id),
+            )
+        primary = entry_nodes[0]
+        if graph.entry_step != primary.node_id:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.UNKNOWN_ENTRYPOINT,
+                message="entry_step must point at the entrypoint node",
+                graph_id=graph.graph_id,
+                node_id=primary.node_id,
+                path=("entry_step",),
+                details={"entry_step": graph.entry_step, "entrypoint": primary.node_id},
+            )
+        entry_ids = {node.node_id for node in entry_nodes}
+        for edge in graph.edges:
+            if edge.target_node_id in entry_ids:
+                _append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.INVALID_NODE_ATTACHMENT,
+                    message="the entrypoint node cannot have incoming edges",
+                    graph_id=graph.graph_id,
+                    node_id=edge.target_node_id,
+                    edge_id=edge.edge_id,
+                    path=("edges", edge.edge_id),
+                )
 
     def _validate_edges(
         self,

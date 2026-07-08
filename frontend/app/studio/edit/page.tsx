@@ -302,6 +302,12 @@ function Editor({ id }: { id: string }) {
   const readOnly = status === "published";
   const sig = useMemo(() => graphSig(nodes, edges), [nodes, edges]);
   const nodeIds = useMemo(() => nodes.map((n) => n.id), [nodes]);
+  // With an Entrypoint node on the canvas, entry_step derives from it — the
+  // manual selector only remains for legacy drafts authored before it existed.
+  const hasEntrypointNode = useMemo(
+    () => nodes.some((n) => (n.data as { studioType?: string }).studioType === "entrypoint"),
+    [nodes],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -852,7 +858,7 @@ function Editor({ id }: { id: string }) {
                     <span className="font-semibold">*</span> are required to publish.
                   </p>
                 )}
-                {nodes.length > 0 && (
+                {nodes.length > 0 && !hasEntrypointNode && (
                   <label className="mt-2 block text-xs">
                     <span className="mb-1 flex items-baseline gap-2">
                       <span className="font-medium">
@@ -1225,7 +1231,13 @@ function NodeEditorDialog({
               onLabelChange={(label) => onPatch({ label })}
               onConfigChange={(config) => onPatch({ config })}
               onContractRefChange={(which, ref) =>
-                onPatch(which === "input" ? { inputContractRef: ref } : { outputContractRef: ref })
+                d.studioType === "entrypoint"
+                  ? // One contract, both directions: what enters the workflow is
+                    // exactly what the entrypoint emits downstream.
+                    onPatch({ inputContractRef: ref, outputContractRef: ref })
+                  : onPatch(
+                      which === "input" ? { inputContractRef: ref } : { outputContractRef: ref },
+                    )
               }
             />
           </div>

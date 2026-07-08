@@ -21,6 +21,8 @@ from zeroth.core.graph.models import (
     AgentNodeData,
     DisplayMetadata,
     Edge,
+    EntrypointNode,
+    EntrypointNodeData,
     ExecutableUnitNode,
     ExecutableUnitNodeData,
     Graph,
@@ -69,6 +71,17 @@ def _io_ports() -> list[PortDefinitionResponse]:
 
 
 _NODE_TYPES: list[NodeTypeResponse] = [
+    NodeTypeResponse(
+        type="entrypoint",
+        label="Entrypoint",
+        category="core",
+        # Runs enter here — there is nothing upstream, so no input port.
+        ports=[
+            PortDefinitionResponse(
+                id="output-data", type="data", direction="output", label="Output"
+            )
+        ],
+    ),
     NodeTypeResponse(type="agent", label="Agent", category="core", ports=_io_ports()),
     NodeTypeResponse(type="code", label="Code", category="core", ports=_io_ports()),
     NodeTypeResponse(
@@ -88,6 +101,7 @@ _NODE_TYPES: list[NodeTypeResponse] = [
 # machinery (validation, integrity, sandbox, diff, audit) applies unchanged.
 _NODE_BUILDERS: dict[str, tuple[type[Node], str, type]] = {
     "agent": (AgentNode, "agent", AgentNodeData),
+    "entrypoint": (EntrypointNode, "entrypoint", EntrypointNodeData),
     "code": (ExecutableUnitNode, "executable_unit", ExecutableUnitNodeData),
     "executable_unit": (ExecutableUnitNode, "executable_unit", ExecutableUnitNodeData),
     "human_approval": (HumanApprovalNode, "human_approval", HumanApprovalNodeData),
@@ -391,6 +405,11 @@ async def update_workflow(
         graph_version_ref = f"{graph.graph_id}@{graph.version}"
         updates["nodes"] = [_build_node(n, graph_version_ref) for n in body.nodes]
         updates["edges"] = [_build_edge(e) for e in (body.edges or [])]
+        # The entrypoint node owns the entry step: when the canvas has one,
+        # entry_step is derived, never hand-picked.
+        entry_nodes = [n for n in updates["nodes"] if isinstance(n, EntrypointNode)]
+        if entry_nodes:
+            updates["entry_step"] = entry_nodes[0].node_id
     elif body.edges is not None:
         updates["edges"] = [_build_edge(e) for e in body.edges]
 
@@ -435,6 +454,34 @@ async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetail
     """
     await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
+    # Studio-authored workflows must start with an Entrypoint node — it is the
+    # spatial home of entry_step and the workflow's public input contract.
+    # (Code-authored graphs publishing via GraphRepository directly may keep a
+    # bare entry_step; this rule is a canvas-authoring contract, not a core one.)
+    draft = await repo.get(workflow_id)
+    if (
+        draft is not None
+        and draft.status is GraphStatus.DRAFT
+        and not any(isinstance(n, EntrypointNode) for n in draft.nodes)
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "workflow failed publish validation",
+                "issues": [
+                    {
+                        "severity": "error",
+                        "code": "missing_entrypoint_node",
+                        "message": (
+                            "Add an Entrypoint node — every workflow starts there, "
+                            "and it declares the input contract callers must send."
+                        ),
+                        "node_id": None,
+                        "edge_id": None,
+                    }
+                ],
+            },
+        )
     try:
         published = await repo.publish(workflow_id)
     except KeyError as exc:
