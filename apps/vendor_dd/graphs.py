@@ -66,6 +66,10 @@ REPORT_TAG = "[vendor-dd:report]"
 CHAT_TAG = "[vendor-dd:chat]"
 
 DEFAULT_MODEL = "openai/gpt-4o-mini"
+# The screening agent is the only tool-using agent. Small models don't reliably
+# track "I already called this tool" and loop on the sanctions screen; gpt-4o
+# does it in a single tool call. The tool-less agents stay on the cheaper model.
+TOOL_AGENT_MODEL = "openai/gpt-4o"
 
 # Tenant stamped onto deployments (and therefore runs, audits, cost events).
 TENANT_ID = "tenant-acme"
@@ -139,7 +143,7 @@ def build_main_graph() -> Graph:
                         "Set sanctions_status to 'hit' if any screened name is listed, "
                         "otherwise 'clear'. Return JSON matching the output schema."
                     ),
-                    model_provider=DEFAULT_MODEL,
+                    model_provider=TOOL_AGENT_MODEL,
                     model_params={"temperature": 0.1},
                     # Vendor + up to ~7 subprocessors; past this the runtime
                     # forces the final answer rather than failing the run.
