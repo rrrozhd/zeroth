@@ -14,7 +14,7 @@ construct its runners.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from zeroth.core.agent_runtime.models import AgentConfig, ModelParams, PromptConfig, RetryPolicy
 from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter, ProviderAdapter
@@ -91,6 +91,9 @@ async def build_agent_runners(
                 conversation_max_turns=data.conversation_max_turns,
             )
 
+        extra_config: dict[str, Any] = {}
+        if data.max_tool_calls is not None:
+            extra_config["max_tool_calls"] = data.max_tool_calls
         config = AgentConfig(
             name=node.node_id,
             description=node.display.title or "",
@@ -104,6 +107,7 @@ async def build_agent_runners(
             retry_policy=RetryPolicy(**data.retry_policy) if data.retry_policy else RetryPolicy(),
             timeout_seconds=float(data.timeout_seconds) if data.timeout_seconds else None,
             model_params=ModelParams(**data.model_params) if data.model_params else None,
+            **extra_config,
         )
         runners[node.node_id] = AgentRunner(config, shared_provider)
     return runners

@@ -71,6 +71,13 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       hint: "provider/model, e.g. openai/gpt-4o or anthropic/claude-sonnet-5.",
     },
     {
+      key: "max_tool_calls",
+      label: "Max tool calls",
+      kind: "number",
+      placeholder: "4",
+      hint: "Cap on tool executions per step. At the cap the model is forced to answer instead of calling more tools. Blank = platform default (4).",
+    },
+    {
       key: "input_messages_key",
       label: "Messages input key",
       kind: "text",

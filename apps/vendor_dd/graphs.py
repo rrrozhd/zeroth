@@ -129,8 +129,9 @@ def build_main_graph() -> Graph:
                     instruction=(
                         f"{SCREEN_TAG} You are a senior third-party-risk analyst. "
                         "Screen the vendor described in the input dossier. Use the "
-                        "sanctions_screen tool on the vendor's legal name AND on every "
-                        "named subprocessor before concluding. Ground your findings on "
+                        "sanctions_screen tool exactly once on the vendor's legal name "
+                        "and exactly once per named subprocessor — never screen the "
+                        "same name twice. Then conclude. Ground your findings on "
                         "the policy_context excerpts and cite the policy ids you relied "
                         "on in policy_citations. Copy vendor_slug, vendor_name, "
                         "jurisdiction, category, annual_spend_usd, data_access, "
@@ -140,6 +141,9 @@ def build_main_graph() -> Graph:
                     ),
                     model_provider=DEFAULT_MODEL,
                     model_params={"temperature": 0.1},
+                    # Vendor + up to ~7 subprocessors; past this the runtime
+                    # forces the final answer rather than failing the run.
+                    max_tool_calls=8,
                     tool_bindings=[
                         AgentToolBinding(
                             target_node_id="sanctions-screen",
