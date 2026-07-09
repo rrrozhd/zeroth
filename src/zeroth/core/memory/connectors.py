@@ -7,6 +7,7 @@ _store[scope.value][target][key] = MemoryEntry
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from governai.memory.models import MemoryEntry, MemoryScope
@@ -15,6 +16,9 @@ from governai.models.common import JSONValue
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
 
 
 class RunEphemeralMemoryConnector:
@@ -49,13 +53,9 @@ class RunEphemeralMemoryConnector:
                 update={"value": value, "updated_at": _utcnow()}, deep=True
             )
         else:
-            bucket[key] = MemoryEntry(
-                key=key, value=value, scope=scope, scope_target=target_key
-            )
+            bucket[key] = MemoryEntry(key=key, value=value, scope=scope, scope_target=target_key)
 
-    async def delete(
-        self, key: str, scope: MemoryScope, *, target: str | None = None
-    ) -> None:
+    async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         bucket = self._store.get(scope.value, {}).get(target or "", {})
         if key not in bucket:
             raise KeyError(key)
@@ -104,13 +104,9 @@ class KeyValueMemoryConnector:
                 update={"value": value, "updated_at": _utcnow()}, deep=True
             )
         else:
-            bucket[key] = MemoryEntry(
-                key=key, value=value, scope=scope, scope_target=target_key
-            )
+            bucket[key] = MemoryEntry(key=key, value=value, scope=scope, scope_target=target_key)
 
-    async def delete(
-        self, key: str, scope: MemoryScope, *, target: str | None = None
-    ) -> None:
+    async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         bucket = self._store.get(scope.value, {}).get(target or "", {})
         if key not in bucket:
             raise KeyError(key)
@@ -119,12 +115,33 @@ class KeyValueMemoryConnector:
     async def search(
         self, query: dict, scope: MemoryScope, *, target: str | None = None
     ) -> list[MemoryEntry]:
+        """Rank entries by token overlap with the query text.
+
+        Whole-phrase substring matches outrank token overlap; an empty query
+        returns everything. Honors ``query["limit"]`` (the retrieval node's
+        ``top_k``). Sentence queries — the shape a RetrievalNode produces —
+        therefore work against this connector without a vector backend.
+        """
         bucket = self._store.get(scope.value, {}).get(target or "", {})
-        text = query.get("text", "").lower()
-        results = []
+        text = str(query.get("text", "")).lower()
+        tokens = {token for token in _TOKEN_SPLIT.split(text) if len(token) > 2}
+        scored: list[tuple[int, MemoryEntry]] = []
         for entry in bucket.values():
-            if not text or text in entry.key.lower() or text in str(entry.value).lower():
-                results.append(entry.model_copy(deep=True))
+            haystack = f"{entry.key} {entry.value}".lower()
+            if not text:
+                scored.append((0, entry))
+                continue
+            if text in haystack:
+                score = len(tokens) + 1
+            else:
+                score = sum(1 for token in tokens if token in haystack)
+            if score > 0:
+                scored.append((score, entry))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        results = [entry.model_copy(deep=True) for _, entry in scored]
+        limit = query.get("limit")
+        if isinstance(limit, int) and limit > 0:
+            results = results[:limit]
         return results
 
 
@@ -160,13 +177,9 @@ class ThreadMemoryConnector:
                 update={"value": value, "updated_at": _utcnow()}, deep=True
             )
         else:
-            bucket[key] = MemoryEntry(
-                key=key, value=value, scope=scope, scope_target=target_key
-            )
+            bucket[key] = MemoryEntry(key=key, value=value, scope=scope, scope_target=target_key)
 
-    async def delete(
-        self, key: str, scope: MemoryScope, *, target: str | None = None
-    ) -> None:
+    async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         bucket = self._store.get(scope.value, {}).get(target or "", {})
         if key not in bucket:
             raise KeyError(key)
