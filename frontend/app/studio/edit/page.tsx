@@ -4,7 +4,15 @@ import "@xyflow/react/dist/style.css";
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   addEdge,
   Background,
@@ -303,6 +311,22 @@ function readStoredViewport(workflowId: string): Viewport | null {
   }
 }
 
+// The Workflows widget can be dragged anywhere on the canvas; its offset from
+// the default top-right anchor is a global UI preference (localStorage), so it
+// stays where the user put it across workflows and sessions.
+type Offset = { x: number; y: number };
+const WORKFLOWS_OFFSET_KEY = "zeroth.studio.workflowsOffset";
+
+function readWorkflowsOffset(): Offset {
+  if (typeof window === "undefined") return { x: 0, y: 0 };
+  try {
+    const o = JSON.parse(window.localStorage.getItem(WORKFLOWS_OFFSET_KEY) ?? "");
+    return typeof o?.x === "number" && typeof o?.y === "number" ? o : { x: 0, y: 0 };
+  } catch {
+    return { x: 0, y: 0 };
+  }
+}
+
 function Editor({ id }: { id: string }) {
   // Read once per mount (the editor remounts per workflow id).
   const initialViewportRef = useRef<Viewport | null>(readStoredViewport(id));
@@ -358,6 +382,42 @@ function Editor({ id }: { id: string }) {
   // Non-fatal if unavailable (the card just doesn't render).
   const [others, setOthers] = useState<WorkflowSummary[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // Draggable Workflows widget: offset from its default top-right anchor.
+  const [wfOffset, setWfOffset] = useState<Offset>(() => readWorkflowsOffset());
+  const wfOffsetRef = useRef(wfOffset);
+  wfOffsetRef.current = wfOffset;
+  const wfDragRef = useRef<{ px: number; py: number; bx: number; by: number } | null>(null);
+  const onWfPointerDown = useCallback((e: ReactPointerEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    wfDragRef.current = {
+      px: e.clientX,
+      py: e.clientY,
+      bx: wfOffsetRef.current.x,
+      by: wfOffsetRef.current.y,
+    };
+  }, []);
+  const onWfPointerMove = useCallback((e: ReactPointerEvent<HTMLElement>) => {
+    const d = wfDragRef.current;
+    if (!d) return;
+    setWfOffset({ x: d.bx + (e.clientX - d.px), y: d.by + (e.clientY - d.py) });
+  }, []);
+  const onWfPointerUp = useCallback((e: ReactPointerEvent<HTMLElement>) => {
+    const d = wfDragRef.current;
+    if (!d) return;
+    wfDragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    // Compute the final offset from the drag origin + pointer delta so
+    // persistence never depends on a state ref that a fast drag may not have
+    // re-rendered yet.
+    const final = { x: d.bx + (e.clientX - d.px), y: d.by + (e.clientY - d.py) };
+    setWfOffset(final);
+    try {
+      window.localStorage.setItem(WORKFLOWS_OFFSET_KEY, JSON.stringify(final));
+    } catch {
+      /* storage unavailable — position persistence is best-effort */
+    }
+  }, []);
   // Run overlay per node id, painted by the RunPanel. Lives in context (not
   // node.data) so runs never dirty the autosave signature or undo history.
   const [runStates, setRunStates] = useState<Record<string, NodeRunState>>({});
@@ -1146,20 +1206,36 @@ function Editor({ id }: { id: string }) {
                 />
               )}
               {others.length > 0 && (
-                <div className="w-72 rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
-                  <button
-                    onClick={() => setSwitcherOpen((o) => !o)}
-                    aria-expanded={switcherOpen}
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold"
-                  >
-                    Workflows ({others.length})
+                <div
+                  className="nopan w-72 rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]"
+                  style={{ transform: `translate(${wfOffset.x}px, ${wfOffset.y}px)` }}
+                >
+                  <div className="flex items-center">
+                    {/* Grip: drag the widget anywhere on the canvas. */}
                     <span
+                      onPointerDown={onWfPointerDown}
+                      onPointerMove={onWfPointerMove}
+                      onPointerUp={onWfPointerUp}
+                      title="Drag to move"
                       aria-hidden
-                      className={`text-xs text-muted transition-transform ${switcherOpen ? "rotate-180" : ""}`}
+                      className="touch-none cursor-grab select-none py-2 pl-3 pr-1 text-muted active:cursor-grabbing"
                     >
-                      ▾
+                      ⠿
                     </span>
-                  </button>
+                    <button
+                      onClick={() => setSwitcherOpen((o) => !o)}
+                      aria-expanded={switcherOpen}
+                      className="flex flex-1 items-center justify-between py-2 pl-1 pr-3 text-sm font-semibold"
+                    >
+                      Workflows ({others.length})
+                      <span
+                        aria-hidden
+                        className={`text-xs text-muted transition-transform ${switcherOpen ? "rotate-180" : ""}`}
+                      >
+                        ▾
+                      </span>
+                    </button>
+                  </div>
                   {switcherOpen && (
                     <div className="max-h-[45vh] space-y-0.5 overflow-y-auto border-t border-border p-1.5">
                       {others.map((w) => (
