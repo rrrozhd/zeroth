@@ -79,3 +79,9 @@ examples_service.sqlite
 
 # zeroth-console package: built frontend export copied in by scripts/build_console_dist.sh
 packaging/console/src/zeroth_console/static/
+
+# vendor-dd reference app local state
+apps/vendor_dd/vendor_dd.sqlite*
+apps/vendor_dd/vendor_dd_econ.sqlite*
+apps/vendor_dd/project_unit/finmetrics/data/
+apps/vendor_dd/.runbook_state.json
