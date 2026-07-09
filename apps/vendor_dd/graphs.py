@@ -67,9 +67,10 @@ CHAT_TAG = "[vendor-dd:chat]"
 
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 # The screening agent is the only tool-using agent. Small models don't reliably
-# track "I already called this tool" and loop on the sanctions screen; gpt-4o
-# does it in a single tool call. The tool-less agents stay on the cheaper model.
-TOOL_AGENT_MODEL = "openai/gpt-4o"
+# track "I already called this tool" and loop on the sanctions screen; gpt-4.1
+# screens every name once (in a single parallel tool turn) and is strong with
+# tool use. The tool-less agents stay on the cheaper model.
+TOOL_AGENT_MODEL = "openai/gpt-4.1"
 
 # Tenant stamped onto deployments (and therefore runs, audits, cost events).
 TENANT_ID = "tenant-acme"
@@ -132,16 +133,18 @@ def build_main_graph() -> Graph:
                 agent=AgentNodeData(
                     instruction=(
                         f"{SCREEN_TAG} You are a senior third-party-risk analyst. "
-                        "Screen the vendor described in the input dossier. Use the "
-                        "sanctions_screen tool exactly once on the vendor's legal name "
-                        "and exactly once per named subprocessor — never screen the "
-                        "same name twice. Then conclude. Ground your findings on "
-                        "the policy_context excerpts and cite the policy ids you relied "
-                        "on in policy_citations. Copy vendor_slug, vendor_name, "
-                        "jurisdiction, category, annual_spend_usd, data_access, "
-                        "data_risk, spend_band and dimensions from the input unchanged. "
-                        "Set sanctions_status to 'hit' if any screened name is listed, "
-                        "otherwise 'clear'. Return JSON matching the output schema."
+                        "You MUST call the sanctions_screen tool for the vendor's legal "
+                        "name and once for each named subprocessor BEFORE you answer — "
+                        "never set sanctions_status without having called the tool for "
+                        "that exact name, even if you believe it is clear. Call it "
+                        "exactly once per name, never twice. Then conclude. Ground your "
+                        "findings on the policy_context excerpts and cite the policy ids "
+                        "you relied on in policy_citations. Copy vendor_slug, "
+                        "vendor_name, jurisdiction, category, annual_spend_usd, "
+                        "data_access, data_risk, spend_band and dimensions from the "
+                        "input unchanged. Set sanctions_status to 'hit' if any screened "
+                        "name is listed, otherwise 'clear'. Return JSON matching the "
+                        "output schema."
                     ),
                     model_provider=TOOL_AGENT_MODEL,
                     model_params={"temperature": 0.1},
