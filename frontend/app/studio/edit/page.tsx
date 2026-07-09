@@ -1376,6 +1376,27 @@ function isActiveStatus(s: string | null | undefined): boolean {
 // nodes light up live, or replay a past run's timeline as the same overlay.
 // All state here is ephemeral — it never touches nodes/edges (see runState.tsx),
 // so running can't dirty autosave or the undo stack.
+// The run panel survives navigation: its working state (payload draft, thread,
+// submitted run id) is kept per workflow in sessionStorage and restored on
+// mount, so leaving the editor and coming back does not clear the run — the
+// poll effect re-fetches the restored run and repaints the canvas overlay.
+type StoredRunPanel = { runId?: string | null; threadId?: string; payload?: string };
+
+function runPanelStorageKey(workflowId: string): string {
+  return `zeroth.studio.runPanel.${workflowId}`;
+}
+
+function readStoredRunPanel(workflowId: string): StoredRunPanel {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.sessionStorage.getItem(runPanelStorageKey(workflowId)) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+const DEFAULT_RUN_PAYLOAD = '{\n  "question": "What is Zeroth?"\n}';
+
 function RunPanel({
   workflowId,
   nodeIds,
@@ -1387,14 +1408,18 @@ function RunPanel({
   others: WorkflowSummary[];
   onStates: (s: Record<string, NodeRunState>) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => readStoredRunPanel(workflowId).runId != null);
   // undefined = health check in flight; null = unreachable/no deployment.
   const [deployedId, setDeployedId] = useState<string | null | undefined>(undefined);
-  const [payload, setPayload] = useState('{\n  "question": "What is Zeroth?"\n}');
+  const [payload, setPayload] = useState(
+    () => readStoredRunPanel(workflowId).payload ?? DEFAULT_RUN_PAYLOAD,
+  );
   // Conversation key sent as thread_id. Prefilled from each run's response so
   // repeated runs continue the same conversation; cleared = start fresh.
-  const [threadId, setThreadId] = useState("");
-  const [runId, setRunId] = useState<string | null>(null);
+  const [threadId, setThreadId] = useState(() => readStoredRunPanel(workflowId).threadId ?? "");
+  const [runId, setRunId] = useState<string | null>(
+    () => readStoredRunPanel(workflowId).runId ?? null,
+  );
   const [run, setRun] = useState<RunStatus | null>(null);
   const [failedNode, setFailedNode] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -1407,6 +1432,19 @@ function RunPanel({
   // are picked up without restarting the interval.
   const nodeIdsRef = useRef(nodeIds);
   nodeIdsRef.current = nodeIds;
+
+  // Keep the stored panel state current (the editor remounts per workflow id,
+  // so each workflow reads and writes only its own key).
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        runPanelStorageKey(workflowId),
+        JSON.stringify({ runId, threadId, payload } satisfies StoredRunPanel),
+      );
+    } catch {
+      /* storage full/unavailable — persistence is best-effort */
+    }
+  }, [workflowId, runId, threadId, payload]);
 
   // POST /v1/runs always executes the deployment's graph, so only the
   // workflow whose id matches health.graph_version_ref ("graphId@version")
@@ -1451,7 +1489,18 @@ function RunPanel({
         );
         return active;
       } catch (e) {
-        if (!stopped) setError(errMsg(e));
+        if (!stopped) {
+          if (e instanceof ApiError && e.status === 404) {
+            // Restored run no longer exists (e.g. the database was reseeded)
+            // — drop it silently instead of wedging the panel on an error.
+            setRunId(null);
+            setRun(null);
+            setFailedNode(null);
+            onStates({});
+          } else {
+            setError(errMsg(e));
+          }
+        }
         return false;
       }
     }
