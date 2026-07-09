@@ -186,15 +186,31 @@ function toRfNodes(detail: WorkflowDetail, types: NodeType[]): Node[] {
   });
 }
 
+// Graphs authored in Python (or any API client) carry no canvas handle ids.
+// Our handles are all explicitly named, and React Flow drops an edge whose
+// handle id does not match one on the node — so without defaults such graphs
+// rendered with NO edges at all. Every node type uses the same port ids
+// (input-data/output-data, tools/tool-input), so defaulting by edge kind is
+// exact, and the first save persists the ids.
+function defaultHandles(kind: EdgeKind): { sourceHandle: string; targetHandle: string } {
+  return kind === "tool"
+    ? { sourceHandle: "tools", targetHandle: "tool-input" }
+    : { sourceHandle: "output-data", targetHandle: "input-data" };
+}
+
 function toRfEdges(detail: WorkflowDetail): Edge[] {
-  return detail.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    sourceHandle: e.source_handle ?? undefined,
-    targetHandle: e.target_handle ?? undefined,
-    ...edgeKindProps(e.kind ?? edgeKindOf({ sourceHandle: e.source_handle })),
-  }));
+  return detail.edges.map((e) => {
+    const kind = e.kind ?? edgeKindOf({ sourceHandle: e.source_handle });
+    const fallback = defaultHandles(kind);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.source_handle ?? fallback.sourceHandle,
+      targetHandle: e.target_handle ?? fallback.targetHandle,
+      ...edgeKindProps(kind),
+    };
+  });
 }
 
 function toStudioNodes(nodes: Node[]): StudioNode[] {
@@ -870,6 +886,7 @@ function Editor({ id }: { id: string }) {
           onConnect={onConnect}
           isValidConnection={isValidConnection}
           onInit={setRf}
+          onError={(code, message) => console.error("[rf-error]", code, message)}
           // n8n-style: single click only selects (so ⌘C/multi-select feel
           // natural); the config dialog opens on double-click.
           onNodeDoubleClick={(_, node) => setEditingId(node.id)}
