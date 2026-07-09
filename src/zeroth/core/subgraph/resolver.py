@@ -7,6 +7,7 @@ and merging governance policy bindings from parent to child graphs.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from zeroth.core.deployments.models import Deployment
@@ -126,6 +127,20 @@ def namespace_subgraph(
             "entry_step": namespaced_entry,
         }
     )
+
+
+_NAMESPACE_PREFIX = re.compile(r"^(?:branch:\d+:|subgraph:[^:]+:\d+:)+")
+
+
+def base_node_id(node_id: str) -> str:
+    """Strip subgraph/branch namespacing to recover the authored node id.
+
+    The inverse of :func:`namespace_subgraph` for a single id: peels every
+    stacked ``branch:{i}:`` / ``subgraph:{graph_ref}:{depth}:`` prefix so
+    runtime registries keyed by authored node ids (agent runners in
+    particular) keep resolving inside child workflows.
+    """
+    return _NAMESPACE_PREFIX.sub("", node_id)
 
 
 def merge_governance(parent_graph: Graph, subgraph: Graph) -> Graph:

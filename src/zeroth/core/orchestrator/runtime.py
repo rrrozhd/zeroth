@@ -59,7 +59,7 @@ from zeroth.core.subgraph.errors import (
     SubgraphExecutionError,
     SubgraphResolutionError,
 )
-from zeroth.core.subgraph.resolver import merge_governance, namespace_subgraph
+from zeroth.core.subgraph.resolver import base_node_id, merge_governance, namespace_subgraph
 
 logger = logging.getLogger(__name__)
 
@@ -455,6 +455,16 @@ class RuntimeOrchestrator:
                         await self._refresh_artifact_ttls(persisted)
                         return persisted
 
+                    if child_run.status != RunStatus.COMPLETED:
+                        failure = child_run.failure_state
+                        detail = failure.message if failure is not None else "unknown failure"
+                        return await self._fail_run(
+                            run,
+                            "subgraph_execution_failed",
+                            f"child run {child_run.run_id} ended "
+                            f"{child_run.status.value}: {detail}",
+                        )
+
                     # Child completed -- clear pending state, use output.
                     del run.metadata["pending_subgraph"]
                     run.status = RunStatus.RUNNING
@@ -527,6 +537,15 @@ class RuntimeOrchestrator:
                     await self.run_repository.write_checkpoint(persisted)
                     await self._refresh_artifact_ttls(persisted)
                     return persisted
+
+                if child_run.status != RunStatus.COMPLETED:
+                    failure = child_run.failure_state
+                    detail = failure.message if failure is not None else "unknown failure"
+                    return await self._fail_run(
+                        run,
+                        "subgraph_execution_failed",
+                        f"child run {child_run.run_id} ended {child_run.status.value}: {detail}",
+                    )
 
                 # Use child run's final_output as this node's output.
                 output_data = child_run.final_output or {}
@@ -765,6 +784,15 @@ class RuntimeOrchestrator:
                             graph_ref=ds_node.subgraph.graph_ref,
                             version=ds_node.subgraph.version,
                             node_id=ds_node_id,
+                        )
+                    if child_run.status != RunStatus.COMPLETED:
+                        # A failed child must fail the branch (and, under
+                        # fail_fast, the fan-out) — never fan-in as {}.
+                        failure = child_run.failure_state
+                        detail = failure.message if failure is not None else "unknown failure"
+                        raise RuntimeError(
+                            f"branch {ctx.branch_index}: subgraph child run "
+                            f"{child_run.run_id} ended {child_run.status.value}: {detail}"
                         )
                     child_output = child_run.final_output or {}
                     if not isinstance(child_output, dict):
@@ -1194,7 +1222,11 @@ class RuntimeOrchestrator:
         if the node type isn't supported or no runner is registered.
         """
         if isinstance(node, AgentNode):
-            runner = self.agent_runners.get(node.node_id)
+            # Child-workflow node ids arrive namespaced (branch:N:subgraph:...);
+            # runners are registered under the authored id, so fall back to it.
+            runner = self.agent_runners.get(node.node_id) or self.agent_runners.get(
+                base_node_id(node.node_id)
+            )
             if runner is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
 
@@ -1356,13 +1388,20 @@ class RuntimeOrchestrator:
                 runner.tool_executor = self._tool_executor_for(graph)
 
             enforcement_context = self._enforcement_context_for(run, node.node_id)
+            # The runner's pre-LLM budget check reads tenant_id from this
+            # context; default it to the run's tenant so per-call budget
+            # gating is tenant-true even without policy enforcement metadata.
+            # The audit record below keeps the unenriched context, so plain
+            # runs are not stamped enforcement_applied.
+            runner_context = dict(enforcement_context)
+            runner_context.setdefault("tenant_id", run.tenant_id)
             try:
                 result = await self._run_agent_with_optional_enforcement(
                     runner,
                     input_payload,
                     thread_id=thread_id,
                     runtime_context={"node_id": node.node_id, "run_id": run.run_id},
-                    enforcement_context=enforcement_context,
+                    enforcement_context=runner_context,
                 )
             finally:
                 # Phase 37: Record context window state in audit before restoring.
@@ -2152,7 +2191,9 @@ class RuntimeOrchestrator:
                 return bool(registry.get(node.executable_unit.manifest_ref).manifest.side_effect)
             return False
         if isinstance(node, AgentNode):
-            runner = self.agent_runners.get(node.node_id)
+            runner = self.agent_runners.get(node.node_id) or self.agent_runners.get(
+                base_node_id(node.node_id)
+            )
             if runner is None:
                 return False
             config = getattr(runner, "config", None)

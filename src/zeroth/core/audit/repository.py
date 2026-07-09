@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 
 from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.core.audit.verifier import compute_chained_record
@@ -30,6 +31,11 @@ class AuditRepository:
         # A process-wide lock serializes the read-head+insert critical section;
         # multi-process deployments additionally need DB-level enforcement.
         self._chain_lock = asyncio.Lock()
+        # created_at orders both head selection and chain verification, so it
+        # must be monotonic in WRITE order. Node start times are not (a
+        # fan-out source node starts before the branch records it is written
+        # after), which used to fork the chain.
+        self._last_created_at: datetime | None = None
 
     async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         """Save an audit record to the database.
@@ -49,6 +55,10 @@ class AuditRepository:
             )
             if existing is not None:
                 raise ValueError(f"audit_id {record.audit_id!r} already exists")
+            created_at = datetime.now(UTC)
+            if self._last_created_at is not None and created_at <= self._last_created_at:
+                created_at = self._last_created_at + timedelta(microseconds=1)
+            self._last_created_at = created_at
             await connection.execute(
                 """
                 INSERT INTO node_audits (
@@ -73,7 +83,7 @@ class AuditRepository:
                     chained.deployment_ref,
                     chained.tenant_id,
                     chained.workspace_id,
-                    chained.started_at.isoformat(),
+                    created_at.isoformat(),
                     to_json_value(chained.model_dump(mode="json")),
                 ),
             )
