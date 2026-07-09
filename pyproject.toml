@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.7.2"
+version = "0.7.3"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -175,6 +175,9 @@ ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 # pydocstyle / line-length / unused-var rules are muted to keep the
 # tutorials focused on the topic instead of lint gymnastics.
 "examples/**/*.py" = ["D205", "D301", "E501", "F841", "N999", "SIM105", "SIM115"]
+# Reference apps set service env defaults before importing zeroth.core (the
+# settings singleton reads env at import time), so E402 is structural there.
+"apps/**/*.py" = ["D205", "D301", "E402"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
