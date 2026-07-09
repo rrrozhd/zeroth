@@ -935,7 +935,9 @@ function Editor({ id }: { id: string }) {
           proOptions={{ hideAttribution: true }}
         >
           <Background />
-          <Controls />
+          {/* Horizontal so the control row sits in a short strip at the very
+              bottom edge instead of stacking up into the left palette. */}
+          <Controls orientation="horizontal" />
           <MiniMap pannable zoomable />
 
           {/* Floating title + palette */}
@@ -1010,7 +1012,11 @@ function Editor({ id }: { id: string }) {
                 <div className="border-b border-border px-3 py-2 text-sm font-semibold">
                   Add node
                 </div>
-                <div className="max-h-[56vh] space-y-1 overflow-y-auto p-2">
+                {/* Bounded to leave room for the bottom-left canvas controls
+                    at any viewport height (title card + header + controls ≈
+                    18rem of chrome), so the list scrolls instead of growing
+                    down over the controls. */}
+                <div className="max-h-[calc(100vh-18rem)] space-y-1 overflow-y-auto p-2">
                   {palette.map((t) => (
                     <button
                       key={t.type}
