@@ -1310,9 +1310,9 @@ class RuntimeOrchestrator:
                 try:
                     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
-                    tenant_id = (
-                        run.metadata.get("tenant_id", "default") if run.metadata else "default"
-                    )
+                    # The run's tenant field is authoritative (metadata never
+                    # carried it) — cost events must aggregate tenant-true.
+                    tenant_id = run.tenant_id or "default"
                     runner.provider = InstrumentedProviderAdapter(
                         inner=original_provider,
                         regulus_client=self.regulus_client,

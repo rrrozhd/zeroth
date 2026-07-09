@@ -167,6 +167,14 @@ class RiskDecision(BaseModel):
     summary: str = ""
 
 
+class DimensionSummary(BaseModel):
+    """One panel finding, summarized in the final memo."""
+
+    dimension: str
+    rating: int = Field(ge=1, le=5)
+    note: str
+
+
 class AssessmentReport(BaseModel):
     """The report writer's final memo."""
 
@@ -178,7 +186,7 @@ class AssessmentReport(BaseModel):
     risk_score: float
     decision: str  # approved | conditional | rejected
     executive_summary: str
-    dimension_summaries: list[dict[str, Any]] = Field(default_factory=list)
+    dimension_summaries: list[DimensionSummary] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
 
 
