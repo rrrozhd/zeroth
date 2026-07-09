@@ -20,6 +20,7 @@ import {
   type Edge,
   type Node,
   type ReactFlowInstance,
+  type Viewport,
 } from "@xyflow/react";
 import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
 import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
@@ -281,7 +282,30 @@ function StudioEditQuery() {
   );
 }
 
+// The camera position survives navigation: pan/zoom is stored per workflow in
+// sessionStorage and restored on mount, so leaving the editor and coming back
+// does not snap to the fit-view default.
+function viewportStorageKey(workflowId: string): string {
+  return `zeroth.studio.viewport.${workflowId}`;
+}
+
+function readStoredViewport(workflowId: string): Viewport | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(viewportStorageKey(workflowId));
+    if (!raw) return null;
+    const vp = JSON.parse(raw) as Viewport;
+    return typeof vp?.x === "number" && typeof vp?.y === "number" && typeof vp?.zoom === "number"
+      ? vp
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function Editor({ id }: { id: string }) {
+  // Read once per mount (the editor remounts per workflow id).
+  const initialViewportRef = useRef<Viewport | null>(readStoredViewport(id));
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [name, setName] = useState("");
@@ -893,8 +917,19 @@ function Editor({ id }: { id: string }) {
           selectionOnDrag
           panOnDrag={[1, 2]}
           panOnScroll
-          fitView
+          fitView={initialViewportRef.current === null}
           fitViewOptions={{ maxZoom: 1, padding: 0.25 }}
+          defaultViewport={initialViewportRef.current ?? undefined}
+          onMoveEnd={(_, viewport) => {
+            try {
+              window.sessionStorage.setItem(
+                viewportStorageKey(id),
+                JSON.stringify(viewport),
+              );
+            } catch {
+              /* storage unavailable — camera persistence is best-effort */
+            }
+          }}
           minZoom={0.3}
           defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
           proOptions={{ hideAttribution: true }}
@@ -975,7 +1010,7 @@ function Editor({ id }: { id: string }) {
                 <div className="border-b border-border px-3 py-2 text-sm font-semibold">
                   Add node
                 </div>
-                <div className="max-h-[42vh] space-y-1 overflow-y-auto p-2">
+                <div className="max-h-[56vh] space-y-1 overflow-y-auto p-2">
                   {palette.map((t) => (
                     <button
                       key={t.type}
@@ -997,40 +1032,6 @@ function Editor({ id }: { id: string }) {
                   ))}
                 </div>
               </div>
-
-              {others.length > 0 && (
-                <div className="rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
-                  <button
-                    onClick={() => setSwitcherOpen((o) => !o)}
-                    aria-expanded={switcherOpen}
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold"
-                  >
-                    Workflows ({others.length})
-                    <span
-                      aria-hidden
-                      className={`text-xs text-muted transition-transform ${switcherOpen ? "rotate-180" : ""}`}
-                    >
-                      ▾
-                    </span>
-                  </button>
-                  {switcherOpen && (
-                    <div className="max-h-40 space-y-0.5 overflow-y-auto border-t border-border p-1.5">
-                      {others.map((w) => (
-                        <Link
-                          key={w.id}
-                          href={`/studio/edit?id=${encodeURIComponent(w.id)}`}
-                          className="flex items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-sm transition-colors hover:border-border hover:bg-accent/[0.04]"
-                        >
-                          <span className="min-w-0 truncate">{w.name}</span>
-                          <span className="shrink-0">
-                            <StatusBadge status={w.status} />
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
 
             </div>
           </Panel>
@@ -1137,6 +1138,39 @@ function Editor({ id }: { id: string }) {
                   onFocusNode={focusNode}
                   onDismiss={() => setPublishIssues(null)}
                 />
+              )}
+              {others.length > 0 && (
+                <div className="w-72 rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
+                  <button
+                    onClick={() => setSwitcherOpen((o) => !o)}
+                    aria-expanded={switcherOpen}
+                    className="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold"
+                  >
+                    Workflows ({others.length})
+                    <span
+                      aria-hidden
+                      className={`text-xs text-muted transition-transform ${switcherOpen ? "rotate-180" : ""}`}
+                    >
+                      ▾
+                    </span>
+                  </button>
+                  {switcherOpen && (
+                    <div className="max-h-[45vh] space-y-0.5 overflow-y-auto border-t border-border p-1.5">
+                      {others.map((w) => (
+                        <Link
+                          key={w.id}
+                          href={`/studio/edit?id=${encodeURIComponent(w.id)}`}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-sm transition-colors hover:border-border hover:bg-accent/[0.04]"
+                        >
+                          <span className="min-w-0 truncate">{w.name}</span>
+                          <span className="shrink-0">
+                            <StatusBadge status={w.status} />
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </Panel>
@@ -1632,7 +1666,7 @@ function RunPanel({
 
   return (
     <Panel position="bottom-center">
-      <div className="w-[26rem] max-w-[90vw] rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
+      <div className="w-[42rem] max-w-[92vw] rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
         <header className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
             Run
@@ -1644,7 +1678,7 @@ function RunPanel({
           </Button>
         </header>
 
-        <div className="max-h-[45vh] space-y-3 overflow-y-auto p-3">
+        <div className="max-h-[62vh] space-y-3 overflow-y-auto p-3">
           {deployedId === undefined ? (
             <p className="text-xs text-muted">Checking which graph is deployed…</p>
           ) : !isDeployed ? (
@@ -1671,8 +1705,8 @@ function RunPanel({
                 <Textarea
                   value={payload}
                   onChange={(e) => setPayload(e.target.value)}
-                  rows={3}
-                  className="font-mono text-xs"
+                  rows={10}
+                  className="min-h-[8rem] font-mono text-xs"
                 />
               </Field>
               <Field
