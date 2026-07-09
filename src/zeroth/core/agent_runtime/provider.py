@@ -205,11 +205,22 @@ class LiteLLMProviderAdapter:
             # the JSON content back into the Pydantic model.
             bound = client.bind(response_format=response_format)
             ai_message: AIMessage = await bound.ainvoke(lc_messages, **kwargs)
+            token_usage = self._extract_token_usage(ai_message, request.model_name)
+            tool_calls = self._extract_tool_calls(ai_message)
+            if tool_calls:
+                # A tool-call turn has no final content to parse — the agent
+                # runner executes the tools and re-invokes; only the closing
+                # response carries the structured output.
+                return ProviderResponse(
+                    content=ai_message.content or None,
+                    raw=ai_message,
+                    tool_calls=tool_calls,
+                    token_usage=token_usage,
+                    metadata={"provider": "litellm", "model": request.model_name},
+                )
             parsed: BaseModel = request.output_model.model_validate_json(
                 ai_message.content
             )
-            token_usage = self._extract_token_usage(ai_message, request.model_name)
-            tool_calls = self._extract_tool_calls(ai_message)
             return ProviderResponse(
                 content=parsed,
                 raw=ai_message,
