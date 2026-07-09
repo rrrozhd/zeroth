@@ -199,6 +199,10 @@ class AgentNodeData(BaseModel):
     model_provider: str
     tool_refs: list[str] = Field(default_factory=list)
     tool_bindings: list[AgentToolBinding] = Field(default_factory=list)
+    # Cap on tool executions per agent step (None = runtime default). When
+    # the model requests calls beyond the cap, the runtime forces a final
+    # answer instead of executing them.
+    max_tool_calls: int | None = Field(default=None, ge=0)
     memory_refs: list[str] = Field(default_factory=list)
     retry_policy: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: int | None = Field(default=None, ge=1)

@@ -406,6 +406,8 @@ class AgentRunner:
         self,
         messages: list[Any],
         metadata: dict[str, Any],
+        *,
+        tool_choice: str | None = None,
     ) -> ProviderRequest:
         """Build a ProviderRequest with tools, output_model, and model_params from config."""
         # Convert tool_attachments to OpenAI tool schemas
@@ -425,6 +427,7 @@ class AgentRunner:
             messages=messages,
             metadata=metadata,
             tools=tools,
+            tool_choice=tool_choice,
             output_model=output_model,
             model_params=self.config.model_params,
         )
@@ -499,9 +502,23 @@ class AgentRunner:
                 )
             tool_calls = list(current_response.tool_calls)
             if tool_calls_used + len(tool_calls) > self.config.max_tool_calls:
-                raise AgentProviderError(
-                    f"provider exceeded max_tool_calls={self.config.max_tool_calls}"
+                # Tool budget exhausted. Real models sometimes keep requesting
+                # tools instead of answering; don't fail the node — drop the
+                # unexecuted request and re-invoke with tool_choice="none" so
+                # the model must produce its final answer from what it has.
+                # (The pending assistant tool-call message is NOT appended:
+                # providers reject tool calls without matching results.)
+                current_response = await run_provider_with_timeout(
+                    self.provider,
+                    self._build_provider_request(current_messages, {}, tool_choice="none"),
+                    timeout_seconds=provider_timeout_seconds,
                 )
+                if getattr(current_response, "tool_calls", None):
+                    raise AgentProviderError(
+                        f"provider exceeded max_tool_calls={self.config.max_tool_calls} "
+                        "and kept requesting tools under tool_choice='none'"
+                    )
+                break
             current_messages.append(self._assistant_message_for(current_response))
             for call in tool_calls:
                 tool_calls_used += 1
