@@ -1,5 +1,19 @@
 # Zeroth — What's Missing to Be a Distinctive, Sellable Product (2026-07-07)
 
+> **Status update (same day, v0.5.1–v0.5.3.1):** most engineering closures below
+> are now implemented — see commits `23ca181..14ad969`. Closed: A.1 publish
+> endpoint, A.2 entry_step authoring, A.3 contract listing, A.5 runner factory
+> (model_provider is real), A.6 deploy/rollback API; B budget caps trip
+> end-to-end, tenant-true audits, chain-verify endpoints, hardened docker
+> sandbox + truthful README; C real CLI (serve/seed-demo/migrate), SQLite
+> boot migrations, Dockerfile+compose (container-verified), docs env-var/
+> healthz/provider fixes, readiness no longer fails on disabled redis; plus a
+> latent entrypoint bug (uvicorn --factory + asyncio.run) found and fixed.
+> Still open: A.4 JSON-Schema contracts, A.7 serving hot-swap (deploy still
+> binds one deployment per process at restart), console UI wiring for
+> publish/deploy/diff/verify, D (triggers, approval notifications, retention,
+> per-tenant LLM keys, SDKs, streaming), E surfacing (evals UI), and all of F.
+
 Synthesis of a 5-agent codebase assessment (gap re-check, last-mile authoring, moat depth,
 first-hour DX, sellable-surface scan) run on branch `feat/console-frontend`, building on the
 2026-07-06 product audit (`.planning/product-audit-2026-07-06/`). All claims cite current code.
