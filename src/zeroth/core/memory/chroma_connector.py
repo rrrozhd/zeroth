@@ -18,8 +18,6 @@ import litellm
 from governai.memory.models import MemoryEntry, MemoryScope
 from governai.models.common import JSONValue
 
-from zeroth.core.config.settings import DEFAULT_EMBEDDING_MODEL
-
 # ChromaDB collection names must be 3-512 chars from [a-zA-Z0-9._-] and must
 # start and end with an alphanumeric character. Collapse any run of other
 # characters to a single underscore so arbitrary scope targets stay valid.
@@ -41,8 +39,15 @@ class ChromaDBMemoryConnector:
         client: chromadb.HttpClient,
         *,
         collection_prefix: str = "zeroth_memory",
-        embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+        embedding_model: str | None = None,
     ) -> None:
+        # Resolve the embedding default lazily to avoid a module-load import of
+        # config.settings, which forms a circular import (settings ↔ connector) that can
+        # silently disable this backend depending on import order.
+        if embedding_model is None:
+            from zeroth.core.config.settings import DEFAULT_EMBEDDING_MODEL
+
+            embedding_model = DEFAULT_EMBEDDING_MODEL
         self._client = client
         self._collection_prefix = collection_prefix
         self._embedding_model = embedding_model
@@ -108,9 +113,7 @@ class ChromaDBMemoryConnector:
             metadatas=[{"key": key, "scope": scope.value, "target": target or ""}],
         )
 
-    async def delete(
-        self, key: str, scope: MemoryScope, *, target: str | None = None
-    ) -> None:
+    async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         """Remove a memory entry. Raises KeyError if not found."""
         collection = self._get_collection(scope, target)
         existing = collection.get(ids=[key])

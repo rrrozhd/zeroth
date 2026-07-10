@@ -26,13 +26,13 @@ from datetime import UTC, datetime
 
 import pytest
 
-# econ_plane binds its SQLAlchemy engine to ECP_DATABASE_URL at import time, so
-# set it to a throwaway SQLite file BEFORE econ_plane is first imported.
+# zeroth.econ_plane binds its SQLAlchemy engine to ECP_DATABASE_URL at import time,
+# so set it to a throwaway SQLite file BEFORE zeroth.econ_plane is first imported.
 _DB_FD, _DB_PATH = tempfile.mkstemp(suffix="_econ_mount.db")
 os.close(_DB_FD)
 os.environ["ECP_DATABASE_URL"] = f"sqlite+pysqlite:///{_DB_PATH}"
 
-pytest.importorskip("econ_plane", reason="requires the 'regulus' extra")
+pytest.importorskip("zeroth.econ_plane", reason="requires the 'regulus' extra")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -172,8 +172,8 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
         assert ingest.json()["status"] == "inserted"
 
     # Persistence proof: the row is actually in econ_plane's database.
-    from econ_plane.database import SessionLocal
-    from econ_plane.instrumentation.models import ExecutionEvent
+    from zeroth.econ_plane.database import SessionLocal
+    from zeroth.econ_plane.instrumentation.models import ExecutionEvent
 
     with SessionLocal() as db:
         row = db.query(ExecutionEvent).filter_by(execution_id=exec_id).one_or_none()
@@ -182,7 +182,7 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
 
 def test_minted_service_token_is_admin_and_decodable() -> None:
     """The minted econ token is valid and carries the Admin role."""
-    from econ_plane.auth.service import decode_token
+    from zeroth.econ_plane.auth.service import decode_token
 
     token = mint_econ_service_token()
     assert token is not None

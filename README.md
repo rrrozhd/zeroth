@@ -262,8 +262,8 @@ src/zeroth/core/
 ├── templates/          # Versioned prompt template registry
 └── webhooks/           # Webhook subscriptions, signed delivery, dead-letter
 
-src/econ_plane/         # Bundled Regulus economic control plane backend
-src/econ_instrumentation/  # Vendored instrumentation SDK used by econ/
+    econ_plane/         # Economic control plane backend (absorbed Regulus)
+    core/econ/instrumentation/  # Cost-instrumentation SDK used by core/econ/
 frontend/               # Next.js web console (static export, see below)
 ```
 

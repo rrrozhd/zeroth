@@ -1,18 +1,17 @@
 # With the Regulus economic control plane
 
 Regulus is the economics control plane that tracks LLM spend and exposes the
-cost/KPI data behind budget caps. As of `zeroth-core` 0.2, **Regulus ships in
-this repository** rather than as a separate project:
+cost/KPI data behind budget caps. It is **part of the `zeroth-core` package** —
+absorbed in-repo, Zeroth-owned, not a separate project:
 
-- the instrumentation SDK is vendored at `src/econ_instrumentation`
-  (the former `econ-instrumentation-sdk` PyPI package — no longer an external
-  dependency); and
-- the backend is bundled at `src/econ_plane` (the `econ_plane` FastAPI app),
-  installable via the `regulus` optional extra.
+- the instrumentation SDK lives at `src/zeroth/core/econ/instrumentation`
+  (import `zeroth.core.econ.instrumentation`); and
+- the backend lives at `src/zeroth/econ_plane` (the `zeroth.econ_plane` FastAPI
+  app), installable via the `regulus` optional extra.
 
 You can run it **in-process** (mounted inside the Zeroth app — one service) or
-as a **separate process** (the bundled app, started on its own port). Both use
-the same in-repo source.
+as a **separate process** (the same app, started on its own port). Both use the
+same in-repo source.
 
 ## Use case
 
@@ -22,8 +21,8 @@ the same in-repo source.
 
 ## Install
 
-The instrumentation SDK is always available (vendored, core deps only). To run
-the bundled backend, install the `regulus` extra:
+The instrumentation SDK is always available (part of the package, core deps
+only). To run the backend, install the `regulus` extra:
 
 ```bash
 uv sync --extra regulus        # or: uv sync --all-extras
@@ -80,7 +79,7 @@ Zeroth still boots (econ simply stays disabled / fail-open).
 Run the bundled backend on its own port and point Zeroth at it:
 
 ```bash
-uv run uvicorn econ_plane.main:app --port 8000      # the Regulus backend
+uv run uvicorn zeroth.econ_plane.main:app --port 8000   # the Regulus backend
 ZEROTH_REGULUS__BASE_URL=http://regulus:8000/v1     # in Zeroth's env
 ```
 
@@ -92,8 +91,8 @@ services:
       ZEROTH_REGULUS__BASE_URL: "http://regulus:8000/v1"
     depends_on: [regulus]
   regulus:
-    image: zeroth-core:latest          # same image; runs econ_plane.main:app
-    command: uvicorn econ_plane.main:app --host 0.0.0.0 --port 8000
+    image: zeroth-core:latest          # same image; runs zeroth.econ_plane.main:app
+    command: uvicorn zeroth.econ_plane.main:app --host 0.0.0.0 --port 8000
     environment:
       ECP_JWT_SECRET: "${ECP_JWT_SECRET}"
 ```
@@ -128,11 +127,11 @@ curl -s http://localhost:8000/health                 # -> {"status":"ok"}
 - **Settings isolation.** Zeroth uses the `ZEROTH_` prefix; the bundled backend
   uses `ECP_`. They do not collide.
 - **Migrations.** SQLite needs none (schema is created at startup). The Alembic
-  chain under `src/econ_plane/_migrations` is for offline Postgres ops only.
+  chain under `src/zeroth/econ_plane/_migrations` is for offline Postgres ops only.
 
 ## Related references
 
 - [Economics concept page](../../concepts/econ.md)
 - [Configuration Reference](../../reference/configuration.md)
-- Provenance / re-sync: `src/econ_instrumentation/VENDOR.md`,
-  `src/econ_plane/VENDOR.md`
+- Provenance: `src/zeroth/core/econ/instrumentation/PROVENANCE.md`,
+  `src/zeroth/econ_plane/PROVENANCE.md`

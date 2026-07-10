@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { InlineConnectorSettings } from "@/app/components/ConnectorInline";
+import { ModelRightsizing } from "@/app/components/ModelRightsizing";
 import { NODE_META } from "@/app/components/nodeMeta";
 import { fieldInput } from "@/app/components/ui";
 import { createContract, errMsg } from "@/app/lib/api";
@@ -212,6 +213,7 @@ export function NodeInspector({
   studioType,
   label,
   config,
+  nodeId,
   inputContractRef,
   outputContractRef,
   contractOptions,
@@ -228,6 +230,8 @@ export function NodeInspector({
   studioType: string;
   label: string;
   config: Record<string, unknown>;
+  /** This node's id — passed to the right-sizing experiment (harvests audits by node). */
+  nodeId?: string;
   /** Contract bindings — node-level fields (NodeBase), not config keys. */
   inputContractRef?: string | null;
   outputContractRef?: string | null;
@@ -387,6 +391,19 @@ export function NodeInspector({
               readOnly={readOnly}
               onSelectRef={(ref) => setField(f.key, ref, f.kind)}
               onChanged={onConnectorsChanged}
+            />
+          )}
+          {/* Right-sizing nudge under the agent's model field: cheaper,
+              capability-compatible alternatives (needs tool support when the agent
+              has units attached). */}
+          {studioType === "agent" && f.key === "model_provider" && (
+            <ModelRightsizing
+              model={str}
+              needsTools={(toolTargets?.length ?? 0) > 0}
+              nodeId={nodeId}
+              instruction={String(config.instruction ?? "")}
+              readOnly={readOnly}
+              onPick={(ref) => setField(f.key, ref, f.kind)}
             />
           )}
           </div>

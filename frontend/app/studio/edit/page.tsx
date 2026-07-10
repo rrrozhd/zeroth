@@ -1418,6 +1418,7 @@ function NodeEditorDialog({
               studioType={d.studioType}
               label={d.label}
               config={d.config}
+              nodeId={node.id}
               inputContractRef={d.inputContractRef ?? null}
               outputContractRef={d.outputContractRef ?? null}
               contractOptions={contractNames}

@@ -50,7 +50,7 @@ def test_regulus_client_delegates_to_instrumentation_client():
     """RegulusClient.track_execution() delegates to InstrumentationClient.track_execution()."""
     from unittest.mock import MagicMock
 
-    from econ_instrumentation import ExecutionEvent
+    from zeroth.core.econ.instrumentation import ExecutionEvent
 
     from zeroth.core.econ.client import RegulusClient
 
