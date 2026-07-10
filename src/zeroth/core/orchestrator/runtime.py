@@ -1302,11 +1302,7 @@ class RuntimeOrchestrator:
             # Use getattr so lightweight test runners without a .provider
             # attribute (e.g. FunctionalRunner, RecordingAgentRunner) still work.
             original_provider = getattr(runner, "provider", _MISSING)
-            if (
-                original_provider is not _MISSING
-                and self.regulus_client is not None
-                and self.cost_estimator is not None
-            ):
+            if original_provider is not _MISSING and self.cost_estimator is not None:
                 try:
                     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 
@@ -1324,6 +1320,26 @@ class RuntimeOrchestrator:
                     )
                 except ImportError:
                     pass
+
+            # Cost cascade (ECON-CASCADE-01): opt-in, low-criticality only. Wrap the
+            # (instrumented) provider so a cheap model is tried first and the node's
+            # model_provider is the escalation target. Sits OUTSIDE the instrumented adapter
+            # so each attempt is priced at the model it actually reached. The finally-block
+            # restore of runner.provider (below) tears down every layer we add here.
+            agent_data = getattr(node, "agent", None)
+            if (
+                original_provider is not _MISSING
+                and agent_data is not None
+                and getattr(agent_data, "cascade_enabled", False)
+                and getattr(agent_data, "cheap_model", None)
+                and getattr(agent_data, "criticality", "medium") == "low"
+            ):
+                from zeroth.core.agent_runtime.cascade import CascadingProviderAdapter
+
+                runner.provider = CascadingProviderAdapter(
+                    inner=runner.provider,
+                    cheap_model=agent_data.cheap_model,
+                )
 
             # Phase 20: Save originals before injection so we can restore in finally.
             # getattr-based so mock runners without these attributes don't crash.

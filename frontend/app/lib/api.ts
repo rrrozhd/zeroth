@@ -74,6 +74,189 @@ export type WorkflowDiff = {
   executable_unit_binding_changes: DiffEntry[];
 };
 
+// Model right-sizing (POST /v1/econ/rightsizing) — hand-declared like PublishIssue
+// above: the shape mirrors zeroth.core.econ.rightsizing and is stable, so it isn't
+// worth threading through the generated spec.
+export type RightsizingOption = {
+  model: string;
+  provider: string;
+  input_per_mtok_usd: number;
+  output_per_mtok_usd: number;
+  blended_per_mtok_usd: number;
+  savings_pct: number;
+  max_input_tokens: number | null;
+  supports_tools: boolean;
+  supports_vision: boolean;
+  same_provider: boolean;
+};
+
+export type RightsizingResult = {
+  incumbent: string;
+  incumbent_known: boolean;
+  incumbent_provider: string | null;
+  incumbent_blended_per_mtok_usd: number | null;
+  needs_tools: boolean;
+  needs_vision: boolean;
+  assumption: string;
+  candidates: RightsizingOption[];
+  note: string;
+};
+
+// Measured right-sizing (POST /v1/econ/rightsizing/experiment) — mirrors
+// zeroth.core.econ.rightsizing_experiment.
+export type CandidateOutcome = {
+  model: string;
+  provider: string;
+  is_incumbent: boolean;
+  equivalence_rate: number;
+  error_rate: number;
+  cases_evaluated: number;
+  cases_errored: number;
+  est_cost_per_1k_calls_usd: number | null;
+  savings_pct: number | null;
+  capability_ok: boolean;
+  meets_bar: boolean;
+};
+
+export type HarvestStats = {
+  cases: number;
+  skipped_not_success: number;
+  skipped_used_tools: number;
+  skipped_empty_output: number;
+  skipped_other_model: number;
+  mean_input_tokens: number;
+  mean_output_tokens: number;
+  token_profile_measured: boolean;
+};
+
+export type ExperimentReport = {
+  incumbent: string;
+  node_id: string | null;
+  mode: "equivalence" | "correctness";
+  cases: number;
+  min_cases: number;
+  tolerance_pct: number;
+  incumbent_self_equivalence: number;
+  mean_input_tokens: number;
+  mean_output_tokens: number;
+  token_profile_measured: boolean;
+  harvest: HarvestStats | null;
+  outcomes: CandidateOutcome[];
+  recommended_model: string | null;
+  verdict: "confirmed" | "flagged" | "none";
+  note: string;
+};
+
+// Passive right-sizing opportunities (GET /v1/econ/rightsizing/opportunities) — mirrors
+// zeroth.core.econ.opportunities.
+export type NodeSpend = {
+  node_id: string;
+  runs: number;
+  total_cost_usd: number;
+  mean_cost_per_call_usd: number;
+  incumbent_model: string | null;
+  uses_tools: boolean;
+  tool_free_runs: number;
+  cheaper_alternatives: number;
+  best_savings_pct: number | null;
+  projected_savings_usd: number | null;
+  experiment_ready: boolean;
+};
+
+export type SpendReport = {
+  total_cost_usd: number;
+  nodes: NodeSpend[];
+  note: string;
+};
+
+// Unit economics (GET /v1/econ/unit-economics) — mirrors zeroth.core.econ.unit_economics.
+export type WorkflowEconomics = {
+  workflow_name: string;
+  runs: number;
+  successful_runs: number;
+  failed_runs: number;
+  success_rate: number;
+  terminal_cost_usd: number;
+  cost_per_successful_run_usd: number | null;
+  failure_tax_usd: number;
+};
+
+export type TenantEconomics = {
+  tenant_id: string;
+  runs: number;
+  successful_runs: number;
+  failed_runs: number;
+  success_rate: number;
+  terminal_cost_usd: number;
+  cost_per_successful_run_usd: number | null;
+  failure_tax_usd: number;
+};
+
+export type QualityEconomics = {
+  terminal_runs: number;
+  labeled_terminal_runs: number;
+  coverage: number;
+  quality_successes: number;
+  quality_success_rate_over_labeled: number;
+  cost_per_quality_success_usd: number | null;
+  cost_on_quality_failures_usd: number;
+  sources: string[];
+  state: "ok" | "not_configured" | "below_coverage_floor";
+  note: string;
+};
+
+export type UnitEconomicsReport = {
+  window_runs: number;
+  successful_runs: number;
+  failed_runs: number;
+  in_flight_runs: number;
+  success_rate: number;
+  total_cost_usd: number;
+  terminal_cost_usd: number;
+  cost_on_successful_usd: number;
+  cost_on_failed_usd: number;
+  cost_on_in_flight_usd: number;
+  cost_per_successful_run_usd: number | null;
+  mean_cost_per_successful_run_usd: number | null;
+  failure_tax_usd: number;
+  failure_tax_ratio: number;
+  runs_with_cost: number;
+  by_workflow: WorkflowEconomics[];
+  by_tenant: TenantEconomics[];
+  quality: QualityEconomics | null;
+  note: string;
+};
+
+// Economic waste rollup (GET /v1/econ/waste) — mirrors zeroth.core.econ.waste.
+export type WasteRollupFinding = {
+  kind: string;
+  node_id: string | null;
+  wasted_usd: number;
+  confirmed: boolean;
+  severity: string;
+  detail: string;
+  metadata: Record<string, unknown>;
+  run_id: string;
+};
+
+export type WasteKindTotal = { kind: string; count: number; wasted_usd: number };
+
+export type WasteRollup = {
+  window_runs: number;
+  runs_with_waste: number;
+  runs_with_cost: number;
+  total_cost_usd: number;
+  total_confirmed_waste_usd: number;
+  total_flagged_waste_usd: number;
+  waste_ratio: number;
+  findings: number;
+  confirmed_findings: number;
+  flagged_findings: number;
+  by_kind: WasteKindTotal[];
+  top_findings: WasteRollupFinding[];
+  note: string;
+};
+
 export class ApiError extends Error {
   status: number;
   /** The raw `detail` from the error body — structured payloads (e.g. the
@@ -300,6 +483,62 @@ export function listManifests(): Promise<ManifestSummary[]> {
 export async function getCost(): Promise<DeploymentCost> {
   const ref = await deploymentRef();
   return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
+}
+
+// ---- Model right-sizing (authoring-time nudge) ----
+
+/** Cheaper, capability-compatible alternatives to a node's model. Candidates to
+    A/B test — capability + price only, never a quality verdict. */
+export function getRightsizing(body: {
+  incumbent: string;
+  needs_tools?: boolean;
+  needs_vision?: boolean;
+  min_savings_pct?: number;
+  limit?: number;
+}): Promise<RightsizingResult> {
+  return apiFetch<RightsizingResult>("/v1/econ/rightsizing", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Passive right-sizing opportunities: agent nodes ranked by spend × savings potential.
+    Read-only aggregation over the audit trail — no LLM calls. */
+export function getRightsizingOpportunities(): Promise<SpendReport> {
+  return apiFetch<SpendReport>("/v1/econ/rightsizing/opportunities");
+}
+
+/** Unit economics: cost per *successful* outcome and the failure tax over the last N runs.
+    Read-only aggregation over the run + audit trail — no LLM calls. */
+export function getUnitEconomics(): Promise<UnitEconomicsReport> {
+  return apiFetch<UnitEconomicsReport>("/v1/econ/unit-economics");
+}
+
+/** Deployment-wide structural-waste rollup (paid-for-failed, loops, retries) over the last N runs. */
+export function getWaste(): Promise<WasteRollup> {
+  return apiFetch<WasteRollup>("/v1/econ/waste");
+}
+
+/** Measured right-sizing: replays the node's real inputs through cheaper models and
+    scores equivalence to the incumbent. Real LLM calls — override the default 20s
+    timeout with a generous ceiling so a small experiment can finish. */
+export function runRightsizingExperiment(body: {
+  node_id: string;
+  incumbent: string;
+  instruction: string;
+  needs_tools?: boolean;
+  needs_vision?: boolean;
+  max_candidates?: number;
+  max_cases?: number;
+  min_cases?: number;
+  tolerance_pct?: number;
+  mode?: "equivalence" | "correctness";
+}): Promise<ExperimentReport> {
+  return apiFetch<ExperimentReport>("/v1/econ/rightsizing/experiment", {
+    method: "POST",
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(180_000),
+  });
 }
 
 // ---- Studio ----

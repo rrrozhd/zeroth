@@ -294,12 +294,16 @@ async def bootstrap_service(
             )
         except ImportError:
             pass
-        try:
-            from zeroth.core.econ.cost import CostEstimator
+    # Cost estimation is local (litellm pricing) and needs no Regulus backend, so it
+    # is always constructed — cost_usd then populates on every audit record and the
+    # local econ lenses (unit economics, waste, right-sizing) work out of the box.
+    # Regulus, when enabled above, only adds the cost-event stream and budget caps.
+    try:
+        from zeroth.core.econ.cost import CostEstimator
 
-            cost_estimator = CostEstimator()
-        except ImportError:
-            cost_estimator = None
+        cost_estimator = CostEstimator()
+    except ImportError:
+        cost_estimator = None
 
     # Phase 18: Wire cost instrumentation into orchestrator.
     orchestrator.regulus_client = regulus_client
