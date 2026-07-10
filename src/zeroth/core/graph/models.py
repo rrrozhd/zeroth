@@ -225,6 +225,16 @@ class AgentNodeData(BaseModel):
     # Cap on conversation turns kept (and replayed) when persisting.
     # None keeps everything.
     conversation_max_turns: int | None = Field(default=None, ge=1)
+    # Stakes tier for this node. Gates cost automation: the cheap-first cascade below is
+    # only ever activated on "low" nodes, because it escalates on hard failure but cannot
+    # judge subtle quality loss. "medium"/"high" nodes stay advise-only.
+    criticality: Literal["low", "medium", "high"] = "medium"
+    # Cost cascade (opt-in, off by default): when enabled, try `cheap_model` first and
+    # escalate to `model_provider` (the incumbent) only on a hard failure (provider error or
+    # blank response). A human enables this per node; the runtime additionally refuses to
+    # cascade unless `criticality == "low"`. `cheap_model` is a right-sizing candidate ref.
+    cascade_enabled: bool = False
+    cheap_model: str | None = None
 
 
 class ExecutableUnitNodeData(BaseModel):

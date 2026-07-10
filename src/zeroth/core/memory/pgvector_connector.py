@@ -20,8 +20,6 @@ from governai.memory.models import MemoryEntry, MemoryScope
 from governai.models.common import JSONValue
 from pgvector.psycopg import register_vector_async
 
-from zeroth.core.config.settings import DEFAULT_EMBEDDING_DIMENSIONS, DEFAULT_EMBEDDING_MODEL
-
 # Unquoted PostgreSQL identifiers: letter/underscore followed by word chars, max 63.
 # Restricting to this subset lets us embed self._table directly in DDL/DML without
 # quoting while rejecting anything that could carry a SQL injection payload.
@@ -44,9 +42,21 @@ class PgvectorMemoryConnector:
         conn_factory: Callable[[], Awaitable[psycopg.AsyncConnection]] | str,
         *,
         table_name: str = "zeroth_memory_vectors",
-        embedding_model: str = DEFAULT_EMBEDDING_MODEL,
-        embedding_dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
+        embedding_model: str | None = None,
+        embedding_dimensions: int | None = None,
     ) -> None:
+        # Resolve the embedding defaults lazily. Importing config.settings at module load
+        # forms a circular import (settings ↔ pgvector_connector) that, depending on import
+        # order, silently disabled this connector; deferring to call time avoids it entirely.
+        from zeroth.core.config.settings import (
+            DEFAULT_EMBEDDING_DIMENSIONS,
+            DEFAULT_EMBEDDING_MODEL,
+        )
+
+        if embedding_model is None:
+            embedding_model = DEFAULT_EMBEDDING_MODEL
+        if embedding_dimensions is None:
+            embedding_dimensions = DEFAULT_EMBEDDING_DIMENSIONS
         if not _IDENT_RE.match(table_name):
             raise ValueError(
                 f"invalid pgvector table_name {table_name!r}: must match {_IDENT_RE.pattern}"
