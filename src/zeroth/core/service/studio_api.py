@@ -353,7 +353,10 @@ async def list_workflows(request: Request) -> list[WorkflowSummaryResponse]:
     """List all workflows as summaries."""
     principal = await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
-    graphs = await repo.list(tenant_id=principal.tenant_id)  # WS-B: tenant-scoped
+    graphs = await repo.list(
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+    )
     # Exclude archived workflows from the list
     return [_graph_to_summary(g) for g in graphs if g.status != GraphStatus.ARCHIVED]
 
@@ -374,7 +377,8 @@ async def create_workflow(
     graph = Graph(
         graph_id=graph_id,
         name=body.name,
-        tenant_id=principal.tenant_id,  # WS-B: stamp owning tenant
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
         nodes=[],
         edges=[],
         metadata={
@@ -384,7 +388,11 @@ async def create_workflow(
             }
         },
     )
-    saved = await repo.save(graph, tenant_id=principal.tenant_id)
+    saved = await repo.save(
+        graph,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+    )
     return _graph_to_detail(saved)
 
 
@@ -393,7 +401,11 @@ async def get_workflow(workflow_id: str, request: Request) -> WorkflowDetailResp
     """Get a workflow with full detail including nodes, edges, and viewport."""
     principal = await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
-    graph = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
+    graph = await repo.get(
+        workflow_id,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+    )
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return _graph_to_detail(graph)
@@ -414,7 +426,11 @@ async def update_workflow(
     """
     principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
-    graph = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
+    graph = await repo.get(
+        workflow_id,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+    )
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     if graph.status is not GraphStatus.DRAFT:
@@ -470,7 +486,11 @@ async def update_workflow(
         # Only surface error messages — the raw errors() carry the input graph
         # (datetimes) and ctx (exception objects), neither JSON-serializable.
         raise HTTPException(status_code=422, detail=[e["msg"] for e in exc.errors()]) from exc
-    saved = await repo.save(updated_graph, tenant_id=principal.tenant_id)  # WS-B
+    saved = await repo.save(
+        updated_graph,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+    )
     return _graph_to_detail(saved)
 
 
@@ -490,9 +510,11 @@ async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetail
     # spatial home of entry_step and the workflow's public input contract.
     # (Code-authored graphs publishing via GraphRepository directly may keep a
     # bare entry_step; this rule is a canvas-authoring contract, not a core one.)
-    draft = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
-    # A foreign-tenant (or absent) graph must 404 BEFORE the global-by-graph_id
-    # repo.publish below, or publish would reach across the tenant boundary.
+    draft = await repo.get(
+        workflow_id,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+    )
     if draft is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     if draft.status is GraphStatus.DRAFT and not any(
@@ -517,7 +539,11 @@ async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetail
             },
         )
     try:
-        published = await repo.publish(workflow_id)
+        published = await repo.publish(
+            workflow_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Workflow not found") from exc
     except GraphValidationError as exc:
@@ -545,7 +571,7 @@ async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetail
 @router.get("/contracts", response_model=list[StudioContractResponse])
 async def list_contracts(request: Request) -> list[StudioContractResponse]:
     """List registered contracts (latest version each) for contract-ref pickers."""
-    await require_permission(request, Permission.WORKFLOW_READ)
+    _principal = await require_permission(request, Permission.WORKFLOW_READ)
     registry = request.app.state.bootstrap.contract_registry
     contracts: list[StudioContractResponse] = []
     for name in await registry.list_names():
@@ -571,7 +597,7 @@ async def create_contract(
     honors it exactly. Re-registering an existing name creates the next
     version (the picker lists the latest).
     """
-    await require_permission(request, Permission.WORKFLOW_ADMIN)
+    _principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     from jsonschema.exceptions import SchemaError
 
     registry = request.app.state.bootstrap.contract_registry
@@ -600,11 +626,14 @@ async def diff_workflow(
     """Structured diff between two versions of a workflow."""
     principal = await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
-    # WS-B: gate on tenant-scoped existence before the global-by-graph_id diff.
-    if await repo.get(workflow_id, tenant_id=principal.tenant_id) is None:
-        raise HTTPException(status_code=404, detail="Workflow version not found")
     try:
-        diff = await repo.diff(workflow_id, left, right)
+        diff = await repo.diff(
+            workflow_id,
+            left,
+            right,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Workflow version not found") from exc
     return diff.model_dump(mode="json")
@@ -619,15 +648,19 @@ async def clone_workflow(workflow_id: str, request: Request) -> WorkflowDetailRe
     """Clone a published workflow into a new editable draft version."""
     principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
-    graph = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
-    if graph is None:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-    if graph.status is not GraphStatus.PUBLISHED:
+    try:
+        draft = await repo.clone_published_to_draft(
+            workflow_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Workflow not found") from exc
+    except GraphLifecycleError as exc:
         raise HTTPException(
             status_code=409,
             detail="Only published workflows can be cloned to a draft.",
-        )
-    draft = await repo.clone_published_to_draft(workflow_id)
+        ) from exc
     return _graph_to_detail(draft)
 
 
@@ -636,16 +669,19 @@ async def delete_workflow(workflow_id: str, request: Request) -> Response:
     """Archive a workflow (soft delete)."""
     principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
-    graph = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
-    if graph is None:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-    archived = graph.archive()
-    await repo.save(archived, tenant_id=principal.tenant_id)
+    try:
+        await repo.archive(
+            workflow_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Workflow not found") from exc
     return Response(status_code=204)
 
 
 @router.get("/node-types", response_model=list[NodeTypeResponse])
 async def list_node_types(request: Request) -> list[NodeTypeResponse]:
     """Return all available node types with their port definitions."""
-    await require_permission(request, Permission.WORKFLOW_READ)
+    _principal = await require_permission(request, Permission.WORKFLOW_READ)
     return _NODE_TYPES
