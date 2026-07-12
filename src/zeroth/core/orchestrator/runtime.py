@@ -1262,17 +1262,11 @@ class RuntimeOrchestrator:
             )
             if prototype is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
-            fork_for_dispatch = getattr(prototype, "fork_for_dispatch", None)
-            # Instance-level ``run`` replacements are a legacy lightweight-test
-            # pattern: copying them preserves a closure bound to the prototype,
-            # not the fork. Production AgentRunner methods are class-defined and
-            # always take the isolated path.
-            has_instance_run_override = "run" in getattr(prototype, "__dict__", {})
-            runner = (
-                fork_for_dispatch()
-                if callable(fork_for_dispatch) and not has_instance_run_override
-                else prototype
+            declared_fork = inspect.getattr_static(prototype, "fork_for_dispatch", _MISSING)
+            fork_for_dispatch = (
+                prototype.fork_for_dispatch if declared_fork is not _MISSING else None
             )
+            runner = fork_for_dispatch() if callable(fork_for_dispatch) else prototype
 
             # Resolve thread before template rendering so memory can use thread scope.
             thread_id = await self._resolve_thread(node, run)
@@ -1335,135 +1329,113 @@ class RuntimeOrchestrator:
                     "version": template.version,
                 }
 
-            # Phase 36: Override runner config instruction with rendered template.
+            # Capture every dispatch-mutable surface before the first assignment.
+            # Production runners are forks, while lightweight protocol-less test
+            # doubles use the prototype and therefore require exception-safe cleanup.
             original_config = getattr(runner, "config", _MISSING)
-            if effective_instruction is not None and original_config is not _MISSING:
-                runner.config = original_config.model_copy(
-                    update={"instruction": effective_instruction}
-                )
-
-            # Phase 18: Wrap provider with cost instrumentation (per ECON-01).
-            # Use getattr so lightweight test runners without a .provider
-            # attribute (e.g. FunctionalRunner, RecordingAgentRunner) still work.
             original_provider = getattr(runner, "provider", _MISSING)
-            if original_provider is not _MISSING and self.cost_estimator is not None:
-                try:
-                    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
-
-                    # The run's tenant field is authoritative (metadata never
-                    # carried it) — cost events must aggregate tenant-true.
-                    tenant_id = run.tenant_id or "default"
-                    runner.provider = InstrumentedProviderAdapter(
-                        inner=original_provider,
-                        regulus_client=self.regulus_client,
-                        cost_estimator=self.cost_estimator,
-                        node_id=node.node_id,
-                        run_id=run.run_id,
-                        tenant_id=tenant_id,
-                        deployment_ref=self.deployment_ref or "unknown",
-                    )
-                except ImportError:
-                    pass
-
-            # Cost cascade (ECON-CASCADE-01): opt-in, low-criticality only. Wrap the
-            # (instrumented) provider so a cheap model is tried first and the node's
-            # model_provider is the escalation target. Sits OUTSIDE the instrumented adapter
-            # so each attempt is priced at the model it actually reached. The finally-block
-            # restore of runner.provider (below) tears down every layer we add here.
-            agent_data = getattr(node, "agent", None)
-            if (
-                original_provider is not _MISSING
-                and agent_data is not None
-                and getattr(agent_data, "cascade_enabled", False)
-                and getattr(agent_data, "cheap_model", None)
-                and getattr(agent_data, "criticality", "medium") == "low"
-            ):
-                from zeroth.core.agent_runtime.cascade import CascadingProviderAdapter
-
-                runner.provider = CascadingProviderAdapter(
-                    inner=runner.provider,
-                    cheap_model=agent_data.cheap_model,
-                )
-
-            # Phase 20: Save originals before injection so we can restore in finally.
-            # getattr-based so mock runners without these attributes don't crash.
-            # Injection is additive: only fill in when the runner has no resolver
-            # of its own, so callers that pre-configure a runner with a specific
-            # registry (e.g. tests) are respected.
             original_memory_resolver = getattr(runner, "memory_resolver", _MISSING)
             original_budget_enforcer = getattr(runner, "budget_enforcer", _MISSING)
-            if (
-                self.memory_resolver is not None
-                and original_memory_resolver is not _MISSING
-                and original_memory_resolver is None
-            ):
-                runner.memory_resolver = self.memory_resolver
-            if (
-                self.budget_enforcer is not None
-                and original_budget_enforcer is not _MISSING
-                and original_budget_enforcer is None
-            ):
-                runner.budget_enforcer = self.budget_enforcer
-
-            # Phase 37: Context window tracker injection (per D-09, D-11).
             original_context_tracker = getattr(runner, "context_tracker", _MISSING)
-            if (
-                self.context_window_enabled
-                and original_context_tracker is not _MISSING
-                and original_context_tracker is None
-                and hasattr(node.agent, "context_window")
-                and node.agent.context_window is not None
-            ):
-                from zeroth.core.context_window import (
-                    ContextWindowTracker,
-                    LLMSummarizationStrategy,
-                    ObservationMaskingStrategy,
-                    TruncationStrategy,
-                )
-
-                cw_settings = node.agent.context_window
-                strategy_name = cw_settings.compaction_strategy
-                if strategy_name == "truncation":
-                    strategy = TruncationStrategy()
-                elif strategy_name == "llm_summarization":
-                    # Use the runner's own provider for summarization calls
-                    strategy = LLMSummarizationStrategy(provider=runner.provider)
-                else:
-                    # Default: observation_masking
-                    strategy = ObservationMaskingStrategy()
-                runner.context_tracker = ContextWindowTracker(
-                    settings=cw_settings,
-                    strategy=strategy,
-                )
-
-            enforcement_context = self._enforcement_context_for(run, node.node_id)
-
-            # Tool attachments: agents with tool bindings call their attached
-            # executable-unit nodes through an executor bound to this graph.
-            # WS-C: the agent's enforcement_context is threaded into that executor
-            # so an agent-invoked unit runs under the SAME sandbox network/secret
-            # posture as a direct node dispatch — closing the tool-executor bypass.
             original_tool_executor = getattr(runner, "tool_executor", _MISSING)
-            if (
-                graph is not None
-                and original_tool_executor is not _MISSING
-                and original_tool_executor is None
-                and getattr(node.agent, "tool_bindings", None)
-            ):
-                runner.tool_executor = self._tool_executor_for(graph, enforcement_context)
-
-            # The runner's pre-LLM budget check reads tenant_id from this
-            # context; default it to the run's tenant so per-call budget
-            # gating is tenant-true even without policy enforcement metadata.
-            # The audit record below keeps the unenriched context, so plain
-            # runs are not stamped enforcement_applied.
-            runner_context = dict(enforcement_context)
-            runner_context.setdefault("tenant_id", run.tenant_id)
-            # WS-C: enforcement-active is an EXPLICIT signal (is the guard wired?),
-            # separate from the granted set. The runner enforces the capability
-            # gate iff this is true; when false it leaves tools/memory un-gated.
-            runner_context["capability_enforcement_active"] = self.policy_guard is not None
+            _context_window_audit = None
             try:
+                # Phase 36: Override runner config instruction with rendered template.
+                if effective_instruction is not None and original_config is not _MISSING:
+                    runner.config = original_config.model_copy(
+                        update={"instruction": effective_instruction}
+                    )
+
+                # Phase 18: Wrap provider with cost instrumentation (per ECON-01).
+                # Use getattr so lightweight runners without .provider still work.
+                if original_provider is not _MISSING and self.cost_estimator is not None:
+                    try:
+                        from zeroth.core.econ.adapter import InstrumentedProviderAdapter
+
+                        tenant_id = run.tenant_id or "default"
+                        runner.provider = InstrumentedProviderAdapter(
+                            inner=original_provider,
+                            regulus_client=self.regulus_client,
+                            cost_estimator=self.cost_estimator,
+                            node_id=node.node_id,
+                            run_id=run.run_id,
+                            tenant_id=tenant_id,
+                            deployment_ref=self.deployment_ref or "unknown",
+                        )
+                    except ImportError:
+                        pass
+
+                # Cost cascade wraps the instrumented provider so each attempt is priced.
+                agent_data = getattr(node, "agent", None)
+                if (
+                    original_provider is not _MISSING
+                    and agent_data is not None
+                    and getattr(agent_data, "cascade_enabled", False)
+                    and getattr(agent_data, "cheap_model", None)
+                    and getattr(agent_data, "criticality", "medium") == "low"
+                ):
+                    from zeroth.core.agent_runtime.cascade import CascadingProviderAdapter
+
+                    runner.provider = CascadingProviderAdapter(
+                        inner=runner.provider,
+                        cheap_model=agent_data.cheap_model,
+                    )
+
+                # Phase 20: Add shared services only when the runner has none configured.
+                if (
+                    self.memory_resolver is not None
+                    and original_memory_resolver is not _MISSING
+                    and original_memory_resolver is None
+                ):
+                    runner.memory_resolver = self.memory_resolver
+                if (
+                    self.budget_enforcer is not None
+                    and original_budget_enforcer is not _MISSING
+                    and original_budget_enforcer is None
+                ):
+                    runner.budget_enforcer = self.budget_enforcer
+
+                # Phase 37: Context window tracker injection (per D-09, D-11).
+                if (
+                    self.context_window_enabled
+                    and original_context_tracker is not _MISSING
+                    and original_context_tracker is None
+                    and hasattr(node.agent, "context_window")
+                    and node.agent.context_window is not None
+                ):
+                    from zeroth.core.context_window import (
+                        ContextWindowTracker,
+                        LLMSummarizationStrategy,
+                        ObservationMaskingStrategy,
+                        TruncationStrategy,
+                    )
+
+                    cw_settings = node.agent.context_window
+                    strategy_name = cw_settings.compaction_strategy
+                    if strategy_name == "truncation":
+                        strategy = TruncationStrategy()
+                    elif strategy_name == "llm_summarization":
+                        strategy = LLMSummarizationStrategy(provider=runner.provider)
+                    else:
+                        strategy = ObservationMaskingStrategy()
+                    runner.context_tracker = ContextWindowTracker(
+                        settings=cw_settings,
+                        strategy=strategy,
+                    )
+
+                enforcement_context = self._enforcement_context_for(run, node.node_id)
+                if (
+                    graph is not None
+                    and original_tool_executor is not _MISSING
+                    and original_tool_executor is None
+                    and getattr(node.agent, "tool_bindings", None)
+                ):
+                    runner.tool_executor = self._tool_executor_for(graph, enforcement_context)
+
+                # Budget and capability enforcement are dispatch- and tenant-local.
+                runner_context = dict(enforcement_context)
+                runner_context.setdefault("tenant_id", run.tenant_id)
+                runner_context["capability_enforcement_active"] = self.policy_guard is not None
                 result = await self._run_agent_with_optional_enforcement(
                     runner,
                     input_payload,
@@ -1489,7 +1461,9 @@ class RuntimeOrchestrator:
                     }
                 else:
                     _context_window_audit = None
-                # Restore originals only if they existed on the runner.
+                # Restore originals even when setup failed before agent execution.
+                if original_config is not _MISSING:
+                    runner.config = original_config
                 if original_provider is not _MISSING:
                     runner.provider = original_provider
                 if original_memory_resolver is not _MISSING:
@@ -1501,9 +1475,6 @@ class RuntimeOrchestrator:
                     runner.context_tracker = original_context_tracker
                 if original_tool_executor is not _MISSING:
                     runner.tool_executor = original_tool_executor
-                # Phase 36: Restore original config after template-based override.
-                if effective_instruction is not None and original_config is not _MISSING:
-                    runner.config = original_config
 
             audit_record = dict(result.audit_record)
             if enforcement_context:
