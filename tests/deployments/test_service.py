@@ -332,6 +332,63 @@ async def test_foreign_scope_cannot_rollback_or_supersede_existing_ref(sqlite_db
     assert history[0].status is DeploymentStatus.ACTIVE
 
 
+async def test_interleaved_same_owner_deploy_cannot_cross_graph_lineages(
+    sqlite_db, monkeypatch
+) -> None:
+    service = await _build_service(sqlite_db)
+    graph_a = _retarget_graph("graph-race-a")
+    graph_b = _retarget_graph("graph-race-b")
+    published: dict[str, object] = {}
+    for graph in (graph_a, graph_b):
+        await service.graph_repository.create(graph)
+        published[graph.graph_id] = await service.graph_repository.publish(
+            graph.graph_id, graph.version
+        )
+
+    original_create = service.deployment_repository.create
+    competitor_inserted = False
+
+    async def interleaving_create(
+        deployment,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ):
+        nonlocal competitor_inserted
+        if not competitor_inserted:
+            competitor_inserted = True
+            competing_graph = published[graph_b.graph_id]
+            competing = deployment.model_copy(
+                update={
+                    "deployment_id": "competing-lineage",
+                    "graph_id": graph_b.graph_id,
+                    "graph_version": graph_b.version,
+                    "graph_version_ref": f"{graph_b.graph_id}@{graph_b.version}",
+                    "serialized_graph": serialize_graph(competing_graph),
+                }
+            )
+            await original_create(
+                competing,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
+        return await original_create(
+            deployment,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+
+    monkeypatch.setattr(service.deployment_repository, "create", interleaving_create)
+
+    with pytest.raises(DeploymentError, match="deployment_ref"):
+        await service.deploy("racing-service", graph_a.graph_id, graph_a.version)
+
+    history = await service.list("racing-service")
+    assert len(history) == 1
+    assert history[0].graph_id == graph_b.graph_id
+    assert history[0].status is DeploymentStatus.ACTIVE
+
+
 async def test_deploy_retries_when_version_insert_races(sqlite_db, monkeypatch) -> None:
     service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
