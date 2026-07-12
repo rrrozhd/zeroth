@@ -6,12 +6,18 @@ WAL mode, and foreign key enforcement.
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import aiosqlite
 
+from zeroth.core.storage.database import (
+    DEFAULT_COORDINATION_TIMEOUT_SECONDS,
+    CoordinationTimeoutError,
+    validate_coordination_timeout,
+)
 from zeroth.core.storage.sqlite import EncryptedField
 
 
@@ -56,23 +62,49 @@ class AsyncSQLiteDatabase:
     PRAGMAs (foreign keys, WAL mode, synchronous NORMAL).
     """
 
-    def __init__(self, path: str, *, encryption_key: str | bytes | None = None) -> None:
+    backend = "sqlite"
+
+    def __init__(
+        self,
+        path: str,
+        *,
+        encryption_key: str | bytes | None = None,
+        coordination_timeout_seconds: float = DEFAULT_COORDINATION_TIMEOUT_SECONDS,
+    ) -> None:
         self.path = path
+        self.coordination_timeout_seconds = validate_coordination_timeout(
+            coordination_timeout_seconds
+        )
         self.encrypted_field = (
             EncryptedField(encryption_key) if encryption_key is not None else None
         )
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[AsyncSQLiteConnection]:
+    async def transaction(
+        self, *, write_lock: bool = False
+    ) -> AsyncIterator[AsyncSQLiteConnection]:
         """Open a connection, yield it inside a transaction, then commit or rollback."""
-        conn = await aiosqlite.connect(self.path)
+        conn = await aiosqlite.connect(
+            self.path,
+            timeout=self.coordination_timeout_seconds,
+        )
         conn.row_factory = aiosqlite.Row
         try:
             await conn.execute("PRAGMA foreign_keys = ON")
             await conn.execute("PRAGMA journal_mode = WAL")
             await conn.execute("PRAGMA synchronous = NORMAL")
+            timeout_ms = max(1, round(self.coordination_timeout_seconds * 1000))
+            await conn.execute(f"PRAGMA busy_timeout = {timeout_ms}")
+            await conn.execute("BEGIN IMMEDIATE" if write_lock else "BEGIN")
             yield AsyncSQLiteConnection(conn)
             await conn.commit()
+        except sqlite3.OperationalError as exc:
+            await conn.rollback()
+            if write_lock and ("locked" in str(exc).lower() or "busy" in str(exc).lower()):
+                raise CoordinationTimeoutError(
+                    "timed out acquiring SQLite coordination lock"
+                ) from exc
+            raise
         except Exception:
             await conn.rollback()
             raise
