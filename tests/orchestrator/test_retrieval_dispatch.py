@@ -94,6 +94,7 @@ def _run_stub() -> MagicMock:
     run = MagicMock()
     run.run_id = "r1"
     run.thread_id = ""
+    run.tenant_id = "default"  # WS-B: memory resolution is fail-closed on tenant
     return run
 
 

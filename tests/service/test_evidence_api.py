@@ -155,7 +155,16 @@ async def test_deployment_attestation_verification_detects_snapshot_tampering(sq
         )
 
     assert verify_response.status_code == 200
-    assert verify_response.json() == {"verified": True, "mismatches": []}
+    # WS-D: dual-check response. This deployment is unsigned-legacy (no signing
+    # key configured in tests) so the signature axis is neutral (null) and the
+    # digest axis carries the verdict — never green/red on an unsigned row.
+    assert verify_response.json() == {
+        "verified": True,
+        "mismatches": [],
+        "digest_verified": True,
+        "signature_verified": None,
+        "signing_key_id": None,
+    }
 
     async with sqlite_db.transaction() as connection:
         await connection.execute(

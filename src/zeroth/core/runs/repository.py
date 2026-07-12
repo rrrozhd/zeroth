@@ -250,13 +250,21 @@ class _RunThreadStore:
                 ),
             )
 
-    async def get_run(self, run_id: str) -> Run | None:
-        """Load a run from the database by its ID, or return None if not found."""
+    async def get_run(self, run_id: str, *, tenant_id: str | None = None) -> Run | None:
+        """Load a run from the database by its ID, or return None if not found.
+
+        WS-B: when ``tenant_id`` is supplied, a run owned by another tenant is
+        invisible (returns ``None``). ``None`` = no tenant filter, the default
+        for internal orchestrator lookups; API read paths pass the principal's
+        tenant as defense-in-depth atop their existing scope checks.
+        """
+        sql = "SELECT * FROM runs WHERE run_id = ?"
+        params: tuple[object, ...] = (run_id,)
+        if tenant_id is not None:
+            sql += " AND tenant_id = ?"
+            params = (run_id, tenant_id)
         async with self.database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT * FROM runs WHERE run_id = ?",
-                (run_id,),
-            )
+            row = await connection.fetch_one(sql, params)
         if row is None:
             return None
         return self._row_to_run(row)
@@ -456,10 +464,7 @@ class _RunThreadStore:
                 last_run_id=run.run_id,
             )
         else:
-            if (
-                thread.tenant_id != run.tenant_id
-                or thread.workspace_id != run.workspace_id
-            ):
+            if thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id:
                 raise ValueError("thread identity mismatch")
             if run.run_id not in thread.run_ids:
                 thread.run_ids.append(run.run_id)
@@ -490,10 +495,7 @@ class _RunThreadStore:
                 last_run_id=run_id,
             )
         else:
-            if (
-                thread.tenant_id != tenant_id
-                or thread.workspace_id != workspace_id
-            ):
+            if thread.tenant_id != tenant_id or thread.workspace_id != workspace_id:
                 raise ValueError("thread identity mismatch")
             thread.run_ids = _merge(thread.run_ids, [run_id])
             thread.last_run_id = run_id
@@ -689,9 +691,13 @@ class RunRepository:
         await self._store.put_run(run)
         return await self.get(run.run_id)
 
-    async def get(self, run_id: str) -> Run | None:
-        """Load a run by its ID, or return None if not found."""
-        return await self._store.get_run(run_id)
+    async def get(self, run_id: str, *, tenant_id: str | None = None) -> Run | None:
+        """Load a run by its ID, or return None if not found.
+
+        WS-B: optional ``tenant_id`` filter (defense-in-depth). Default ``None``
+        preserves the no-filter behaviour internal callers rely on.
+        """
+        return await self._store.get_run(run_id, tenant_id=tenant_id)
 
     async def delete(self, run_id: str) -> None:
         """Remove a run from the database."""
@@ -826,6 +832,52 @@ class RunRepository:
     async def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
         """Return dead-lettered runs for a deployment."""
         return await self._store.list_dead_letter_runs(deployment_ref)
+
+    async def erase_checkpoints_for_run(self, run_id: str) -> int:
+        """WS-E: delete a run's checkpoints — the missing retention cascade.
+
+        ``run_checkpoints.state_json`` holds the full serialized run state (the
+        richest plaintext PII surface), and neither ``delete_run`` nor
+        ``redact_run`` reaches it. Right-to-erasure / TTL purge calls this to
+        remove that snapshot. Returns the number of checkpoint rows deleted;
+        idempotent (a second call deletes nothing and returns 0).
+        """
+        database = self._store.database
+        async with database.transaction() as connection:
+            rows = await connection.fetch_all(
+                "SELECT checkpoint_id FROM run_checkpoints WHERE run_id = ?",
+                (run_id,),
+            )
+            if rows:
+                await connection.execute(
+                    "DELETE FROM run_checkpoints WHERE run_id = ?",
+                    (run_id,),
+                )
+        return len(rows)
+
+    async def redact_run(self, run_id: str) -> bool:
+        """WS-E: null a run's PII-bearing output columns, keeping the row.
+
+        Nulls ``final_output``/``artifacts``/``metadata``/``error`` in place so
+        the run row survives for chain/thread continuity while its plaintext
+        payloads are gone. ``artifacts``/``metadata`` are NOT NULL columns, so
+        they are reset to the empty-object sentinel rather than NULL. Idempotent.
+        Returns True if the run existed.
+        """
+        database = self._store.database
+        async with database.transaction() as connection:
+            existing = await connection.fetch_one(
+                "SELECT 1 FROM runs WHERE run_id = ?",
+                (run_id,),
+            )
+            if existing is None:
+                return False
+            await connection.execute(
+                "UPDATE runs SET final_output = NULL, artifacts = '{}', "
+                "metadata = '{}', error = NULL WHERE run_id = ?",
+                (run_id,),
+            )
+        return True
 
 
 class ThreadRepository:

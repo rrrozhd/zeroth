@@ -55,6 +55,8 @@ from zeroth.core.guardrails.content import (
 )
 from zeroth.core.memory import MemoryConnectorResolver
 from zeroth.core.observability import start_span
+from zeroth.core.policy.errors import parse_effective_capabilities
+from zeroth.core.policy.models import Capability
 
 
 class AgentRunner:
@@ -173,11 +175,25 @@ class AgentRunner:
             validated_input, direction="input"
         )
         output_safety_audit: dict[str, Any] | None = None
+        # WS-C: the granted capability set for this node. ``None`` means the
+        # policy guard is not wired (enforcement inactive) — the orchestrator
+        # signals this with an explicit ``capability_enforcement_active`` flag,
+        # NOT by omitting keys, so absence can never silently bypass an active
+        # gate. When active, an empty set denies any memory/tool op (fail-closed).
+        capability_enforcement_active = bool(
+            (enforcement_context or {}).get("capability_enforcement_active")
+        )
+        effective_capabilities: set[Capability] | None = (
+            parse_effective_capabilities(enforcement_context)
+            if capability_enforcement_active
+            else None
+        )
         thread_state = await self._load_thread_state(thread_id)
         resolved_runtime_context = dict(runtime_context or {})
         memory_context, memory_interactions = await self._load_memory(
             thread_id=thread_id,
             runtime_context=resolved_runtime_context,
+            effective_capabilities=effective_capabilities,
         )
         if memory_context:
             # Memory is added to the prompt context as normal input.
@@ -247,6 +263,7 @@ class AgentRunner:
                         messages=messages,
                         provider_timeout_seconds=provider_timeout_seconds,
                         approval_required_for_side_effects=approval_required_for_side_effects,
+                        effective_capabilities=effective_capabilities,
                     )
                     # Validation turns the provider response into the typed Zeroth output.
                     output = self.output_validator.validate(self.config.output_model, response)
@@ -307,6 +324,7 @@ class AgentRunner:
                             output.model_dump(mode="json"),
                             thread_id=thread_id,
                             runtime_context=resolved_runtime_context,
+                            effective_capabilities=effective_capabilities,
                         )
                     )
                     # Keep both memory reads and writes in the final audit record.
@@ -484,6 +502,7 @@ class AgentRunner:
         messages: list[Any],
         provider_timeout_seconds: float | None,
         approval_required_for_side_effects: bool,
+        effective_capabilities: set[Capability] | None = None,
     ) -> tuple[Any, list[Any], list[dict[str, Any]]]:
         """Execute any tool calls the model requested and re-call the model.
 
@@ -534,6 +553,17 @@ class AgentRunner:
                     )
                 self.tool_bridge.validate_permissions(binding, self.granted_tool_permissions)
                 try:
+                    # WS-C: capability gate BEFORE any dispatch. A denial raises
+                    # CapabilityDeniedError, which the except branch below turns
+                    # into an is_error tool result (never executing the tool),
+                    # so the model can react instead of the run hard-failing.
+                    # Only enforced when active; None means the guard is unwired.
+                    if effective_capabilities is not None:
+                        self.tool_bridge.check_capabilities(
+                            binding,
+                            effective_capabilities,
+                            node_id=self.config.name,
+                        )
                     with start_span("zeroth.tool", {"zeroth.tool": call["name"]}):
                         # Route MCP tool calls through MCPClientManager
                         if (
@@ -738,11 +768,14 @@ class AgentRunner:
         *,
         thread_id: str | None,
         runtime_context: Mapping[str, Any],
+        effective_capabilities: set[Capability] | None = None,
     ) -> tuple[dict[str, Any], list[MemoryAccessRecord]]:
         """Read data from all configured memory connectors for this agent.
 
         Returns the memory payload to include in the prompt and a list
-        of audit records describing each memory read.
+        of audit records describing each memory read. ``effective_capabilities``
+        (WS-C) gates the read on ``MEMORY_READ``; ``None`` leaves the connector
+        un-gated (enforcement inactive).
         """
         resolver = self.memory_resolver
         if resolver is None or not self.config.memory_refs:
@@ -752,6 +785,7 @@ class AgentRunner:
             thread_id=thread_id,
             runtime_context=runtime_context,
             node_id=self.config.name,
+            effective_capabilities=effective_capabilities,
         )
         memory_payload: dict[str, Any] = {}
         interactions: list[MemoryAccessRecord] = []
@@ -778,10 +812,13 @@ class AgentRunner:
         *,
         thread_id: str | None,
         runtime_context: Mapping[str, Any],
+        effective_capabilities: set[Capability] | None = None,
     ) -> list[MemoryAccessRecord]:
         """Write the agent's output to all configured memory connectors.
 
         Returns a list of audit records describing each memory write.
+        ``effective_capabilities`` (WS-C) gates the write on ``MEMORY_WRITE``;
+        ``None`` leaves the connector un-gated (enforcement inactive).
         """
         resolver = self.memory_resolver
         if resolver is None or not self.config.memory_refs:
@@ -791,6 +828,7 @@ class AgentRunner:
             thread_id=thread_id,
             runtime_context=runtime_context,
             node_id=self.config.name,
+            effective_capabilities=effective_capabilities,
         )
         interactions: list[MemoryAccessRecord] = []
         for binding in bindings:

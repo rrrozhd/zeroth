@@ -122,6 +122,18 @@ def _require_repo(request: Request) -> tuple[Any, Any]:
     return registry, repo
 
 
+def _tenant(request: Request) -> str:
+    """Authoritative tenant for this deployment (WS-B).
+
+    A deployment is tenant-pinned, so connector configs are persisted, read,
+    and deleted under ``deployment.tenant_id`` — matching what bootstrap loaded
+    into this process. Falls back to the reserved sentinel if unset.
+    """
+    bootstrap = request.app.state.bootstrap
+    deployment = getattr(bootstrap, "deployment", None)
+    return getattr(deployment, "tenant_id", None) or "default"
+
+
 def _validate_ref(ref: str) -> None:
     if not _REF_RE.match(ref):
         raise HTTPException(
@@ -174,7 +186,11 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
         if registry is None:
             return []
         repo = getattr(bootstrap, "memory_connector_config_repository", None)
-        configs = {c.ref: c for c in await repo.list()} if repo is not None else {}
+        configs = (
+            {c.ref: c for c in await repo.list(tenant_id=_tenant(request))}
+            if repo is not None
+            else {}
+        )
         return sorted(
             (
                 _summary(ref, manifest, connector, config=configs.get(ref))
@@ -199,8 +215,9 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
         """
         await require_permission(request, Permission.CONNECTOR_ADMIN)
         registry, repo = _require_repo(request)
+        tenant = _tenant(request)
         _validate_ref(payload.ref)
-        if await repo.get(payload.ref) is not None:
+        if await repo.get(payload.ref, tenant_id=tenant) is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"runtime connector {payload.ref!r} already exists; use PUT to update",
@@ -218,7 +235,9 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
-        config = await repo.upsert(payload.ref, payload.backend_type, payload.params)
+        config = await repo.upsert(
+            payload.ref, payload.backend_type, payload.params, tenant_id=tenant
+        )
         return _summary(payload.ref, manifest, connector, config=config)
 
     @app.put("/connectors/{ref}", response_model=ConnectorSummaryResponse)
@@ -228,7 +247,8 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
         """Reconfigure an existing runtime-managed connector (rebuild + re-register)."""
         await require_permission(request, Permission.CONNECTOR_ADMIN)
         registry, repo = _require_repo(request)
-        if await repo.get(ref) is None:
+        tenant = _tenant(request)
+        if await repo.get(ref, tenant_id=tenant) is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"runtime connector {ref!r} not found",
@@ -239,7 +259,7 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
-        config = await repo.upsert(ref, payload.backend_type, payload.params)
+        config = await repo.upsert(ref, payload.backend_type, payload.params, tenant_id=tenant)
         return _summary(ref, manifest, connector, config=config)
 
     @app.delete("/connectors/{ref}", status_code=status.HTTP_204_NO_CONTENT)
@@ -247,7 +267,8 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
         """Delete a runtime-managed connector (env-sourced ones cannot be deleted)."""
         await require_permission(request, Permission.CONNECTOR_ADMIN)
         registry, repo = _require_repo(request)
-        if await repo.get(ref) is None:
+        tenant = _tenant(request)
+        if await repo.get(ref, tenant_id=tenant) is None:
             if ref in registry.list():
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -258,7 +279,7 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
                 detail=f"runtime connector {ref!r} not found",
             )
         registry.unregister(ref)
-        await repo.delete(ref)
+        await repo.delete(ref, tenant_id=tenant)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post("/connectors/{ref}/test", response_model=ConnectorTestResponse)
@@ -274,8 +295,25 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
         """
         await require_permission(request, Permission.CONNECTOR_ADMIN)
         registry, _ = _registry_and_repo(request)
+        # G9: route the probe through the resolver so it runs behind the
+        # TenantScopedMemoryConnector wrapper — two tenants sharing one physical
+        # backend must not collide on a single un-namespaced probe cell (the raw
+        # connector keyed the probe on the constant SHARED ``__shared__`` target).
+        # ``effective_capabilities=None`` keeps the capability gate inactive: this
+        # is an operator connectivity check, not an agent memory op, so it must
+        # not be fail-closed. Falls back to the raw connector only when no
+        # resolver is wired (a bootstrap without the memory plane).
+        resolver = getattr(request.app.state.bootstrap, "memory_resolver", None)
         try:
-            _, connector = registry.resolve(ref)
+            if resolver is not None:
+                bindings = await resolver.resolve(
+                    [ref],
+                    runtime_context={"tenant_id": _tenant(request)},
+                    effective_capabilities=None,
+                )
+                connector = bindings[0].connector
+            else:
+                _, connector = registry.resolve(ref)
         except KeyError:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

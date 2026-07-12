@@ -14,27 +14,107 @@ if TYPE_CHECKING:
     from zeroth.core.execution_units.models import EnvironmentVariable
 
 
-class SecretProvider(Protocol):
-    """Interface for resolving secret references to concrete values."""
+class SecretResolutionError(RuntimeError):
+    """A required secret could not be resolved and no fallback is permitted.
 
-    def resolve(self, secret_ref: str) -> str | None:  # pragma: no cover - protocol
+    Raised on a fail-closed path (e.g. ``allow_env_fallback=False``) so a
+    missing key surfaces loudly at call time instead of silently falling
+    through to a process-global environment variable. Carries only the logical
+    name — NEVER a concrete secret value.
+    """
+
+
+def normalize_secret_name(name: str) -> str:
+    """Map a logical secret name to its ENV-VAR token form.
+
+    ``'llm.openai'`` -> ``'LLM_OPENAI'``; ``'signing.deployment'`` ->
+    ``'SIGNING_DEPLOYMENT'``. Dots and dashes become underscores and the whole
+    string is upper-cased so it composes into the
+    ``ZEROTH_SECRET__{TENANT}__{NAME}`` convention.
+    """
+    return name.replace(".", "_").replace("-", "_").upper()
+
+
+class SecretProvider(Protocol):
+    """Interface for resolving secret references to concrete values.
+
+    The optional ``tenant_id`` keyword scopes resolution to a single tenant
+    (one value per deployment under the single-tenant model). It defaults to
+    ``None`` so existing ref-based callers (http client, execution units) keep
+    working unchanged.
+    """
+
+    def resolve(
+        self, secret_ref: str, *, tenant_id: str | None = None
+    ) -> str | None:  # pragma: no cover - protocol
         """Resolve a single secret reference."""
 
-    def resolve_many(self, refs: list[str]) -> dict[str, str]:  # pragma: no cover - protocol
+    def resolve_many(
+        self, refs: list[str], *, tenant_id: str | None = None
+    ) -> dict[str, str]:  # pragma: no cover - protocol
         """Resolve multiple secret references at once."""
+
+    def resolve_secret(
+        self,
+        logical_name: str,
+        *,
+        tenant_id: str | None = None,
+        deployment_ref: str | None = None,
+    ) -> str | None:  # pragma: no cover - protocol
+        """Resolve a *logical* secret name (e.g. ``'llm.openai'``) to a value.
+
+        Unlike :meth:`resolve`, which takes a concrete reference, this maps a
+        stable logical key onto whatever concrete secret the backend holds for
+        the given tenant. Returns ``None`` when unresolved; the caller decides
+        whether to fail closed.
+        """
 
 
 class EnvSecretProvider:
-    """Resolve secret references by reading process or injected environment variables."""
+    """Resolve secret references by reading process or injected environment variables.
+
+    Tenant-scoped lookups follow the convention
+    ``ZEROTH_SECRET__{TENANT}__{NAME}`` and fall back to the bare name, so a
+    single-tenant deployment can key secrets off ``deployment.tenant_id`` while
+    dev setups keep using plain env vars.
+    """
 
     def __init__(self, environment: Mapping[str, str] | None = None) -> None:
         self._environment = dict(environment or {})
 
-    def resolve(self, secret_ref: str) -> str | None:
+    def _scoped_name(self, tenant_id: str, name_token: str) -> str:
+        return f"ZEROTH_SECRET__{normalize_secret_name(tenant_id)}__{name_token}"
+
+    def resolve(self, secret_ref: str, *, tenant_id: str | None = None) -> str | None:
+        # Tenant-scoped override wins when present; the bare ref is the
+        # back-compatible fallback (http client passes ``config.secret_key``).
+        if tenant_id:
+            scoped = self._scoped_name(tenant_id, normalize_secret_name(secret_ref))
+            if scoped in self._environment:
+                return self._environment[scoped]
         return self._environment.get(secret_ref)
 
-    def resolve_many(self, refs: list[str]) -> dict[str, str]:
-        return {ref: value for ref in refs if (value := self.resolve(ref)) is not None}
+    def resolve_many(self, refs: list[str], *, tenant_id: str | None = None) -> dict[str, str]:
+        return {
+            ref: value
+            for ref in refs
+            if (value := self.resolve(ref, tenant_id=tenant_id)) is not None
+        }
+
+    def resolve_secret(
+        self,
+        logical_name: str,
+        *,
+        tenant_id: str | None = None,
+        deployment_ref: str | None = None,
+    ) -> str | None:
+        name_token = normalize_secret_name(logical_name)
+        if tenant_id:
+            scoped = self._scoped_name(tenant_id, name_token)
+            if scoped in self._environment:
+                return self._environment[scoped]
+        # Bare fallback: the un-scoped logical env token (e.g. ``LLM_OPENAI``).
+        return self._environment.get(name_token)
 
 
 class SecretResolver:
@@ -70,4 +150,10 @@ class SecretResolver:
         return SecretRedactor(self.known_secrets())
 
 
-__all__ = ["EnvSecretProvider", "SecretProvider", "SecretResolver"]
+__all__ = [
+    "EnvSecretProvider",
+    "SecretProvider",
+    "SecretResolutionError",
+    "SecretResolver",
+    "normalize_secret_name",
+]

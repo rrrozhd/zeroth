@@ -116,6 +116,9 @@ def build_main_graph() -> Graph:
                 display=DisplayMetadata(title="Ground on policy corpus (RAG)"),
                 input_contract_ref="contract://vendor-dd/normalized",
                 output_contract_ref="contract://vendor-dd/grounded",
+                # WS-C: retrieval reads the shared memory connector, so the node
+                # must declare MEMORY_READ or the capability guard denies the read.
+                capability_bindings=["memory_read"],
                 retrieval=RetrievalNodeData(
                     connector_ref="key_value",
                     query_key="query",

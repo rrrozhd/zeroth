@@ -351,9 +351,9 @@ def _graph_to_summary(graph: Graph) -> WorkflowSummaryResponse:
 @router.get("/workflows", response_model=list[WorkflowSummaryResponse])
 async def list_workflows(request: Request) -> list[WorkflowSummaryResponse]:
     """List all workflows as summaries."""
-    await require_permission(request, Permission.WORKFLOW_READ)
+    principal = await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
-    graphs = await repo.list()
+    graphs = await repo.list(tenant_id=principal.tenant_id)  # WS-B: tenant-scoped
     # Exclude archived workflows from the list
     return [_graph_to_summary(g) for g in graphs if g.status != GraphStatus.ARCHIVED]
 
@@ -368,12 +368,13 @@ async def create_workflow(
     request: Request,
 ) -> WorkflowDetailResponse:
     """Create a new workflow with default Studio metadata."""
-    await require_permission(request, Permission.WORKFLOW_ADMIN)
+    principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     graph_id = str(uuid4())
     graph = Graph(
         graph_id=graph_id,
         name=body.name,
+        tenant_id=principal.tenant_id,  # WS-B: stamp owning tenant
         nodes=[],
         edges=[],
         metadata={
@@ -383,16 +384,16 @@ async def create_workflow(
             }
         },
     )
-    saved = await repo.save(graph)
+    saved = await repo.save(graph, tenant_id=principal.tenant_id)
     return _graph_to_detail(saved)
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowDetailResponse)
 async def get_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
     """Get a workflow with full detail including nodes, edges, and viewport."""
-    await require_permission(request, Permission.WORKFLOW_READ)
+    principal = await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
-    graph = await repo.get(workflow_id)
+    graph = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return _graph_to_detail(graph)
@@ -411,9 +412,9 @@ async def update_workflow(
     into real executable graph nodes (and ``edges`` into graph edges), so the
     canvas authors the actual graph, not just visual metadata.
     """
-    await require_permission(request, Permission.WORKFLOW_ADMIN)
+    principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
-    graph = await repo.get(workflow_id)
+    graph = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     if graph.status is not GraphStatus.DRAFT:
@@ -469,7 +470,7 @@ async def update_workflow(
         # Only surface error messages — the raw errors() carry the input graph
         # (datetimes) and ctx (exception objects), neither JSON-serializable.
         raise HTTPException(status_code=422, detail=[e["msg"] for e in exc.errors()]) from exc
-    saved = await repo.save(updated_graph)
+    saved = await repo.save(updated_graph, tenant_id=principal.tenant_id)  # WS-B
     return _graph_to_detail(saved)
 
 
@@ -483,17 +484,19 @@ async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetail
     Validation failures return 422 with the structured issue list so the
     canvas can point at the offending node/edge.
     """
-    await require_permission(request, Permission.WORKFLOW_ADMIN)
+    principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
     # Studio-authored workflows must start with an Entrypoint node — it is the
     # spatial home of entry_step and the workflow's public input contract.
     # (Code-authored graphs publishing via GraphRepository directly may keep a
     # bare entry_step; this rule is a canvas-authoring contract, not a core one.)
-    draft = await repo.get(workflow_id)
-    if (
-        draft is not None
-        and draft.status is GraphStatus.DRAFT
-        and not any(isinstance(n, EntrypointNode) for n in draft.nodes)
+    draft = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
+    # A foreign-tenant (or absent) graph must 404 BEFORE the global-by-graph_id
+    # repo.publish below, or publish would reach across the tenant boundary.
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if draft.status is GraphStatus.DRAFT and not any(
+        isinstance(n, EntrypointNode) for n in draft.nodes
     ):
         raise HTTPException(
             status_code=422,
@@ -595,8 +598,11 @@ async def diff_workflow(
     request: Request,
 ) -> dict:
     """Structured diff between two versions of a workflow."""
-    await require_permission(request, Permission.WORKFLOW_READ)
+    principal = await require_permission(request, Permission.WORKFLOW_READ)
     repo = _get_graph_repository(request)
+    # WS-B: gate on tenant-scoped existence before the global-by-graph_id diff.
+    if await repo.get(workflow_id, tenant_id=principal.tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Workflow version not found")
     try:
         diff = await repo.diff(workflow_id, left, right)
     except KeyError as exc:
@@ -611,9 +617,9 @@ async def diff_workflow(
 )
 async def clone_workflow(workflow_id: str, request: Request) -> WorkflowDetailResponse:
     """Clone a published workflow into a new editable draft version."""
-    await require_permission(request, Permission.WORKFLOW_ADMIN)
+    principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
-    graph = await repo.get(workflow_id)
+    graph = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     if graph.status is not GraphStatus.PUBLISHED:
@@ -628,13 +634,13 @@ async def clone_workflow(workflow_id: str, request: Request) -> WorkflowDetailRe
 @router.delete("/workflows/{workflow_id}", status_code=204)
 async def delete_workflow(workflow_id: str, request: Request) -> Response:
     """Archive a workflow (soft delete)."""
-    await require_permission(request, Permission.WORKFLOW_ADMIN)
+    principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     repo = _get_graph_repository(request)
-    graph = await repo.get(workflow_id)
+    graph = await repo.get(workflow_id, tenant_id=principal.tenant_id)  # WS-B
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     archived = graph.archive()
-    await repo.save(archived)
+    await repo.save(archived, tenant_id=principal.tenant_id)
     return Response(status_code=204)
 
 

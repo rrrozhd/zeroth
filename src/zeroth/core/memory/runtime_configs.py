@@ -38,16 +38,21 @@ async def load_persisted_connectors(
     registry: InMemoryConnectorRegistry,
     repository: MemoryConnectorConfigRepository,
     *,
+    tenant_id: str | None = None,
     log: logging.Logger | None = None,
 ) -> list[str]:
     """Register every persisted connector config into the registry.
 
     A bad saved config (missing dependency, invalid params) is logged and
     skipped -- it must never break boot. Returns the refs that loaded.
+
+    WS-B: a deployment is tenant-pinned, so pass its ``tenant_id`` to load
+    only that tenant's connector configs from a shared control-plane DB —
+    another tenant's DSN-bearing rows are never registered into this process.
     """
     log = log or logger
     loaded: list[str] = []
-    for config in await repository.list():
+    for config in await repository.list(tenant_id=tenant_id):
         try:
             apply_config(registry, config.ref, config.backend_type, config.params)
             loaded.append(config.ref)
