@@ -39,10 +39,13 @@ docs/assets/openapi/
 .kiro/
 .mcp.json
 .opencode.json
+# AI/agent assistant config — not part of the library
+CLAUDE.md
+AGENTS.md
 GEMINI.md
-.claude/scheduled_tasks.lock
-.claude/settings.json
-.claude/skills/
+**/CLAUDE.md
+**/AGENTS.md
+.claude/
 .planning/.next-call-count
 live_scenarios/
 
