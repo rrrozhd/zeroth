@@ -74,15 +74,12 @@ def register_deployment_routes(app: FastAPI | APIRouter) -> None:
         ``serving`` marks the deployment version this service instance was
         bootstrapped with (the one /health reports).
         """
-        await require_permission(request, Permission.DEPLOYMENT_READ)
+        principal = await require_permission(request, Permission.DEPLOYMENT_READ)
         bootstrap = request.app.state.bootstrap
         serving = bootstrap.deployment
-        # WS-B: scope the listing to the serving deployment's tenant so one
-        # tenant never sees another's deployment history on a shared store.
-        # ``serving`` can be None (no deployment served yet) -> tenant_id None
-        # -> unfiltered, preserving the degenerate path without crashing.
         deployments = await bootstrap.deployment_service.list(
-            tenant_id=getattr(serving, "tenant_id", None)
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
         )
         deployments.sort(key=lambda d: d.created_at, reverse=True)
         return [_summary(d, serving) for d in deployments]
@@ -101,11 +98,15 @@ def register_deployment_routes(app: FastAPI | APIRouter) -> None:
         (studio API), deploy it here, then restart the service with
         ``ZEROTH_DEPLOYMENT_REF`` set to the new ref to serve it.
         """
-        await require_permission(request, Permission.DEPLOYMENT_ADMIN)
+        principal = await require_permission(request, Permission.DEPLOYMENT_ADMIN)
         bootstrap = request.app.state.bootstrap
         try:
             deployment = await bootstrap.deployment_service.deploy(
-                body.deployment_ref, body.graph_id, body.graph_version
+                body.deployment_ref,
+                body.graph_id,
+                body.graph_version,
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="graph version not found") from exc
@@ -122,11 +123,14 @@ def register_deployment_routes(app: FastAPI | APIRouter) -> None:
         request: Request, deployment_ref: str, body: RollbackDeploymentRequest
     ) -> DeploymentSummaryResponse:
         """Create a new deployment version pinned to an earlier graph version."""
-        await require_permission(request, Permission.DEPLOYMENT_ADMIN)
+        principal = await require_permission(request, Permission.DEPLOYMENT_ADMIN)
         bootstrap = request.app.state.bootstrap
         try:
             deployment = await bootstrap.deployment_service.rollback(
-                deployment_ref, target_graph_version=body.target_graph_version
+                deployment_ref,
+                target_graph_version=body.target_graph_version,
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="deployment not found") from exc
