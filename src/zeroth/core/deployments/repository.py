@@ -34,21 +34,51 @@ class SQLiteDeploymentRepository:
     def __init__(self, database: AsyncDatabase):
         self._database: AsyncDatabase = database
 
-    async def create(self, deployment: Deployment) -> Deployment:
+    async def create(
+        self,
+        deployment: Deployment,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> Deployment:
         """Insert a new deployment version and supersede older active versions."""
+        owner_tenant = tenant_id if tenant_id is not None else deployment.tenant_id
+        owner_workspace = workspace_id if tenant_id is not None else deployment.workspace_id
+        if (deployment.tenant_id, deployment.workspace_id) != (
+            owner_tenant,
+            owner_workspace,
+        ):
+            raise ValueError("deployment owner does not match the requested scope")
+        scope_sql, scope_params = _scope_clause(owner_tenant, owner_workspace)
         async with self._database.transaction() as connection:
-            await connection.execute(
+            existing = await connection.fetch_one(
                 """
+                SELECT tenant_id, workspace_id
+                FROM deployment_versions
+                WHERE deployment_ref = ?
+                ORDER BY version DESC
+                LIMIT 1
+                """,
+                (deployment.deployment_ref,),
+            )
+            if existing is not None and (existing["tenant_id"], existing["workspace_id"]) != (
+                owner_tenant,
+                owner_workspace,
+            ):
+                raise KeyError(deployment.deployment_ref)
+            await connection.execute(
+                f"""
                 UPDATE deployment_versions
                 SET status = ?, updated_at = ?
-                WHERE deployment_ref = ? AND status = ?
+                WHERE deployment_ref = ? AND status = ? AND {scope_sql}
                 """,
                 (
                     DeploymentStatus.SUPERSEDED.value,
                     deployment.updated_at.isoformat(),
                     deployment.deployment_ref,
                     DeploymentStatus.ACTIVE.value,
-                ),
+                )
+                + scope_params,
             )
             await connection.execute(
                 """
@@ -106,7 +136,12 @@ class SQLiteDeploymentRepository:
                     deployment.updated_at.isoformat(),
                 ),
             )
-        return await self.get(deployment.deployment_ref, deployment.version)  # type: ignore[return-value]
+        return await self.get(
+            deployment.deployment_ref,
+            deployment.version,
+            tenant_id=owner_tenant,
+            workspace_id=owner_workspace,
+        )  # type: ignore[return-value]
 
     async def get(
         self,
@@ -114,6 +149,7 @@ class SQLiteDeploymentRepository:
         version: int | None = None,
         *,
         tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> Deployment | None:
         """Load the latest or a specific deployment version.
 
@@ -131,8 +167,9 @@ class SQLiteDeploymentRepository:
             sql += " AND version = ?"
             params.append(version)
         if tenant_id is not None:
-            sql += " AND tenant_id = ?"
-            params.append(tenant_id)
+            scope_sql, scope_params = _scope_clause(tenant_id, workspace_id)
+            sql += f" AND {scope_sql}"
+            params.extend(scope_params)
         sql += " ORDER BY version DESC LIMIT 1"
         async with self._database.transaction() as connection:
             row = await connection.fetch_one(sql, tuple(params))
@@ -141,7 +178,11 @@ class SQLiteDeploymentRepository:
         return self._row_to_deployment(row)
 
     async def list(
-        self, deployment_ref: str | None = None, *, tenant_id: str | None = None
+        self,
+        deployment_ref: str | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[Deployment]:
         """Return deployment history ordered from oldest to newest."""
         sql = "SELECT * FROM deployment_versions"
@@ -151,8 +192,9 @@ class SQLiteDeploymentRepository:
             clauses.append("deployment_ref = ?")
             params.append(deployment_ref)
         if tenant_id is not None:
-            clauses.append("tenant_id = ?")
-            params.append(tenant_id)
+            scope_sql, scope_params = _scope_clause(tenant_id, workspace_id)
+            clauses.append(scope_sql)
+            params.extend(scope_params)
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY deployment_ref, version"
@@ -160,17 +202,26 @@ class SQLiteDeploymentRepository:
             rows = await connection.fetch_all(sql, tuple(params))
         return [self._row_to_deployment(row) for row in rows]
 
-    async def next_version(self, deployment_ref: str) -> int:
+    async def next_version(
+        self,
+        deployment_ref: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> int:
         """Return the next deployment version number for a stable deployment ref."""
+        sql = """
+            SELECT MAX(version) AS max_version
+            FROM deployment_versions
+            WHERE deployment_ref = ?
+        """
+        params: tuple[object, ...] = (deployment_ref,)
+        if tenant_id is not None:
+            scope_sql, scope_params = _scope_clause(tenant_id, workspace_id)
+            sql += f" AND {scope_sql}"
+            params += scope_params
         async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                """
-                SELECT MAX(version) AS max_version
-                FROM deployment_versions
-                WHERE deployment_ref = ?
-                """,
-                (deployment_ref,),
-            )
+            row = await connection.fetch_one(sql, params)
         max_version = row["max_version"] if row is not None else None
         return int(max_version or 0) + 1
 
@@ -228,3 +279,10 @@ class SQLiteDeploymentRepository:
                 build_attestation_payload(deployment)["attestation_digest"]
             )
         return deployment
+
+
+def _scope_clause(tenant_id: str, workspace_id: str | None) -> tuple[str, tuple[object, ...]]:
+    """Build an exact tenant/workspace predicate; NULL is never a wildcard."""
+    if workspace_id is None:
+        return "tenant_id = ? AND workspace_id IS NULL", (tenant_id,)
+    return "tenant_id = ? AND workspace_id = ?", (tenant_id, workspace_id)

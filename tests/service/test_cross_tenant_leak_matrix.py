@@ -139,22 +139,52 @@ async def test_cloned_draft_stays_owned_by_source_tenant(sqlite_db) -> None:
 async def test_deployment_repository_is_tenant_scoped(sqlite_db) -> None:
     await deploy_service(
         sqlite_db,
-        approval_resume_graph(graph_id="g-dep-a"),
+        approval_resume_graph(graph_id="g-dep-a").model_copy(
+            update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+        ),
         deployment_ref="dep-a",
         tenant_id="tenant-a",
+        workspace_id="workspace-a",
     )
     await deploy_service(
         sqlite_db,
-        approval_resume_graph(graph_id="g-dep-b"),
+        approval_resume_graph(graph_id="g-dep-b").model_copy(
+            update={"tenant_id": "tenant-b", "workspace_id": "workspace-b"}
+        ),
         deployment_ref="dep-b",
         tenant_id="tenant-b",
+        workspace_id="workspace-b",
     )
     repo = SQLiteDeploymentRepository(sqlite_db)
 
-    assert await repo.get("dep-a", tenant_id="tenant-b") is None
-    assert await repo.get("dep-a", tenant_id="tenant-a") is not None
-    a_refs = {d.deployment_ref for d in await repo.list(tenant_id="tenant-a")}
+    assert await repo.get("dep-a", tenant_id="tenant-a", workspace_id="workspace-b") is None
+    assert await repo.get("dep-a", tenant_id="tenant-a", workspace_id=None) is None
+    assert await repo.get("dep-a", tenant_id="tenant-b", workspace_id="workspace-a") is None
+    owned = await repo.get("dep-a", tenant_id="tenant-a", workspace_id="workspace-a")
+    assert owned is not None
+    a_refs = {
+        d.deployment_ref for d in await repo.list(tenant_id="tenant-a", workspace_id="workspace-a")
+    }
     assert a_refs == {"dep-a"}
+    assert await repo.list(tenant_id="tenant-a", workspace_id="workspace-b") == []
+    assert await repo.next_version("dep-a", tenant_id="tenant-a", workspace_id="workspace-a") == 2
+    assert await repo.next_version("dep-a", tenant_id="tenant-a", workspace_id="workspace-b") == 1
+
+    foreign_collision = owned.model_copy(
+        update={
+            "deployment_id": "foreign-collision",
+            "version": 2,
+            "tenant_id": "tenant-b",
+            "workspace_id": "workspace-b",
+        }
+    )
+    with pytest.raises(KeyError):
+        await repo.create(
+            foreign_collision,
+            tenant_id="tenant-b",
+            workspace_id="workspace-b",
+        )
+    assert await repo.list("dep-a", tenant_id="tenant-a", workspace_id="workspace-a") == [owned]
 
 
 # ---------------------------------------------------------------------------
