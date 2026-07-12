@@ -1,0 +1,34 @@
+"""WS-B: pin governai's SHARED-target contract that our isolation relies on.
+
+TenantScopedMemoryConnector namespaces whatever target ScopedMemoryConnector
+resolves. The cross-tenant SHARED leak exists precisely because governai maps
+SHARED -> the un-tenanted constant ``"__shared__"``. If a future governai bump
+changed that mapping (e.g. to include a tenant, or a different literal), our
+wrapper's assumptions — and the isolation proof — would silently shift. This
+contract test fails loudly on such a change so the isolation design is
+re-reviewed rather than quietly broken.
+"""
+
+from __future__ import annotations
+
+from importlib.metadata import version
+
+from governai.memory.models import MemoryScope
+from governai.memory.scoped import ScopedMemoryConnector
+
+
+def test_governai_is_exactly_pinned():
+    # tenant_scoped.py is written against this exact contract; keep the pin and
+    # this test in lockstep.
+    assert version("governai") == "0.2.3"
+
+
+def test_shared_resolves_to_untenanted_literal():
+    scoped = ScopedMemoryConnector(
+        object(), run_id="run-x", thread_id="thread-y", workflow_name="wf"
+    )
+    # SHARED with no explicit target -> the constant literal, no tenant.
+    assert scoped._resolve_target(MemoryScope.SHARED, None) == "__shared__"
+    # RUN / THREAD map to their ids (sanity — TenantScoped rewrites all three).
+    assert scoped._resolve_target(MemoryScope.RUN, None) == "run-x"
+    assert scoped._resolve_target(MemoryScope.THREAD, None) == "thread-y"

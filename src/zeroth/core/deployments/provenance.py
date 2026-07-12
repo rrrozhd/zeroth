@@ -1,10 +1,27 @@
-"""Digest and attestation helpers for deployment snapshots."""
+"""Digest and attestation helpers for deployment snapshots.
+
+Two independent axes protect a deployment attestation:
+
+* the **digest** (:func:`verify_attestation`) — recomputed from the live
+  snapshot, so any drift between the persisted digest and the current bytes is
+  caught (tamper-evident);
+* the **signature** (:func:`verify_attestation_signature`) — a keyed signature
+  over the digest, so a malicious writer who recomputes the digest still cannot
+  forge acceptance without the key (tamper-resistant).
+
+:func:`verify_attestation_full` runs both; neither masks the other.
+"""
 
 from __future__ import annotations
 
 import hashlib
+from typing import TYPE_CHECKING
 
+from zeroth.core.signing import sign_digest, verify_digest
 from zeroth.core.storage.json import to_json_value
+
+if TYPE_CHECKING:
+    from zeroth.core.signing import SigningKeyProvider
 
 
 def compute_graph_snapshot_digest(serialized_graph: str) -> str:
@@ -101,6 +118,58 @@ def verify_attestation(deployment: object, attestation: dict[str, object]) -> li
         if attestation.get(field) != current.get(field):
             mismatches.append(field)
     return mismatches
+
+
+def sign_attestation(
+    digest: str, signer: SigningKeyProvider | None
+) -> tuple[str | None, str | None, str | None]:
+    """Sign an attestation digest → ``(signature_hex, key_id, algorithm)``.
+
+    Pure: it does not touch the deployment payload. Returns all-``None`` when
+    there is no signer or signing is disabled, so the caller persists an
+    unsigned-legacy row rather than a signed-but-invalid one.
+    """
+    return sign_digest(digest, signer)
+
+
+def verify_attestation_signature(
+    digest: str,
+    signature: str | None,
+    key_id: str | None,
+    algorithm: str | None,
+    signer: SigningKeyProvider | None,
+) -> bool:
+    """Return True iff ``signature`` is a valid keyed signature over ``digest``."""
+    return verify_digest(digest, signature, key_id, algorithm, signer)
+
+
+def verify_attestation_full(
+    deployment: object,
+    attestation: dict[str, object],
+    signer: SigningKeyProvider | None,
+) -> tuple[list[str], bool | None]:
+    """Dual-check an attestation: digest recompute AND persisted signature.
+
+    Returns ``(digest_mismatches, signature_ok)`` where ``signature_ok`` is
+    three-state: ``None`` when the persisted row is unsigned-legacy (no key id),
+    ``True``/``False`` for a signed row. The signature is verified over the
+    *persisted* digest (what was signed at deploy time), independent of the
+    supplied ``attestation`` payload — so a payload tamper trips the digest axis
+    even while an untouched signature still validates, and a signature-byte flip
+    trips the signature axis while the digest recompute still matches.
+    """
+    digest_mismatches = verify_attestation(deployment, attestation)
+    key_id = getattr(deployment, "attestation_signing_key_id", None)
+    if key_id is None:
+        return digest_mismatches, None
+    signature_ok = verify_attestation_signature(
+        str(getattr(deployment, "attestation_digest", "")),
+        getattr(deployment, "attestation_signature", None),
+        key_id,
+        getattr(deployment, "attestation_algorithm", None),
+        signer,
+    )
+    return digest_mismatches, signature_ok
 
 
 def _digest_json(payload: dict[str, object]) -> str:

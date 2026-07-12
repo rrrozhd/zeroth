@@ -325,26 +325,60 @@ function AuditVerifiedBadge({ runId, runStatus }: { runId: string; runStatus: st
 
   if (result === null || result.record_count === 0) return null;
 
-  if (result.verified) {
+  const recordLabel = `${result.record_count} record${
+    result.record_count === 1 ? "" : "s"
+  }`;
+
+  // Digest-continuity axis first: a broken chain is the worst case and shows red
+  // regardless of the signature axis.
+  if (!result.verified) {
     return (
       <span
-        title={`Audit digest chain intact over ${result.record_count} record${
-          result.record_count === 1 ? "" : "s"
+        title={`${result.error ?? "Digest chain broken"}${
+          result.failed_audit_id ? ` at ${result.failed_audit_id}` : ""
         }`}
-        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400"
+        className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
       >
-        <span aria-hidden>✓</span> Audit chain verified
+        <span aria-hidden>✕</span> Audit chain broken
       </span>
     );
   }
+
+  // Digest chain intact — layer the WS-D keyed-signature axis (three-state).
+  // signature_verified === true -> signed & verified (green).
+  if (result.signature_verified === true) {
+    return (
+      <span
+        title={`Signed & verified over ${recordLabel}${
+          result.signing_key_id ? ` under key ${result.signing_key_id}` : ""
+        }`}
+        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400"
+      >
+        <span aria-hidden>✓</span> Signed &amp; verified
+      </span>
+    );
+  }
+  // signature_verified === false -> a signed record failed verification (red).
+  if (result.signature_verified === false) {
+    return (
+      <span
+        title={`A signed audit record failed signature verification${
+          result.failed_audit_id ? ` at ${result.failed_audit_id}` : ""
+        }`}
+        className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+      >
+        <span aria-hidden>✕</span> Signature invalid / tampered
+      </span>
+    );
+  }
+  // signature_verified == null -> unsigned-legacy: the digest chain is intact but
+  // records are not cryptographically signed. Neutral — never green, never red.
   return (
     <span
-      title={`${result.error ?? "Digest chain broken"}${
-        result.failed_audit_id ? ` at ${result.failed_audit_id}` : ""
-      }`}
-      className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+      title={`Digest chain intact over ${recordLabel}; records are not cryptographically signed (unsigned-legacy)`}
+      className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/12 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
     >
-      <span aria-hidden>✕</span> Audit chain broken
+      <span aria-hidden>◇</span> Chain intact (unsigned)
     </span>
   );
 }

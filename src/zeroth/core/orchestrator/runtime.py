@@ -19,6 +19,7 @@ from time import perf_counter
 from typing import Any
 
 from zeroth.core.agent_runtime import AgentRunner, RepositoryThreadResolver
+from zeroth.core.agent_runtime.errors import BudgetExceededError
 from zeroth.core.approvals import ApprovalDecision, ApprovalRecord, ApprovalService
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
 from zeroth.core.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRecord
@@ -50,7 +51,8 @@ from zeroth.core.parallel.models import (
     FanInResult,
     GlobalStepTracker,
 )
-from zeroth.core.policy import PolicyDecision, PolicyGuard
+from zeroth.core.policy import Capability, PolicyDecision, PolicyGuard
+from zeroth.core.policy.errors import parse_effective_capabilities
 from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
 from zeroth.core.secrets import SecretResolver
 from zeroth.core.subgraph.errors import (
@@ -177,6 +179,11 @@ class RuntimeOrchestrator:
     # Phase 20: Memory and budget injection for AgentRunner dispatch.
     memory_resolver: object | None = None
     budget_enforcer: object | None = None
+    # Optional per-run cumulative cost ceiling (USD). Enforced locally from the
+    # run's own audit cost_usd — independent of budget_enforcer/regulus, so it
+    # works with the control plane disabled. Post-hoc: the run halts on the NEXT
+    # node once cumulative spend crosses the cap. ``None`` disables it.
+    per_run_cap_usd: float | None = None
     # Phase 34: Artifact store for large payload externalization.
     artifact_store: Any | None = None
     # Phase 35: Resilient HTTP client for managed external calls.
@@ -580,6 +587,17 @@ class RuntimeOrchestrator:
                 continue
 
             try:
+                # Per-run cost ceiling (local, control-plane-independent). Post-hoc:
+                # cumulative spend from prior nodes is read from the run's own audit
+                # cost_usd, so the run halts on the NEXT node once it crosses the cap.
+                if self.per_run_cap_usd is not None:
+                    spent = _sum_run_cost(run)
+                    if spent >= self.per_run_cap_usd:
+                        raise BudgetExceededError(
+                            f"per-run budget exceeded: ${spent:.4f} >= ${self.per_run_cap_usd:.4f}",
+                            spend=spent,
+                            cap=self.per_run_cap_usd,
+                        )
                 output_data, audit_record = await self._dispatch_node(
                     node, run, input_payload, graph
                 )
@@ -1167,6 +1185,21 @@ class RuntimeOrchestrator:
             return None
         result = guard.evaluate(graph, node, run, input_payload)
         if result.decision is PolicyDecision.ALLOW:
+            # G2: persist the granted capability set for this branch node exactly
+            # as the sequential ``_enforce_policy`` does. Without this the branch
+            # dispatch's ``_enforcement_context_for`` reads an empty context and
+            # ``require_capabilities`` fail-closed DENIES memory reads/writes and
+            # capability-bearing tools even when the node correctly declared them.
+            #
+            # Concurrency: fan-out branches run under ``asyncio.gather``.
+            # ``setdefault`` creates the shared ``enforcement`` dict exactly once,
+            # then each branch writes ONLY its own ``node_id`` key. The guard
+            # ignores per-branch input, so sibling branches evaluating the same
+            # node write an identical value — never clobbering each other. There
+            # is no ``await`` between the setdefault and the key write, so the
+            # read-modify-write is atomic under cooperative scheduling.
+            enforcement = run.metadata.setdefault("enforcement", {})
+            enforcement[node.node_id] = result.model_dump(mode="json")
             return None
         return result.reason or "policy denied execution"
 
@@ -1392,8 +1425,13 @@ class RuntimeOrchestrator:
                     strategy=strategy,
                 )
 
+            enforcement_context = self._enforcement_context_for(run, node.node_id)
+
             # Tool attachments: agents with tool bindings call their attached
             # executable-unit nodes through an executor bound to this graph.
+            # WS-C: the agent's enforcement_context is threaded into that executor
+            # so an agent-invoked unit runs under the SAME sandbox network/secret
+            # posture as a direct node dispatch — closing the tool-executor bypass.
             original_tool_executor = getattr(runner, "tool_executor", _MISSING)
             if (
                 graph is not None
@@ -1401,9 +1439,8 @@ class RuntimeOrchestrator:
                 and original_tool_executor is None
                 and getattr(node.agent, "tool_bindings", None)
             ):
-                runner.tool_executor = self._tool_executor_for(graph)
+                runner.tool_executor = self._tool_executor_for(graph, enforcement_context)
 
-            enforcement_context = self._enforcement_context_for(run, node.node_id)
             # The runner's pre-LLM budget check reads tenant_id from this
             # context; default it to the run's tenant so per-call budget
             # gating is tenant-true even without policy enforcement metadata.
@@ -1411,12 +1448,22 @@ class RuntimeOrchestrator:
             # runs are not stamped enforcement_applied.
             runner_context = dict(enforcement_context)
             runner_context.setdefault("tenant_id", run.tenant_id)
+            # WS-C: enforcement-active is an EXPLICIT signal (is the guard wired?),
+            # separate from the granted set. The runner enforces the capability
+            # gate iff this is true; when false it leaves tools/memory un-gated.
+            runner_context["capability_enforcement_active"] = self.policy_guard is not None
             try:
                 result = await self._run_agent_with_optional_enforcement(
                     runner,
                     input_payload,
                     thread_id=thread_id,
-                    runtime_context={"node_id": node.node_id, "run_id": run.run_id},
+                    runtime_context={
+                        "node_id": node.node_id,
+                        "run_id": run.run_id,
+                        # WS-B: memory resolution is fail-closed on tenant; the
+                        # runner forwards this dict unchanged to _load/_store.
+                        "tenant_id": run.tenant_id,
+                    },
                     enforcement_context=runner_context,
                 )
             finally:
@@ -1552,8 +1599,14 @@ class RuntimeOrchestrator:
             resolved = await self.memory_resolver.resolve(
                 [data.connector_ref],
                 thread_id=run.thread_id or None,
-                runtime_context={"run_id": run.run_id, "node_id": node.node_id},
+                runtime_context={
+                    "run_id": run.run_id,
+                    "node_id": node.node_id,
+                    "tenant_id": run.tenant_id,  # WS-B: fail-closed tenant scoping
+                },
                 node_id=node.node_id,
+                # WS-C: retrieval reads memory -> gated on MEMORY_READ.
+                effective_capabilities=self._effective_capabilities_for(run, node.node_id),
             )
         except KeyError as exc:
             raise NodeDispatcherError(
@@ -1638,13 +1691,19 @@ class RuntimeOrchestrator:
 
         # Only resolve the connector refs actually used by template bindings.
         refs_needed = list({b.connector_instance_id for b in bindings})
-        runtime_context: dict[str, Any] = {"node_id": node.node_id, "run_id": run.run_id}
+        runtime_context: dict[str, Any] = {
+            "node_id": node.node_id,
+            "run_id": run.run_id,
+            "tenant_id": run.tenant_id,  # WS-B: fail-closed tenant scoping
+        }
         try:
             resolved = await self.memory_resolver.resolve(
                 refs_needed,
                 thread_id=thread_id,
                 runtime_context=runtime_context,
                 node_id=node.node_id,
+                # WS-C: template memory bindings read memory -> gated on MEMORY_READ.
+                effective_capabilities=self._effective_capabilities_for(run, node.node_id),
             )
         except KeyError as exc:
             raise MemoryBindingResolutionError(
@@ -1875,6 +1934,9 @@ class RuntimeOrchestrator:
                 input_snapshot=redacted_input,
                 output_snapshot=redacted_output,
                 audit_ref=audit_ref,
+                # Promote per-node cost so _sum_run_cost can aggregate the run's
+                # spend from its own history (basis for the per-run ceiling).
+                cost_usd=redacted_audit_record.get("cost_usd"),
             )
         )
         run.completed_steps = [entry.node_id for entry in run.execution_history]
@@ -2112,6 +2174,20 @@ class RuntimeOrchestrator:
             return {}
         return dict(context)
 
+    def _effective_capabilities_for(self, run: Run, node_id: str) -> set[Capability] | None:
+        """Return the node's granted capability set, or None when enforcement is off.
+
+        WS-C: mirrors the runner's rule for the orchestrator's own memory-resolve
+        callers (retrieval, template-memory). ``None`` iff the policy guard is not
+        wired; otherwise the parsed granted set (empty denies — fail-closed). The
+        active/off decision is the explicit ``policy_guard is not None`` check, not
+        an inference from missing keys, so an unenforced node can never bypass an
+        active gate.
+        """
+        if self.policy_guard is None:
+            return None
+        return parse_effective_capabilities(self._enforcement_context_for(run, node_id))
+
     async def _gate_policy_required_side_effects(
         self,
         run: Run,
@@ -2258,7 +2334,11 @@ class RuntimeOrchestrator:
             )
         return await self.executable_unit_runner.run(manifest_ref, input_payload)
 
-    def _tool_executor_for(self, graph: Graph) -> Any:
+    def _tool_executor_for(
+        self,
+        graph: Graph,
+        enforcement_context: Mapping[str, Any] | None = None,
+    ) -> Any:
         """Build the executor that runs an agent's attached tool nodes.
 
         The AgentRunner's tool-call loop hands it the resolved binding (whose
@@ -2266,7 +2346,13 @@ class RuntimeOrchestrator:
         and the model-supplied arguments; the target node runs exactly like it
         would as a graph step — inline source through the sandboxed subprocess
         path, manifest refs through the registry.
+
+        WS-C: ``enforcement_context`` (the calling agent's) is threaded into the
+        unit run so the sandbox applies the same network/secret enforcement it
+        would for a direct node dispatch. Passing it unconditionally (even when
+        empty) closes the prior bypass where agent-invoked units ran ungated.
         """
+        context: Mapping[str, Any] = enforcement_context or {}
 
         async def execute(binding: Any, arguments: Mapping[str, Any] | None) -> Any:
             node_id = str(binding.executable_unit_ref).removeprefix("node://")
@@ -2287,10 +2373,13 @@ class RuntimeOrchestrator:
                         timeout_seconds=target.executable_unit.timeout_seconds,
                     ),
                     payload,
+                    enforcement_context=context,
                 )
             else:
-                result = await self.executable_unit_runner.run(
-                    target.executable_unit.manifest_ref, payload
+                result = await self._run_executable_unit_with_optional_enforcement(
+                    target.executable_unit.manifest_ref,
+                    payload,
+                    enforcement_context=context,
                 )
             return result.output_data
 

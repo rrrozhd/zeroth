@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from zeroth.core.context_window.models import ContextWindowSettings
 from zeroth.core.mappings.models import EdgeMapping
 from zeroth.core.parallel.models import ParallelConfig
+from zeroth.core.policy.models import Capability
 from zeroth.core.subgraph.models import SubgraphNodeData
 from zeroth.core.templates.models import TemplateReference
 
@@ -170,6 +171,12 @@ class AgentToolBinding(BaseModel):
     name: str = Field(pattern=_TOOL_NAME_PATTERN)
     description: str = Field(min_length=1)
     arguments: list[ToolArgument] = Field(default_factory=list)
+    # WS-C: extra capabilities this tool requires, UNIONED with (never replacing)
+    # the authoritative set derived from the target unit's own declared
+    # capabilities. Author-facing escape hatch for targets that carry none of
+    # their own — chiefly ``mcp://`` tools, whose target is an external server
+    # rather than a graph node.
+    required_capabilities: list[Capability] = Field(default_factory=list)
 
     def parameters_schema(self) -> dict[str, Any]:
         """Compile the argument list into a JSON Schema object for tool calling."""
@@ -503,6 +510,11 @@ class Graph(BaseModel):
     name: str
     version: int = Field(default=1, ge=1)
     status: GraphStatus = GraphStatus.DRAFT
+    # WS-B: tenant that owns this graph. Persisted BOTH inside the serialized
+    # payload (round-trips here) and as a dedicated ``graph_versions.tenant_id``
+    # column so the repository can filter by it. Defaults to the reserved
+    # single-tenant sentinel so backfilled/code-authored graphs stay readable.
+    tenant_id: str = "default"
     entry_step: str | None = None
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)

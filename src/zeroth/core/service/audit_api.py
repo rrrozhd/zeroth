@@ -18,7 +18,10 @@ from zeroth.core.audit import (
     build_summary,
     collect_policy_events,
 )
-from zeroth.core.deployments.provenance import build_attestation_payload, verify_attestation
+from zeroth.core.deployments.provenance import (
+    build_attestation_payload,
+    verify_attestation_full,
+)
 from zeroth.core.service.authorization import (
     Permission,
     require_deployment_scope,
@@ -44,6 +47,8 @@ class AuditApiBootstrapLike(Protocol):
     audit_repository: object
     approval_service: object
     run_repository: object
+    # WS-D: process-wide provenance signer (may be None -> unsigned-legacy).
+    signer: object
 
 
 class AuditRecordListResponse(BaseModel):
@@ -56,7 +61,13 @@ class AuditRecordListResponse(BaseModel):
 
 
 class AuditVerificationResponse(BaseModel):
-    """Result of verifying the tamper-evident digest chain for a scope."""
+    """Result of verifying the audit chain for a scope.
+
+    ``verified`` is the unkeyed digest-continuity axis. ``signature_verified`` is
+    the independent WS-D keyed axis, three-state: True (all signed records
+    valid), False (a signed record failed), null (unsigned-legacy — render
+    neutral, never green or red).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -65,6 +76,21 @@ class AuditVerificationResponse(BaseModel):
     record_count: int = 0
     failed_audit_id: str | None = None
     error: str | None = None
+    signature_verified: bool | None = None
+    signing_key_id: str | None = None
+    unsigned_record_count: int = 0
+
+
+class VerifyChainRequest(BaseModel):
+    """Optional body for POST /runs/{run_id}/verify-chain.
+
+    A client that recorded the chain head out-of-band can pin it: verification
+    additionally fails if the persisted head digest does not match.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_head_digest: str | None = None
 
 
 class AuditTimelineResponse(BaseModel):
@@ -132,15 +158,27 @@ class DeploymentAttestationResponse(BaseModel):
     settings_snapshot_digest: str
     created_at: str
     attestation_digest: str
+    # WS-D keyed signature over ``attestation_digest`` (null -> unsigned-legacy).
+    attestation_signature: str | None = None
+    attestation_signing_key_id: str | None = None
+    attestation_algorithm: str | None = None
 
 
 class AttestationVerificationResponse(BaseModel):
-    """Verification result for a supplied deployment attestation."""
+    """Dual-check verification result for a deployment attestation.
+
+    ``verified`` stays the overall pass/fail. ``digest_verified`` is the digest
+    recompute axis; ``signature_verified`` is the keyed axis (three-state, null =
+    unsigned-legacy). Neither masks the other.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     verified: bool
     mismatches: list[str] = Field(default_factory=list)
+    digest_verified: bool = False
+    signature_verified: bool | None = None
+    signing_key_id: str | None = None
 
 
 def register_audit_routes(app: FastAPI | APIRouter) -> None:
@@ -159,7 +197,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         graph_version_ref: str | None = None,
     ) -> AuditRecordListResponse:
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        await require_permission(request, Permission.AUDIT_READ)
+        principal = await require_permission(request, Permission.AUDIT_READ)
         records = await bootstrap.audit_repository.list(
             AuditQuery(
                 run_id=run_id,
@@ -167,6 +205,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
                 node_id=node_id,
                 graph_version_ref=graph_version_ref,
                 deployment_ref=deployment.deployment_ref,
+                tenant_id=principal.tenant_id,  # WS-B: tenant-scoped audit query
             )
         )
         return AuditRecordListResponse(
@@ -223,7 +262,28 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         run_id: str,
     ) -> AuditVerificationResponse:
-        """Verify the tamper-evident digest chain over a run's audit records."""
+        """Verify the digest chain + signatures over a run's audit records."""
+        return await _verify_run_chain(request, run_id)
+
+    @app.post(
+        "/runs/{run_id}/verify-chain",
+        response_model=AuditVerificationResponse,
+    )
+    async def post_verify_run_chain(
+        request: Request,
+        run_id: str,
+        body: VerifyChainRequest | None = None,
+    ) -> AuditVerificationResponse:
+        """POST alias of the run audit-verification with an optional head pin."""
+        expected_head = body.expected_head_digest if body is not None else None
+        return await _verify_run_chain(request, run_id, expected_head_digest=expected_head)
+
+    async def _verify_run_chain(
+        request: Request,
+        run_id: str,
+        *,
+        expected_head_digest: str | None = None,
+    ) -> AuditVerificationResponse:
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
         await require_permission(request, Permission.AUDIT_READ)
@@ -240,14 +300,25 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
             not_found_detail="run not found",
         )
 
-        report = await AuditContinuityVerifier(bootstrap.audit_repository).verify_run(run_id)
-        return AuditVerificationResponse(
-            scope=report.scope,
-            verified=report.verified,
-            record_count=report.record_count,
-            failed_audit_id=report.failed_audit_id,
-            error=report.error,
-        )
+        signer = getattr(bootstrap, "signer", None)
+        report = await AuditContinuityVerifier(
+            bootstrap.audit_repository, signer=signer
+        ).verify_run(run_id)
+        response = _verification_response(report, signer)
+        # Optional client-pinned head: fail verification if the persisted chain
+        # head digest differs from what the caller recorded out-of-band.
+        if expected_head_digest is not None and response.verified:
+            records = await bootstrap.audit_repository.list_by_run(run_id)
+            head_digest = records[-1].record_digest if records else None
+            if head_digest != expected_head_digest:
+                response = response.model_copy(
+                    update={
+                        "verified": False,
+                        "error": "expected head digest mismatch",
+                        "failed_audit_id": records[-1].audit_id if records else None,
+                    }
+                )
+        return response
 
     @app.get(
         "/deployments/{deployment_ref}/audit-verification",
@@ -257,19 +328,14 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         deployment_ref: str,
     ) -> AuditVerificationResponse:
-        """Verify digest-chain continuity across every run of a deployment."""
+        """Verify digest continuity + signatures across every run of a deployment."""
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.AUDIT_READ)
-        report = await AuditContinuityVerifier(bootstrap.audit_repository).verify_deployment(
-            deployment.deployment_ref
-        )
-        return AuditVerificationResponse(
-            scope=report.scope,
-            verified=report.verified,
-            record_count=report.record_count,
-            failed_audit_id=report.failed_audit_id,
-            error=report.error,
-        )
+        signer = getattr(bootstrap, "signer", None)
+        report = await AuditContinuityVerifier(
+            bootstrap.audit_repository, signer=signer
+        ).verify_deployment(deployment.deployment_ref)
+        return _verification_response(report, signer)
 
     @app.get(
         "/deployments/{deployment_ref}/timeline",
@@ -377,7 +443,13 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.DEPLOYMENT_READ)
         current = await _load_bound_deployment(bootstrap)
-        return DeploymentAttestationResponse.model_validate(build_attestation_payload(current))
+        # Return the PERSISTED signature (do not re-sign an unsigned payload):
+        # the attestation must reflect what was signed at deploy time.
+        payload = build_attestation_payload(current)
+        payload["attestation_signature"] = getattr(current, "attestation_signature", None)
+        payload["attestation_signing_key_id"] = getattr(current, "attestation_signing_key_id", None)
+        payload["attestation_algorithm"] = getattr(current, "attestation_algorithm", None)
+        return DeploymentAttestationResponse.model_validate(payload)
 
     @app.post(
         "/deployments/{deployment_ref}/verify-attestation",
@@ -391,11 +463,78 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         bootstrap, _ = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.DEPLOYMENT_READ)
         current = await _load_bound_deployment(bootstrap)
-        mismatches = verify_attestation(current, attestation.model_dump(mode="json"))
-        return AttestationVerificationResponse(
-            verified=not mismatches,
-            mismatches=mismatches,
+        signer = getattr(bootstrap, "signer", None)
+        mismatches, signature_ok = verify_attestation_full(
+            current, attestation.model_dump(mode="json"), signer
         )
+        return _attestation_verification_response(current, mismatches, signature_ok)
+
+    @app.get(
+        "/deployments/{deployment_ref}/attestation/verify",
+        response_model=AttestationVerificationResponse,
+    )
+    async def get_attestation_verify(
+        request: Request,
+        deployment_ref: str,
+    ) -> AttestationVerificationResponse:
+        """Server self-verifies its persisted attestation (digest + signature)."""
+        bootstrap, deployment = await _deployment_context(request, deployment_ref)
+        await require_permission(request, Permission.DEPLOYMENT_READ)
+        current = await _load_bound_deployment(bootstrap)
+        signer = getattr(bootstrap, "signer", None)
+        mismatches, signature_ok = verify_attestation_full(
+            current, build_attestation_payload(current), signer
+        )
+        return _attestation_verification_response(current, mismatches, signature_ok)
+
+
+def _signer_key_id(signer: object | None) -> str | None:
+    key_id = getattr(signer, "key_id", None)
+    return key_id() if callable(key_id) else None
+
+
+def _verification_response(report: object, signer: object | None) -> AuditVerificationResponse:
+    """Map a continuity report + active signer onto the public response.
+
+    ``signing_key_id`` reflects the active signer only when the scope has signed
+    records (``signature_verified`` is not None); it is a display aid, not a
+    per-record attribution.
+    """
+    signing_key_id = None
+    if getattr(report, "signature_verified", None) is not None:
+        signing_key_id = _signer_key_id(signer)
+    return AuditVerificationResponse(
+        scope=report.scope,
+        verified=report.verified,
+        record_count=report.record_count,
+        failed_audit_id=report.failed_audit_id,
+        error=report.error,
+        signature_verified=report.signature_verified,
+        signing_key_id=signing_key_id,
+        unsigned_record_count=getattr(report, "unsigned_record_count", 0),
+    )
+
+
+def _attestation_verification_response(
+    deployment: object,
+    mismatches: list[str],
+    signature_ok: bool | None,
+) -> AttestationVerificationResponse:
+    """Combine the two independent axes into the dual-check response.
+
+    Overall ``verified`` requires the digest recompute to pass AND the signature
+    not to be a definite failure. Unsigned-legacy (``signature_ok is None``)
+    leaves the digest axis in charge, preserving pre-WS-D behavior.
+    """
+    digest_verified = not mismatches
+    verified = digest_verified and signature_ok is not False
+    return AttestationVerificationResponse(
+        verified=verified,
+        mismatches=mismatches,
+        digest_verified=digest_verified,
+        signature_verified=signature_ok,
+        signing_key_id=getattr(deployment, "attestation_signing_key_id", None),
+    )
 
 
 def _bootstrap(request: Request) -> AuditApiBootstrapLike:

@@ -31,9 +31,12 @@ from zeroth.core.observability.metrics import MetricsCollector
 from zeroth.core.observability.queue_gauge import QueueDepthGauge
 from zeroth.core.observability.tracing import configure_tracing
 from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.core.policy import PolicyGuard, PolicyRegistry, default_capability_registry
 from zeroth.core.runs import RunRepository, ThreadRepository
+from zeroth.core.secrets import SecretProvider, build_secret_provider
 from zeroth.core.service.app import create_app
 from zeroth.core.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, ServiceAuthenticator
+from zeroth.core.signing import SigningKeyProvider, build_signing_provider
 from zeroth.core.storage import AsyncDatabase
 
 
@@ -155,6 +158,21 @@ class ServiceBootstrap:
     # No explicit bootstrap wiring needed -- orchestrator.context_window_enabled defaults True.
     # Phase 39: Subgraph composition executor.
     subgraph_executor: object | None = None
+    # WS-F: process-wide secret provider (LLM keys, HTTP auth, signing key,
+    # execution-unit env). Same instance the entrypoint hands to the runners.
+    secret_provider: SecretProvider | None = None
+    # WS-D: process-wide provenance signer (deployment attestations + audit
+    # chain). None when signing is unconfigured (unsigned-legacy). Threaded into
+    # the verify endpoints for the dual (digest + signature) check.
+    signer: SigningKeyProvider | None = None
+    # WS-E: retention / right-to-erasure surface (per-tenant TTLs, legal holds,
+    # full-surface erasure that preserves the audit hash-chain). Always wired;
+    # the purge WORKER is only started when ZEROTH_RETENTION__ENABLED is true.
+    retention_policy_repository: object | None = None
+    legal_hold_repository: object | None = None
+    retention_log_repository: object | None = None
+    retention_erasure_service: object | None = None
+    retention_worker: object | None = None
 
 
 async def bootstrap_service(
@@ -167,6 +185,7 @@ async def bootstrap_service(
     bearer_token_verifier: JWTBearerTokenVerifier | None = None,
     guardrail_config: GuardrailConfig | None = None,
     enable_durable_worker: bool = True,
+    secret_provider: SecretProvider | None = None,
 ) -> ServiceBootstrap:
     """Build the service wrapper wiring for a specific deployment."""
     # Phase 43-02 (D-15): wire GraphValidator into GraphRepository so
@@ -286,11 +305,25 @@ async def bootstrap_service(
         try:
             from zeroth.core.econ.budget import BudgetEnforcer
 
+            # Prefer the bundled in-process mount: a default bundled deploy points
+            # base_url at the EXTERNAL localhost:8000 topology, so without this the
+            # enforcer would hit a refused socket and silently fail-open — the cap
+            # never trips. When econ_plane is importable, dispatch straight to the
+            # mounted ASGI app (guarded exactly like the /regulus mount in app.py);
+            # otherwise fall back to the external-HTTP base_url path unchanged.
+            econ_plane_app = None
+            try:
+                from zeroth.econ_plane.main import app as econ_plane_app
+            except ImportError:
+                econ_plane_app = None
+
             budget_enforcer = BudgetEnforcer(
-                regulus_base_url=settings.regulus.base_url,
+                regulus_base_url=settings.regulus.base_url if econ_plane_app is None else None,
                 cache_ttl=settings.regulus.budget_cache_ttl,
                 timeout=settings.regulus.request_timeout,
                 headers_provider=regulus_self_auth,
+                fail_closed=settings.regulus.fail_closed,
+                asgi_app=econ_plane_app,
             )
         except ImportError:
             pass
@@ -345,7 +378,14 @@ async def bootstrap_service(
     # Runtime-managed connectors: re-register persisted console-authored
     # configs on top of the env-based ones. Bad rows are logged and skipped.
     memory_connector_config_repository = MemoryConnectorConfigRepository(database)
-    await load_persisted_connectors(memory_registry, memory_connector_config_repository)
+    # WS-B: a deployment is tenant-pinned; load only its tenant's persisted
+    # connector configs so another tenant's DSN-bearing rows on a shared DB
+    # are never registered into this process.
+    await load_persisted_connectors(
+        memory_registry,
+        memory_connector_config_repository,
+        tenant_id=deployment.tenant_id,
+    )
 
     # Phase 20: Create resolver from populated registry for AgentRunner injection.
     memory_resolver = MemoryConnectorResolver(
@@ -356,6 +396,23 @@ async def bootstrap_service(
     # Phase 20: Wire memory resolver and budget enforcer into orchestrator.
     orchestrator.memory_resolver = memory_resolver
     orchestrator.budget_enforcer = budget_enforcer
+    # WS-C: wire the default PolicyGuard so a node's declared capability_bindings
+    # become a behavioral, fail-closed gate (agent tool + memory ops, plus the
+    # sandbox network/secret gate on executable units). Enforcement is ON by
+    # default; ZEROTH_POLICY__ENFORCE_CAPABILITIES=false leaves policy_guard unset
+    # (capabilities advisory only). The capability registry resolves every
+    # capability by its value, matching the served ref scheme
+    # (capability_bindings=["memory_read", ...]). Apps that override
+    # orchestrator.policy_guard after bootstrap (e.g. with a bespoke ref scheme)
+    # are unaffected — this only sets a default.
+    if settings.policy.enforce_capabilities:
+        orchestrator.policy_guard = PolicyGuard(
+            policy_registry=PolicyRegistry(),
+            capability_registry=default_capability_registry(),
+        )
+    # Local per-run cost ceiling — wired INDEPENDENT of regulus.enabled so the
+    # tighter, control-plane-free guard works even without the backend.
+    orchestrator.per_run_cap_usd = settings.regulus.per_run_cap_usd
 
     # Phase 34: Artifact store construction and wiring.
     artifact_store: object | None = None
@@ -385,18 +442,46 @@ async def bootstrap_service(
         )
     orchestrator.artifact_store = artifact_store
 
-    # Phase 35: Resilient HTTP client construction.
+    # WS-F: reuse the caller's process-wide secret provider when supplied
+    # (entrypoint builds one and threads it in); otherwise build it here from
+    # settings so direct callers (tests, bootstrap_app) still get a real
+    # provider. Warm only the instance we own to avoid a double prefetch.
+    if secret_provider is None:
+        secret_provider = build_secret_provider(settings.secrets)
+        warm = getattr(secret_provider, "warm", None)
+        if callable(warm):
+            await warm()
+
+    # WS-D: build the process-wide provenance signer from the SAME shared secret
+    # provider (never a second env reader). env -> HMAC when a key resolves;
+    # kms -> Ed25519 (raises on missing key); off -> NullSigner. A resolvable-key
+    # miss on the dev 'env' path returns None: records stay unsigned-legacy after
+    # a loud warning rather than silently minting misleadingly-signed rows.
+    import logging as _logging
+
+    signer = build_signing_provider(settings.provenance, secret_provider)
+    if signer is None:
+        _logging.getLogger(__name__).warning(
+            "provenance signing key unresolved for mode=%r; deployment "
+            "attestations and audit records will be UNSIGNED-legacy",
+            settings.provenance.mode,
+        )
+    # Inject into the already-constructed service surface (built before the
+    # secret provider existed). These are the same references held by the
+    # orchestrator / approval service, so post-hoc assignment propagates.
+    deployment_service.signer = signer
+    audit_repository._signer = signer  # noqa: SLF001 - same-package wiring seam
+
+    # Phase 35: Resilient HTTP client construction — auth secrets resolve
+    # through the same provider, not a second env-only one.
     http_client_instance: object | None = None
     http_settings = settings.http_client
-    import os  # noqa: PLC0415
 
     from zeroth.core.http import ResilientHttpClient  # noqa: PLC0415
-    from zeroth.core.secrets import EnvSecretProvider  # noqa: PLC0415
 
-    env_secret_provider = EnvSecretProvider(os.environ)
     http_client_instance = ResilientHttpClient(
         settings=http_settings,
-        secret_provider=env_secret_provider,
+        secret_provider=secret_provider,
     )
     orchestrator.http_client = http_client_instance
 
@@ -468,6 +553,39 @@ async def bootstrap_service(
         except ImportError:
             pass
 
+    # WS-E: retention / right-to-erasure wiring. Repositories + the erasure
+    # service are ALWAYS constructed so the API works regardless of the worker;
+    # the background purge worker is only built when retention.enabled is True.
+    # The econ-event eraser is intentionally left unwired here (None) — see
+    # docs/retention-and-erasure.md for the run->join_key deferral.
+    from zeroth.core.retention import (
+        LegalHoldRepository,
+        RetentionAuditLogRepository,
+        RetentionErasureService,
+        RetentionPolicyRepository,
+        RetentionPurgeWorker,
+    )
+
+    retention_policy_repository = RetentionPolicyRepository(database)
+    legal_hold_repository = LegalHoldRepository(database)
+    retention_log_repository = RetentionAuditLogRepository(database)
+    retention_erasure_service = RetentionErasureService(
+        audit_repository=audit_repository,
+        run_repository=run_repository,
+        policy_repository=retention_policy_repository,
+        legal_hold_repository=legal_hold_repository,
+        log_repository=retention_log_repository,
+        artifact_store=artifact_store,
+        econ_eraser=None,
+    )
+    retention_worker_obj: object | None = None
+    if settings.retention.enabled:
+        retention_worker_obj = RetentionPurgeWorker(
+            erasure_service=retention_erasure_service,
+            policy_repository=retention_policy_repository,
+            poll_interval=settings.retention.worker_poll_interval,
+        )
+
     return ServiceBootstrap(
         database=database,
         graph_repository=graph_repository,
@@ -507,6 +625,13 @@ async def bootstrap_service(
         http_client=http_client_instance,
         template_registry=template_registry,
         subgraph_executor=subgraph_executor,
+        secret_provider=secret_provider,
+        signer=signer,
+        retention_policy_repository=retention_policy_repository,
+        legal_hold_repository=legal_hold_repository,
+        retention_log_repository=retention_log_repository,
+        retention_erasure_service=retention_erasure_service,
+        retention_worker=retention_worker_obj,
     )
 
 

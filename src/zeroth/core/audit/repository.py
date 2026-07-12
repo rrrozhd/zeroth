@@ -9,11 +9,30 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
-from zeroth.core.audit.verifier import compute_chained_record
+from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.core.storage import AsyncDatabase
 from zeroth.core.storage.json import load_typed_value, to_json_value
+
+if TYPE_CHECKING:
+    from zeroth.core.signing import SigningKeyProvider
+
+# The concrete "empty" each PII payload field is reset to on crypto-erasure,
+# matching the model defaults so the nulled record still validates. The digest
+# is over ``pii_commitments`` (v2), so these substitutions never change it.
+_ERASED_PII_VALUES: dict[str, object] = {
+    "input_snapshot": {},
+    "output_snapshot": {},
+    "validation_results": {},
+    "execution_metadata": {},
+    "stdout": None,
+    "stderr": None,
+    "error": None,
+    "tool_calls": [],
+    "memory_interactions": [],
+}
 
 
 class AuditRepository:
@@ -23,8 +42,17 @@ class AuditRepository:
     up later for debugging, compliance, or building timelines.
     """
 
-    def __init__(self, database: AsyncDatabase):
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        signer: SigningKeyProvider | None = None,
+    ):
         self._database: AsyncDatabase = database
+        # WS-D signer: signs each record's digest under the SAME chain lock that
+        # fixes the chain head, so the digest and its signature are committed
+        # atomically. None -> records stay unsigned-legacy (injected post-build
+        # by bootstrap once the shared secret provider exists).
+        self._signer = signer
         # Chain writes read the current head then insert; concurrent fan-out
         # branches on separate connections would otherwise both chain off the
         # same predecessor and silently fork the tamper-evident digest chain.
@@ -45,9 +73,21 @@ class AuditRepository:
         """
         async with self._chain_lock, self._database.transaction() as connection:
             previous = await self._latest_for_run(connection, record.run_id)
+            # WS-E: stamp digest_version=2 + per-field PII commitments BEFORE the
+            # digest is computed, so the digest folds in the commitments and stays
+            # identical after a later crypto-erasure nulls the plaintext. Always
+            # populated for a v2 write — never left None (an empty-commitment v2
+            # record would still "verify" while binding no PII).
+            prepared = record.model_copy(
+                update={
+                    "digest_version": 2,
+                    "pii_commitments": _compute_pii_commitments(record),
+                }
+            )
             chained = compute_chained_record(
-                record,
+                prepared,
                 previous.record_digest if previous is not None else None,
+                self._signer,
             )
             existing = await connection.fetch_one(
                 "SELECT 1 FROM node_audits WHERE audit_id = ?",
@@ -109,7 +149,14 @@ class AuditRepository:
         query = query or AuditQuery()
         clauses: list[str] = []
         params: list[str] = []
-        for field in ("run_id", "thread_id", "node_id", "graph_version_ref", "deployment_ref"):
+        for field in (
+            "run_id",
+            "thread_id",
+            "node_id",
+            "graph_version_ref",
+            "deployment_ref",
+            "tenant_id",  # WS-B: tenant filter (node_audits.tenant_id column)
+        ):
             value = getattr(query, field)
             if value is None:
                 continue
@@ -149,6 +196,79 @@ class AuditRepository:
     async def write_many(self, records: Sequence[NodeAuditRecord]) -> list[NodeAuditRecord]:
         """Save multiple audit records at once. Returns all saved records."""
         return [await self.write(record) for record in records]
+
+    async def crypto_erase(self, audit_id: str, *, reason: str) -> NodeAuditRecord | None:
+        """Crypto-erase a single record's PII while keeping the chain verifiable.
+
+        A SANCTIONED, append-only-preserving single-row UPDATE: it nulls the PII
+        payload fields (``input_snapshot``, ``output_snapshot``, ``stdout``, tool
+        calls, memory interactions, …), keeps ``pii_commitments`` and the digest,
+        and stamps ``erased``/``erased_at``/``erasure_reason``. Because a v2
+        digest is computed over the commitments (not the plaintext), the record
+        digest, its signature, and the whole hash-chain still verify afterwards.
+
+        ``created_at``, ``audit_id``, ``previous_record_digest`` and
+        ``record_digest`` are NEVER touched — re-chaining history is itself a
+        tamper event. digest_version=1 (legacy) records are un-erasable and raise;
+        an already-erased or missing record is a no-op (idempotent).
+        """
+        record = await self.get(audit_id)
+        if record is None:
+            return None
+        if (record.digest_version or 1) < 2:
+            raise ValueError(
+                f"audit_id {audit_id!r} is digest_version=1 (legacy) and cannot be "
+                "crypto-erased; legacy whole-payload digests are grandfathered"
+            )
+        if record.erased:
+            return record  # idempotent: already erased, commitments/digest intact
+        erased = record.model_copy(
+            update={
+                **_ERASED_PII_VALUES,
+                "erased": True,
+                "erased_at": datetime.now(UTC),
+                "erasure_reason": reason,
+            }
+        )
+        async with self._database.transaction() as connection:
+            await connection.execute(
+                "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
+                (to_json_value(erased.model_dump(mode="json")), audit_id),
+            )
+        return await self.get(audit_id)
+
+    async def list_erasable(
+        self,
+        tenant_id: str,
+        older_than: datetime,
+        *,
+        exclude_run_ids: Sequence[str] | None = None,
+    ) -> list[NodeAuditRecord]:
+        """Return erasable (digest_version=2) records older than a cutoff.
+
+        Scoped to one tenant and to records created before ``older_than``
+        (compared as UTC isoformat, matching the write path). Legacy v1 records
+        are excluded (un-erasable), as are records for any run in
+        ``exclude_run_ids`` (legal-hold protected).
+        """
+        excluded = set(exclude_run_ids or ())
+        cutoff = older_than.astimezone(UTC).isoformat()
+        async with self._database.transaction() as connection:
+            rows = await connection.fetch_all(
+                "SELECT record_json FROM node_audits "
+                "WHERE tenant_id = ? AND created_at < ? "
+                "ORDER BY created_at, audit_id",
+                (tenant_id, cutoff),
+            )
+        records = [
+            NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
+            for row in rows
+        ]
+        return [
+            record
+            for record in records
+            if (record.digest_version or 1) >= 2 and record.run_id not in excluded
+        ]
 
     async def _latest_for_run(self, connection, run_id: str) -> NodeAuditRecord | None:  # noqa: ANN001
         row = await connection.fetch_one(

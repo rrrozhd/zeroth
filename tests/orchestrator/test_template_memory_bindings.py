@@ -29,6 +29,7 @@ from zeroth.core.graph import (
 from zeroth.core.memory.connectors import KeyValueMemoryConnector
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.core.memory.tenant_scoped import TenantScopedMemoryConnector
 from zeroth.core.orchestrator.runtime import MemoryBindingResolutionError, RuntimeOrchestrator
 from zeroth.core.runs import Run, RunRepository, RunStatus
 from zeroth.core.templates.registry import TemplateRegistry
@@ -108,8 +109,13 @@ async def _prepopulate(
     key: str,
     value: Any,
 ) -> None:
-    """Write to SHARED scope so ScopedMemoryConnector resolves it correctly."""
-    await raw.write(key, value, MemoryScope.SHARED, target="__shared__")
+    """Write to SHARED scope so ScopedMemoryConnector resolves it correctly.
+
+    Seeds through TenantScopedMemoryConnector for the run's default tenant so
+    the target matches what the tenant-scoped dispatch path reads back (WS-B).
+    """
+    tenant_raw = TenantScopedMemoryConnector(raw, tenant_id="default")
+    await tenant_raw.write(key, value, MemoryScope.SHARED, target="__shared__")
 
 
 # ---------------------------------------------------------------------------

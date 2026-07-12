@@ -15,6 +15,19 @@ from zeroth.core.storage import AsyncDatabase
 from zeroth.core.storage.json import load_typed_value, to_json_value
 
 
+def _row_get(row: object, column: str) -> str | None:
+    """Read an optional column, tolerating rows that predate it.
+
+    Greenfield runs migrations to head so the WS-D columns always exist, but
+    guarding keeps hydration robust against a row mapping that lacks them.
+    """
+    try:
+        value = row[column]  # type: ignore[index]
+    except (KeyError, IndexError):
+        return None
+    return value if value else None
+
+
 class SQLiteDeploymentRepository:
     """Persist and query deployment history using an async database."""
 
@@ -56,12 +69,15 @@ class SQLiteDeploymentRepository:
                     contract_snapshot_digest,
                     settings_snapshot_digest,
                     attestation_digest,
+                    attestation_signature,
+                    attestation_signing_key_id,
+                    attestation_algorithm,
                     tenant_id,
                     workspace_id,
                     status,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     deployment.deployment_id,
@@ -80,6 +96,9 @@ class SQLiteDeploymentRepository:
                     deployment.contract_snapshot_digest,
                     deployment.settings_snapshot_digest,
                     deployment.attestation_digest,
+                    deployment.attestation_signature,
+                    deployment.attestation_signing_key_id,
+                    deployment.attestation_algorithm,
                     deployment.tenant_id,
                     deployment.workspace_id,
                     deployment.status.value,
@@ -89,36 +108,56 @@ class SQLiteDeploymentRepository:
             )
         return await self.get(deployment.deployment_ref, deployment.version)  # type: ignore[return-value]
 
-    async def get(self, deployment_ref: str, version: int | None = None) -> Deployment | None:
-        """Load the latest or a specific deployment version."""
+    async def get(
+        self,
+        deployment_ref: str,
+        version: int | None = None,
+        *,
+        tenant_id: str | None = None,
+    ) -> Deployment | None:
+        """Load the latest or a specific deployment version.
+
+        WS-B: when ``tenant_id`` is supplied, a deployment owned by another
+        tenant is invisible (returns ``None``). ``None`` = no tenant filter
+        (internal deploy path, which is already deployment-ref scoped).
+        """
         sql = """
             SELECT *
             FROM deployment_versions
             WHERE deployment_ref = ?
         """
-        params: tuple[object, ...]
+        params: list[object] = [deployment_ref]
         if version is not None:
             sql += " AND version = ?"
-            params = (deployment_ref, version)
-        else:
-            params = (deployment_ref,)
+            params.append(version)
+        if tenant_id is not None:
+            sql += " AND tenant_id = ?"
+            params.append(tenant_id)
         sql += " ORDER BY version DESC LIMIT 1"
         async with self._database.transaction() as connection:
-            row = await connection.fetch_one(sql, params)
+            row = await connection.fetch_one(sql, tuple(params))
         if row is None:
             return None
         return self._row_to_deployment(row)
 
-    async def list(self, deployment_ref: str | None = None) -> list[Deployment]:
+    async def list(
+        self, deployment_ref: str | None = None, *, tenant_id: str | None = None
+    ) -> list[Deployment]:
         """Return deployment history ordered from oldest to newest."""
         sql = "SELECT * FROM deployment_versions"
-        params: tuple[object, ...] = ()
+        clauses: list[str] = []
+        params: list[object] = []
         if deployment_ref is not None:
-            sql += " WHERE deployment_ref = ?"
-            params = (deployment_ref,)
+            clauses.append("deployment_ref = ?")
+            params.append(deployment_ref)
+        if tenant_id is not None:
+            clauses.append("tenant_id = ?")
+            params.append(tenant_id)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY deployment_ref, version"
         async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(sql, params)
+            rows = await connection.fetch_all(sql, tuple(params))
         return [self._row_to_deployment(row) for row in rows]
 
     async def next_version(self, deployment_ref: str) -> int:
@@ -172,6 +211,12 @@ class SQLiteDeploymentRepository:
             contract_snapshot_digest=contract_snapshot_digest,
             settings_snapshot_digest=settings_snapshot_digest,
             attestation_digest=row["attestation_digest"] or "",
+            # Nullable signature columns (WS-D). Legacy rows carry NULL and
+            # hydrate as unsigned-legacy — a signature cannot be recomputed
+            # without the key, so there is no fallback here (unlike the digests).
+            attestation_signature=_row_get(row, "attestation_signature"),
+            attestation_signing_key_id=_row_get(row, "attestation_signing_key_id"),
+            attestation_algorithm=_row_get(row, "attestation_algorithm"),
             tenant_id=row["tenant_id"] or "default",
             workspace_id=row["workspace_id"],
             status=DeploymentStatus(row["status"]),

@@ -38,6 +38,8 @@ export type StudioContract = S["StudioContractResponse"];
 export type CreateContractRequest = S["CreateContractRequest"];
 export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
 export type AuditVerification = S["AuditVerificationResponse"];
+export type DeploymentAttestation = S["DeploymentAttestationResponse"];
+export type AttestationVerification = S["AttestationVerificationResponse"];
 
 // The publish 422 payload — FastAPI types it as a generic validation error in
 // the spec, but the studio API fills `detail` with this structured issue list
@@ -423,10 +425,26 @@ export function createDeployment(body: CreateDeploymentRequest): Promise<Deploym
   });
 }
 
-/** Verify the tamper-evident audit digest chain for one run. */
+/** Verify the audit digest chain + signatures for one run (WS-D three-state). */
 export function getRunAuditVerification(runId: string): Promise<AuditVerification> {
   return apiFetch<AuditVerification>(
     `/v1/runs/${encodeURIComponent(runId)}/audit-verification`,
+  );
+}
+
+/** The persisted deployment attestation, including its keyed signature (WS-D). */
+export async function getDeploymentAttestation(): Promise<DeploymentAttestation> {
+  const ref = await deploymentRef();
+  return apiFetch<DeploymentAttestation>(
+    `/v1/deployments/${encodeURIComponent(ref)}/attestation`,
+  );
+}
+
+/** Server self-verifies the persisted attestation: digest recompute + signature. */
+export async function verifyDeploymentAttestation(): Promise<AttestationVerification> {
+  const ref = await deploymentRef();
+  return apiFetch<AttestationVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/attestation/verify`,
   );
 }
 
