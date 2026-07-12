@@ -16,7 +16,10 @@ from zeroth.core.deployments.provenance import (
     compute_settings_snapshot_digest,
     sign_attestation,
 )
-from zeroth.core.deployments.repository import SQLiteDeploymentRepository
+from zeroth.core.deployments.repository import (
+    DeploymentRefLineageConflictError,
+    SQLiteDeploymentRepository,
+)
 from zeroth.core.graph import Graph, GraphRepository, GraphStatus, Node
 from zeroth.core.graph.serialization import serialize_graph
 from zeroth.core.graph.versioning import graph_version_ref
@@ -126,6 +129,12 @@ class DeploymentService:
                     tenant_id=graph.tenant_id,
                     workspace_id=graph.workspace_id,
                 )
+            except DeploymentRefLineageConflictError as exc:
+                msg = (
+                    f"deployment_ref {deployment_ref!r} is already bound to graph "
+                    f"{exc.graph_id!r} and cannot be reused for {graph_id!r}"
+                )
+                raise DeploymentError(msg) from exc
             except KeyError:
                 raise
             except Exception as exc:
