@@ -192,18 +192,26 @@ async def deploy_service(
     await contract_registry.register(RunInputPayload, name="contract://output")
     for contract_ref, model in (extra_contract_models or {}).items():
         await contract_registry.register(model, name=contract_ref)
-    deployment_settings = dict(graph.deployment_settings)
-    deployment_settings["tenant_id"] = tenant_id
-    deployment_settings["workspace_id"] = workspace_id
-    graph = graph.model_copy(update={"deployment_settings": deployment_settings})
-    graph = await graph_repository.create(graph)
-    await graph_repository.publish(graph.graph_id, graph.version)
+    graph = graph.model_copy(update={"tenant_id": tenant_id, "workspace_id": workspace_id})
+    graph = await graph_repository.create(graph, tenant_id=tenant_id, workspace_id=workspace_id)
+    await graph_repository.publish(
+        graph.graph_id,
+        graph.version,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     deployment_service = DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=SQLiteDeploymentRepository(sqlite_db),
         contract_registry=contract_registry,
     )
-    deployment = await deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
+    deployment = await deployment_service.deploy(
+        deployment_ref,
+        graph.graph_id,
+        graph.version,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     service = await bootstrap_service(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,

@@ -44,11 +44,14 @@ async def _signed_setup(
     contract_registry = ContractRegistry(sqlite_db)
     await contract_registry.register(RunInputPayload, name="contract://input")
     await contract_registry.register(RunInputPayload, name="contract://output")
-    deployment_settings = dict(graph.deployment_settings)
-    deployment_settings["tenant_id"] = tenant_id
-    graph = graph.model_copy(update={"deployment_settings": deployment_settings})
-    graph = await graph_repository.create(graph)
-    await graph_repository.publish(graph.graph_id, graph.version)
+    graph = graph.model_copy(update={"tenant_id": tenant_id})
+    graph = await graph_repository.create(graph, tenant_id=tenant_id, workspace_id=None)
+    await graph_repository.publish(
+        graph.graph_id,
+        graph.version,
+        tenant_id=tenant_id,
+        workspace_id=None,
+    )
 
     deployment_service = DeploymentService(
         graph_repository=graph_repository,
@@ -56,7 +59,13 @@ async def _signed_setup(
         contract_registry=contract_registry,
         signer=signer,
     )
-    deployment = await deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
+    deployment = await deployment_service.deploy(
+        deployment_ref,
+        graph.graph_id,
+        graph.version,
+        tenant_id=tenant_id,
+        workspace_id=None,
+    )
 
     resolved_auth = auth_config or default_service_auth_config()
     service = await bootstrap_service(
