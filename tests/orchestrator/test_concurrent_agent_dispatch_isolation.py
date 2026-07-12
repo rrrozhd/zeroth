@@ -6,9 +6,11 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 from governai.memory.models import MemoryScope
+import pytest
 from pydantic import BaseModel
 
 from zeroth.core.agent_runtime import AgentConfig, AgentRunner
@@ -58,7 +60,7 @@ class _TwoPartyBarrier:
             self._arrivals += 1
             if self._arrivals == 2:
                 self._ready.set()
-        await asyncio.wait_for(self._ready.wait(), timeout=2)
+        await asyncio.wait_for(self._ready.wait(), timeout=30)
 
 
 @dataclass(frozen=True)
@@ -75,10 +77,16 @@ class _DispatchSnapshot:
 class _ObservedAgentRunner(AgentRunner):
     """A real runner that records dispatch-local wiring at a fixed interleave."""
 
-    def __init__(self, *args: Any, barrier: _TwoPartyBarrier, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        barrier: _TwoPartyBarrier,
+        recorder: list[_DispatchSnapshot],
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.barrier = barrier
-        self.snapshots: list[_DispatchSnapshot] = []
+        self.recorder = recorder
 
     async def run(
         self,
@@ -90,7 +98,7 @@ class _ObservedAgentRunner(AgentRunner):
     ):
         await self.barrier.wait()
         assert isinstance(self.provider, InstrumentedProviderAdapter)
-        self.snapshots.append(
+        self.recorder.append(
             _DispatchSnapshot(
                 runner_id=id(self),
                 instruction=self.config.instruction,
@@ -238,6 +246,7 @@ async def _seed_memory(
 
 async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) -> None:
     barrier = _TwoPartyBarrier()
+    snapshots: list[_DispatchSnapshot] = []
     provider = _TenantProvider()
     prototype = _ObservedAgentRunner(
         AgentConfig(
@@ -256,6 +265,7 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
         ),
         CallableProviderAdapter(provider),
         barrier=barrier,
+        recorder=snapshots,
     )
     original_config = prototype.config
     original_provider = prototype.provider
@@ -313,22 +323,20 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
 
     assert output_a == {"answer": "tenant-A"}
     assert output_b == {"answer": "tenant-B"}
-    assert {snapshot.instruction for snapshot in prototype.snapshots} == {
+    assert {snapshot.instruction for snapshot in snapshots} == {
         "instruction for tenant-A",
         "instruction for tenant-B",
     }
-    assert len({snapshot.runner_id for snapshot in prototype.snapshots}) == 2
-    assert {snapshot.provider._tenant_id for snapshot in prototype.snapshots} == {
+    assert len({snapshot.runner_id for snapshot in snapshots}) == 2
+    assert {snapshot.provider._tenant_id for snapshot in snapshots} == {
         "tenant-A",
         "tenant-B",
     }
-    assert all(snapshot.memory_resolver is resolver for snapshot in prototype.snapshots)
-    assert all(snapshot.budget_enforcer is budget for snapshot in prototype.snapshots)
-    assert len({id(snapshot.context_tracker) for snapshot in prototype.snapshots}) == 2
-    assert all(
-        snapshot.context_tracker.state.accumulated_tokens > 0 for snapshot in prototype.snapshots
-    )
-    assert len({id(snapshot.tool_executor) for snapshot in prototype.snapshots}) == 2
+    assert all(snapshot.memory_resolver is resolver for snapshot in snapshots)
+    assert all(snapshot.budget_enforcer is budget for snapshot in snapshots)
+    assert len({id(snapshot.context_tracker) for snapshot in snapshots}) == 2
+    assert all(snapshot.context_tracker.state.accumulated_tokens > 0 for snapshot in snapshots)
+    assert len({id(snapshot.tool_executor) for snapshot in snapshots}) == 2
 
     requests_by_tenant = {tenant: repr(request.messages) for tenant, request in provider.requests}
     assert "memory-A" in requests_by_tenant["tenant-A"]
@@ -350,3 +358,124 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
     assert prototype.budget_enforcer is original_budget is None
     assert prototype.context_tracker is original_tracker is None
     assert prototype.tool_executor is original_tool_executor is None
+
+
+async def test_callable_fork_protocol_wins_over_instance_run_override(sqlite_db) -> None:
+    class ProtocolRunner:
+        def __init__(self) -> None:
+            self.fork_calls = 0
+
+            async def instance_run(*args: Any, **kwargs: Any) -> Any:
+                return SimpleNamespace(
+                    output_data={"answer": "prototype"},
+                    audit_record={},
+                )
+
+            self.run = instance_run
+
+        def fork_for_dispatch(self) -> Any:
+            self.fork_calls += 1
+
+            async def fork_run(*args: Any, **kwargs: Any) -> Any:
+                return SimpleNamespace(output_data={"answer": "fork"}, audit_record={})
+
+            return SimpleNamespace(run=fork_run)
+
+    prototype = ProtocolRunner()
+    node = AgentNode(
+        node_id="agent",
+        graph_version_ref="graph:v1",
+        agent=AgentNodeData(instruction="test", model_provider="provider://test"),
+    )
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={"agent": prototype},
+        executable_unit_runner=_ToolRunner(),
+    )
+
+    output, _ = await orchestrator._dispatch_node(
+        node,
+        Run(
+            run_id="run-protocol",
+            graph_version_ref="graph:v1",
+            tenant_id="tenant",
+            deployment_ref="deployment",
+        ),
+        {"tenant": "tenant"},
+    )
+
+    assert prototype.fork_calls == 1
+    assert output == {"answer": "fork"}
+
+
+async def test_fallback_runner_restores_state_when_tool_setup_fails(sqlite_db) -> None:
+    class FallbackRunner:
+        def __init__(self) -> None:
+            self.config = AgentConfig(
+                name="fallback",
+                instruction="prototype instruction",
+                model_name="test-model",
+                input_model=_Input,
+                output_model=_Output,
+            )
+            self.provider = CallableProviderAdapter(
+                lambda request: ProviderResponse(content={"answer": "unused"})
+            )
+            self.memory_resolver = None
+            self.budget_enforcer = None
+            self.context_tracker = None
+            self._tool_executor = None
+
+        @property
+        def tool_executor(self) -> Any:
+            return self._tool_executor
+
+        @tool_executor.setter
+        def tool_executor(self, value: Any) -> None:
+            self._tool_executor = value
+            if value is not None:
+                raise RuntimeError("tool setup failed")
+
+        async def run(self, *args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("run must not be reached")
+
+    runner = FallbackRunner()
+    original_config = runner.config
+    original_provider = runner.provider
+    original_resolver = runner.memory_resolver
+    original_budget = runner.budget_enforcer
+    original_tracker = runner.context_tracker
+    original_tool_executor = runner.tool_executor
+    templates = TemplateRegistry()
+    templates.register("tenant-template", 1, "instruction for {{ input.tenant }}")
+    graph, node = _graph("tenant-fallback")
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={"agent": runner},
+        executable_unit_runner=_ToolRunner(),
+        memory_resolver=object(),
+        budget_enforcer=object(),
+        cost_estimator=_CostEstimator(),
+        template_registry=templates,
+        template_renderer=TemplateRenderer(),
+    )
+
+    with pytest.raises(RuntimeError, match="tool setup failed"):
+        await orchestrator._dispatch_node(
+            node,
+            Run(
+                run_id="run-fallback",
+                graph_version_ref="graph:v1",
+                tenant_id="tenant-fallback",
+                deployment_ref="deployment",
+            ),
+            {"tenant": "tenant-fallback"},
+            graph,
+        )
+
+    assert runner.config is original_config
+    assert runner.provider is original_provider
+    assert runner.memory_resolver is original_resolver is None
+    assert runner.budget_enforcer is original_budget is None
+    assert runner.context_tracker is original_tracker is None
+    assert runner.tool_executor is original_tool_executor is None

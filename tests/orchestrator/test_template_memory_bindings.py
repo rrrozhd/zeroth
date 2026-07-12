@@ -412,7 +412,11 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
     tmpl_registry.register("skill-tmpl", 1, "Write code in {{ memory.language }}.")
     renderer = TemplateRenderer()
 
-    captured_instructions: list[str] = []
+    captured_prompts: list[str] = []
+
+    def _provider(request):
+        captured_prompts.append(repr(request.messages))
+        return ProviderResponse(content={"result": "ok"})
 
     runner = AgentRunner(
         AgentConfig(
@@ -422,19 +426,8 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
             input_model=_AnyInput,
             output_model=_AnyOutput,
         ),
-        CallableProviderAdapter(
-            lambda req: ProviderResponse(content={"result": "ok"})
-        ),
+        CallableProviderAdapter(_provider),
     )
-
-    # Patch runner.run to capture the rendered instruction (set on runner.config before call).
-    _original_run = runner.run
-
-    async def _capturing_run(input_data, **kwargs):
-        captured_instructions.append(runner.config.instruction)
-        return await _original_run(input_data, **kwargs)
-
-    runner.run = _capturing_run
 
     node = AgentNode(
         node_id="coder",
@@ -477,9 +470,9 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
     run = await orchestrator.run_graph(graph, {})
 
     assert run.status is RunStatus.COMPLETED
-    assert len(captured_instructions) == 1
-    assert "Python" in captured_instructions[0]
-    assert "{{ memory.language }}" not in captured_instructions[0]
+    assert len(captured_prompts) == 1
+    assert "Python" in captured_prompts[0]
+    assert "{{ memory.language }}" not in captured_prompts[0]
 
 
 @pytest.mark.asyncio
