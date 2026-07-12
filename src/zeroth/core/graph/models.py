@@ -515,6 +515,7 @@ class Graph(BaseModel):
     # column so the repository can filter by it. Defaults to the reserved
     # single-tenant sentinel so backfilled/code-authored graphs stay readable.
     tenant_id: str = "default"
+    workspace_id: str | None = None
     entry_step: str | None = None
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
