@@ -15,6 +15,17 @@ from zeroth.core.storage import AsyncDatabase
 from zeroth.core.storage.json import load_typed_value, to_json_value
 
 
+class DeploymentRefLineageConflictError(RuntimeError):
+    """A deployment ref was already bound to another graph lineage."""
+
+    def __init__(self, deployment_ref: str, graph_id: str):
+        self.deployment_ref = deployment_ref
+        self.graph_id = graph_id
+        super().__init__(
+            f"deployment_ref {deployment_ref!r} is already bound to graph {graph_id!r}"
+        )
+
+
 def _row_get(row: object, column: str) -> str | None:
     """Read an optional column, tolerating rows that predate it.
 
@@ -53,7 +64,7 @@ class SQLiteDeploymentRepository:
         async with self._database.transaction() as connection:
             existing = await connection.fetch_one(
                 """
-                SELECT tenant_id, workspace_id
+                SELECT tenant_id, workspace_id, graph_id
                 FROM deployment_versions
                 WHERE deployment_ref = ?
                 ORDER BY version DESC
@@ -66,6 +77,11 @@ class SQLiteDeploymentRepository:
                 owner_workspace,
             ):
                 raise KeyError(deployment.deployment_ref)
+            if existing is not None and existing["graph_id"] != deployment.graph_id:
+                raise DeploymentRefLineageConflictError(
+                    deployment.deployment_ref,
+                    existing["graph_id"],
+                )
             await connection.execute(
                 f"""
                 UPDATE deployment_versions
