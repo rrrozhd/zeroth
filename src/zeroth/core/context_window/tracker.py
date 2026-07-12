@@ -7,7 +7,7 @@ delegates to a CompactionStrategy to reduce message size.
 
 from __future__ import annotations
 
-from copy import copy, deepcopy
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 import litellm
@@ -44,9 +44,17 @@ class ContextWindowTracker:
 
     def fork_for_dispatch(self) -> ContextWindowTracker:
         """Create a tracker with copied configuration and fresh run state."""
+        strategy_fork = getattr(self.strategy, "fork_for_dispatch", None)
+        try:
+            strategy = strategy_fork() if callable(strategy_fork) else deepcopy(self.strategy)
+        except Exception as exc:
+            strategy_name = type(self.strategy).__name__
+            raise RuntimeError(
+                f"cannot isolate compaction strategy {strategy_name} for dispatch"
+            ) from exc
         return ContextWindowTracker(
             settings=deepcopy(self.settings),
-            strategy=copy(self.strategy),
+            strategy=strategy,
         )
 
     def count_tokens(self, messages: list[Any], model_name: str) -> int:

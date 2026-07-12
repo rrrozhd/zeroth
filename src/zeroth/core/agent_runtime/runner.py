@@ -138,7 +138,10 @@ class AgentRunner:
         fork.granted_tool_permissions = list(self.granted_tool_permissions)
         fork._mcp_manager = None
         if self.context_tracker is not None:
-            fork.context_tracker = self.context_tracker.fork_for_dispatch()
+            tracker_fork = getattr(self.context_tracker, "fork_for_dispatch", None)
+            fork.context_tracker = (
+                tracker_fork() if callable(tracker_fork) else deepcopy(self.context_tracker)
+            )
         return fork
 
     async def run(
