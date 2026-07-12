@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
+from copy import copy, deepcopy
 from typing import Any
 
 from governai.integrations.tool_calls import build_tool_message
@@ -128,6 +129,17 @@ class AgentRunner:
             )
         else:
             self.content_guardrail = None
+
+    def fork_for_dispatch(self) -> AgentRunner:
+        """Create an isolated runner while retaining safe service dependencies."""
+        fork = copy(self)
+        fork.config = deepcopy(self.config)
+        fork.tool_bridge = ToolAttachmentBridge.from_config(fork.config.tool_attachments)
+        fork.granted_tool_permissions = list(self.granted_tool_permissions)
+        fork._mcp_manager = None
+        if self.context_tracker is not None:
+            fork.context_tracker = self.context_tracker.fork_for_dispatch()
+        return fork
 
     async def run(
         self,
