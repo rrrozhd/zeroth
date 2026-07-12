@@ -1257,11 +1257,22 @@ class RuntimeOrchestrator:
         if isinstance(node, AgentNode):
             # Child-workflow node ids arrive namespaced (branch:N:subgraph:...);
             # runners are registered under the authored id, so fall back to it.
-            runner = self.agent_runners.get(node.node_id) or self.agent_runners.get(
+            prototype = self.agent_runners.get(node.node_id) or self.agent_runners.get(
                 base_node_id(node.node_id)
             )
-            if runner is None:
+            if prototype is None:
                 raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
+            fork_for_dispatch = getattr(prototype, "fork_for_dispatch", None)
+            # Instance-level ``run`` replacements are a legacy lightweight-test
+            # pattern: copying them preserves a closure bound to the prototype,
+            # not the fork. Production AgentRunner methods are class-defined and
+            # always take the isolated path.
+            has_instance_run_override = "run" in getattr(prototype, "__dict__", {})
+            runner = (
+                fork_for_dispatch()
+                if callable(fork_for_dispatch) and not has_instance_run_override
+                else prototype
+            )
 
             # Resolve thread before template rendering so memory can use thread scope.
             thread_id = await self._resolve_thread(node, run)
