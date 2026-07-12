@@ -28,8 +28,16 @@ class GraphRepository:
         self._database: AsyncDatabase = database
         self._validator: GraphValidator | None = validator
 
-    async def save(self, graph: Graph) -> Graph:
-        """Insert or update a draft graph version."""
+    async def save(self, graph: Graph, *, tenant_id: str | None = None) -> Graph:
+        """Insert or update a draft graph version.
+
+        WS-B: when ``tenant_id`` is supplied it is stamped onto the graph (so
+        the serialized payload and the dedicated ``tenant_id`` column agree)
+        before persisting. Omitting it keeps ``graph.tenant_id`` (default
+        ``"default"``) for internal/code-authored callers.
+        """
+        if tenant_id is not None and tenant_id != graph.tenant_id:
+            graph = graph.model_copy(update={"tenant_id": tenant_id})
         async with self._database.transaction() as connection:
             existing = await self._fetch_row(connection, graph.graph_id, graph.version)
             if existing is None:
@@ -42,46 +50,51 @@ class GraphRepository:
                 await self._update_graph(connection, graph)
         return await self.get(graph.graph_id, graph.version)  # type: ignore[return-value]
 
-    async def create(self, graph: Graph) -> Graph:
+    async def create(self, graph: Graph, *, tenant_id: str | None = None) -> Graph:
         """Create a new graph (alias for save)."""
-        return await self.save(graph)
+        return await self.save(graph, tenant_id=tenant_id)
 
-    async def get(self, graph_id: str, version: int | None = None) -> Graph | None:
-        """Load a graph by ID. Returns the latest version if no version is specified."""
+    async def get(
+        self, graph_id: str, version: int | None = None, *, tenant_id: str | None = None
+    ) -> Graph | None:
+        """Load a graph by ID. Returns the latest version if no version is specified.
+
+        WS-B: when ``tenant_id`` is supplied, a graph owned by a different
+        tenant is invisible (returns ``None``) so the API can 404 without
+        disclosing existence. ``None`` means no tenant filter (internal path).
+        """
         async with self._database.transaction() as connection:
-            row = await self._fetch_latest_row(connection, graph_id, version)
+            row = await self._fetch_latest_row(connection, graph_id, version, tenant_id=tenant_id)
         if row is None:
             return None
         return deserialize_graph(row["payload"])
 
-    async def list(self) -> list[Graph]:
-        """Return the latest version for each graph id."""
+    async def list(self, *, tenant_id: str | None = None) -> list[Graph]:
+        """Return the latest version for each graph id (optionally tenant-scoped)."""
+        sql = "SELECT payload FROM graph_versions"
+        params: tuple[object, ...] = ()
+        if tenant_id is not None:
+            sql += " WHERE tenant_id = ?"
+            params = (tenant_id,)
+        sql += " ORDER BY graph_id, version"
         async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(
-                """
-                SELECT payload
-                FROM graph_versions
-                ORDER BY graph_id, version
-                """
-            )
+            rows = await connection.fetch_all(sql, params)
         latest: dict[str, Graph] = {}
         for row in rows:
             graph = deserialize_graph(row["payload"])
             latest[graph.graph_id] = graph
         return list(latest.values())
 
-    async def list_versions(self, graph_id: str) -> list[Graph]:
+    async def list_versions(self, graph_id: str, *, tenant_id: str | None = None) -> list[Graph]:
         """Return all versions of a specific graph, ordered oldest to newest."""
+        sql = "SELECT payload FROM graph_versions WHERE graph_id = ?"
+        params: tuple[object, ...] = (graph_id,)
+        if tenant_id is not None:
+            sql += " AND tenant_id = ?"
+            params = (graph_id, tenant_id)
+        sql += " ORDER BY version"
         async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(
-                """
-                SELECT payload
-                FROM graph_versions
-                WHERE graph_id = ?
-                ORDER BY version
-                """,
-                (graph_id,),
-            )
+            rows = await connection.fetch_all(sql, params)
         return [deserialize_graph(row["payload"]) for row in rows]
 
     async def publish(self, graph_id: str, version: int | None = None) -> Graph:
@@ -118,8 +131,13 @@ class GraphRepository:
             msg = f"graph version {graph.graph_id}@{graph.version} is not published"
             raise GraphLifecycleError(msg)
         next_version = await self.get_latest_version(graph_id) + 1
+        # WS-B: pin the clone to the source graph's tenant. clone_graph_version
+        # preserves tenant_id via model_copy today, but stamping it explicitly
+        # keeps the clone from ever landing under the 'default' sentinel (and
+        # thus becoming cross-tenant readable) if that helper ever changes.
         return await self.save(
-            clone_graph_version(graph, version=next_version, status=GraphStatus.DRAFT)
+            clone_graph_version(graph, version=next_version, status=GraphStatus.DRAFT),
+            tenant_id=graph.tenant_id,
         )
 
     async def update_status(
@@ -167,41 +185,47 @@ class GraphRepository:
             raise KeyError(f"{graph_id}@{version}")
         return graph
 
-    async def _fetch_row(self, connection, graph_id: str, version: int) -> dict | None:
+    async def _fetch_row(
+        self, connection, graph_id: str, version: int, *, tenant_id: str | None = None
+    ) -> dict | None:
         """Fetch a single graph row by exact graph_id and version."""
-        return await connection.fetch_one(
-            """
+        sql = """
             SELECT status, payload
             FROM graph_versions
             WHERE graph_id = ? AND version = ?
-            """,
-            (graph_id, version),
-        )
+        """
+        params: tuple[object, ...] = (graph_id, version)
+        if tenant_id is not None:
+            sql += " AND tenant_id = ?"
+            params = (graph_id, version, tenant_id)
+        return await connection.fetch_one(sql, params)
 
     async def _fetch_latest_row(
-        self, connection, graph_id: str, version: int | None
+        self, connection, graph_id: str, version: int | None, *, tenant_id: str | None = None
     ) -> dict | None:
         """Fetch a graph row by ID, using the latest version if none is specified."""
         if version is not None:
-            return await self._fetch_row(connection, graph_id, version)
-        return await connection.fetch_one(
-            """
+            return await self._fetch_row(connection, graph_id, version, tenant_id=tenant_id)
+        sql = """
             SELECT status, payload
             FROM graph_versions
             WHERE graph_id = ?
-            ORDER BY version DESC
-            LIMIT 1
-            """,
-            (graph_id,),
-        )
+        """
+        params: tuple[object, ...] = (graph_id,)
+        if tenant_id is not None:
+            sql += " AND tenant_id = ?"
+            params = (graph_id, tenant_id)
+        sql += " ORDER BY version DESC LIMIT 1"
+        return await connection.fetch_one(sql, params)
 
     async def _insert_graph(self, connection, graph: Graph) -> None:
         """Insert a new graph version row into the database."""
         await connection.execute(
             """
             INSERT INTO graph_versions (
-                graph_id, version, status, schema_version, payload, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                graph_id, version, status, schema_version, payload,
+                tenant_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 graph.graph_id,
@@ -209,6 +233,7 @@ class GraphRepository:
                 graph.status.value,
                 GRAPH_SCHEMA_VERSION,
                 serialize_graph(graph),
+                graph.tenant_id,
                 graph.created_at.isoformat(),
                 graph.updated_at.isoformat(),
             ),

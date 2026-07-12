@@ -1190,6 +1190,15 @@ export interface components {
             mismatches?: string[];
             /** Verified */
             verified: boolean;
+            /**
+             * Digest Verified
+             * @default false
+             */
+            digest_verified: boolean;
+            /** Signature Verified */
+            signature_verified?: boolean | null;
+            /** Signing Key Id */
+            signing_key_id?: string | null;
         };
         /**
          * AuditRecordListResponse
@@ -1231,6 +1240,15 @@ export interface components {
             scope: string;
             /** Verified */
             verified: boolean;
+            /** Signature Verified */
+            signature_verified?: boolean | null;
+            /** Signing Key Id */
+            signing_key_id?: string | null;
+            /**
+             * Unsigned Record Count
+             * @default 0
+             */
+            unsigned_record_count: number;
         };
         /**
          * AuthMethod
@@ -1424,6 +1442,12 @@ export interface components {
             graph_version_ref: string;
             /** Settings Snapshot Digest */
             settings_snapshot_digest: string;
+            /** Attestation Signature */
+            attestation_signature?: string | null;
+            /** Attestation Signing Key Id */
+            attestation_signing_key_id?: string | null;
+            /** Attestation Algorithm */
+            attestation_algorithm?: string | null;
         };
         /**
          * DeploymentCostResponse

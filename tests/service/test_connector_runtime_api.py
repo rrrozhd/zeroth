@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from governai.memory.models import MemoryScope
 
 from tests.service.helpers import (
     agent_graph,
@@ -266,6 +267,32 @@ async def test_probe_env_connector_succeeds(sqlite_db) -> None:
     assert body["detail"] is None
     assert body["latency_ms"] >= 0
     assert missing.status_code == 404
+
+
+async def test_probe_is_tenant_namespaced_not_shared_cell(sqlite_db) -> None:
+    """G9: the probe runs behind the tenant-scoping wrapper, so it must NOT touch
+    the un-namespaced SHARED ``__shared__`` probe cell that two tenants sharing a
+    backend would otherwise collide on.
+
+    Seed the exact raw cell the pre-fix probe wrote/deleted, run the probe, and
+    assert the seed survives — proving the probe targeted a tenant-namespaced
+    cell instead. Before the fix, the probe's write+delete on the shared literal
+    would have wiped the seed.
+    """
+    app, service = await _app(sqlite_db, "tenant-probe")
+    _, raw = service.memory_registry.resolve("key_value")
+    # The exact coordinates the raw probe used: SHARED scope, "__shared__" target.
+    await raw.write("zeroth-connection-probe", "SEED", MemoryScope.SHARED, target="__shared__")
+
+    with TestClient(app) as client:
+        r = client.post("/v1/connectors/key_value/test", headers=operator_headers())
+
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True  # happy path still works through the resolver
+    # The un-namespaced shared cell is untouched: the probe used a tenant-scoped
+    # target, so cross-tenant collision on one probe cell is impossible.
+    survivor = await raw.read("zeroth-connection-probe", MemoryScope.SHARED, target="__shared__")
+    assert survivor is not None and survivor.value == "SEED"
 
 
 async def test_probe_unreachable_backend_returns_ok_false(sqlite_db) -> None:

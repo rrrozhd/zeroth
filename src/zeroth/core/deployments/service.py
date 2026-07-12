@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from zeroth.core.contracts import ContractReference, ContractRegistry
@@ -13,11 +14,15 @@ from zeroth.core.deployments.provenance import (
     compute_contract_snapshot_digest,
     compute_graph_snapshot_digest,
     compute_settings_snapshot_digest,
+    sign_attestation,
 )
 from zeroth.core.deployments.repository import SQLiteDeploymentRepository
 from zeroth.core.graph import Graph, GraphRepository, GraphStatus, Node
 from zeroth.core.graph.serialization import serialize_graph
 from zeroth.core.graph.versioning import graph_version_ref
+
+if TYPE_CHECKING:
+    from zeroth.core.signing import SigningKeyProvider
 
 
 class DeploymentError(RuntimeError):
@@ -31,6 +36,9 @@ class DeploymentService:
     graph_repository: GraphRepository
     deployment_repository: SQLiteDeploymentRepository
     contract_registry: ContractRegistry | None = None
+    # WS-D signer: when None the attestation is stored unsigned-legacy. Injected
+    # post-construction by bootstrap once the shared secret provider is built.
+    signer: SigningKeyProvider | None = None
 
     async def deploy(
         self,
@@ -89,6 +97,14 @@ class DeploymentService:
             deployment.attestation_digest = str(
                 build_attestation_payload(deployment)["attestation_digest"]
             )
+            # Sign inside the version-allocation retry loop so the row that is
+            # ultimately persisted always carries a signature over ITS digest.
+            signature, key_id, algorithm = sign_attestation(
+                deployment.attestation_digest, self.signer
+            )
+            deployment.attestation_signature = signature
+            deployment.attestation_signing_key_id = key_id
+            deployment.attestation_algorithm = algorithm
             try:
                 return await self.deployment_repository.create(deployment)
             except Exception as exc:
@@ -97,13 +113,21 @@ class DeploymentService:
             f"failed to allocate deployment version for {deployment_ref!r} after retries"
         ) from last_error
 
-    async def get(self, deployment_ref: str, version: int | None = None) -> Deployment | None:
-        """Load the latest or a specific deployment version."""
-        return await self.deployment_repository.get(deployment_ref, version)
+    async def get(
+        self,
+        deployment_ref: str,
+        version: int | None = None,
+        *,
+        tenant_id: str | None = None,
+    ) -> Deployment | None:
+        """Load the latest or a specific deployment version (optionally tenant-scoped)."""
+        return await self.deployment_repository.get(deployment_ref, version, tenant_id=tenant_id)
 
-    async def list(self, deployment_ref: str | None = None) -> list[Deployment]:
-        """Return deployment history, optionally scoped to one ref."""
-        return await self.deployment_repository.list(deployment_ref)
+    async def list(
+        self, deployment_ref: str | None = None, *, tenant_id: str | None = None
+    ) -> list[Deployment]:
+        """Return deployment history, optionally scoped to one ref and/or tenant."""
+        return await self.deployment_repository.list(deployment_ref, tenant_id=tenant_id)
 
     async def rollback(self, deployment_ref: str, *, target_graph_version: int) -> Deployment:
         """Redeploy an earlier published graph version under the same ref."""

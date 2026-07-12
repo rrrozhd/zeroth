@@ -30,12 +30,28 @@ from zeroth.core.graph.validation_errors import (
 from zeroth.core.mappings import MappingValidationError, MappingValidator
 from zeroth.core.parallel.errors import ReducerRefValidationError
 from zeroth.core.parallel.reducers import resolve_reducer_ref
+from zeroth.core.policy.models import Capability
 
 
 def _is_ref_like(value: str) -> bool:
     """Return True if the string looks like a valid reference (non-empty, no spaces)."""
     text = value.strip()
     return bool(text) and not any(part.isspace() for part in text)
+
+
+def _capabilities_from_refs(refs: Iterable[str]) -> set[Capability]:
+    """Map capability_binding refs to Capabilities, dropping non-value refs.
+
+    Matches the runner factory's ``_capability_from_ref`` so author-time
+    validation and runtime enforcement resolve the identical set.
+    """
+    caps: set[Capability] = set()
+    for ref in refs:
+        try:
+            caps.add(Capability(ref))
+        except ValueError:
+            continue
+    return caps
 
 
 def _append_issue(
@@ -771,6 +787,48 @@ class GraphValidator:
                     node_id=node.node_id,
                     path=("nodes", node.node_id, "agent", "tool_bindings"),
                     details={"duplicate_names": duplicates},
+                )
+
+            self._validate_tool_capability_grants(graph, node, node_map, issues)
+
+    def _validate_tool_capability_grants(
+        self,
+        graph: Graph,
+        node: AgentNode,
+        node_map: dict[str, Node],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """WS-C: an agent's capability grant must cover every attached tool's needs.
+
+        The required set for a tool is its target unit node's declared
+        ``capability_bindings`` unioned with the binding's own
+        ``required_capabilities`` — the SAME source the runner factory uses at
+        runtime, so a graph that passes here cannot be denied at dispatch for an
+        under-granted capability (and vice versa). Surfaced at author time so the
+        gap is fixed on the canvas rather than as a run-time denial.
+        """
+        granted = _capabilities_from_refs(node.capability_bindings)
+        for binding in node.agent.tool_bindings:
+            required = set(binding.required_capabilities)
+            target = node_map.get(binding.target_node_id)
+            if isinstance(target, ExecutableUnitNode):
+                required |= _capabilities_from_refs(target.capability_bindings)
+            missing = sorted(cap.value for cap in (required - granted))
+            if missing:
+                _append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.CAPABILITY_GRANT_INSUFFICIENT,
+                    message=(
+                        f"agent {node.node_id!r} grants "
+                        f"{sorted(cap.value for cap in granted)} but tool "
+                        f"{binding.name!r} requires {', '.join(missing)}; add the "
+                        "missing capabilities to the agent's capability_bindings"
+                    ),
+                    graph_id=graph.graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "agent", "tool_bindings"),
+                    details={"tool": binding.name, "missing_capabilities": missing},
                 )
 
     def _validate_condition(

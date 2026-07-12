@@ -13,6 +13,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from governai.memory.models import MemoryScope
 from pydantic import BaseModel
 
 from zeroth.core.agent_runtime import AgentConfig, AgentRunner
@@ -26,6 +27,12 @@ from zeroth.core.graph import (
     ExecutionSettings,
     Graph,
 )
+from zeroth.core.memory import (
+    ConnectorManifest,
+    InMemoryConnectorRegistry,
+    KeyValueMemoryConnector,
+    MemoryConnectorResolver,
+)
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.parallel.models import ParallelConfig
 from zeroth.core.policy import (
@@ -35,6 +42,7 @@ from zeroth.core.policy import (
     PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
+    default_capability_registry,
 )
 from zeroth.core.policy.models import EnforcementResult
 from zeroth.core.runs import RunRepository, RunStatus
@@ -520,3 +528,107 @@ async def test_per_branch_contract_validation(sqlite_db) -> None:
     # Results should correspond to x*10 for x in {1, 2, 3}
     result_values = sorted(r["result"] for r in results_seen)
     assert result_values == [10, 20, 30]
+
+
+# ---------------------------------------------------------------------------
+# G2: per-branch capability enforcement (parallel agent + memory under
+# enforcement). Before the fix, _enforce_policy_for_branch never persisted the
+# granted capability set, so a branch node's _enforcement_context_for read an
+# empty set and require_capabilities fail-closed DENIED a correctly-declared
+# memory read/write. These cover the allow AND deny sides.
+# ---------------------------------------------------------------------------
+
+
+def _memory_resolver() -> MemoryConnectorResolver:
+    """Resolver with one RUN-scoped key-value connector the sink reads+writes."""
+    registry = InMemoryConnectorRegistry()
+    registry.register(
+        "memory://kv",
+        ConnectorManifest(connector_type="key_value", scope=MemoryScope.RUN, instance_id="i"),
+        KeyValueMemoryConnector(),
+    )
+    return MemoryConnectorResolver(registry=registry)
+
+
+def _memory_sink_runner() -> AgentRunner:
+    """A sink whose run performs a memory load+store (gated on MEMORY_READ/WRITE).
+
+    Built with no memory_resolver so the orchestrator injects its own — the
+    served-path behaviour the branch dispatch drives.
+    """
+    return AgentRunner(
+        AgentConfig(
+            name="mem-sink",
+            instruction="answer",
+            model_name="governai:test",
+            input_model=BranchItemInput,
+            output_model=ProcessedOutput,
+            memory_refs=["memory://kv"],
+        ),
+        CallableProviderAdapter(
+            lambda req: ProviderResponse(
+                content={"result": req.metadata["input_payload"].get("x", 0) * 10}
+            )
+        ),
+    )
+
+
+def _memory_fan_out(sqlite_db, *, sink_capabilities: list[str]):
+    """Fan-out source -> memory-op sink, enforcement ON (real PolicyGuard).
+
+    The guard uses ``default_capability_registry`` so ``"memory_read"`` /
+    ``"memory_write"`` refs resolve exactly as the wired-in served guard does.
+    """
+    source = _make_agent_node("source", parallel_config=ParallelConfig(split_path="items"))
+    sink = AgentNode(
+        node_id="sink",
+        graph_version_ref="test-gov:v1",
+        agent=AgentNodeData(instruction="test", model_provider="provider://sink"),
+        capability_bindings=sink_capabilities,
+    )
+    graph = _make_graph(
+        [source, sink],
+        [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
+    )
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={"source": _source_runner(), "sink": _memory_sink_runner()},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+        policy_guard=PolicyGuard(capability_registry=default_capability_registry()),
+        memory_resolver=_memory_resolver(),
+    )
+    return orchestrator, graph
+
+
+@pytest.mark.asyncio
+async def test_branch_memory_op_allowed_when_capability_declared(sqlite_db) -> None:
+    """A fan-out branch agent that DECLARES memory_read/write and performs a
+    memory op SUCCEEDS under enforcement — the branch's granted capabilities are
+    now persisted, so the dispatch reads them instead of an empty (deny) set."""
+    orchestrator, graph = _memory_fan_out(
+        sqlite_db, sink_capabilities=["memory_read", "memory_write"]
+    )
+
+    run = await orchestrator.run_graph(graph, {"value": 1})
+
+    assert run.status is RunStatus.COMPLETED
+    # The branch's enforcement context was persisted with the granted set — the
+    # exact thing the sequential path did and the branch path previously did not.
+    persisted = run.metadata["enforcement"]["sink"]
+    assert set(persisted["effective_capabilities"]) == {"memory_read", "memory_write"}
+
+
+@pytest.mark.asyncio
+async def test_branch_memory_op_denied_when_capability_not_declared(sqlite_db) -> None:
+    """Control: a branch agent that does NOT declare the capability is DENIED the
+    memory op (fail-closed), failing the branch and — under fail_fast — the run.
+
+    Proves the allow-case above passes because of the declared capability, not
+    because enforcement was silently skipped on the branch path."""
+    orchestrator, graph = _memory_fan_out(sqlite_db, sink_capabilities=[])
+
+    run = await orchestrator.run_graph(graph, {"value": 1})
+
+    assert run.status is RunStatus.FAILED
+    assert run.failure_state is not None
+    assert "parallel_execution_failed" in run.failure_state.reason

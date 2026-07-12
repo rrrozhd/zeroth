@@ -72,6 +72,9 @@ def build_graph() -> Graph:
                 display=DisplayMetadata(title="Assistant with memory"),
                 input_contract_ref="contract://question",
                 output_contract_ref="contract://answer",
+                # WS-C: the node loads and stores memory, so under capability
+                # enforcement it must declare MEMORY_READ and MEMORY_WRITE.
+                capability_bindings=["memory_read", "memory_write"],
                 agent=AgentNodeData(
                     instruction=(
                         "Answer the user briefly. When you've answered before on this "

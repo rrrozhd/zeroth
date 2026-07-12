@@ -77,7 +77,13 @@ def register_deployment_routes(app: FastAPI | APIRouter) -> None:
         await require_permission(request, Permission.DEPLOYMENT_READ)
         bootstrap = request.app.state.bootstrap
         serving = bootstrap.deployment
-        deployments = await bootstrap.deployment_service.list()
+        # WS-B: scope the listing to the serving deployment's tenant so one
+        # tenant never sees another's deployment history on a shared store.
+        # ``serving`` can be None (no deployment served yet) -> tenant_id None
+        # -> unfiltered, preserving the degenerate path without crashing.
+        deployments = await bootstrap.deployment_service.list(
+            tenant_id=getattr(serving, "tenant_id", None)
+        )
         deployments.sort(key=lambda d: d.created_at, reverse=True)
         return [_summary(d, serving) for d in deployments]
 

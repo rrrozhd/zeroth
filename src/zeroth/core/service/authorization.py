@@ -28,6 +28,10 @@ class Permission(StrEnum):
     WORKFLOW_READ = "workflow:read"
     WORKFLOW_ADMIN = "workflow:admin"
     CONNECTOR_ADMIN = "connector:admin"
+    # WS-E: retention policy, legal-hold, and right-to-erasure administration.
+    # Deliberately admin-tier (ADMIN holds all permissions); erasure is
+    # irreversible and destroys the plaintext behind the audit trail.
+    RETENTION_ADMIN = "retention:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {

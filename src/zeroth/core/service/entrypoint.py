@@ -68,6 +68,17 @@ async def _bootstrap():
 
     deployment_ref = os.environ.get("ZEROTH_DEPLOYMENT_REF", "default")
 
+    # WS-F: one process-wide secret provider, reused for LLM keys, HTTP-client
+    # auth, the WS-D signing key, and execution-unit env resolution. Built here
+    # (before runners) so the runners resolve their keys through it; the same
+    # instance is handed to bootstrap_service so nothing builds a second one.
+    from zeroth.core.secrets import build_secret_provider
+
+    secret_provider = build_secret_provider(settings.secrets)
+    warm = getattr(secret_provider, "warm", None)
+    if callable(warm):
+        await warm()
+
     # Build agent runners from the deployment's own graph definition so
     # declaratively-authored graphs (studio canvas, seed-demo) execute on
     # the stock entrypoint. Opt out with ZEROTH_AUTO_AGENT_RUNNERS=false
@@ -77,7 +88,13 @@ async def _bootstrap():
     if auto_runners not in {"0", "false", "no"}:
         from zeroth.core.agent_runtime.factory import build_runners_for_deployment
 
-        agent_runners = await build_runners_for_deployment(database, deployment_ref)
+        agent_runners = await build_runners_for_deployment(
+            database,
+            deployment_ref,
+            secret_provider=secret_provider,
+            allow_env_fallback=settings.secrets.allow_env_fallback,
+            llm_key_map=settings.secrets.llm_key_map,
+        )
         if agent_runners:
             logger.info(
                 "auto-built %d agent runner(s) from deployment %r: %s",
@@ -87,7 +104,10 @@ async def _bootstrap():
             )
 
     bootstrap = await bootstrap_service(
-        database, deployment_ref=deployment_ref, agent_runners=agent_runners
+        database,
+        deployment_ref=deployment_ref,
+        agent_runners=agent_runners,
+        secret_provider=secret_provider,
     )
     return create_app(bootstrap)
 
