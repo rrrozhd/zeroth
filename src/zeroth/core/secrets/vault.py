@@ -24,6 +24,7 @@ NOT exercised against a live Vault (unavailable in this environment).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -91,6 +92,13 @@ class VaultSecretProvider:
         # Redactor is (re)seeded with resolved values so any accidental error
         # surface that echoes a value gets masked.
         self._redactor = SecretRedactor()
+        # Async path: one pooled client for the provider's lifetime, plus
+        # single-flight locks so N concurrent misses collapse into one fetch
+        # (per key) and one AppRole login (total).
+        self._async_client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()
+        self._token_lock = asyncio.Lock()
+        self._key_locks: dict[tuple[str, str], asyncio.Lock] = {}
 
     # ------------------------------------------------------------------
     # Public resolution API (sync — source of truth)
@@ -129,6 +137,78 @@ class VaultSecretProvider:
         return value
 
     # ------------------------------------------------------------------
+    # Async resolution API (pooled client, single-flight)
+    # ------------------------------------------------------------------
+
+    async def resolve_async(self, secret_ref: str, *, tenant_id: str | None = None) -> str | None:
+        return await self.resolve_secret_async(secret_ref, tenant_id=tenant_id)
+
+    async def resolve_many_async(
+        self, refs: list[str], *, tenant_id: str | None = None
+    ) -> dict[str, str]:
+        return {
+            ref: value
+            for ref in refs
+            if (value := await self.resolve_secret_async(ref, tenant_id=tenant_id)) is not None
+        }
+
+    async def resolve_secret_async(
+        self,
+        logical_name: str,
+        *,
+        tenant_id: str | None = None,
+        deployment_ref: str | None = None,
+    ) -> str | None:
+        tenant = tenant_id or _DEFAULT_TENANT
+        key = (tenant, logical_name)
+        cached = self._cache.get(key)
+        if cached is not None and cached.expires_at > time.monotonic():
+            return cached.value
+
+        key_lock = self._key_locks.setdefault(key, asyncio.Lock())
+        async with key_lock:
+            # Double-check: a concurrent waiter may have filled the cache
+            # while this coroutine queued on the key lock.
+            cached = self._cache.get(key)
+            if cached is not None and cached.expires_at > time.monotonic():
+                return cached.value
+            try:
+                token = await self._ensure_token_async()
+                client = await self._get_async_client()
+                value = await self._fetch_async(client, token, tenant, logical_name)
+            except SecretResolutionError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "vault fetch failed for %s/%s: %s",
+                    tenant,
+                    logical_name,
+                    self._redactor.redact(str(exc)),
+                )
+                return None
+            self._cache[key] = _CacheEntry(
+                value=value, expires_at=time.monotonic() + self._cache_ttl
+            )
+            if value is not None:
+                self._redactor = SecretRedactor({**self._redactor_known(), logical_name: value})
+            return value
+
+    async def _get_async_client(self) -> httpx.AsyncClient:
+        if self._async_client is not None:
+            return self._async_client
+        async with self._client_lock:
+            if self._async_client is None:
+                self._async_client = self._make_async_client()
+            return self._async_client
+
+    async def aclose(self) -> None:
+        """Close the pooled async client. Safe to call more than once."""
+        async with self._client_lock:
+            if self._async_client is not None:
+                await self._async_client.aclose()
+                self._async_client = None
+
+    # ------------------------------------------------------------------
     # Optional async bulk prefetch (bootstrap)
     # ------------------------------------------------------------------
 
@@ -143,21 +223,21 @@ class VaultSecretProvider:
         if not entries:
             return
         token = await self._ensure_token_async()
-        async with self._make_async_client() as client:
-            for tenant, logical_name in entries:
-                try:
-                    value = await self._fetch_async(client, token, tenant, logical_name)
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.warning(
-                        "vault warm failed for %s/%s: %s",
-                        tenant,
-                        logical_name,
-                        self._redactor.redact(str(exc)),
-                    )
-                    continue
-                self._cache[(tenant, logical_name)] = _CacheEntry(
-                    value=value, expires_at=time.monotonic() + self._cache_ttl
+        client = await self._get_async_client()
+        for tenant, logical_name in entries:
+            try:
+                value = await self._fetch_async(client, token, tenant, logical_name)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "vault warm failed for %s/%s: %s",
+                    tenant,
+                    logical_name,
+                    self._redactor.redact(str(exc)),
                 )
+                continue
+            self._cache[(tenant, logical_name)] = _CacheEntry(
+                value=value, expires_at=time.monotonic() + self._cache_ttl
+            )
 
     # ------------------------------------------------------------------
     # Internal fetch helpers
@@ -244,14 +324,17 @@ class VaultSecretProvider:
             return self._token
         if not (self._role_id and self._secret_id):
             raise SecretResolutionError("vault provider has no token and incomplete AppRole config")
-        async with self._make_async_client() as client:
+        async with self._token_lock:
+            if self._token:
+                return self._token
+            client = await self._get_async_client()
             resp = await client.post(
                 f"{self._addr}/v1/auth/approle/login",
                 json={"role_id": self._role_id, "secret_id": self._secret_id},
             )
-        token = self._token_from_login(resp)
-        self._token = token
-        return token
+            token = self._token_from_login(resp)
+            self._token = token
+            return token
 
     @staticmethod
     def _token_from_login(resp: httpx.Response) -> str:

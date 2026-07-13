@@ -125,3 +125,85 @@ def test_build_secret_provider_vault_with_token_ok() -> None:
         )
     )
     assert isinstance(provider, VaultSecretProvider)
+
+
+# --- async resolution: pooling and single-flight ------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_async_misses_produce_one_fetch() -> None:
+    import asyncio
+
+    gets = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal gets
+        gets += 1
+        return httpx.Response(
+            200, json={"data": {"data": {"value": _SECRET_VALUE}, "metadata": {"version": 1}}}
+        )
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root",
+        async_transport=httpx.MockTransport(handler),
+    )
+    values = await asyncio.gather(
+        *(provider.resolve_secret_async("llm.openai", tenant_id="acme") for _ in range(20))
+    )
+    assert values == [_SECRET_VALUE] * 20
+    assert gets == 1
+    await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_client_is_reused_and_closed_once() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"data": {"data": {"value": _SECRET_VALUE}, "metadata": {"version": 1}}}
+        )
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root",
+        async_transport=httpx.MockTransport(handler),
+    )
+    assert await provider.resolve_secret_async("llm.openai", tenant_id="a") == _SECRET_VALUE
+    first_client = provider._async_client
+    assert first_client is not None
+    assert await provider.resolve_secret_async("llm.anthropic", tenant_id="b") == _SECRET_VALUE
+    assert provider._async_client is first_client
+
+    await provider.aclose()
+    assert first_client.is_closed
+    # Second close is a safe no-op.
+    await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_approle_login_single_flight() -> None:
+    import asyncio
+
+    logins = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal logins
+        if request.url.path == "/v1/auth/approle/login":
+            logins += 1
+            return httpx.Response(200, json={"auth": {"client_token": "tok"}})
+        return httpx.Response(
+            200, json={"data": {"data": {"value": _SECRET_VALUE}, "metadata": {"version": 1}}}
+        )
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        role_id="r",
+        secret_id="s",
+        async_transport=httpx.MockTransport(handler),
+    )
+    values = await asyncio.gather(
+        *(provider.resolve_secret_async(f"llm.k{i}", tenant_id="acme") for i in range(10))
+    )
+    assert set(values) == {_SECRET_VALUE}
+    assert logins == 1
+    await provider.aclose()
