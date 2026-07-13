@@ -108,9 +108,7 @@ def spend_opportunities(
 
         candidates = _candidates(incumbent, uses_tools) if incumbent else []
         best_savings = max((c.savings_pct for c in candidates), default=None)
-        projected = (
-            round(node_cost * best_savings / 100.0, 4) if best_savings is not None else None
-        )
+        projected = round(node_cost * best_savings / 100.0, 4) if best_savings is not None else None
 
         nodes.append(
             NodeSpend(

@@ -57,9 +57,7 @@ class ParallelConfig(BaseModel):
         semantically distinct.
         """
         if self.merge_strategy == "custom" and not self.reducer_ref:
-            raise ValueError(
-                "merge_strategy='custom' requires reducer_ref to be set"
-            )
+            raise ValueError("merge_strategy='custom' requires reducer_ref to be set")
         if self.merge_strategy != "custom" and self.reducer_ref is not None:
             raise ValueError(
                 "reducer_ref is only valid with merge_strategy='custom', "

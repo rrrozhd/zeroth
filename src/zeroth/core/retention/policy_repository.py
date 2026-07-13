@@ -50,9 +50,7 @@ class RetentionPolicyRepository:
                 "SELECT created_at FROM retention_policies WHERE tenant_id = ?",
                 (policy.tenant_id,),
             )
-            created_at = (
-                existing["created_at"] if existing is not None else now.isoformat()
-            )
+            created_at = existing["created_at"] if existing is not None else now.isoformat()
             await connection.execute(
                 """
                 INSERT INTO retention_policies

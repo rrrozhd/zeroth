@@ -134,9 +134,7 @@ class EnvSecretProvider:
         tenant_id: str | None = None,
         deployment_ref: str | None = None,
     ) -> str | None:
-        return self.resolve_secret(
-            logical_name, tenant_id=tenant_id, deployment_ref=deployment_ref
-        )
+        return self.resolve_secret(logical_name, tenant_id=tenant_id, deployment_ref=deployment_ref)
 
 
 async def resolve_async(

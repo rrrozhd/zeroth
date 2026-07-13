@@ -231,9 +231,7 @@ class ContractRegistry:
         """
         schema = dict(json_schema)
         check_json_schema(schema)
-        resolved_version = (
-            version if version is not None else await self.latest_version(name) + 1
-        )
+        resolved_version = version if version is not None else await self.latest_version(name) + 1
         record = ContractVersion(
             name=name,
             version=resolved_version,

@@ -451,9 +451,7 @@ class SandboxManager:
         strictness = self._config.strictness_mode
         if configured is SandboxBackendMode.SIDECAR:
             if self._sidecar_client is None:
-                raise SandboxBackendUnavailableError(
-                    "sidecar client not configured"
-                )
+                raise SandboxBackendUnavailableError("sidecar client not configured")
             return SandboxBackendMode.SIDECAR
         if configured is SandboxBackendMode.LOCAL:
             if (
@@ -659,26 +657,11 @@ class SandboxManager:
             input_text=input_text,
             timeout_seconds=timeout_seconds,
             environment=environment.variables,
-            cpu_cores=(
-                resource_constraints.cpu_cores
-                if resource_constraints
-                else None
-            ),
-            memory_mb=(
-                resource_constraints.memory_mb
-                if resource_constraints
-                else None
-            ),
-            max_processes=(
-                resource_constraints.max_processes
-                if resource_constraints
-                else None
-            ),
-            network_access=(
-                resource_constraints.network_access
-                if resource_constraints
-                else False
-            ) or False,
+            cpu_cores=(resource_constraints.cpu_cores if resource_constraints else None),
+            memory_mb=(resource_constraints.memory_mb if resource_constraints else None),
+            max_processes=(resource_constraints.max_processes if resource_constraints else None),
+            network_access=(resource_constraints.network_access if resource_constraints else False)
+            or False,
         )
         response = asyncio.run(self._sidecar_client.execute(request))
         return SandboxExecutionResult(
