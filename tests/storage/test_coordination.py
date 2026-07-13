@@ -14,6 +14,56 @@ from zeroth.core.storage import async_sqlite
 from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.core.storage.database import CoordinationTimeoutError
+from zeroth.core.storage.coordination import ensure_and_lock_row
+
+
+@pytest.mark.asyncio
+async def test_ensure_and_lock_row_rejects_unapproved_identifiers(async_database) -> None:
+    async with async_database.transaction(write_lock=True) as connection:
+        with pytest.raises(ValueError, match="coordination table"):
+            await ensure_and_lock_row(
+                connection,
+                backend="sqlite",
+                table="node_audits; DROP TABLE node_audits",
+                key_column="run_id",
+                key="run-1",
+            )
+
+
+@pytest.mark.asyncio
+async def test_ensure_and_lock_row_initializes_and_returns_sqlite_row(async_database) -> None:
+    async with async_database.transaction(write_lock=True) as connection:
+        first = await ensure_and_lock_row(
+            connection,
+            backend=async_database.backend,
+            table="retention_coordination",
+            key_column="tenant_id",
+            key="tenant-a",
+        )
+        second = await ensure_and_lock_row(
+            connection,
+            backend=async_database.backend,
+            table="retention_coordination",
+            key_column="tenant_id",
+            key="tenant-a",
+        )
+
+    assert first is not None
+    assert first["tenant_id"] == "tenant-a"
+    assert second == first
+
+    async with async_database.transaction(write_lock=True) as connection:
+        audit_head = await ensure_and_lock_row(
+            connection,
+            backend=async_database.backend,
+            table="audit_chain_heads",
+            key_column="run_id",
+            key="run-a",
+        )
+    assert audit_head is not None
+    assert audit_head["run_id"] == "run-a"
+    assert audit_head["head_digest"] is None
+    assert audit_head["next_sequence"] == 1
 
 
 class _AsyncContext:
@@ -393,6 +443,58 @@ async def test_postgres_contended_row_lock_uses_bounded_coordination_error(
         await contender.close()
         async with postgres_database.transaction() as connection:
             await connection.execute("DROP TABLE IF EXISTS zeroth_coordination_lock_test")
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_postgres_coordination_helper_row_lock_is_bounded(
+    postgres_database: AsyncPostgresDatabase,
+    postgres_container: object,
+) -> None:
+    url = postgres_container.get_connection_url()  # type: ignore[attr-defined]
+    dsn = url.replace("postgresql+psycopg2://", "postgresql://")
+    contender = await AsyncPostgresDatabase.create(
+        dsn,
+        min_size=1,
+        max_size=1,
+        coordination_timeout_seconds=0.1,
+    )
+    tenant_id = "tenant-helper-contention"
+    try:
+        async with postgres_database.transaction(write_lock=True) as connection:
+            await ensure_and_lock_row(
+                connection,
+                backend=postgres_database.backend,
+                table="retention_coordination",
+                key_column="tenant_id",
+                key=tenant_id,
+            )
+
+        async with postgres_database.transaction(write_lock=True) as holder:
+            await ensure_and_lock_row(
+                holder,
+                backend=postgres_database.backend,
+                table="retention_coordination",
+                key_column="tenant_id",
+                key=tenant_id,
+            )
+            started_at = monotonic()
+            with pytest.raises(CoordinationTimeoutError, match="coordination lock"):
+                async with contender.transaction(write_lock=True) as blocked:
+                    await ensure_and_lock_row(
+                        blocked,
+                        backend=contender.backend,
+                        table="retention_coordination",
+                        key_column="tenant_id",
+                        key=tenant_id,
+                    )
+            assert monotonic() - started_at < 1.0
+    finally:
+        await contender.close()
+        async with postgres_database.transaction() as connection:
+            await connection.execute(
+                "DELETE FROM retention_coordination WHERE tenant_id = ?", (tenant_id,)
+            )
 
 
 @pytest.mark.asyncio
