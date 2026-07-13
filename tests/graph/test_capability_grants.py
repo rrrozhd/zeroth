@@ -115,3 +115,55 @@ async def test_validation_accepts_superset_grant() -> None:
     report = await GraphValidator().validate(graph)
     codes = [issue.code for issue in report.issues]
     assert ValidationCode.CAPABILITY_GRANT_INSUFFICIENT not in codes
+
+
+def _mcp_graph(*, agent_caps: list[str]) -> Graph:
+    return Graph(
+        graph_id="mcp-graph",
+        name="mcp",
+        version=1,
+        entry_step="agent",
+        execution_settings=ExecutionSettings(max_total_steps=5),
+        nodes=[
+            AgentNode(
+                node_id="agent",
+                graph_version_ref="mcp-graph@1",
+                input_contract_ref="contract://in",
+                output_contract_ref="contract://out",
+                capability_bindings=agent_caps,
+                agent=AgentNodeData(
+                    instruction="use mcp",
+                    model_provider="governai:test",
+                    mcp_servers=[{"name": "files", "command": "npx", "args": ["mcp-files"]}],
+                ),
+            ),
+        ],
+        edges=[],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("agent_caps", "expected_missing"),
+    [
+        ([], ["external_api_call", "process_spawn"]),
+        (["process_spawn"], ["external_api_call"]),
+        (["external_api_call"], ["process_spawn"]),
+    ],
+)
+async def test_validation_rejects_mcp_agent_missing_capabilities(
+    agent_caps: list[str], expected_missing: list[str]
+) -> None:
+    report = await GraphValidator().validate(_mcp_graph(agent_caps=agent_caps))
+    issues = [i for i in report.issues if i.code == ValidationCode.MISSING_MCP_CAPABILITY]
+    assert len(issues) == 1
+    assert issues[0].details["missing_capabilities"] == expected_missing
+
+
+@pytest.mark.asyncio
+async def test_validation_accepts_mcp_agent_with_both_capabilities() -> None:
+    report = await GraphValidator().validate(
+        _mcp_graph(agent_caps=["process_spawn", "external_api_call"])
+    )
+    codes = [issue.code for issue in report.issues]
+    assert ValidationCode.MISSING_MCP_CAPABILITY not in codes
