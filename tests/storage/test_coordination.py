@@ -10,6 +10,7 @@ import pytest
 from psycopg.errors import LockNotAvailable, QueryCanceled
 
 from tests.conftest import requires_docker
+from zeroth.core.storage import async_sqlite
 from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.core.storage.database import CoordinationTimeoutError
@@ -56,6 +57,57 @@ class _DiagnosticLockTimeout(LockNotAvailable):
             message_detail=None,
             context=None,
         )
+
+
+def test_sqlite_script_splitter_ignores_semicolons_inside_literals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    complete_statement = async_sqlite.sqlite3.complete_statement
+    calls: list[str] = []
+
+    def track_complete_statement(statement: str) -> bool:
+        calls.append(statement)
+        return complete_statement(statement)
+
+    monkeypatch.setattr(async_sqlite.sqlite3, "complete_statement", track_complete_statement)
+    literal = ";" * 1_000
+    statements = list(
+        async_sqlite._split_sql_script(
+            f"INSERT INTO items (value) VALUES ('escaped''quote{literal}');"
+            f" -- {literal}\n SELECT 1;"
+            f" /* {literal} */ SELECT 2;"
+        )
+    )
+
+    assert len(statements) == 3
+    assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_sqlite_execute_script_preserves_triggers_and_rolls_back(tmp_path: Path) -> None:
+    database = AsyncSQLiteDatabase(str(tmp_path / "script-trigger.db"))
+    async with database.transaction() as connection:
+        await connection.execute_script(
+            """
+            CREATE TABLE items (value TEXT);
+            CREATE TABLE item_log (value TEXT);
+            CREATE TRIGGER log_item AFTER INSERT ON items BEGIN
+                INSERT INTO item_log (value) VALUES ('literal;semicolon');
+                INSERT INTO item_log (value) VALUES (NEW.value);
+            END;
+            """
+        )
+
+    with pytest.raises(RuntimeError, match="rollback script"):
+        async with database.transaction(write_lock=True) as connection:
+            await connection.execute_script("INSERT INTO items (value) VALUES ('kept;together');")
+            raise RuntimeError("rollback script")
+
+    async with database.transaction() as connection:
+        items = await connection.fetch_all("SELECT value FROM items")
+        log = await connection.fetch_all("SELECT value FROM item_log")
+    assert items == []
+    assert log == []
 
 
 @pytest.mark.parametrize("database_type", [AsyncSQLiteDatabase, AsyncPostgresDatabase])
