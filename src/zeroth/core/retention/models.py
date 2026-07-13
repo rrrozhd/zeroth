@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -80,3 +81,6 @@ class ErasureResult:
     run_redacted: bool = False
     artifacts_deleted: int = 0
     econ_events_deleted: int | None = None  # None == econ hook not wired
+    external_cleanup_status: Literal["complete", "failed", "pending"] = "pending"
+    authorization_log_id: str | None = None
+    retry_log_id: str | None = None

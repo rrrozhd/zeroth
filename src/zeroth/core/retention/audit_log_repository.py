@@ -81,6 +81,30 @@ class RetentionAuditLogRepository:
             )
         return None if row is None else dict(row)
 
+    async def get_in_transaction(
+        self,
+        connection: AsyncConnection,
+        log_id: str,
+    ) -> dict[str, Any] | None:
+        """Load one retention log through the caller's transaction."""
+        row = await connection.fetch_one(
+            "SELECT * FROM retention_audit_log WHERE log_id = ?",
+            (log_id,),
+        )
+        return None if row is None else dict(row)
+
+    async def list_for_run_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> list[dict[str, Any]]:
+        """List a run's log rows through the caller's transaction."""
+        rows = await connection.fetch_all(
+            "SELECT * FROM retention_audit_log WHERE run_id = ? ORDER BY created_at, log_id",
+            (run_id,),
+        )
+        return [dict(row) for row in rows]
+
     async def list_for_tenant(self, tenant_id: str) -> list[dict[str, Any]]:
         """Return raw log rows for a tenant, oldest first."""
         async with self._database.transaction() as connection:

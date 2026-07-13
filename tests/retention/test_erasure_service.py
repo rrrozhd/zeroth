@@ -144,22 +144,22 @@ class _FailOnceArtifactStore:
 
 async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) -> None:
     artifact_keys = [
-        "approval/key",
-        "checkpoint/key",
-        "condition/key",
-        "memory/key",
-        "snapshot/key",
-        "tool-arguments/key",
-        "tool-outcome/key",
-        "validation/key",
+        "run-retry/approval/key",
+        "run-retry/checkpoint/key",
+        "run-retry/condition/key",
+        "run-retry/memory/key",
+        "run-retry/snapshot/key",
+        "run-retry/tool-arguments/key",
+        "run-retry/tool-outcome/key",
+        "run-retry/validation/key",
     ]
-    store = _FailOnceArtifactStore(artifact_keys, fail_key="validation/key")
+    store = _FailOnceArtifactStore(artifact_keys, fail_key="run-retry/validation/key")
     env.service._artifact_store = store
     await env.seed_run("run-retry", n_audits=0, ssn="909-90-9090")
     base_record = make_audit_record(
         audit_id="run-retry-a0",
         run_id="run-retry",
-        artifact_key="snapshot/key",
+        artifact_key="run-retry/snapshot/key",
         ssn="909-90-9090",
     )
     record = base_record.__class__.model_validate(
@@ -167,13 +167,23 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
             **base_record.model_dump(mode="python"),
             "validation_results": {
                 "nested": {
-                    "artifact": {"store": "filesystem", "key": "validation/key"},
+                    "artifact": {
+                        "store": "filesystem",
+                        "key": "run-retry/validation/key",
+                        "content_type": "application/octet-stream",
+                        "size": 3,
+                    },
                     "join_key": "validation-join",
                 }
             },
             "condition_results": [
                 {
-                    "payload": {"store": "filesystem", "key": "condition/key"},
+                    "payload": {
+                        "store": "filesystem",
+                        "key": "run-retry/condition/key",
+                        "content_type": "application/octet-stream",
+                        "size": 3,
+                    },
                     "join_key": "condition-join",
                 }
             ],
@@ -185,7 +195,12 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
                     "operation": "write",
                     "key": "record",
                     "value": {
-                        "artifact": {"store": "filesystem", "key": "memory/key"},
+                        "artifact": {
+                            "store": "filesystem",
+                            "key": "run-retry/memory/key",
+                            "content_type": "application/octet-stream",
+                            "size": 3,
+                        },
                         "join_key": "memory-join",
                     },
                 }
@@ -197,12 +212,19 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
                     "arguments": {
                         "artifact": {
                             "store": "filesystem",
-                            "key": "tool-arguments/key",
+                            "key": "run-retry/tool-arguments/key",
+                            "content_type": "application/octet-stream",
+                            "size": 3,
                         },
                         "join_key": "tool-arguments-join",
                     },
                     "outcome": {
-                        "artifact": {"store": "filesystem", "key": "tool-outcome/key"},
+                        "artifact": {
+                            "store": "filesystem",
+                            "key": "run-retry/tool-outcome/key",
+                            "content_type": "application/octet-stream",
+                            "size": 3,
+                        },
                         "join_key": "tool-outcome-join",
                     },
                 }
@@ -212,10 +234,20 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
                     "approval_id": "approval",
                     "action": "approved",
                     "metadata": {
-                        "artifact": {"store": "filesystem", "key": "approval/key"},
+                        "artifact": {
+                            "store": "filesystem",
+                            "key": "run-retry/approval/key",
+                            "content_type": "application/octet-stream",
+                            "size": 3,
+                        },
                         "join_key": "approval-join",
                         "duplicates": [
-                            {"store": "filesystem", "key": "validation/key"},
+                            {
+                                "store": "filesystem",
+                                "key": "run-retry/validation/key",
+                                "content_type": "application/octet-stream",
+                                "size": 3,
+                            },
                             {"join_key": "validation-join"},
                         ],
                     },
@@ -236,7 +268,9 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
         state = json.loads(row["state_json"])
         state["metadata"]["external"] = {
             "store": "filesystem",
-            "key": "checkpoint/key",
+            "key": "run-retry/checkpoint/key",
+            "content_type": "application/octet-stream",
+            "size": 3,
         }
         await connection.execute(
             "UPDATE run_checkpoints SET state_json = ? WHERE checkpoint_id = ?",
@@ -246,7 +280,7 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
     first = await env.service.erase_run("run-retry", "rte")
     assert first.audits_erased == 1
     assert store.delete_calls == artifact_keys
-    assert set(store.blobs) == {"validation/key"}
+    assert set(store.blobs) == {"run-retry/validation/key"}
 
     erased = (await env.audit_repo.list_by_run("run-retry"))[0]
     assert erased.validation_results == {}
@@ -258,23 +292,20 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
     entries = await env.log_repo.list_for_run("run-retry")
     authorization = next(row for row in entries if row["action"] == "erasure_authorized")
     manifest = json.loads(authorization["detail"])
-    assert manifest["artifact_keys"] == artifact_keys
-    assert manifest["join_keys"] == [
-        "approval-join",
-        "condition-join",
-        "memory-join",
-        "metadata-join",
-        "run-retry",
-        "tool-arguments-join",
-        "tool-outcome-join",
-        "validation-join",
+    artifact_operations = [
+        operation for operation in manifest["operations"] if operation["kind"] == "artifact_key"
     ]
-    assert manifest["cleanup_status"]["artifact_keys"]["approval/key"]["status"] == "pending"
+    assert [operation["artifact_key"] for operation in artifact_operations] == artifact_keys
+    econ_operation = next(
+        operation for operation in manifest["operations"] if operation["kind"] == "econ"
+    )
+    assert econ_operation["join_keys"] == ["metadata-join", "run-retry"]
+    assert artifact_operations[0]["status"] == "pending"
     assert any(row["action"] == "external_cleanup_failed" for row in entries)
 
     retried = await env.service.retry_external_cleanup(authorization["log_id"])
     assert retried.artifacts_deleted == len(artifact_keys)
-    assert store.delete_calls == [*artifact_keys, "validation/key"]
+    assert store.delete_calls == [*artifact_keys, "run-retry/validation/key"]
     assert store.blobs == {}
     entries = await env.log_repo.list_for_run("run-retry")
     assert any(row["action"] == "external_cleanup_completed" for row in entries)
