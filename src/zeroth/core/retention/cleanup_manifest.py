@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 CleanupKind = Literal["artifact_prefix", "artifact_key", "econ"]
 CleanupStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
+ErasureReason = Literal["ttl", "rte", "manual"]
 
 
 class DatabaseErasureOutcome(BaseModel):
@@ -39,25 +40,39 @@ class CleanupManifest(BaseModel):
     version: Literal[1] = 1
     tenant_id: str
     run_id: str
-    reason: str
+    reason: ErasureReason
     database_result: DatabaseErasureOutcome
     operations: list[CleanupOperation]
 
     @model_validator(mode="after")
     def _validate_operations(self) -> CleanupManifest:
+        if not self.operations:
+            raise ValueError("cleanup manifest must contain operations")
+        kind_counts = {
+            kind: sum(operation.kind == kind for operation in self.operations)
+            for kind in ("artifact_prefix", "econ")
+        }
+        if kind_counts != {"artifact_prefix": 1, "econ": 1}:
+            raise ValueError("cleanup manifest requires one artifact prefix and one econ operation")
         seen: set[str] = set()
         for operation in self.operations:
             if operation.tenant_id != self.tenant_id or operation.run_id != self.run_id:
                 raise ValueError("cleanup operation identity does not match manifest")
             if operation.kind == "artifact_prefix":
+                if operation.artifact_key is not None or operation.join_keys:
+                    raise ValueError("artifact prefix operation has incompatible fields")
                 target = self.run_id
             elif operation.kind == "artifact_key":
                 if operation.artifact_key is None or not operation.artifact_key.startswith(
                     f"{self.run_id}/"
                 ):
                     raise ValueError("artifact cleanup operation is outside run namespace")
+                if operation.join_keys:
+                    raise ValueError("artifact key operation cannot contain join keys")
                 target = operation.artifact_key
             else:
+                if operation.artifact_key is not None or not operation.join_keys:
+                    raise ValueError("econ operation requires join keys only")
                 target = "\0".join(operation.join_keys)
             expected_id = operation_id(self.tenant_id, self.run_id, operation.kind, target)
             if operation.operation_id != expected_id or operation.operation_id in seen:
@@ -93,6 +108,8 @@ def parse_cleanup_manifest(
         raise ValueError("invalid cleanup manifest") from exc
     if manifest.tenant_id != tenant_id or manifest.run_id != run_id:
         raise ValueError("cleanup manifest identity does not match authorization log")
+    if manifest.reason != reason:
+        raise ValueError("cleanup manifest reason does not match authorization log")
     return manifest
 
 
@@ -117,22 +134,13 @@ def _migrate_legacy_manifest(
             error=prefix.get("error"),
         )
     )
-    for key in raw.get("artifact_keys", []):
-        key_status = status["artifact_keys"][key]
-        operations.append(
-            CleanupOperation(
-                operation_id=operation_id(tenant_id, run_id, "artifact_key", key),
-                kind="artifact_key",
-                tenant_id=tenant_id,
-                run_id=run_id,
-                artifact_key=key,
-                status=key_status["status"],
-                deleted_count=key_status.get("deleted_count"),
-                error=key_status.get("error"),
-            )
-        )
+    # Legacy manifests stored only unvalidated key strings, not canonical
+    # ArtifactReference payloads. Prefix cleanup remains safe; individual legacy
+    # keys require manual review and are deliberately not replayed.
     econ = status["econ"]
-    join_keys = list(raw.get("join_keys", []))
+    # Legacy recursive harvesting accepted arbitrary nested join_key values.
+    # The run id is the only authoritative correlation that can be recovered.
+    join_keys = [run_id]
     operations.append(
         CleanupOperation(
             operation_id=operation_id(tenant_id, run_id, "econ", "\0".join(join_keys)),

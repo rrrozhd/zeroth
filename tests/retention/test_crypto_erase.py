@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from tests.retention.conftest import make_audit_record
 
 from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
@@ -171,6 +173,26 @@ async def test_v2_uncommitted_structured_payload_cannot_be_erased(sqlite_db) -> 
         raise AssertionError("v2 uncommitted structured PII must not be erased")
     after = await AuditContinuityVerifier(repo).verify_run("run-v2")
     assert after.verified is True
+
+
+async def test_connection_aware_tombstone_rejects_cross_record_mismatch(sqlite_db) -> None:
+    repo = AuditRepository(sqlite_db)
+    await repo.write(make_audit_record(audit_id="audit-a", run_id="run-mismatch"))
+    await repo.write(make_audit_record(audit_id="audit-b", run_id="run-mismatch"))
+    record_b = await repo.get("audit-b")
+    assert record_b is not None
+
+    async with sqlite_db.transaction() as connection:
+        with pytest.raises(ValueError, match="audit_id"):
+            await repo.crypto_erase_in_transaction(
+                connection,
+                "audit-a",
+                reason="rte",
+                record=record_b,
+            )
+
+    record_a = await repo.get("audit-a")
+    assert record_a is not None and record_a.audit_id == "audit-a" and not record_a.erased
 
 
 async def test_list_erasable_excludes_legacy_and_held(sqlite_db) -> None:

@@ -52,3 +52,14 @@ class OutcomeEvent(Base):
     ingested_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     outcome_timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
     provenance: Mapped[str] = mapped_column(String(16), default="MEASURED")
+
+
+class EconErasureReceipt(Base):
+    """Durable exactly-once receipt for tenant-scoped erasure operations."""
+
+    __tablename__ = "econ_erasure_receipts"
+
+    operation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    deleted_count: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from zeroth.core.retention.cleanup_manifest import (
     operation_id,
     parse_cleanup_manifest,
 )
+from zeroth.core.retention.erasure_service import StaleCleanupClaimError
 from zeroth.core.runs import Run
 
 
@@ -239,22 +241,171 @@ async def test_legacy_manifest_migration_preserves_safe_completed_progress() -> 
     assert manifest.version == 1
     assert manifest.database_result.audits_erased == 2
     assert all(operation.status in {"completed", "skipped"} for operation in manifest.operations)
+    assert not any(operation.kind == "artifact_key" for operation in manifest.operations)
+    econ = next(operation for operation in manifest.operations if operation.kind == "econ")
+    assert econ.join_keys == ["run-old"]
+
+
+async def test_complete_manifest_without_terminal_is_repaired(env) -> None:
+    operations = [
+        CleanupOperation(
+            operation_id=operation_id("default", "run-repair", "artifact_prefix", "run-repair"),
+            kind="artifact_prefix",
+            tenant_id="default",
+            run_id="run-repair",
+            status="completed",
+            deleted_count=1,
+        ),
+        CleanupOperation(
+            operation_id=operation_id("default", "run-repair", "econ", "run-repair"),
+            kind="econ",
+            tenant_id="default",
+            run_id="run-repair",
+            join_keys=["run-repair"],
+            status="skipped",
+            deleted_count=None,
+        ),
+    ]
+    manifest = CleanupManifest(
+        tenant_id="default",
+        run_id="run-repair",
+        reason="rte",
+        database_result=DatabaseErasureOutcome(),
+        operations=operations,
+    )
+    log_id = await env.log_repo.record(
+        tenant_id="default",
+        run_id="run-repair",
+        action="erasure_authorized",
+        reason="rte",
+        detail=manifest.model_dump(mode="json"),
+    )
+
+    result = await env.service.retry_external_cleanup(log_id)
+
+    assert result.external_cleanup_status == "complete"
+    assert result.retry_log_id is not None
+    actions = [row["action"] for row in await env.log_repo.list_for_run("run-repair")]
+    assert "external_cleanup_completed" in actions
+
+
+class _FailTerminalOnceLog(RetentionAuditLogRepository):
+    def __init__(self, database: Any) -> None:
+        super().__init__(database)
+        self.fail_once = True
+
+    async def record_in_transaction(self, connection, *, action: str, **kwargs: Any) -> str:
+        if action == "external_cleanup_completed" and self.fail_once:
+            self.fail_once = False
+            raise RuntimeError("terminal log unavailable")
+        return await super().record_in_transaction(connection, action=action, **kwargs)
+
+
+async def test_retry_repairs_terminal_after_terminal_write_failure(env) -> None:
+    key = "run-claim/n1/blob"
+    log_id = await _record_pending_artifact_authorization(env, key)
+    store = _IdempotentBlockingStore(key)
+    store.release.set()
+    log_repo = _FailTerminalOnceLog(env.database)
+    service = RetentionErasureService(
+        audit_repository=env.audit_repo,
+        run_repository=env.run_repo,
+        policy_repository=env.policy_repo,
+        legal_hold_repository=env.hold_repo,
+        log_repository=log_repo,
+        artifact_store=store,
+    )
+
+    with pytest.raises(RuntimeError, match="terminal log unavailable"):
+        await service.retry_external_cleanup(log_id)
+    repaired = await service.retry_external_cleanup(log_id)
+
+    assert repaired.external_cleanup_status == "complete"
+    assert repaired.retry_log_id is not None
+    actions = [row["action"] for row in await log_repo.list_for_run("run-claim")]
+    assert actions.count("external_cleanup_completed") == 1
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda detail: detail.update(reason="not-authorized"),
+        lambda detail: detail.update(operations=[]),
+        lambda detail: detail["operations"].append(dict(detail["operations"][0])),
+    ],
+    ids=["reason", "empty-operations", "duplicate-prefix"],
+)
+async def test_manifest_invariants_reject_ambiguous_authorization(env, mutate) -> None:
+    operations = [
+        CleanupOperation(
+            operation_id=operation_id("default", "run-invalid", "artifact_prefix", "run-invalid"),
+            kind="artifact_prefix",
+            tenant_id="default",
+            run_id="run-invalid",
+            status="skipped",
+        ),
+        CleanupOperation(
+            operation_id=operation_id("default", "run-invalid", "econ", "run-invalid"),
+            kind="econ",
+            tenant_id="default",
+            run_id="run-invalid",
+            join_keys=["run-invalid"],
+            status="skipped",
+            deleted_count=None,
+        ),
+    ]
+    detail = CleanupManifest(
+        tenant_id="default",
+        run_id="run-invalid",
+        reason="rte",
+        database_result=DatabaseErasureOutcome(),
+        operations=operations,
+    ).model_dump(mode="json")
+    mutate(detail)
+    log_id = await env.log_repo.record(
+        tenant_id="default",
+        run_id="run-invalid",
+        action="erasure_authorized",
+        reason="rte",
+        detail=detail,
+    )
+
+    with pytest.raises(ValueError, match="manifest"):
+        await env.service.retry_external_cleanup(log_id)
 
 
 async def _record_pending_artifact_authorization(env, key: str) -> str:
-    operation = CleanupOperation(
-        operation_id=operation_id("default", "run-claim", "artifact_key", key),
-        kind="artifact_key",
-        tenant_id="default",
-        run_id="run-claim",
-        artifact_key=key,
-    )
+    operations = [
+        CleanupOperation(
+            operation_id=operation_id("default", "run-claim", "artifact_prefix", "run-claim"),
+            kind="artifact_prefix",
+            tenant_id="default",
+            run_id="run-claim",
+            status="skipped",
+        ),
+        CleanupOperation(
+            operation_id=operation_id("default", "run-claim", "artifact_key", key),
+            kind="artifact_key",
+            tenant_id="default",
+            run_id="run-claim",
+            artifact_key=key,
+        ),
+        CleanupOperation(
+            operation_id=operation_id("default", "run-claim", "econ", "run-claim"),
+            kind="econ",
+            tenant_id="default",
+            run_id="run-claim",
+            join_keys=["run-claim"],
+            status="skipped",
+            deleted_count=None,
+        ),
+    ]
     manifest = CleanupManifest(
         tenant_id="default",
         run_id="run-claim",
         reason="rte",
         database_result=DatabaseErasureOutcome(),
-        operations=[operation],
+        operations=operations,
     )
     return await env.log_repo.record(
         tenant_id="default",
@@ -303,13 +454,103 @@ async def test_concurrent_retries_share_one_durable_claim(env) -> None:
     assert len(store.calls) == 1
 
 
+async def test_stale_generation_cannot_release_or_progress_new_claim(env) -> None:
+    key = "run-claim/n1/blob"
+    log_id = await _record_pending_artifact_authorization(env, key)
+    expired = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+    future = (datetime.now(UTC) + timedelta(minutes=1)).isoformat()
+    await env.log_repo.record(
+        tenant_id="default",
+        run_id="run-claim",
+        action="external_cleanup_claimed",
+        reason="rte",
+        detail={
+            "authorization_log_id": log_id,
+            "claim_id": "claim-a",
+            "generation": 1,
+            "revision": 1,
+            "lease_expires_at": expired,
+        },
+    )
+    claim_b_log_id = await env.log_repo.record(
+        tenant_id="default",
+        run_id="run-claim",
+        action="external_cleanup_claimed",
+        reason="rte",
+        detail={
+            "authorization_log_id": log_id,
+            "claim_id": "claim-b",
+            "generation": 2,
+            "revision": 2,
+            "lease_expires_at": future,
+        },
+    )
+    operation = CleanupOperation(
+        operation_id=operation_id("default", "run-claim", "artifact_key", key),
+        kind="artifact_key",
+        tenant_id="default",
+        run_id="run-claim",
+        artifact_key=key,
+        status="completed",
+        deleted_count=1,
+    )
+
+    await env.service._release_cleanup_claim(
+        authorization_log_id=log_id,
+        claim_id="claim-a",
+        generation=1,
+        tenant_id="default",
+        run_id="run-claim",
+        reason="rte",
+    )
+    with pytest.raises(StaleCleanupClaimError):
+        await env.service._record_operation_delta(log_id, "claim-a", 1, operation)
+
+    pending = await env.service.retry_external_cleanup(log_id)
+    assert pending.external_cleanup_status == "pending"
+    assert pending.retry_log_id == claim_b_log_id
+    rows = await env.log_repo.list_for_run("run-claim")
+    assert not any(
+        row["action"] == "external_cleanup_claim_released"
+        and json.loads(row["detail"])["claim_id"] == "claim-a"
+        for row in rows
+    )
+
+
+async def test_long_operation_heartbeats_renew_claim_lease(env) -> None:
+    key = "run-claim/n1/heartbeat"
+    log_id = await _record_pending_artifact_authorization(env, key)
+    store = _IdempotentBlockingStore(key)
+    service = RetentionErasureService(
+        audit_repository=env.audit_repo,
+        run_repository=env.run_repo,
+        policy_repository=env.policy_repo,
+        legal_hold_repository=env.hold_repo,
+        log_repository=env.log_repo,
+        artifact_store=store,
+        cleanup_lease_seconds=0.06,
+    )
+
+    task = asyncio.create_task(service.retry_external_cleanup(log_id))
+    await asyncio.wait_for(store.entered.wait(), timeout=1)
+    await asyncio.sleep(0.12)
+    pending = await service.retry_external_cleanup(log_id)
+    assert pending.external_cleanup_status == "pending"
+    store.release.set()
+    completed = await asyncio.wait_for(task, timeout=1)
+    assert completed.external_cleanup_status == "complete"
+    actions = [row["action"] for row in await env.log_repo.list_for_run("run-claim")]
+    assert "external_cleanup_heartbeat" in actions
+
+
 class _FailCompletedProgressLog(RetentionAuditLogRepository):
     def __init__(self, database: Any) -> None:
         super().__init__(database)
         self.fail_once = True
 
-    async def record(
+    async def record_in_transaction(
         self,
+        connection,
         *,
         tenant_id: str,
         action: str,
@@ -317,12 +558,16 @@ class _FailCompletedProgressLog(RetentionAuditLogRepository):
         reason: str | None = None,
         detail: Mapping[str, Any] | None = None,
     ) -> str:
-        if action == "external_cleanup_operation" and self.fail_once and detail is not None:
-            operations = detail["manifest"]["operations"]
-            if any(operation["status"] == "completed" for operation in operations):
-                self.fail_once = False
-                raise RuntimeError("crash after external operation")
-        return await super().record(
+        if (
+            action == "external_cleanup_operation"
+            and self.fail_once
+            and detail is not None
+            and detail["status"] == "completed"
+        ):
+            self.fail_once = False
+            raise RuntimeError("crash after external operation")
+        return await super().record_in_transaction(
+            connection,
             tenant_id=tenant_id,
             action=action,
             run_id=run_id,
@@ -405,3 +650,60 @@ async def test_compatibility_log_failure_does_not_block_external_cleanup(env) ->
 
     assert result.external_cleanup_status == "complete"
     assert key not in env.artifact_store.blobs
+
+
+async def test_operation_progress_events_are_constant_size_deltas(env) -> None:
+    keys = [f"run-linear/n/{index}" for index in range(20)]
+    operations = [
+        CleanupOperation(
+            operation_id=operation_id("default", "run-linear", "artifact_prefix", "run-linear"),
+            kind="artifact_prefix",
+            tenant_id="default",
+            run_id="run-linear",
+            status="skipped",
+        ),
+        *[
+            CleanupOperation(
+                operation_id=operation_id("default", "run-linear", "artifact_key", key),
+                kind="artifact_key",
+                tenant_id="default",
+                run_id="run-linear",
+                artifact_key=key,
+            )
+            for key in keys
+        ],
+        CleanupOperation(
+            operation_id=operation_id("default", "run-linear", "econ", "run-linear"),
+            kind="econ",
+            tenant_id="default",
+            run_id="run-linear",
+            join_keys=["run-linear"],
+            status="skipped",
+            deleted_count=None,
+        ),
+    ]
+    manifest = CleanupManifest(
+        tenant_id="default",
+        run_id="run-linear",
+        reason="rte",
+        database_result=DatabaseErasureOutcome(),
+        operations=operations,
+    )
+    log_id = await env.log_repo.record(
+        tenant_id="default",
+        run_id="run-linear",
+        action="erasure_authorized",
+        reason="rte",
+        detail=manifest.model_dump(mode="json"),
+    )
+    store = _IdempotentBlockingStore(keys[0])
+    store.release.set()
+    env.service._artifact_store = store
+
+    await env.service.retry_external_cleanup(log_id)
+
+    rows = await env.log_repo.list_for_run("run-linear")
+    deltas = [row for row in rows if row["action"] == "external_cleanup_operation"]
+    assert len(deltas) == 2 * len(keys)
+    assert all('"manifest"' not in row["detail"] for row in deltas)
+    assert max(len(row["detail"]) for row in deltas) < 800
