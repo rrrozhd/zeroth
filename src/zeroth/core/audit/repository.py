@@ -16,6 +16,11 @@ from zeroth.core.audit.coordination import (
     load_ordered_run_records,
     lock_audit_chain,
 )
+from zeroth.core.audit.erasure_schema import (
+    ERASED_PII_VALUES,
+    LATEST_DIGEST_VERSION,
+    pii_commitment_fields,
+)
 from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.core.storage import AsyncConnection, AsyncDatabase
@@ -23,23 +28,6 @@ from zeroth.core.storage.json import to_json_value
 
 if TYPE_CHECKING:
     from zeroth.core.signing import SigningKeyProvider
-
-# The concrete "empty" each PII payload field is reset to on crypto-erasure,
-# matching the model defaults so the nulled record still validates. The digest
-# is over ``pii_commitments`` (v2), so these substitutions never change it.
-_ERASED_PII_VALUES: dict[str, object] = {
-    "input_snapshot": {},
-    "output_snapshot": {},
-    "validation_results": {},
-    "execution_metadata": {},
-    "stdout": None,
-    "stderr": None,
-    "error": None,
-    "condition_results": [],
-    "tool_calls": [],
-    "memory_interactions": [],
-    "approval_actions": [],
-}
 
 
 class AuditRepository:
@@ -78,7 +66,7 @@ class AuditRepository:
             # identical after a later crypto-erasure nulls the plaintext. Always
             # populated for a commitment write — never left None (an empty
             # record would still "verify" while binding no PII).
-            versioned = record.model_copy(update={"digest_version": 3})
+            versioned = record.model_copy(update={"digest_version": LATEST_DIGEST_VERSION})
             prepared = versioned.model_copy(
                 update={
                     "pii_commitments": _compute_pii_commitments(versioned),
@@ -272,6 +260,15 @@ class AuditRepository:
                 f"audit_id {audit_id!r} is digest_version=1 (legacy) and cannot be "
                 "crypto-erased; legacy whole-payload digests are grandfathered"
             )
+        expected_commitments = _compute_pii_commitments(record)
+        expected_keys = set(pii_commitment_fields(record.digest_version))
+        stored_commitments = record.pii_commitments or {}
+        if set(stored_commitments) != expected_keys:
+            raise ValueError(f"audit_id {audit_id!r} has invalid pii_commitments field schema")
+        if not record.erased and stored_commitments != expected_commitments:
+            raise ValueError(
+                f"audit_id {audit_id!r} has pii_commitments that do not match plaintext"
+            )
         if record.digest_version == 2 and (record.condition_results or record.approval_actions):
             raise ValueError(
                 f"audit_id {audit_id!r} is digest_version=2 and contains structured "
@@ -281,7 +278,7 @@ class AuditRepository:
             return record  # idempotent: already erased, commitments/digest intact
         erased = record.model_copy(
             update={
-                **_ERASED_PII_VALUES,
+                **ERASED_PII_VALUES,
                 "erased": True,
                 "erased_at": datetime.now(UTC),
                 "erasure_reason": reason,
