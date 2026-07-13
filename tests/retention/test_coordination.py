@@ -44,6 +44,15 @@ class _BlockingPlaceRepository(LegalHoldRepository):
         )
 
 
+async def _cancel_and_drain(*tasks: asyncio.Task[LegalHold] | None) -> None:
+    active_tasks = [task for task in tasks if task is not None]
+    for task in active_tasks:
+        if not task.done():
+            task.cancel()
+    if active_tasks:
+        await asyncio.gather(*active_tasks, return_exceptions=True)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("first_run_id", "second_run_id"),
@@ -68,7 +77,10 @@ async def test_hold_placements_share_one_tenant_coordination_row(
     )
     second_repository = LegalHoldRepository(second_database)
 
-    first_task = asyncio.create_task(first_repository.place("tenant-a", run_id=first_run_id))
+    first_task: asyncio.Task[LegalHold] | None = asyncio.create_task(
+        first_repository.place("tenant-a", run_id=first_run_id)
+    )
+    second_task: asyncio.Task[LegalHold] | None = None
     try:
         await asyncio.wait_for(entered.wait(), timeout=1.0)
         contender_attempted = asyncio.Event()
@@ -83,11 +95,13 @@ async def test_hold_placements_share_one_tenant_coordination_row(
         with pytest.raises(CoordinationTimeoutError, match="coordination lock"):
             await second_task
         assert not release.is_set()
-    finally:
         release.set()
         first_hold = await first_task
-    assert first_hold.tenant_id == "tenant-a"
-    assert first_hold.run_id == first_run_id
+        assert first_hold.tenant_id == "tenant-a"
+        assert first_hold.run_id == first_run_id
+    finally:
+        release.set()
+        await _cancel_and_drain(first_task, second_task)
 
     async with async_database.transaction() as connection:
         rows = await connection.fetch_all(
@@ -114,16 +128,17 @@ async def test_postgres_hold_placements_share_one_tenant_coordination_row(
     )
     entered = asyncio.Event()
     release = asyncio.Event()
-    first_repository = _BlockingPlaceRepository(
-        postgres_database,
-        entered=entered,
-        release=release,
-    )
-    second_repository = LegalHoldRepository(contender_database)
     tenant_id = "tenant-task4-postgres"
-
-    first_task = asyncio.create_task(first_repository.place(tenant_id, run_id="run-postgres"))
+    first_task: asyncio.Task[LegalHold] | None = None
+    second_task: asyncio.Task[LegalHold] | None = None
     try:
+        first_repository = _BlockingPlaceRepository(
+            postgres_database,
+            entered=entered,
+            release=release,
+        )
+        second_repository = LegalHoldRepository(contender_database)
+        first_task = asyncio.create_task(first_repository.place(tenant_id, run_id="run-postgres"))
         await asyncio.wait_for(entered.wait(), timeout=1.0)
         contender_attempted = asyncio.Event()
 
@@ -137,11 +152,35 @@ async def test_postgres_hold_placements_share_one_tenant_coordination_row(
         with pytest.raises(CoordinationTimeoutError, match="coordination lock"):
             await second_task
         assert not release.is_set()
-    finally:
         release.set()
         first_hold = await first_task
-        await contender_database.close()
-    assert first_hold.run_id == "run-postgres"
+        assert first_hold.run_id == "run-postgres"
+    finally:
+        release.set()
+        try:
+            await _cancel_and_drain(first_task, second_task)
+            async with postgres_database.transaction(write_lock=True) as connection:
+                await connection.execute(
+                    "DELETE FROM legal_holds WHERE tenant_id = ?",
+                    (tenant_id,),
+                )
+                await connection.execute(
+                    "DELETE FROM retention_coordination WHERE tenant_id = ?",
+                    (tenant_id,),
+                )
+            async with postgres_database.transaction() as connection:
+                remaining_holds = await connection.fetch_all(
+                    "SELECT hold_id FROM legal_holds WHERE tenant_id = ?",
+                    (tenant_id,),
+                )
+                remaining_coordination = await connection.fetch_all(
+                    "SELECT tenant_id FROM retention_coordination WHERE tenant_id = ?",
+                    (tenant_id,),
+                )
+            assert remaining_holds == []
+            assert remaining_coordination == []
+        finally:
+            await contender_database.close()
 
 
 @pytest.mark.asyncio
