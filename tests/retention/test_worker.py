@@ -20,16 +20,23 @@ class _RecordingPolicyRepo:
 
 
 class _FlakyErasureService:
-    """purge_tenant raises for one tenant, succeeds for the rest."""
+    """Both sweep surfaces raise for one tenant, succeed for the rest."""
 
     def __init__(self, failing_tenant: str) -> None:
         self.failing_tenant = failing_tenant
         self.purged: list[str] = []
+        self.audit_swept: list[str] = []
 
-    async def purge_tenant(self, tenant_id: str) -> list:
+    async def purge_runs(self, tenant_id: str) -> list:
         if tenant_id == self.failing_tenant:
             raise RuntimeError("boom")
         self.purged.append(tenant_id)
+        return []
+
+    async def purge_audits(self, tenant_id: str) -> list:
+        if tenant_id == self.failing_tenant:
+            raise RuntimeError("boom")
+        self.audit_swept.append(tenant_id)
         return []
 
 
@@ -75,3 +82,46 @@ async def test_worker_cancellation_propagates() -> None:
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+class _HalfFailingService:
+    """purge_runs raises for one tenant; purge_audits always succeeds."""
+
+    def __init__(self, fail_runs_for: str) -> None:
+        self.fail_runs_for = fail_runs_for
+        self.run_swept: list[str] = []
+        self.audit_swept: list[str] = []
+
+    async def purge_runs(self, tenant_id: str) -> list:
+        if tenant_id == self.fail_runs_for:
+            raise RuntimeError("runs boom")
+        self.run_swept.append(tenant_id)
+        return []
+
+    async def purge_audits(self, tenant_id: str) -> list:
+        self.audit_swept.append(tenant_id)
+        return []
+
+
+async def test_worker_sweeps_surfaces_independently() -> None:
+    """A failing run sweep must not starve the same tenant's audit sweep."""
+    policies = [RetentionPolicy(tenant_id="tenant-a"), RetentionPolicy(tenant_id="tenant-b")]
+    service = _HalfFailingService(fail_runs_for="tenant-a")
+    worker = RetentionPurgeWorker(
+        erasure_service=service,  # type: ignore[arg-type]
+        policy_repository=_RecordingPolicyRepo(policies),  # type: ignore[arg-type]
+        poll_interval=0.01,
+    )
+
+    task = asyncio.create_task(worker.poll_loop())
+    for _ in range(200):
+        if "tenant-b" in service.audit_swept:
+            break
+        await asyncio.sleep(0.005)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert "tenant-a" in service.audit_swept  # audit sweep survived the runs failure
+    assert "tenant-b" in service.run_swept
+    assert "tenant-a" not in service.run_swept
