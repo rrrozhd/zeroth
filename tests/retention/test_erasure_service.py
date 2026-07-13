@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from zeroth.core.retention.erasure_service import LegalHoldError
@@ -11,18 +13,14 @@ async def _pii_present(database, ssn: str) -> dict[str, bool]:
     """Scan every plaintext surface for a raw PII string."""
     async with database.transaction() as connection:
         audits = await connection.fetch_all("SELECT record_json FROM node_audits", ())
-        checkpoints = await connection.fetch_all(
-            "SELECT state_json FROM run_checkpoints", ()
-        )
+        checkpoints = await connection.fetch_all("SELECT state_json FROM run_checkpoints", ())
         runs = await connection.fetch_all(
             "SELECT final_output, artifacts, metadata, error FROM runs", ()
         )
     return {
         "node_audits": any(ssn in (row["record_json"] or "") for row in audits),
         "run_checkpoints": any(ssn in (row["state_json"] or "") for row in checkpoints),
-        "runs": any(
-            ssn in "".join(str(row[c] or "") for c in row) for row in runs
-        ),
+        "runs": any(ssn in "".join(str(row[c] or "") for c in row) for row in runs),
     }
 
 
@@ -120,3 +118,73 @@ async def test_refused_hold_is_logged(env) -> None:
         await env.service.erase_run("run-refuse", "rte")
     actions = [e["action"] for e in await env.log_repo.list_for_run("run-refuse")]
     assert actions == ["erasure_refused_legal_hold"]
+
+
+class _FailOnceArtifactStore:
+    def __init__(self) -> None:
+        self.blobs = {"external/key-a": b"a", "external/key-b": b"b"}
+        self.delete_calls: list[str] = []
+        self._failed = False
+
+    async def cleanup_run(self, run_id: str) -> int:
+        return 0
+
+    async def delete(self, key: str) -> bool:
+        self.delete_calls.append(key)
+        if key == "external/key-b" and not self._failed:
+            self._failed = True
+            raise RuntimeError("injected external cleanup failure")
+        return self.blobs.pop(key, None) is not None
+
+
+async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) -> None:
+    store = _FailOnceArtifactStore()
+    env.service._artifact_store = store
+    await env.seed_run(
+        "run-retry",
+        n_audits=1,
+        artifact_key="external/key-a",
+        ssn="909-90-9090",
+    )
+    # A second key exists only in the database checkpoint/run payload, proving
+    # authorization harvests every database-resident surface before redaction.
+    async with env.database.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT checkpoint_id, state_json FROM run_checkpoints WHERE run_id = ?",
+            ("run-retry",),
+        )
+        assert row is not None
+        state = json.loads(row["state_json"])
+        state["metadata"]["external"] = {
+            "store": "filesystem",
+            "key": "external/key-b",
+        }
+        await connection.execute(
+            "UPDATE run_checkpoints SET state_json = ? WHERE checkpoint_id = ?",
+            (json.dumps(state), row["checkpoint_id"]),
+        )
+
+    first = await env.service.erase_run("run-retry", "rte")
+    assert first.audits_erased == 1
+    assert store.delete_calls == ["external/key-a", "external/key-b"]
+    assert "external/key-a" not in store.blobs
+    assert "external/key-b" in store.blobs
+
+    entries = await env.log_repo.list_for_run("run-retry")
+    authorization = next(row for row in entries if row["action"] == "erasure_authorized")
+    manifest = json.loads(authorization["detail"])
+    assert manifest["artifact_keys"] == ["external/key-a", "external/key-b"]
+    assert manifest["join_keys"] == ["run-retry"]
+    assert manifest["cleanup_status"]["artifact_keys"]["external/key-a"]["status"] == "pending"
+    assert any(row["action"] == "external_cleanup_failed" for row in entries)
+
+    retried = await env.service.retry_external_cleanup(authorization["log_id"])
+    assert retried.artifacts_deleted == 2
+    assert store.delete_calls == [
+        "external/key-a",
+        "external/key-b",
+        "external/key-b",
+    ]
+    assert store.blobs == {}
+    entries = await env.log_repo.list_for_run("run-retry")
+    assert any(row["action"] == "external_cleanup_completed" for row in entries)
