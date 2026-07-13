@@ -36,25 +36,23 @@ def upgrade() -> None:
 
     # Existing records predate explicit sequence allocation. Preserve their
     # established repository ordering exactly, independently for each run.
-    connection = op.get_bind()
-    rows = connection.execute(
-        sa.text(
-            "SELECT audit_id, run_id FROM node_audits "
-            "ORDER BY run_id, created_at, audit_id"
+    op.execute("""
+        WITH ranked AS (
+            SELECT
+                audit_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY run_id
+                    ORDER BY created_at, audit_id
+                ) AS chain_sequence
+            FROM node_audits
         )
-    ).mappings()
-    sequence_by_run: dict[str, int] = {}
-    update = sa.text(
-        "UPDATE node_audits SET chain_sequence = :chain_sequence WHERE audit_id = :audit_id"
-    )
-    for row in rows:
-        run_id = row["run_id"]
-        sequence = sequence_by_run.get(run_id, 0) + 1
-        sequence_by_run[run_id] = sequence
-        connection.execute(
-            update,
-            {"chain_sequence": sequence, "audit_id": row["audit_id"]},
+        UPDATE node_audits
+        SET chain_sequence = (
+            SELECT ranked.chain_sequence
+            FROM ranked
+            WHERE ranked.audit_id = node_audits.audit_id
         )
+    """)
 
     op.create_index(
         _SEQUENCE_INDEX,
