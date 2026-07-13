@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from time import monotonic
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from psycopg.errors import LockNotAvailable, QueryCanceled
 
+from tests.conftest import requires_docker
 from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.core.storage.database import CoordinationTimeoutError
@@ -43,6 +46,16 @@ class _PostgresPool:
 
     def connection(self) -> _AsyncContext:
         return _AsyncContext(self._connection)
+
+
+class _DiagnosticLockTimeout(LockNotAvailable):
+    @property
+    def diag(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            message_primary="canceling statement due to lock timeout",
+            message_detail=None,
+            context=None,
+        )
 
 
 @pytest.mark.parametrize("database_type", [AsyncSQLiteDatabase, AsyncPostgresDatabase])
@@ -202,18 +215,87 @@ async def test_postgres_lock_timeout_uses_coordination_error() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("error_type", [QueryCanceled, LockNotAvailable])
+@pytest.mark.parametrize(
+    "error",
+    [
+        QueryCanceled("canceling statement due to statement timeout"),
+        QueryCanceled("canceling statement due to user request"),
+        LockNotAvailable("could not obtain lock on row in relation"),
+    ],
+)
 async def test_postgres_write_lock_preserves_body_database_errors(
-    error_type: type[Exception],
+    error: Exception,
 ) -> None:
     connection = _PostgresConnection()
     database = AsyncPostgresDatabase(_PostgresPool(connection))  # type: ignore[arg-type]
 
-    with pytest.raises(error_type):
+    with pytest.raises(type(error)):
         async with database.transaction(write_lock=True):
-            raise error_type("user SQL failed")
+            raise error
 
     assert connection.executed == ["SET LOCAL lock_timeout = '5000ms'"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        QueryCanceled("canceling statement due to lock timeout"),
+        _DiagnosticLockTimeout("could not obtain lock"),
+    ],
+)
+async def test_postgres_write_lock_maps_identified_body_lock_timeout(
+    error: Exception,
+) -> None:
+    connection = _PostgresConnection()
+    database = AsyncPostgresDatabase(_PostgresPool(connection))  # type: ignore[arg-type]
+
+    with pytest.raises(CoordinationTimeoutError, match="coordination lock"):
+        async with database.transaction(write_lock=True):
+            raise error
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_postgres_contended_row_lock_uses_bounded_coordination_error(
+    postgres_database: AsyncPostgresDatabase,
+    postgres_container: object,
+) -> None:
+    url = postgres_container.get_connection_url()  # type: ignore[attr-defined]
+    dsn = url.replace("postgresql+psycopg2://", "postgresql://")
+    contender = await AsyncPostgresDatabase.create(
+        dsn,
+        min_size=1,
+        max_size=1,
+        coordination_timeout_seconds=0.1,
+    )
+    try:
+        async with postgres_database.transaction() as connection:
+            await connection.execute("DROP TABLE IF EXISTS zeroth_coordination_lock_test")
+            await connection.execute(
+                "CREATE TABLE zeroth_coordination_lock_test (id INTEGER PRIMARY KEY)"
+            )
+            await connection.execute(
+                "INSERT INTO zeroth_coordination_lock_test (id) VALUES (?)", (1,)
+            )
+
+        async with postgres_database.transaction(write_lock=True) as holder:
+            await holder.fetch_one(
+                "SELECT id FROM zeroth_coordination_lock_test WHERE id = ? FOR UPDATE",
+                (1,),
+            )
+            started_at = monotonic()
+            with pytest.raises(CoordinationTimeoutError, match="coordination lock"):
+                async with contender.transaction(write_lock=True) as blocked:
+                    await blocked.fetch_one(
+                        "SELECT id FROM zeroth_coordination_lock_test WHERE id = ? FOR UPDATE",
+                        (1,),
+                    )
+            assert monotonic() - started_at < 1.0
+    finally:
+        await contender.close()
+        async with postgres_database.transaction() as connection:
+            await connection.execute("DROP TABLE IF EXISTS zeroth_coordination_lock_test")
 
 
 @pytest.mark.asyncio

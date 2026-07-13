@@ -27,7 +27,9 @@
   Configure a bounded busy timeout and raise `CoordinationTimeoutError` on lock timeout.
 - [ ] Postgres: expose `backend = "postgres"` and, for `write_lock=True`, execute
   `SET LOCAL lock_timeout = '<configured milliseconds>ms'` before yielding. Map
-  psycopg lock-timeout/query-cancel exceptions to the same `CoordinationTimeoutError`.
+  psycopg lock-timeout/query-cancel exceptions whose message or diagnostics identify
+  PostgreSQL `lock_timeout` to the same `CoordinationTimeoutError`; preserve statement
+  timeouts, user cancellation, and unrelated lock errors.
   Add `coordination_timeout_seconds` to both database constructors with one bounded
   default used by SQLite busy timeout and Postgres `lock_timeout`.
 - [ ] Run GREEN: `uv run pytest -q tests/storage/test_coordination.py tests/storage/test_sqlite.py`.
