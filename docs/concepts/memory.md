@@ -2,7 +2,7 @@
 
 ## What it is
 
-The **memory** subsystem gives Zeroth agents a place to read and write information that outlives a single function call — scratch space for the current run, conversation history for a thread, shared key-value data across runs, or long-term embeddings for retrieval. Memory is accessed through **connectors**, each of which implements the GovernAI `MemoryConnector` protocol and is registered under a name so that agents and nodes can look it up at runtime.
+The **memory** subsystem gives Zeroth agents a place to read and write information that outlives a single function call — scratch space for the current run, conversation history for a thread, shared key-value data across runs, or long-term embeddings for retrieval. Memory is accessed through **connectors**, each of which implements the governed `MemoryConnector` protocol and is registered under a name so that agents and nodes can look it up at runtime.
 
 ## Why it exists
 

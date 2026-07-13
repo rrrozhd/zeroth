@@ -12,6 +12,12 @@ from zeroth.core.execution_units.adapters import (
 )
 from zeroth.core.execution_units.constraints import ResourceConstraints, build_docker_resource_flags
 from zeroth.core.execution_units.errors import ManifestValidationError
+from zeroth.core.execution_units.inline import (
+    FreeformPayload,
+    build_inline_binding,
+    build_inline_manifest,
+    inline_source_digest,
+)
 from zeroth.core.execution_units.integrity import (
     AdmissionController,
     AdmissionResult,
@@ -39,6 +45,8 @@ from zeroth.core.execution_units.models import (
     EnvironmentVariable,
     ExecutableUnitManifest,
     ExecutionMode,
+    InlineSourceArtifactSource,
+    InlineUnitManifest,
     InputMode,
     NativeUnitManifest,
     OutputMode,
@@ -90,6 +98,12 @@ __all__ = [
     "DockerSandboxConfig",
     "EnvironmentCacheManager",
     "ExecutableUnitManifest",
+    "FreeformPayload",
+    "InlineSourceArtifactSource",
+    "InlineUnitManifest",
+    "build_inline_binding",
+    "build_inline_manifest",
+    "inline_source_digest",
     "ExecutableUnitBinding",
     "ExecutableUnitAdmissionError",
     "ExecutableUnitError",

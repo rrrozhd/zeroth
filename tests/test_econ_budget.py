@@ -179,6 +179,118 @@ def test_budget_exceeded_error_attributes():
     assert "over budget" in str(err)
 
 
+# -- Fail-closed vs fail-open on backend error (WS-A gap #2) --
+
+
+@pytest.mark.asyncio
+async def test_budget_fail_closed_denies_on_backend_error(caplog):
+    """fail_closed=True denies (False, 0.0, 0.0) + WARNING on backend error;
+    the default (fail_closed=False) still fails open (allowed=True)."""
+    import logging
+
+    def error_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Connection refused")
+
+    # Fail-closed: DENY.
+    closed = BudgetEnforcer(
+        "http://regulus.test/v1",
+        fail_closed=True,
+        _transport=error_handler,
+    )
+    with caplog.at_level(logging.WARNING, logger="zeroth.core.econ.budget"):
+        allowed, spend, cap = await closed.check_budget("tenant-closed")
+    assert allowed is False
+    assert spend == 0.0
+    assert cap == 0.0
+    assert any(
+        "tenant-closed" in r.message and "CLOSED" in r.message for r in caplog.records
+    )
+
+    # Fail-open (default): ALLOW.
+    open_ = BudgetEnforcer(
+        "http://regulus.test/v1",
+        _transport=error_handler,
+    )
+    allowed, spend, cap = await open_.check_budget("tenant-open")
+    assert allowed is True
+    assert spend == 0.0
+    assert cap == float("inf")
+
+
+@pytest.mark.asyncio
+async def test_fail_closed_does_not_cache_denial():
+    """A fail-closed denial from a transient error must NOT be cached: the next
+    call re-probes and, when the backend recovers under cap, allows again."""
+    calls = {"n": 0}
+
+    def flaky_handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("Connection refused")
+        return httpx.Response(200, json={"total_cost_usd": 5, "budget_cap_usd": 100})
+
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1",
+        cache_ttl=60,
+        fail_closed=True,
+        _transport=flaky_handler,
+    )
+    # First call errors -> deny (must not be cached).
+    allowed1, _, _ = await enforcer.check_budget("tenant-1")
+    assert allowed1 is False
+    # Second call re-probes (proof: HTTP was hit again) and the backend now
+    # answers under cap -> allow.
+    allowed2, spend2, cap2 = await enforcer.check_budget("tenant-1")
+    assert allowed2 is True
+    assert spend2 == 5.0
+    assert cap2 == 100.0
+    assert calls["n"] == 2  # denial was not served from cache
+
+
+@pytest.mark.asyncio
+async def test_null_cap_stays_unlimited_even_fail_closed():
+    """A successfully fetched null cap is unlimited regardless of fail_closed —
+    the fail-closed switch applies ONLY to the exception path."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"total_cost_usd": 999.0, "budget_cap_usd": None})
+
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1",
+        fail_closed=True,
+        _transport=handler,
+    )
+    allowed, spend, cap = await enforcer.check_budget("capless")
+    assert allowed is True
+    assert spend == 999.0
+    assert cap == float("inf")
+
+
+@pytest.mark.asyncio
+async def test_external_regulus_path_unchanged():
+    """With asgi_app=None (external topology) the enforcer still issues an HTTP
+    GET to {base_url}/budget/status — the ASGITransport addition must not
+    regress the separate-process Regulus path."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["tenant"] = request.url.params.get("tenant_id", "")
+        return httpx.Response(200, json={"total_cost_usd": 1.0, "budget_cap_usd": 10.0})
+
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1",
+        asgi_app=None,
+        _transport=handler,
+    )
+    allowed, spend, cap = await enforcer.check_budget("tenant-ext")
+    assert seen["path"] == "/v1/budget/status"
+    assert seen["tenant"] == "tenant-ext"
+    assert allowed is True
+    assert spend == 1.0
+    assert cap == 10.0
+
+
 # -- Integration tests: AgentRunner + BudgetEnforcer --
 
 

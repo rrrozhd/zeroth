@@ -10,8 +10,8 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from governai.memory.connector import MemoryConnector
-from governai.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.memory.connector import MemoryConnector
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.memory.chroma_connector import ChromaDBMemoryConnector
 

@@ -145,9 +145,7 @@ class SubgraphExecutor:
             subgraph,
             graph_ref,
             new_depth,
-            branch_index=(
-                branch_context.branch_index if branch_context is not None else None
-            ),
+            branch_index=(branch_context.branch_index if branch_context is not None else None),
         )
 
         # --- Merge governance (parent-ceiling) ---
@@ -237,23 +235,17 @@ class SubgraphExecutor:
         """
         child_run = await orchestrator.run_repository.get(paused_child_run_id)
         if child_run is None:
-            raise SubgraphExecutionError(
-                f"paused child run {paused_child_run_id} not found"
-            )
+            raise SubgraphExecutionError(f"paused child run {paused_child_run_id} not found")
 
         graph_ref = child_run.deployment_ref
         depth = child_run.metadata.get("subgraph_depth", 1)
 
         subgraph, _ = await self.resolver.resolve(graph_ref, None)
-        namespaced = namespace_subgraph(
-            subgraph, graph_ref, depth, branch_index=branch_index
-        )
+        namespaced = namespace_subgraph(subgraph, graph_ref, depth, branch_index=branch_index)
         merged = merge_governance(parent_graph, namespaced)
 
         try:
-            result = await orchestrator._drive(
-                merged, child_run, step_tracker=step_tracker
-            )
+            result = await orchestrator._drive(merged, child_run, step_tracker=step_tracker)
         except Exception as exc:
             raise SubgraphExecutionError(
                 f"subgraph resume for '{graph_ref}' failed: {exc}"

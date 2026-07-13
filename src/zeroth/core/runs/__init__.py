@@ -6,8 +6,7 @@ across several executions. This package provides the data models for both,
 plus repository classes that persist them in SQLite.
 """
 
-from governai import RunState
-
+from zeroth.core.governed import RunState
 from zeroth.core.runs.models import (
     Run,
     RunConditionResult,

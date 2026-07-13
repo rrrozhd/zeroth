@@ -108,6 +108,7 @@ async def test_graceful_shutdown_called_on_lifespan_exit() -> None:
     bootstrap.queue_gauge = None
     bootstrap.delivery_worker = None
     bootstrap.sla_checker = None
+    bootstrap.retention_worker = None
     bootstrap.arq_pool = None
     bootstrap.regulus_client = None
     bootstrap.webhook_http_client = None
@@ -150,6 +151,7 @@ async def test_arq_consumer_started_when_pool_available() -> None:
     bootstrap.queue_gauge = None
     bootstrap.delivery_worker = None
     bootstrap.sla_checker = None
+    bootstrap.retention_worker = None
     bootstrap.arq_pool = mock_pool
     bootstrap.regulus_client = None
     bootstrap.webhook_http_client = None

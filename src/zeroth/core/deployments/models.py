@@ -42,6 +42,12 @@ class Deployment(BaseModel):
     contract_snapshot_digest: str = ""
     settings_snapshot_digest: str = ""
     attestation_digest: str = ""
+    # WS-D keyed signature over ``attestation_digest``. Nullable so legacy rows
+    # (deployed before signing existed) hydrate as unsigned-legacy rather than
+    # signed-invalid. See docs/provenance-trust-model.md.
+    attestation_signature: str | None = None
+    attestation_signing_key_id: str | None = None
+    attestation_algorithm: str | None = None
     tenant_id: str = "default"
     workspace_id: str | None = None
     status: DeploymentStatus = DeploymentStatus.ACTIVE

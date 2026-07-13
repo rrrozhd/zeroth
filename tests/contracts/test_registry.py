@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from governai.app.spec import GovernedFlowSpec, GovernedStepSpec
-from governai.tools.python_tool import tool
+from zeroth.core.governed.app.spec import GovernedFlowSpec, GovernedStepSpec
+from zeroth.core.governed.tools.python_tool import tool
 from pydantic import BaseModel, Field
 
 from zeroth.core.contracts import ContractReference, ContractRegistry

@@ -15,27 +15,86 @@ from zeroth.core.storage import AsyncDatabase
 from zeroth.core.storage.json import load_typed_value, to_json_value
 
 
+class DeploymentRefLineageConflictError(RuntimeError):
+    """A deployment ref was already bound to another graph lineage."""
+
+    def __init__(self, deployment_ref: str, graph_id: str):
+        self.deployment_ref = deployment_ref
+        self.graph_id = graph_id
+        super().__init__(
+            f"deployment_ref {deployment_ref!r} is already bound to graph {graph_id!r}"
+        )
+
+
+def _row_get(row: object, column: str) -> str | None:
+    """Read an optional column, tolerating rows that predate it.
+
+    Greenfield runs migrations to head so the WS-D columns always exist, but
+    guarding keeps hydration robust against a row mapping that lacks them.
+    """
+    try:
+        value = row[column]  # type: ignore[index]
+    except (KeyError, IndexError):
+        return None
+    return value if value else None
+
+
 class SQLiteDeploymentRepository:
     """Persist and query deployment history using an async database."""
 
     def __init__(self, database: AsyncDatabase):
         self._database: AsyncDatabase = database
 
-    async def create(self, deployment: Deployment) -> Deployment:
+    async def create(
+        self,
+        deployment: Deployment,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> Deployment:
         """Insert a new deployment version and supersede older active versions."""
+        owner_tenant = tenant_id if tenant_id is not None else deployment.tenant_id
+        owner_workspace = workspace_id if tenant_id is not None else deployment.workspace_id
+        if (deployment.tenant_id, deployment.workspace_id) != (
+            owner_tenant,
+            owner_workspace,
+        ):
+            raise ValueError("deployment owner does not match the requested scope")
+        scope_sql, scope_params = _scope_clause(owner_tenant, owner_workspace)
         async with self._database.transaction() as connection:
-            await connection.execute(
+            existing = await connection.fetch_one(
                 """
+                SELECT tenant_id, workspace_id, graph_id
+                FROM deployment_versions
+                WHERE deployment_ref = ?
+                ORDER BY version DESC
+                LIMIT 1
+                """,
+                (deployment.deployment_ref,),
+            )
+            if existing is not None and (existing["tenant_id"], existing["workspace_id"]) != (
+                owner_tenant,
+                owner_workspace,
+            ):
+                raise KeyError(deployment.deployment_ref)
+            if existing is not None and existing["graph_id"] != deployment.graph_id:
+                raise DeploymentRefLineageConflictError(
+                    deployment.deployment_ref,
+                    existing["graph_id"],
+                )
+            await connection.execute(
+                f"""
                 UPDATE deployment_versions
                 SET status = ?, updated_at = ?
-                WHERE deployment_ref = ? AND status = ?
+                WHERE deployment_ref = ? AND status = ? AND {scope_sql}
                 """,
                 (
                     DeploymentStatus.SUPERSEDED.value,
                     deployment.updated_at.isoformat(),
                     deployment.deployment_ref,
                     DeploymentStatus.ACTIVE.value,
-                ),
+                )
+                + scope_params,
             )
             await connection.execute(
                 """
@@ -56,12 +115,15 @@ class SQLiteDeploymentRepository:
                     contract_snapshot_digest,
                     settings_snapshot_digest,
                     attestation_digest,
+                    attestation_signature,
+                    attestation_signing_key_id,
+                    attestation_algorithm,
                     tenant_id,
                     workspace_id,
                     status,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     deployment.deployment_id,
@@ -80,6 +142,9 @@ class SQLiteDeploymentRepository:
                     deployment.contract_snapshot_digest,
                     deployment.settings_snapshot_digest,
                     deployment.attestation_digest,
+                    deployment.attestation_signature,
+                    deployment.attestation_signing_key_id,
+                    deployment.attestation_algorithm,
                     deployment.tenant_id,
                     deployment.workspace_id,
                     deployment.status.value,
@@ -87,51 +152,92 @@ class SQLiteDeploymentRepository:
                     deployment.updated_at.isoformat(),
                 ),
             )
-        return await self.get(deployment.deployment_ref, deployment.version)  # type: ignore[return-value]
+        return await self.get(
+            deployment.deployment_ref,
+            deployment.version,
+            tenant_id=owner_tenant,
+            workspace_id=owner_workspace,
+        )  # type: ignore[return-value]
 
-    async def get(self, deployment_ref: str, version: int | None = None) -> Deployment | None:
-        """Load the latest or a specific deployment version."""
+    async def get(
+        self,
+        deployment_ref: str,
+        version: int | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> Deployment | None:
+        """Load the latest or a specific deployment version.
+
+        WS-B: when ``tenant_id`` is supplied, a deployment owned by another
+        tenant is invisible (returns ``None``). ``None`` = no tenant filter
+        (internal deploy path, which is already deployment-ref scoped).
+        """
         sql = """
             SELECT *
             FROM deployment_versions
             WHERE deployment_ref = ?
         """
-        params: tuple[object, ...]
+        params: list[object] = [deployment_ref]
         if version is not None:
             sql += " AND version = ?"
-            params = (deployment_ref, version)
-        else:
-            params = (deployment_ref,)
+            params.append(version)
+        if tenant_id is not None:
+            scope_sql, scope_params = _scope_clause(tenant_id, workspace_id)
+            sql += f" AND {scope_sql}"
+            params.extend(scope_params)
         sql += " ORDER BY version DESC LIMIT 1"
         async with self._database.transaction() as connection:
-            row = await connection.fetch_one(sql, params)
+            row = await connection.fetch_one(sql, tuple(params))
         if row is None:
             return None
         return self._row_to_deployment(row)
 
-    async def list(self, deployment_ref: str | None = None) -> list[Deployment]:
+    async def list(
+        self,
+        deployment_ref: str | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> list[Deployment]:
         """Return deployment history ordered from oldest to newest."""
         sql = "SELECT * FROM deployment_versions"
-        params: tuple[object, ...] = ()
+        clauses: list[str] = []
+        params: list[object] = []
         if deployment_ref is not None:
-            sql += " WHERE deployment_ref = ?"
-            params = (deployment_ref,)
+            clauses.append("deployment_ref = ?")
+            params.append(deployment_ref)
+        if tenant_id is not None:
+            scope_sql, scope_params = _scope_clause(tenant_id, workspace_id)
+            clauses.append(scope_sql)
+            params.extend(scope_params)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY deployment_ref, version"
         async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(sql, params)
+            rows = await connection.fetch_all(sql, tuple(params))
         return [self._row_to_deployment(row) for row in rows]
 
-    async def next_version(self, deployment_ref: str) -> int:
+    async def next_version(
+        self,
+        deployment_ref: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> int:
         """Return the next deployment version number for a stable deployment ref."""
+        sql = """
+            SELECT MAX(version) AS max_version
+            FROM deployment_versions
+            WHERE deployment_ref = ?
+        """
+        params: tuple[object, ...] = (deployment_ref,)
+        if tenant_id is not None:
+            scope_sql, scope_params = _scope_clause(tenant_id, workspace_id)
+            sql += f" AND {scope_sql}"
+            params += scope_params
         async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                """
-                SELECT MAX(version) AS max_version
-                FROM deployment_versions
-                WHERE deployment_ref = ?
-                """,
-                (deployment_ref,),
-            )
+            row = await connection.fetch_one(sql, params)
         max_version = row["max_version"] if row is not None else None
         return int(max_version or 0) + 1
 
@@ -172,6 +278,12 @@ class SQLiteDeploymentRepository:
             contract_snapshot_digest=contract_snapshot_digest,
             settings_snapshot_digest=settings_snapshot_digest,
             attestation_digest=row["attestation_digest"] or "",
+            # Nullable signature columns (WS-D). Legacy rows carry NULL and
+            # hydrate as unsigned-legacy — a signature cannot be recomputed
+            # without the key, so there is no fallback here (unlike the digests).
+            attestation_signature=_row_get(row, "attestation_signature"),
+            attestation_signing_key_id=_row_get(row, "attestation_signing_key_id"),
+            attestation_algorithm=_row_get(row, "attestation_algorithm"),
             tenant_id=row["tenant_id"] or "default",
             workspace_id=row["workspace_id"],
             status=DeploymentStatus(row["status"]),
@@ -183,3 +295,10 @@ class SQLiteDeploymentRepository:
                 build_attestation_payload(deployment)["attestation_digest"]
             )
         return deployment
+
+
+def _scope_clause(tenant_id: str, workspace_id: str | None) -> tuple[str, tuple[object, ...]]:
+    """Build an exact tenant/workspace predicate; NULL is never a wildcard."""
+    if workspace_id is None:
+        return "tenant_id = ? AND workspace_id IS NULL", (tenant_id,)
+    return "tenant_id = ? AND workspace_id = ?", (tenant_id, workspace_id)

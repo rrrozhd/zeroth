@@ -15,6 +15,7 @@ from zeroth.core.contracts.registry import ContractRegistry
 from zeroth.core.graph.models import (
     AgentNode,
     Edge,
+    EntrypointNode,
     ExecutableUnitNode,
     Graph,
     HumanApprovalNode,
@@ -29,12 +30,28 @@ from zeroth.core.graph.validation_errors import (
 from zeroth.core.mappings import MappingValidationError, MappingValidator
 from zeroth.core.parallel.errors import ReducerRefValidationError
 from zeroth.core.parallel.reducers import resolve_reducer_ref
+from zeroth.core.policy.models import Capability
 
 
 def _is_ref_like(value: str) -> bool:
     """Return True if the string looks like a valid reference (non-empty, no spaces)."""
     text = value.strip()
     return bool(text) and not any(part.isspace() for part in text)
+
+
+def _capabilities_from_refs(refs: Iterable[str]) -> set[Capability]:
+    """Map capability_binding refs to Capabilities, dropping non-value refs.
+
+    Matches the runner factory's ``_capability_from_ref`` so author-time
+    validation and runtime enforcement resolve the identical set.
+    """
+    caps: set[Capability] = set()
+    for ref in refs:
+        try:
+            caps.add(Capability(ref))
+        except ValueError:
+            continue
+    return caps
 
 
 def _append_issue(
@@ -115,6 +132,7 @@ class GraphValidator:
         self._validate_nodes(graph, node_map, issues)
         self._validate_entrypoint(graph, node_map, issues)
         self._validate_edges(graph, node_map, edge_ids, adjacency, issues)
+        self._validate_tool_attachments(graph, node_map, issues)
         self._validate_cycles(graph, node_map, adjacency, issues)
         await self._validate_parallel_configs(graph, issues)
 
@@ -156,9 +174,7 @@ class GraphValidator:
                         issues,
                         severity=ValidationSeverity.ERROR,
                         code=ValidationCode.INVALID_REDUCER_REF,
-                        message=(
-                            f"invalid reducer_ref on node {node.node_id!r}: {exc}"
-                        ),
+                        message=(f"invalid reducer_ref on node {node.node_id!r}: {exc}"),
                         graph_id=graph.graph_id,
                         node_id=node.node_id,
                         path=("nodes", node.node_id, "parallel_config", "reducer_ref"),
@@ -205,9 +221,7 @@ class GraphValidator:
             )
             return
         try:
-            contract_version = await self._contract_registry.get(
-                node.output_contract_ref
-            )
+            contract_version = await self._contract_registry.get(node.output_contract_ref)
         except Exception as exc:  # noqa: BLE001 - any registry failure is validation-fatal
             _append_issue(
                 issues,
@@ -375,6 +389,18 @@ class GraphValidator:
                 node_id=node.node_id,
                 path=("nodes", node.node_id, "agent", "model_provider"),
             )
+        if node.agent.persist_conversation and not node.agent.input_messages_key:
+            # Without a messages field there are no turns to persist — a
+            # silent no-op the author almost certainly did not intend.
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_NODE_ATTACHMENT,
+                message="persist_conversation requires input_messages_key to be set",
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=("nodes", node.node_id, "agent", "persist_conversation"),
+            )
         self._validate_ref_list(
             issues,
             graph_id=graph_id,
@@ -393,6 +419,28 @@ class GraphValidator:
             message="invalid memory reference",
             path=("nodes", node.node_id, "agent", "memory_refs"),
         )
+        if node.agent.mcp_servers:
+            # MCP servers are spawned subprocesses that call out to external
+            # services; publishing a graph whose agent lacks either capability
+            # would only fail later, at dispatch on an enforced deployment.
+            granted = _capabilities_from_refs(node.capability_bindings)
+            required = {Capability.PROCESS_SPAWN, Capability.EXTERNAL_API_CALL}
+            missing = sorted(cap.value for cap in (required - granted))
+            if missing:
+                _append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.MISSING_MCP_CAPABILITY,
+                    message=(
+                        f"agent {node.node_id!r} declares mcp_servers but is missing "
+                        f"{', '.join(missing)}; add the missing capabilities to the "
+                        "agent's capability_bindings"
+                    ),
+                    graph_id=graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "agent", "mcp_servers"),
+                    details={"missing_capabilities": missing},
+                )
 
     def _validate_executable_unit_node(
         self,
@@ -400,7 +448,15 @@ class GraphValidator:
         node: ExecutableUnitNode,
         issues: list[ValidationIssue],
     ) -> None:
-        """Check executable-unit-specific fields like the manifest reference."""
+        """Check executable-unit-specific fields like the manifest reference.
+
+        Inline units (the Studio code node) carry source instead of a manifest
+        ref — for those, gate publish on the source itself: present, within
+        the size cap, and syntactically valid Python.
+        """
+        if node.executable_unit.inline_source is not None:
+            self._validate_inline_source(graph_id, node, issues)
+            return
         if not node.executable_unit.manifest_ref.strip():
             _append_issue(
                 issues,
@@ -410,6 +466,52 @@ class GraphValidator:
                 graph_id=graph_id,
                 node_id=node.node_id,
                 path=("nodes", node.node_id, "executable_unit", "manifest_ref"),
+            )
+
+    def _validate_inline_source(
+        self,
+        graph_id: str,
+        node: ExecutableUnitNode,
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Publish gate for authored code: non-empty, capped, compilable."""
+        from zeroth.core.execution_units.inline import INLINE_SOURCE_MAX_CHARS
+
+        source = node.executable_unit.inline_source or ""
+        path = ("nodes", node.node_id, "executable_unit", "inline_source")
+        if not source.strip():
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_INLINE_SOURCE,
+                message="code is required",
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=path,
+            )
+            return
+        if len(source) > INLINE_SOURCE_MAX_CHARS:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_INLINE_SOURCE,
+                message=f"code exceeds the {INLINE_SOURCE_MAX_CHARS} character limit",
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=path,
+            )
+            return
+        try:
+            compile(source, f"<code node {node.node_id}>", "exec")
+        except SyntaxError as exc:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_INLINE_SOURCE,
+                message=f"syntax error on line {exc.lineno}: {exc.msg}",
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=path,
             )
 
     def _validate_human_approval_node(
@@ -465,6 +567,59 @@ class GraphValidator:
                 path=("entry_step",),
                 details={"entry_step": graph.entry_step},
             )
+            return
+        self._validate_entrypoint_nodes(graph, issues)
+
+    def _validate_entrypoint_nodes(
+        self,
+        graph: Graph,
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Structural rules for dedicated entrypoint nodes.
+
+        A graph needs at most one; when present it must BE the entry step and
+        nothing may flow into it. (Presence itself is a Studio-authoring rule,
+        enforced at the studio publish route — code-authored graphs may keep a
+        bare entry_step.)
+        """
+        entry_nodes = [node for node in graph.nodes if isinstance(node, EntrypointNode)]
+        if not entry_nodes:
+            return
+        for extra in entry_nodes[1:]:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_NODE_ATTACHMENT,
+                message="a workflow can only have one entrypoint node",
+                graph_id=graph.graph_id,
+                node_id=extra.node_id,
+                path=("nodes", extra.node_id),
+            )
+        primary = entry_nodes[0]
+        if graph.entry_step != primary.node_id:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.UNKNOWN_ENTRYPOINT,
+                message="entry_step must point at the entrypoint node",
+                graph_id=graph.graph_id,
+                node_id=primary.node_id,
+                path=("entry_step",),
+                details={"entry_step": graph.entry_step, "entrypoint": primary.node_id},
+            )
+        entry_ids = {node.node_id for node in entry_nodes}
+        for edge in graph.edges:
+            if edge.target_node_id in entry_ids:
+                _append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.INVALID_NODE_ATTACHMENT,
+                    message="the entrypoint node cannot have incoming edges",
+                    graph_id=graph.graph_id,
+                    node_id=edge.target_node_id,
+                    edge_id=edge.edge_id,
+                    path=("edges", edge.edge_id),
+                )
 
     def _validate_edges(
         self,
@@ -502,7 +657,9 @@ class GraphValidator:
                     path=("edges", edge.edge_id, "source_node_id"),
                     details={"source_node_id": edge.source_node_id},
                 )
-            else:
+            elif edge.kind != "tool":
+                # Tool edges attach tools rather than route execution, so they
+                # stay out of the control-flow adjacency (and cycle checks).
                 adjacency[edge.source_node_id].append(edge.target_node_id)
 
             if edge.target_node_id not in node_map:
@@ -517,11 +674,184 @@ class GraphValidator:
                     details={"target_node_id": edge.target_node_id},
                 )
 
+            if edge.kind == "tool":
+                self._validate_tool_edge(graph.graph_id, edge, node_map, issues)
+
             if edge.condition is not None:
                 self._validate_condition(graph.graph_id, edge, issues)
 
             if edge.mapping is not None:
                 self._validate_mapping(graph.graph_id, edge, issues)
+
+    def _validate_tool_edge(
+        self,
+        graph_id: str,
+        edge: Edge,
+        node_map: dict[str, Node],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Check a tool edge's endpoints: agent source, executable-unit target.
+
+        Conditions and mappings belong to control flow; a tool edge carrying
+        either is a sign the author meant a data edge.
+        """
+        source = node_map.get(edge.source_node_id)
+        if source is not None and not isinstance(source, AgentNode):
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_TOOL_EDGE,
+                message="tool edge source must be an agent node",
+                graph_id=graph_id,
+                edge_id=edge.edge_id,
+                path=("edges", edge.edge_id, "source_node_id"),
+                details={"source_node_id": edge.source_node_id},
+            )
+        target = node_map.get(edge.target_node_id)
+        if target is not None and not isinstance(target, ExecutableUnitNode):
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_TOOL_EDGE,
+                message="tool edge target must be an executable unit or code node",
+                graph_id=graph_id,
+                edge_id=edge.edge_id,
+                path=("edges", edge.edge_id, "target_node_id"),
+                details={"target_node_id": edge.target_node_id},
+            )
+        if edge.condition is not None or edge.mapping is not None:
+            _append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_TOOL_EDGE,
+                message="tool edges cannot carry conditions or mappings",
+                graph_id=graph_id,
+                edge_id=edge.edge_id,
+                path=("edges", edge.edge_id),
+            )
+
+    def _validate_tool_attachments(
+        self,
+        graph: Graph,
+        node_map: dict[str, Node],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Cross-check tool edges against each agent's tool bindings.
+
+        Every attached unit needs exactly one author-provided binding (name,
+        description, argument descriptions — enforced by the binding model),
+        names must be unique per agent, and bindings must not point at units
+        that are no longer attached.
+        """
+        tool_targets: dict[str, list[str]] = defaultdict(list)
+        for edge in graph.edges:
+            if edge.kind == "tool" and edge.enabled:
+                tool_targets[edge.source_node_id].append(edge.target_node_id)
+
+        for node in graph.nodes:
+            if not isinstance(node, AgentNode):
+                continue
+            attached = tool_targets.get(node.node_id, [])
+            bound_targets = [binding.target_node_id for binding in node.agent.tool_bindings]
+
+            for target_id in attached:
+                if bound_targets.count(target_id) == 0:
+                    _append_issue(
+                        issues,
+                        severity=ValidationSeverity.ERROR,
+                        code=ValidationCode.INVALID_TOOL_BINDING,
+                        message=(
+                            f"attached tool {target_id!r} needs a binding with a "
+                            "name, description, and argument descriptions"
+                        ),
+                        graph_id=graph.graph_id,
+                        node_id=node.node_id,
+                        path=("nodes", node.node_id, "agent", "tool_bindings"),
+                        details={"target_node_id": target_id},
+                    )
+                elif bound_targets.count(target_id) > 1:
+                    _append_issue(
+                        issues,
+                        severity=ValidationSeverity.ERROR,
+                        code=ValidationCode.INVALID_TOOL_BINDING,
+                        message=f"attached tool {target_id!r} has multiple bindings",
+                        graph_id=graph.graph_id,
+                        node_id=node.node_id,
+                        path=("nodes", node.node_id, "agent", "tool_bindings"),
+                        details={"target_node_id": target_id},
+                    )
+
+            for binding in node.agent.tool_bindings:
+                if binding.target_node_id not in attached:
+                    _append_issue(
+                        issues,
+                        severity=ValidationSeverity.ERROR,
+                        code=ValidationCode.INVALID_TOOL_BINDING,
+                        message=(
+                            f"tool binding {binding.name!r} points at "
+                            f"{binding.target_node_id!r}, which is not attached by a tool edge"
+                        ),
+                        graph_id=graph.graph_id,
+                        node_id=node.node_id,
+                        path=("nodes", node.node_id, "agent", "tool_bindings"),
+                        details={"target_node_id": binding.target_node_id},
+                    )
+
+            names = [binding.name for binding in node.agent.tool_bindings]
+            duplicates = sorted({name for name in names if names.count(name) > 1})
+            if duplicates:
+                _append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.INVALID_TOOL_BINDING,
+                    message=f"tool names must be unique per agent: {', '.join(duplicates)}",
+                    graph_id=graph.graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "agent", "tool_bindings"),
+                    details={"duplicate_names": duplicates},
+                )
+
+            self._validate_tool_capability_grants(graph, node, node_map, issues)
+
+    def _validate_tool_capability_grants(
+        self,
+        graph: Graph,
+        node: AgentNode,
+        node_map: dict[str, Node],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """WS-C: an agent's capability grant must cover every attached tool's needs.
+
+        The required set for a tool is its target unit node's declared
+        ``capability_bindings`` unioned with the binding's own
+        ``required_capabilities`` — the SAME source the runner factory uses at
+        runtime, so a graph that passes here cannot be denied at dispatch for an
+        under-granted capability (and vice versa). Surfaced at author time so the
+        gap is fixed on the canvas rather than as a run-time denial.
+        """
+        granted = _capabilities_from_refs(node.capability_bindings)
+        for binding in node.agent.tool_bindings:
+            required = set(binding.required_capabilities)
+            target = node_map.get(binding.target_node_id)
+            if isinstance(target, ExecutableUnitNode):
+                required |= _capabilities_from_refs(target.capability_bindings)
+            missing = sorted(cap.value for cap in (required - granted))
+            if missing:
+                _append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.CAPABILITY_GRANT_INSUFFICIENT,
+                    message=(
+                        f"agent {node.node_id!r} grants "
+                        f"{sorted(cap.value for cap in granted)} but tool "
+                        f"{binding.name!r} requires {', '.join(missing)}; add the "
+                        "missing capabilities to the agent's capability_bindings"
+                    ),
+                    graph_id=graph.graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "agent", "tool_bindings"),
+                    details={"tool": binding.name, "missing_capabilities": missing},
+                )
 
     def _validate_condition(
         self,
@@ -596,6 +926,7 @@ class GraphValidator:
                 edge
                 for edge in graph.edges
                 if edge.enabled
+                and edge.kind != "tool"
                 and edge.source_node_id in component
                 and edge.target_node_id in component
             ]

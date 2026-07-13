@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
+import secrets
 import signal
 from contextlib import asynccontextmanager
 from typing import Protocol
@@ -27,6 +29,9 @@ from zeroth.core.service.auth import AuthenticationError, record_service_denial
 from zeroth.core.service.console_ui import console_cors_origins, mount_console
 from zeroth.core.service.contracts_api import register_contract_routes
 from zeroth.core.service.cost_api import register_cost_routes
+from zeroth.core.service.econ_analytics_api import register_econ_analytics_routes
+from zeroth.core.service.retention_api import register_retention_routes
+from zeroth.core.service.rightsizing_api import register_rightsizing_routes
 from zeroth.core.service.run_api import register_run_routes
 from zeroth.core.service.template_api import register_template_routes
 from zeroth.core.service.webhook_api import register_webhook_routes
@@ -68,24 +73,43 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         # sub-app's startup events, so econ_plane.main's on_startup never fires.
         if getattr(app.state.bootstrap, "regulus_client", None) is not None:
             try:
-                from econ_plane.common.bootstrap import bootstrap as econ_plane_bootstrap
-                from econ_plane.config import settings as ecp_settings
-                from econ_plane.connectors.service import init_otel_metrics
+                from zeroth.econ_plane.common.bootstrap import bootstrap as econ_plane_bootstrap
+                from zeroth.econ_plane.config import settings as ecp_settings
+                from zeroth.econ_plane.connectors.service import init_otel_metrics
 
-                # Fail closed on the placeholder JWT secret: the mounted control
-                # plane signs its Admin tokens with ECP_JWT_SECRET, so booting on
-                # the shipped default silently makes those tokens forgeable.
-                # Refuse unless the operator explicitly opts into insecure local
-                # dev (ECP_ALLOW_INSECURE_JWT_SECRET=1), which keeps the getting-
-                # started flow working while making production safe by default.
+                # Default-safe JWT secret for the bundled control plane. The
+                # mounted plane signs its Admin tokens with ECP_JWT_SECRET, so
+                # booting on the shipped placeholder 'change-me' would make those
+                # tokens forgeable. The plane is now enabled by default (G1), so
+                # rather than CRASH a fresh deploy we auto-generate a
+                # cryptographically-strong per-process secret and use it: this is
+                # STRONGER than the placeholder (tokens stay unforgeable — the
+                # whole point of the v0.4 guard) and needs no operator action.
+                #
+                # The secret is assigned onto the module-level econ_plane settings
+                # singleton BEFORE any token is minted or verified, so BOTH the
+                # self-auth mint (econ.service_auth.mint_econ_service_token) AND the
+                # mount's token verify (econ_plane.auth.service.decode_token) — each
+                # of which reads ``settings.jwt_secret`` at call time off this same
+                # singleton — observe the ephemeral value.
+                #
+                # Escapes (unchanged):
+                #  - explicit ECP_JWT_SECRET (any non-placeholder value) -> used as-is;
+                #  - ECP_ALLOW_INSECURE_JWT_SECRET=1 -> keep the literal 'change-me'
+                #    placeholder (tests / deliberately-insecure local dev).
+                #
+                # Per-process is safe here: the ONLY client of /regulus is Zeroth's
+                # own in-process self-auth in THIS process (the open token issuer is
+                # blocked at the gate), so a cross-worker secret mismatch is not a
+                # reachable path. Set an explicit ECP_JWT_SECRET for multi-worker or
+                # persistent deployments. See SECURITY.md.
                 if ecp_settings.jwt_secret == "change-me" and os.environ.get(
                     "ECP_ALLOW_INSECURE_JWT_SECRET"
                 ) not in ("1", "true", "yes"):
-                    raise RuntimeError(
-                        "Regulus is mounted in-process but ECP_JWT_SECRET is the "
-                        "insecure default 'change-me'. Set ECP_JWT_SECRET to a "
-                        "strong secret, or set ECP_ALLOW_INSECURE_JWT_SECRET=1 for "
-                        "local development only. See SECURITY.md."
+                    ecp_settings.jwt_secret = secrets.token_urlsafe(32)
+                    logger.warning(
+                        "Using an ephemeral per-process Regulus signing secret; set "
+                        "ECP_JWT_SECRET for multi-worker or persistent deployments."
                     )
 
                 econ_plane_bootstrap()
@@ -120,6 +144,15 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         sla_checker = getattr(app.state.bootstrap, "sla_checker", None)
         if sla_checker is not None:
             sla_checker_task = asyncio.create_task(sla_checker.poll_loop(), name="sla-checker")
+
+        # WS-E: start the retention purge worker when enabled (mirrors the SLA
+        # checker exactly). None unless ZEROTH_RETENTION__ENABLED is true.
+        retention_worker_task: asyncio.Task | None = None
+        retention_worker = getattr(app.state.bootstrap, "retention_worker", None)
+        if retention_worker is not None:
+            retention_worker_task = asyncio.create_task(
+                retention_worker.poll_loop(), name="retention-purge"
+            )
 
         # Phase 16: ARQ wakeup consumer task.
         arq_consumer_task: asyncio.Task | None = None
@@ -206,6 +239,12 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             with contextlib.suppress(asyncio.CancelledError):
                 await sla_checker_task
 
+        # Shutdown retention purge worker.
+        if retention_worker_task is not None:
+            retention_worker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await retention_worker_task
+
         # Close webhook HTTP client.
         webhook_http_client = getattr(app.state.bootstrap, "webhook_http_client", None)
         if webhook_http_client is not None:
@@ -215,6 +254,16 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         regulus_client = getattr(app.state.bootstrap, "regulus_client", None)
         if regulus_client is not None:
             regulus_client.stop()
+
+        # Close the shared secret provider's pooled HTTP client (Vault). The
+        # lifespan is the single owner of this shutdown: entrypoints and
+        # bootstrap never close it, so it happens exactly once.
+        secret_provider = getattr(app.state.bootstrap, "secret_provider", None)
+        provider_aclose = getattr(secret_provider, "aclose", None)
+        if callable(provider_aclose):
+            close_result = provider_aclose()
+            if inspect.isawaitable(close_result):
+                await close_result
 
     app = FastAPI(
         title="Zeroth Platform API",
@@ -243,8 +292,8 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         _self_api_key = _auth_cfg.api_keys[0].secret if _auth_cfg and _auth_cfg.api_keys else None
         app.state.regulus_self_auth_headers = make_self_auth_headers_provider(_self_api_key)
 
-        # Mount the bundled Regulus economic control plane in-process under
-        # /regulus (source lives in-repo at src/econ_plane). Guarded so a plain
+        # Mount the Regulus economic control plane in-process under
+        # /regulus (source at src/zeroth/econ_plane). Guarded so a plain
         # `zeroth-core` install without the `regulus` extra still boots. The
         # mount sits behind Zeroth's API-key auth (no bypass); econ_plane then
         # enforces its own JWT on protected routes. Zeroth's econ client/budget/
@@ -253,7 +302,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         # fail-open boundary (D-12) is preserved. The backend keeps its own
         # ECP_-prefixed settings, database, and JWT auth.
         try:
-            from econ_plane.main import app as econ_plane_app
+            from zeroth.econ_plane.main import app as econ_plane_app
 
             app.mount("/regulus", econ_plane_app)
             logger.info("Mounted bundled Regulus control plane at /regulus")
@@ -350,9 +399,20 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     register_admin_routes(v1_router)
     register_cost_routes(v1_router)
+    register_rightsizing_routes(v1_router)
+    register_econ_analytics_routes(v1_router)
     register_webhook_routes(v1_router)
     register_artifact_routes(v1_router)
     register_template_routes(v1_router)
+    register_retention_routes(v1_router)
+
+    from zeroth.core.service.connector_api import register_connector_routes
+    from zeroth.core.service.deployment_api import register_deployment_routes
+    from zeroth.core.service.manifest_api import register_manifest_routes
+
+    register_deployment_routes(v1_router)
+    register_connector_routes(v1_router)
+    register_manifest_routes(v1_router)
 
     app.include_router(v1_router)
 
@@ -365,9 +425,15 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_run_routes(compat_router)
     register_admin_routes(compat_router)
     register_cost_routes(compat_router)
+    register_rightsizing_routes(compat_router)
+    register_econ_analytics_routes(compat_router)
     register_webhook_routes(compat_router)
     register_artifact_routes(compat_router)
     register_template_routes(compat_router)
+    register_retention_routes(compat_router)
+    register_deployment_routes(compat_router)
+    register_connector_routes(compat_router)
+    register_manifest_routes(compat_router)
 
     app.include_router(compat_router)
 

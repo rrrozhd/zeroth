@@ -25,7 +25,7 @@ All of these live under `zeroth.core.contracts`:
 - **`ContractRegistry`** — the async, database-backed store where contracts are registered and looked up.
 - **`ContractReference`** — a lightweight `(name, version)` pointer used to refer to a contract without loading it.
 - **`ContractVersion`** — the full record for one version: name, version number, model path, JSON schema, metadata, created timestamp.
-- **`ToolContractBinding`** — how a GovernAI tool connects to its input and output contracts.
+- **`ToolContractBinding`** — how a governed tool connects to its input and output contracts.
 - **`StepContractBinding`** — how a workflow step binds its inputs and outputs to contracts.
 - **`ContractNotFoundError` / `ContractRegistryError`** — raised when lookup or registration fails.
 

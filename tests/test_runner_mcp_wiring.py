@@ -98,7 +98,7 @@ class TestAgentRunnerMCPWiring:
         with patch.object(
             MCPClientManager, "start", new=AsyncMock(return_value=[mock_manifest])
         ):
-            await runner._start_mcp_servers()
+            await runner._start_mcp_servers(None)
 
         assert runner._mcp_manager is not None
         assert runner.tool_bridge.registry.has("mcp_tool")

@@ -51,6 +51,11 @@ class ValidationCode(StrEnum):
     INVALID_OUTPUT_CONTRACT = "invalid_output_contract"
     INVALID_MERGE_STRATEGY = "invalid_merge_strategy"
     INVALID_REDUCER_REF = "invalid_reducer_ref"
+    INVALID_INLINE_SOURCE = "invalid_inline_source"
+    INVALID_TOOL_EDGE = "invalid_tool_edge"
+    INVALID_TOOL_BINDING = "invalid_tool_binding"
+    CAPABILITY_GRANT_INSUFFICIENT = "capability_grant_insufficient"
+    MISSING_MCP_CAPABILITY = "missing_mcp_capability"
 
 
 class ValidationIssue(BaseModel):

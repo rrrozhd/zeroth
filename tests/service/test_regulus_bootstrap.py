@@ -40,3 +40,26 @@ async def test_bootstrap_threads_self_auth_provider_when_regulus_enabled(
     finally:
         if service.regulus_client is not None:
             service.regulus_client.stop()
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_builds_cost_estimator_when_regulus_disabled(
+    sqlite_db, monkeypatch
+) -> None:
+    """On by default: cost attribution is wired even with Regulus off.
+
+    CostEstimator is local (litellm pricing), so it is always constructed — that is
+    what makes cost_usd populate and the local econ lenses work out of the box. The
+    Regulus event stream and the budget enforcer stay gated on regulus.enabled.
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings.regulus, "enabled", False)
+
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="cost-on-by-default"))
+    try:
+        assert service.cost_estimator is not None  # local litellm pricing, always on
+        assert service.regulus_client is None  # event stream stays off
+        assert service.budget_enforcer is None  # budget caps stay Regulus-gated
+    finally:
+        if service.regulus_client is not None:
+            service.regulus_client.stop()

@@ -270,6 +270,10 @@ class LLMSummarizationStrategy:
     def __init__(self, provider: Any) -> None:
         self._provider = provider
 
+    def fork_for_dispatch(self) -> LLMSummarizationStrategy:
+        """Create a strategy clone that retains the shared provider client."""
+        return LLMSummarizationStrategy(self._provider)
+
     async def compact(
         self,
         messages: list[Any],

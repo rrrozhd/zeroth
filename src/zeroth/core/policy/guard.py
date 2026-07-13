@@ -9,9 +9,8 @@ to policy rules.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from zeroth.core.graph import Graph, Node
 from zeroth.core.policy.models import (
     Capability,
     EnforcementResult,
@@ -19,7 +18,13 @@ from zeroth.core.policy.models import (
     PolicyDefinition,
 )
 from zeroth.core.policy.registry import CapabilityRegistry, PolicyRegistry
-from zeroth.core.runs import Run
+
+if TYPE_CHECKING:
+    # Imported for type hints only. Runtime imports here would create a cycle:
+    # graph.models -> policy.models -> policy package __init__ -> guard -> graph.
+    # The guard uses graph/node/run as values, never their classes at runtime.
+    from zeroth.core.graph import Graph, Node
+    from zeroth.core.runs import Run
 
 
 class PolicyGuard:

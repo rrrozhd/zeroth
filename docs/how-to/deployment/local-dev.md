@@ -45,14 +45,24 @@ uv run zeroth-core serve
 ```
 
 The service binds `0.0.0.0:8000` by default and stores state in a local
-SQLite database (`./zeroth.db`). On first boot it creates the schema
-automatically — no Alembic migration step is required for SQLite.
+SQLite database (`./zeroth.db`). `zeroth-core serve` applies migrations on
+boot for both SQLite and Postgres, so no manual Alembic step is required.
+
+A fresh database has no deployment to serve yet. Seed a runnable demo
+deployment (contracts + published single-agent graph) once:
+
+```bash
+zeroth-core seed-demo
+```
+
+It prints the exact `export ZEROTH_SERVICE_API_KEYS_JSON=...` and `curl`
+commands for your first run.
 
 ## Verify
 
 ```bash
-curl -f http://localhost:8000/healthz
-# -> {"status":"ok"}
+curl -f http://localhost:8000/health/ready
+# -> {"status":"healthy", "checks": {...}}
 ```
 
 Open the interactive API explorer at `http://localhost:8000/docs` to poke at

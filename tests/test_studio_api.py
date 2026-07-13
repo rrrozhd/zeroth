@@ -128,9 +128,7 @@ class TestGetWorkflow:
         app = _make_app(repo)
         client = TestClient(app)
 
-        create_resp = client.post(
-            "/api/studio/v1/workflows", json={"name": "detail-test"}
-        )
+        create_resp = client.post("/api/studio/v1/workflows", json={"name": "detail-test"})
         wf_id = create_resp.json()["id"]
 
         resp = client.get(f"/api/studio/v1/workflows/{wf_id}")
@@ -159,14 +157,10 @@ class TestUpdateWorkflow:
         app = _make_app(repo)
         client = TestClient(app)
 
-        create_resp = client.post(
-            "/api/studio/v1/workflows", json={"name": "original"}
-        )
+        create_resp = client.post("/api/studio/v1/workflows", json={"name": "original"})
         wf_id = create_resp.json()["id"]
 
-        resp = client.put(
-            f"/api/studio/v1/workflows/{wf_id}", json={"name": "updated"}
-        )
+        resp = client.put(f"/api/studio/v1/workflows/{wf_id}", json={"name": "updated"})
         assert resp.status_code == 200
         assert resp.json()["name"] == "updated"
 
@@ -175,9 +169,7 @@ class TestUpdateWorkflow:
         app = _make_app(repo)
         client = TestClient(app)
 
-        resp = client.put(
-            "/api/studio/v1/workflows/nonexistent", json={"name": "x"}
-        )
+        resp = client.put("/api/studio/v1/workflows/nonexistent", json={"name": "x"})
         assert resp.status_code == 404
 
 
@@ -189,9 +181,7 @@ class TestDeleteWorkflow:
         app = _make_app(repo)
         client = TestClient(app)
 
-        create_resp = client.post(
-            "/api/studio/v1/workflows", json={"name": "to-delete"}
-        )
+        create_resp = client.post("/api/studio/v1/workflows", json={"name": "to-delete"})
         wf_id = create_resp.json()["id"]
 
         resp = client.delete(f"/api/studio/v1/workflows/{wf_id}")
@@ -217,10 +207,14 @@ class TestListNodeTypes:
         resp = client.get("/api/studio/v1/node-types")
         assert resp.status_code == 200
         data = resp.json()
-        # The palette mirrors the executable graph model's node_type discriminator.
+        # The palette mirrors the executable graph model's node_type
+        # discriminator, plus "code" — the canvas alias for an executable
+        # unit whose source is authored inline.
         type_names = {item["type"] for item in data}
         assert type_names == {
             "agent",
+            "code",
+            "entrypoint",
             "executable_unit",
             "human_approval",
             "retrieval",
@@ -248,9 +242,7 @@ class TestStructuralAuthoring:
         app = _make_app(repo)
         client = TestClient(app)
 
-        wf_id = client.post("/api/studio/v1/workflows", json={"name": "authored"}).json()[
-            "id"
-        ]
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "authored"}).json()["id"]
 
         body = {
             "nodes": [
@@ -324,9 +316,7 @@ class TestStructuralAuthoring:
         repo = _make_repo()
         app = _make_app(repo)
         client = TestClient(app)
-        wf_id = client.post("/api/studio/v1/workflows", json={"name": "dangling"}).json()[
-            "id"
-        ]
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "dangling"}).json()["id"]
         resp = client.put(
             f"/api/studio/v1/workflows/{wf_id}",
             json={
@@ -335,6 +325,105 @@ class TestStructuralAuthoring:
             },
         )
         assert resp.status_code == 422
+
+
+class TestGovernanceFieldPreservation:
+    """Canvas saves must not wipe NodeBase governance fields (v0.9 regression).
+
+    Bindings authored via the API/Python were silently dropped by any Studio
+    structural save: the serializer never sent them and the rebuild reset them
+    to defaults — under enforce-by-default that stripped a graph's capability
+    restrictions. Semantics now: key present in data wins (explicit [] clears),
+    absent key preserves the stored node's value.
+    """
+
+    _AGENT_CONFIG = {"instruction": "Summarize", "model_provider": "openai/gpt-4o"}
+    _GOVERNED_DATA = {
+        "label": "Writer",
+        "config": _AGENT_CONFIG,
+        "capability_bindings": ["MEMORY_READ"],
+        "policy_bindings": ["policy-pii"],
+        "execution_config": {"timeout_seconds": 30},
+        "audit_config": {"level": "full"},
+        "parallel_config": {"split_path": "items"},
+    }
+
+    @staticmethod
+    def _put_nodes(client: TestClient, wf_id: str, data: dict) -> None:
+        resp = client.put(
+            f"/api/studio/v1/workflows/{wf_id}",
+            json={
+                "nodes": [
+                    {"id": "writer", "type": "agent", "position": {"x": 0, "y": 0}, "data": data}
+                ],
+                "edges": [],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+    @staticmethod
+    def _node_data(client: TestClient, wf_id: str) -> dict:
+        detail = client.get(f"/api/studio/v1/workflows/{wf_id}").json()
+        return {n["id"]: n for n in detail["nodes"]}["writer"]["data"]
+
+    def test_get_exposes_governance_fields_with_defaults(self) -> None:
+        repo = _make_repo()
+        client = TestClient(_make_app(repo))
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "gov"}).json()["id"]
+
+        self._put_nodes(client, wf_id, {"label": "Writer", "config": self._AGENT_CONFIG})
+
+        data = self._node_data(client, wf_id)
+        assert data["capability_bindings"] == []
+        assert data["policy_bindings"] == []
+        assert data["execution_config"] == {}
+        assert data["audit_config"] == {}
+        assert data["parallel_config"] is None
+
+    def test_canvas_save_preserves_governance_fields(self) -> None:
+        repo = _make_repo()
+        client = TestClient(_make_app(repo))
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "gov"}).json()["id"]
+
+        # Author governance fields (as the API/Python would).
+        self._put_nodes(client, wf_id, dict(self._GOVERNED_DATA))
+
+        # A canvas-shaped save: only the fields the console knows about.
+        self._put_nodes(client, wf_id, {"label": "Writer 2", "config": self._AGENT_CONFIG})
+
+        data = self._node_data(client, wf_id)
+        assert data["label"] == "Writer 2"
+        assert data["capability_bindings"] == ["MEMORY_READ"]
+        assert data["policy_bindings"] == ["policy-pii"]
+        assert data["execution_config"] == {"timeout_seconds": 30}
+        assert data["audit_config"] == {"level": "full"}
+        assert data["parallel_config"]["split_path"] == "items"
+
+    def test_explicit_empty_clears_bindings(self) -> None:
+        repo = _make_repo()
+        client = TestClient(_make_app(repo))
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "gov"}).json()["id"]
+
+        self._put_nodes(client, wf_id, dict(self._GOVERNED_DATA))
+        self._put_nodes(
+            client,
+            wf_id,
+            {
+                "label": "Writer",
+                "config": self._AGENT_CONFIG,
+                "capability_bindings": [],
+                "policy_bindings": [],
+                "parallel_config": None,
+            },
+        )
+
+        data = self._node_data(client, wf_id)
+        assert data["capability_bindings"] == []
+        assert data["policy_bindings"] == []
+        assert data["parallel_config"] is None
+        # Keys absent from that save are still preserved, not cleared.
+        assert data["execution_config"] == {"timeout_seconds": 30}
+        assert data["audit_config"] == {"level": "full"}
 
 
 class TestCloneAndDraftGuard:
@@ -441,9 +530,7 @@ class TestStudioAutoLayout:
     def test_stored_positions_win_over_auto_layout(self) -> None:
         from zeroth.core.service.studio_api import _graph_to_detail
 
-        graph = _branching_graph(
-            metadata={"studio": {"node_positions": {"a": {"x": 5, "y": 7}}}}
-        )
+        graph = _branching_graph(metadata={"studio": {"node_positions": {"a": {"x": 5, "y": 7}}}})
         detail = _graph_to_detail(graph)
         positions = {n.id: (n.position.x, n.position.y) for n in detail.nodes}
         # Stored position for 'a' is respected verbatim; the un-positioned nodes

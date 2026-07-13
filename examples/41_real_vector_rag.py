@@ -56,8 +56,6 @@ import asyncio
 import os
 import sys
 
-from governai.memory.models import MemoryScope
-
 from examples._common import print_run_summary, require_env, running_service
 from examples._contracts import Answer, Question
 from zeroth.core.agent_runtime import (
@@ -65,6 +63,7 @@ from zeroth.core.agent_runtime import (
     AgentRunner,
     LiteLLMProviderAdapter,
 )
+from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.graph import (
     AgentNode,
     AgentNodeData,

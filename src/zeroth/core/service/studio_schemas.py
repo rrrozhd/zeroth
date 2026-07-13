@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -32,13 +32,18 @@ class StudioNodeResponse(BaseModel):
 
 
 class StudioEdgeResponse(BaseModel):
-    """An edge as represented in the Studio frontend."""
+    """An edge as represented in the Studio frontend.
+
+    ``kind="tool"`` marks a tool attachment (agent → executable unit)
+    rather than a control-flow connection.
+    """
 
     id: str
     source: str
     target: str
     source_handle: str | None = None
     target_handle: str | None = None
+    kind: Literal["data", "tool"] = "data"
 
 
 class CreateWorkflowRequest(BaseModel):
@@ -54,6 +59,8 @@ class UpdateWorkflowRequest(BaseModel):
     nodes: list[StudioNodeResponse] | None = None
     edges: list[StudioEdgeResponse] | None = None
     viewport: StudioViewport | None = None
+    # Entrypoint node id. Omit to leave unchanged; send "" to clear.
+    entry_step: str | None = None
 
 
 class WorkflowSummaryResponse(BaseModel):
@@ -73,10 +80,27 @@ class WorkflowDetailResponse(BaseModel):
     name: str
     version: int
     status: str
+    entry_step: str | None = None
     nodes: list[StudioNodeResponse]
     edges: list[StudioEdgeResponse]
     viewport: StudioViewport
     updated_at: str
+
+
+class StudioContractResponse(BaseModel):
+    """A registered contract, for canvas contract-ref pickers."""
+
+    name: str
+    version: int
+    json_schema: dict = Field(default_factory=dict)
+
+
+class CreateContractRequest(BaseModel):
+    """Request body for registering a schema-only contract from the console."""
+
+    name: str = Field(min_length=1, max_length=200, pattern=r"^\S+$")
+    json_schema: dict
+    metadata: dict = Field(default_factory=dict)
 
 
 class PortDefinitionResponse(BaseModel):

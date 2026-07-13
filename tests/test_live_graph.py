@@ -29,7 +29,7 @@ import os
 from typing import Any
 
 import pytest
-from governai.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 from pydantic import BaseModel
 
 from zeroth.core.agent_runtime import AgentConfig, AgentRunner

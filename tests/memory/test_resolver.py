@@ -7,8 +7,8 @@ then ScopedMemoryConnector, and returns correct ResolvedMemoryBinding shape.
 from __future__ import annotations
 
 import pytest
-from governai.audit.emitter import AuditEmitter
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.audit.emitter import AuditEmitter
+from zeroth.core.governed.memory.models import MemoryScope
 
 from zeroth.core.memory.connectors import KeyValueMemoryConnector, RunEphemeralMemoryConnector
 from zeroth.core.memory.models import ConnectorManifest, ResolvedMemoryBinding
@@ -58,7 +58,7 @@ async def test_resolver_wraps_with_scoped_and_auditing(registry: InMemoryConnect
     )
     bindings = await resolver.resolve(
         ["memory://kv"],
-        runtime_context={"run_id": "run-1"},
+        runtime_context={"run_id": "run-1", "tenant_id": "default"},
         thread_id="t-1",
     )
     assert len(bindings) == 1
@@ -82,7 +82,7 @@ async def test_resolver_without_emitter_still_wraps_scoped(registry: InMemoryCon
     )
     bindings = await resolver.resolve(
         ["memory://ephemeral"],
-        runtime_context={"run_id": "run-1"},
+        runtime_context={"run_id": "run-1", "tenant_id": "default"},
     )
     assert len(bindings) == 1
     binding = bindings[0]
@@ -98,7 +98,7 @@ async def test_resolved_binding_has_no_context_field(registry: InMemoryConnector
     resolver = MemoryConnectorResolver(registry=registry, workflow_name="test-wf")
     bindings = await resolver.resolve(
         ["memory://kv"],
-        runtime_context={"run_id": "run-1"},
+        runtime_context={"run_id": "run-1", "tenant_id": "default"},
     )
     binding = bindings[0]
     assert not hasattr(binding, "context") or "context" not in binding.model_fields
@@ -109,6 +109,6 @@ async def test_connector_manifest_uses_memory_scope(registry: InMemoryConnectorR
     resolver = MemoryConnectorResolver(registry=registry, workflow_name="test-wf")
     bindings = await resolver.resolve(
         ["memory://kv"],
-        runtime_context={"run_id": "run-1"},
+        runtime_context={"run_id": "run-1", "tenant_id": "default"},
     )
     assert bindings[0].manifest.scope == MemoryScope.SHARED

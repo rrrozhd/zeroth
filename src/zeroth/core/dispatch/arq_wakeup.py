@@ -27,11 +27,7 @@ def arq_settings_from_zeroth(redis_settings: Any) -> Any:
     """
     from arq.connections import RedisSettings as ArqRedisSettings
 
-    password = (
-        redis_settings.password.get_secret_value()
-        if redis_settings.password
-        else None
-    )
+    password = redis_settings.password.get_secret_value() if redis_settings.password else None
     return ArqRedisSettings(
         host=redis_settings.host,
         port=redis_settings.port,
@@ -72,9 +68,7 @@ async def enqueue_wakeup(arq_pool: Any, run_id: str) -> None:
             _job_id=f"wakeup:{run_id}",
         )
     except Exception:
-        logger.debug(
-            "ARQ wakeup enqueue failed for %s, poll fallback active", run_id
-        )
+        logger.debug("ARQ wakeup enqueue failed for %s, poll fallback active", run_id)
 
 
 async def run_arq_consumer(

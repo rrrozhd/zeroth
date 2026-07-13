@@ -7,9 +7,12 @@ directly from ``zeroth.core.graph`` instead of digging into sub-modules.
 from zeroth.core.graph.models import (
     AgentNode,
     AgentNodeData,
+    AgentToolBinding,
     Condition,
     DisplayMetadata,
     Edge,
+    EntrypointNode,
+    EntrypointNodeData,
     ExecutableUnitNode,
     ExecutableUnitNodeData,
     ExecutionSettings,
@@ -22,6 +25,7 @@ from zeroth.core.graph.models import (
     RetrievalNodeData,
     SubgraphNode,
     TemplateMemoryBinding,
+    ToolArgument,
 )
 from zeroth.core.graph.repository import GraphRepository
 from zeroth.core.subgraph.models import SubgraphNodeData
@@ -29,10 +33,13 @@ from zeroth.core.subgraph.models import SubgraphNodeData
 __all__ = [
     "AgentNode",
     "AgentNodeData",
+    "AgentToolBinding",
     "Condition",
     "DisplayMetadata",
     "Edge",
     "ExecutionSettings",
+    "EntrypointNode",
+    "EntrypointNodeData",
     "ExecutableUnitNode",
     "ExecutableUnitNodeData",
     "Graph",
@@ -46,4 +53,5 @@ __all__ = [
     "SubgraphNode",
     "SubgraphNodeData",
     "TemplateMemoryBinding",
+    "ToolArgument",
 ]

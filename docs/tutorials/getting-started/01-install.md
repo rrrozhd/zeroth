@@ -26,21 +26,32 @@ so you do not need any extras to complete the tutorial.
 ## Set an API key
 
 The hello example below makes one real LLM call through
-[litellm](https://github.com/BerriAI/litellm) using Anthropic. Set your
-key:
+[litellm](https://github.com/BerriAI/litellm) using OpenAI
+(`openai/gpt-4o-mini`). Set your key:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
 ```
 
-If you prefer OpenAI (which Section 2 and Section 3 use), export
-`OPENAI_API_KEY` instead and edit the `model=` argument in the hello
-script — any litellm-supported provider works.
+Any litellm-supported provider works — edit the `model=` argument in the
+hello script to switch (e.g. `anthropic/claude-sonnet-5` with
+`ANTHROPIC_API_KEY`).
 
 ## Run the hello example
 
-The canonical smoke test lives at `examples/00_hello.py`. It builds a
-one-node graph, wires a real `AgentRunner` through
+The canonical smoke test lives at `examples/00_hello.py` **in the
+repository** — the `examples/` directory is not shipped inside the wheel,
+so clone the repo to run it:
+
+```bash
+git clone https://github.com/rrrozhd/zeroth-core && cd zeroth-core
+```
+
+(No clone handy? `zeroth-core seed-demo && zeroth-core serve` gives you a
+running demo service from the bare pip install — see
+[Local development](../../how-to/deployment/local-dev.md).)
+
+It builds a one-node graph, wires a real `AgentRunner` through
 `LiteLLMProviderAdapter`, and runs it through the orchestrator. If
 this runs end-to-end your install is healthy.
 
@@ -56,7 +67,7 @@ python examples/00_hello.py
 
 Expected output: a single short greeting sentence from the LLM.
 
-If `ANTHROPIC_API_KEY` is unset the script prints a `SKIP` notice to
+If `OPENAI_API_KEY` is unset the script prints a `SKIP` notice to
 stderr and exits `0` — that same behaviour keeps CI green on forked
 pull requests that do not have secrets configured.
 

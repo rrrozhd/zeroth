@@ -519,6 +519,49 @@ async def test_runtime_orchestrator_blocks_policy_violation_and_records_audit(sq
     assert audits[0].error is not None
 
 
+async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqlite_db) -> None:
+    def _raise(_request):
+        raise RuntimeError("authentication failed: OPENAI_API_KEY is unset")
+
+    graph = Graph(
+        graph_id="graph-provider-failure",
+        name="provider-failure",
+        entry_step="agent",
+        nodes=[
+            AgentNode(
+                node_id="agent",
+                graph_version_ref="graph-provider-failure:v1",
+                agent=AgentNodeData(instruction="respond", model_provider="provider://test"),
+            )
+        ],
+        edges=[],
+    )
+    orchestrator = RuntimeOrchestrator(
+        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={
+            "agent": _agent_runner(
+                output_model=NumberOutput,
+                provider=CallableProviderAdapter(_raise),
+            )
+        },
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    )
+
+    run = await orchestrator.run_graph(graph, {"value": 1})
+
+    assert run.status is RunStatus.FAILED
+    assert run.failure_state is not None
+    assert run.failure_state.reason == "node_execution_failed"
+    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    assert len(audits) == 1
+    assert audits[0].status == "failed"
+    assert audits[0].node_id == "agent"
+    assert audits[0].error is not None
+    assert audits[0].execution_metadata["error_type"] == "AgentProviderError"
+    assert run.audit_refs == ["audit:1"]
+
+
 async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
     store = RepositoryThreadStateStore(sqlite_db)
     thread_resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))

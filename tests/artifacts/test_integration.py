@@ -364,7 +364,7 @@ class TestFullLifecycleIntegration:
 
         assert await store.exists("run-99/node-a/001")
 
-        count = await store.cleanup_run("run-99")
+        count = await store.cleanup_run("run-99", idempotency_key="integration-cleanup")
         assert count == 3
 
         assert not await store.exists("run-99/node-a/001")

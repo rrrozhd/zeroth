@@ -12,6 +12,7 @@ require ``psycopg`` / ``psycopg-pool`` at import time.
 from typing import TYPE_CHECKING, Any
 
 from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.core.storage.coordination import ensure_and_lock_row
 from zeroth.core.storage.database import AsyncConnection, AsyncDatabase
 from zeroth.core.storage.factory import create_database
 from zeroth.core.storage.redis import (
@@ -40,6 +41,7 @@ __all__ = [
     "build_governai_redis_runtime",
     "create_database",
     "docker_container_running",
+    "ensure_and_lock_row",
 ]
 
 

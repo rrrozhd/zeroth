@@ -6,9 +6,23 @@ the SQLite and Postgres backends implement.
 
 from __future__ import annotations
 
+import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
+
+DEFAULT_COORDINATION_TIMEOUT_SECONDS = 5.0
+
+
+class CoordinationTimeoutError(TimeoutError):
+    """Raised when a database coordination lock cannot be acquired in time."""
+
+
+def validate_coordination_timeout(timeout_seconds: float) -> float:
+    """Return a finite positive coordination timeout or reject invalid input."""
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("coordination_timeout_seconds must be finite positive")
+    return timeout_seconds
 
 
 @runtime_checkable
@@ -28,7 +42,9 @@ class AsyncConnection(Protocol):
 class AsyncDatabase(Protocol):
     """Abstract async database interface for all repositories."""
 
+    backend: Literal["sqlite", "postgres"]
+
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[AsyncConnection]: ...
+    async def transaction(self, *, write_lock: bool = False) -> AsyncIterator[AsyncConnection]: ...
 
     async def close(self) -> None: ...

@@ -138,7 +138,7 @@ const NODE_EXAMPLES: Record<string, string> = {
   agent: '{ "instruction": "Summarize the input…", "model_provider": "openai/gpt-4o" }',
   executable_unit: '{ "manifest_ref": "tools/my_tool", "execution_mode": "native" }',
   human_approval: '{ "sla_timeout_seconds": 86400 }',
-  retrieval: '{ "connector_ref": "docs", "top_k": 5 }',
+  retrieval: '{ "connector_ref": "key_value", "top_k": 5 }',
   subgraph: '{ "graph_ref": "my-subflow", "version": 2 }',
 };
 
@@ -204,6 +204,62 @@ export default function GuidePage() {
             </li>
           ))}
         </ul>
+      </Card>
+
+      <Card title="Retrieval connectors">
+        <p className="text-sm leading-relaxed text-muted">
+          A retrieval node queries a{" "}
+          <span className="font-medium text-foreground">memory connector</span> registered on
+          the deployment — its Connector dropdown lists exactly what this deployment can
+          resolve. Three in-memory connectors (<Mono>ephemeral</Mono>, <Mono>key_value</Mono>,{" "}
+          <Mono>thread</Mono>) are always available for dev; production backends are enabled
+          per deployment via settings and their install extra:
+        </p>
+        <ul className="mt-3 space-y-1.5 text-sm text-muted">
+          <li>
+            <Mono>pgvector</Mono> — Postgres vector search: <Mono>zeroth-core[memory-pg]</Mono>{" "}
+            + <Mono>ZEROTH_PGVECTOR__ENABLED=true</Mono>
+          </li>
+          <li>
+            <Mono>chroma</Mono> — ChromaDB: <Mono>zeroth-core[memory-chroma]</Mono> +{" "}
+            <Mono>ZEROTH_CHROMA__ENABLED=true</Mono>
+          </li>
+          <li>
+            <Mono>elasticsearch</Mono> — Elasticsearch: <Mono>zeroth-core[memory-es]</Mono> +{" "}
+            <Mono>ZEROTH_ELASTICSEARCH__ENABLED=true</Mono>
+          </li>
+          <li>
+            <Mono>redis_kv</Mono> / <Mono>redis_thread</Mono> — Redis-backed stores when Redis
+            is configured
+          </li>
+        </ul>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          Backends can also be added at runtime — no env changes or restart — on the{" "}
+          <Link href="/connectors" className="text-accent hover:underline">
+            Connectors
+          </Link>{" "}
+          page. The API lists them at <Mono>GET /v1/connectors</Mono>.
+        </p>
+      </Card>
+
+      <Card title="Executable units & where code lives">
+        <p className="text-sm leading-relaxed text-muted">
+          An executable-unit node runs code that was{" "}
+          <span className="font-medium text-foreground">registered in Python</span> at
+          bootstrap — the medium-code path. You register a manifest (a{" "}
+          <Mono>NativeUnitManifest</Mono>, <Mono>WrappedCommandUnitManifest</Mono>, or{" "}
+          <Mono>ProjectUnitManifest</Mono>) together with its handler on the{" "}
+          <Mono>ExecutableUnitRegistry</Mono>, then reference it by ref on the canvas:
+        </p>
+        <code className="mt-3 block overflow-x-auto whitespace-nowrap rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-muted dark:bg-zinc-800">
+          registry.register(&quot;tools/summarize&quot;, manifest, input_model=In,
+          output_model=Out, handler=summarize)
+        </code>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          Code is never authored in the console — the canvas only wires registered units into
+          the graph. The Manifest ref dropdown in the node editor and{" "}
+          <Mono>GET /v1/manifests</Mono> list exactly what this deployment has registered.
+        </p>
       </Card>
 
       <Card title="Call the deployment from your app">

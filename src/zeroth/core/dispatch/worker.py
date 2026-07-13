@@ -136,6 +136,7 @@ class RunWorker:
     ) -> None:
         """Drive one run to completion or failure under the semaphore."""
         import time
+
         if self.metrics_collector is not None:
             self.metrics_collector.increment("zeroth_runs_started_total")
         started_at = time.perf_counter()
@@ -203,7 +204,9 @@ class RunWorker:
             if recovery_cp_id:
                 logger.info(
                     "worker %s resuming run %s from checkpoint %s",
-                    self.worker_id, run_id, recovery_cp_id,
+                    self.worker_id,
+                    run_id,
+                    recovery_cp_id,
                 )
                 await self.orchestrator.resume_graph(self.graph, run_id)
                 return
@@ -230,7 +233,8 @@ class RunWorker:
 
         node = next(
             (
-                n for n in self.graph.nodes
+                n
+                for n in self.graph.nodes
                 if n.node_id == record.node_id and isinstance(n, HumanApprovalNode)
             ),
             None,
@@ -274,9 +278,7 @@ class RunWorker:
         while True:
             await asyncio.sleep(interval)
             if not await self.lease_manager.renew_lease(run_id, self.worker_id):
-                logger.warning(
-                    "worker %s lost lease on run %s", self.worker_id, run_id
-                )
+                logger.warning("worker %s lost lease on run %s", self.worker_id, run_id)
                 return
 
     # ---------------------------------------------------------------------------
@@ -293,9 +295,7 @@ class RunWorker:
         try:
             await self._semaphore.acquire()
             slot_reserved = True
-            claimed_id = await self.lease_manager.claim_pending(
-                self.deployment_ref, self.worker_id
-            )
+            claimed_id = await self.lease_manager.claim_pending(self.deployment_ref, self.worker_id)
             if claimed_id is not None:
                 task = asyncio.create_task(
                     self._execute_leased_run(

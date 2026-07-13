@@ -40,7 +40,7 @@ def mint_econ_service_token() -> str | None:
     try:
         from jose import jwt
 
-        from econ_plane.config import settings as ecp_settings
+        from zeroth.econ_plane.config import settings as ecp_settings
     except Exception:  # noqa: BLE001 - missing extra or import-time failure
         return None
 

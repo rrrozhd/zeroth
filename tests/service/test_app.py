@@ -127,3 +127,24 @@ async def test_health_endpoint_returns_success(sqlite_db) -> None:
         "deployment_version": deployment.version,
         "graph_version_ref": deployment.graph_version_ref,
     }
+
+
+async def test_lifespan_closes_secret_provider_exactly_once(sqlite_db) -> None:
+    deployment = await _deploy_test_graph(sqlite_db, "graph-secret-close")
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
+
+    closes = 0
+
+    class _ClosableProvider:
+        async def aclose(self) -> None:
+            nonlocal closes
+            closes += 1
+
+    app.state.bootstrap.secret_provider = _ClosableProvider()
+    with TestClient(app):
+        pass
+    assert closes == 1

@@ -449,3 +449,39 @@ class TestSettingsIntegration:
         s = ZerothSettings()
         assert isinstance(s.http_client, HttpClientSettings)
         assert s.http_client.max_retries == 3
+
+
+class _AsyncOnlySecretProvider:
+    """Fails loudly if auth secrets are resolved synchronously from async code."""
+
+    def __init__(self, secrets: dict[str, str]) -> None:
+        self._secrets = secrets
+
+    def resolve(self, secret_ref: str, *, tenant_id: str | None = None) -> str | None:
+        raise AssertionError("sync resolve used on an async path")
+
+    def resolve_many(self, refs, *, tenant_id=None):  # noqa: ANN001
+        raise AssertionError("sync resolve_many used on an async path")
+
+    async def resolve_async(self, secret_ref: str, *, tenant_id: str | None = None) -> str | None:
+        return self._secrets.get(secret_ref)
+
+
+class TestAsyncSecretResolution:
+    @pytest.mark.asyncio
+    async def test_request_resolves_auth_secret_asynchronously(self) -> None:
+        provider = _AsyncOnlySecretProvider({"MY_TOKEN": "tok-async"})
+        settings = HttpClientSettings()
+        endpoint_cfg = EndpointConfig(secret_key="MY_TOKEN", auth_type=AuthType.BEARER)
+
+        received_headers: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            received_headers.update(dict(request.headers))
+            return httpx.Response(200)
+
+        client = ResilientHttpClient(settings, secret_provider=provider)
+        client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        await client.get("https://api.example.com/data", endpoint_config=endpoint_cfg)
+        assert received_headers.get("authorization") == "Bearer tok-async"
+        await client.aclose()

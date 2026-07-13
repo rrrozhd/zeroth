@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 
 from zeroth.core.memory.connectors import (
     KeyValueMemoryConnector,

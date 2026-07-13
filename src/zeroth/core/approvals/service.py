@@ -112,9 +112,7 @@ class ApprovalService:
                 "approval_id": result.approval_id,
                 "run_id": result.run_id,
                 "node_id": result.node_id,
-                "sla_deadline": (
-                    result.sla_deadline.isoformat() if result.sla_deadline else None
-                ),
+                "sla_deadline": (result.sla_deadline.isoformat() if result.sla_deadline else None),
             },
         )
         return result
@@ -277,9 +275,7 @@ class ApprovalService:
                 "approval_id": resolved.approval_id,
                 "run_id": resolved.run_id,
                 "node_id": resolved.node_id,
-                "decision": (
-                    resolved.resolution.decision.value if resolved.resolution else None
-                ),
+                "decision": (resolved.resolution.decision.value if resolved.resolution else None),
             },
         )
         return resolved

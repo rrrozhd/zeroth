@@ -4,6 +4,7 @@
 Reads JSON from stdin, adds metadata, writes JSON to stdout.
 No LLM call -- pure computation.
 """
+
 import json
 import sys
 from datetime import UTC, datetime

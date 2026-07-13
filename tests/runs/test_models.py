@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from governai import RunStatus
+from zeroth.core.governed import RunStatus
 
 from zeroth.core.runs.models import (
     Run,

@@ -81,3 +81,57 @@ jobs:
               exit 1
               ;;
           esac
+
+  # The [console] extra resolves the separate zeroth-console dist, which is
+  # built from this repo (frontend/ + packaging/console) rather than fetched
+  # from PyPI — so it gets its own job with a Node toolchain and installs via
+  # --find-links against the locally built wheels.
+  verify-console-extra:
+    name: "extra=console (local dists)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build both dists
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build
+          (cd frontend && npm ci --no-fund --no-audit && npm run build)
+          ./scripts/build_console_dist.sh --skip-frontend-build
+
+      - name: Clean-venv install [console] and mount smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          WHEEL=$(ls dist/zeroth_core-*.whl | head -1)
+          python -m venv /tmp/venv-console
+          # shellcheck disable=SC1090
+          source /tmp/venv-console/bin/activate
+          pip install --upgrade pip
+          pip install --find-links dist/ "${WHEEL}[console]"
+          cd /tmp  # away from the checkout so the repo fallback can't mask the package
+          python -c "
+          from fastapi import FastAPI
+          from zeroth.core.service.console_ui import find_console_dir, mount_console
+          d = find_console_dir()
+          assert d is not None and 'zeroth_console' in str(d), f'console dir: {d}'
+          assert mount_console(FastAPI()) is True
+          print('console extra OK:', d)
+          "

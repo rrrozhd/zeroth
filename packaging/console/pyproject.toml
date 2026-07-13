@@ -1,0 +1,36 @@
+[project]
+name = "zeroth-console"
+# Kept in lockstep with the root zeroth-core version; scripts/build_console_dist.sh
+# syncs it from the root pyproject.toml at build time and the release workflow
+# asserts the two match.
+version = "0.4.4"
+description = "Bundled web console (static UI) for zeroth-core — install via zeroth-core[console]"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+keywords = ["zeroth", "console", "ui"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/rrrozhd/zeroth-core"
+Source = "https://github.com/rrrozhd/zeroth-core"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zeroth_console"]
+# static/ is the Next.js export copied in by scripts/build_console_dist.sh and
+# is gitignored — hatchling skips gitignored files unless forced via artifacts.
+artifacts = ["src/zeroth_console/static/**"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/zeroth_console", "README.md"]
+artifacts = ["src/zeroth_console/static/**"]

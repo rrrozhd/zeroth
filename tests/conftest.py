@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,23 @@ import pytest
 # econ_plane import so the mount tests exercise the production-like path rather
 # than the insecure-default guard. Must run at collection import time.
 os.environ.setdefault("ECP_JWT_SECRET", "test-econ-jwt-secret-not-a-real-key")
+
+# econ_plane's engine binds its database URL at import time; without an
+# override it writes ./econ_plane.db in the repo, so rows ingested by one
+# test session survive into the next and idempotent-insert tests flake.
+os.environ.setdefault(
+    "ECP_DATABASE_URL",
+    f"sqlite+pysqlite:///{tempfile.mkdtemp(prefix='zeroth-econ-test-')}/econ_plane.db",
+)
+
+# The service bootstrap's default filesystem artifact store writes erasure
+# receipts under ./.zeroth/artifacts; ZerothSettings is a lazy env-reading
+# singleton, so point the base dir at a session temp dir before any test
+# triggers get_settings().
+os.environ.setdefault(
+    "ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR",
+    tempfile.mkdtemp(prefix="zeroth-artifacts-test-"),
+)
 
 from zeroth.core.service.bootstrap import run_migrations  # noqa: E402
 from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
@@ -163,3 +181,17 @@ def otel_spans(_otel_exporter):
     finally:
         tracing._TRACING_ENABLED = False
         _otel_exporter.clear()
+
+
+@pytest.fixture(autouse=True)
+def _tripwire_repo_root_residue(request):
+    """Fail the leaking test when state escapes into the repo root.
+
+    Repo-root databases and artifact directories survive across sessions and
+    turn idempotency assertions into order-dependent flakes; catching the
+    leak at the offending test keeps the diagnosis one stack trace away.
+    """
+    yield
+    residue = [p for p in ("econ_plane.db", ".zeroth") if os.path.exists(p)]
+    if residue:
+        raise AssertionError(f"repo-root residue {residue} created during {request.node.nodeid}")

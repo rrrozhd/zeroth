@@ -8,6 +8,7 @@ Per D-10, D-11, D-14 from Phase 14 planning.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from collections.abc import Awaitable, Callable
@@ -15,11 +16,10 @@ from typing import Any
 
 import litellm
 import psycopg
-from governai.memory.models import MemoryEntry, MemoryScope
-from governai.models.common import JSONValue
 from pgvector.psycopg import register_vector_async
 
-from zeroth.core.config.settings import DEFAULT_EMBEDDING_DIMENSIONS, DEFAULT_EMBEDDING_MODEL
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.models.common import JSONValue
 
 # Unquoted PostgreSQL identifiers: letter/underscore followed by word chars, max 63.
 # Restricting to this subset lets us embed self._table directly in DDL/DML without
@@ -31,24 +31,44 @@ class PgvectorMemoryConnector:
     """Memory connector backed by Postgres with pgvector extension.
 
     Uses HNSW index for fast approximate nearest-neighbor search with
-    cosine similarity. Accepts an async connection factory rather than
-    managing connections directly.
+    cosine similarity. Accepts an async connection factory (or a DSN
+    string, which is wrapped into one) rather than managing connections
+    directly.
     """
 
     connector_type = "pgvector"
 
     def __init__(
         self,
-        conn_factory: Callable[[], Awaitable[psycopg.AsyncConnection]],
+        conn_factory: Callable[[], Awaitable[psycopg.AsyncConnection]] | str,
         *,
         table_name: str = "zeroth_memory_vectors",
-        embedding_model: str = DEFAULT_EMBEDDING_MODEL,
-        embedding_dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
+        embedding_model: str | None = None,
+        embedding_dimensions: int | None = None,
     ) -> None:
+        # Resolve the embedding defaults lazily. Importing config.settings at module load
+        # forms a circular import (settings ↔ pgvector_connector) that, depending on import
+        # order, silently disabled this connector; deferring to call time avoids it entirely.
+        from zeroth.core.config.settings import (
+            DEFAULT_EMBEDDING_DIMENSIONS,
+            DEFAULT_EMBEDDING_MODEL,
+        )
+
+        if embedding_model is None:
+            embedding_model = DEFAULT_EMBEDDING_MODEL
+        if embedding_dimensions is None:
+            embedding_dimensions = DEFAULT_EMBEDDING_DIMENSIONS
         if not _IDENT_RE.match(table_name):
             raise ValueError(
                 f"invalid pgvector table_name {table_name!r}: must match {_IDENT_RE.pattern}"
             )
+        if isinstance(conn_factory, str):
+            dsn = conn_factory
+
+            def _connect() -> Awaitable[psycopg.AsyncConnection]:
+                return psycopg.AsyncConnection.connect(dsn)
+
+            conn_factory = _connect
         self._conn_factory = conn_factory
         self._table = table_name
         self._embedding_model = embedding_model
@@ -168,7 +188,11 @@ class PgvectorMemoryConnector:
         """Convert a database row tuple to a MemoryEntry."""
         value = row[1]
         if isinstance(value, str):
-            value = json.loads(value)
+            # psycopg already decodes jsonb, so a str here is either a raw
+            # serialized payload (older drivers/TEXT columns) or a genuine
+            # JSON string primitive like "ok" — only the former re-parses.
+            with contextlib.suppress(ValueError):
+                value = json.loads(value)
         return MemoryEntry(
             key=row[0],
             value=value,

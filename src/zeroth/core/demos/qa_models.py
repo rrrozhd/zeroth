@@ -1,7 +1,9 @@
 """Contract models for demo workflows."""
+
 from pydantic import BaseModel, Field
 
 # --- Simple Q&A (single agent) ---
+
 
 class QuestionInput(BaseModel):
     question: str
@@ -12,6 +14,7 @@ class AnswerOutput(BaseModel):
 
 
 # --- Research Pipeline (multi-node) ---
+
 
 class ResearchInput(BaseModel):
     question: str

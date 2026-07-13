@@ -193,7 +193,7 @@ Then smoke-test the service layer against your own graphs:
 
 ```bash
 uv run zeroth-core serve  # or however you launch your app
-curl http://localhost:8000/healthz
+curl http://localhost:8000/health/ready
 ```
 
 If a test fails with an `ImportError` mentioning `zeroth.<something>` (without `.core`), the rename missed that file — rerun the sed recipe or fix manually.

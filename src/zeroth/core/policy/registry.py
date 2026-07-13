@@ -55,3 +55,19 @@ class PolicyRegistry:
             return self._policies[ref]
         except KeyError as exc:
             raise KeyError(ref) from exc
+
+
+def default_capability_registry() -> CapabilityRegistry:
+    """Build a CapabilityRegistry that resolves every capability by its value.
+
+    Each :class:`Capability` is registered under its own string value (e.g.
+    ``"memory_read"`` -> ``Capability.MEMORY_READ``). This is the ref scheme the
+    served path expects: graphs declare ``capability_bindings=["memory_read",
+    ...]`` and the wired-in :class:`PolicyGuard` resolves them without any
+    app-specific registration. Apps that use a bespoke ref scheme (e.g.
+    ``"capability://memory-read"``) build and inject their own registry instead.
+    """
+    registry = CapabilityRegistry()
+    for capability in Capability:
+        registry.register(capability.value, capability)
+    return registry

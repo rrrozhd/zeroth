@@ -128,7 +128,11 @@ def _render_section(section_name: str, model_cls: type[BaseModel]) -> str:
     lines.append("| --- | --- | --- | --- | --- |")
 
     for field_name, field in model_cls.model_fields.items():
-        env_var = f"ZEROTH_{section_name.upper()}__{field_name.upper()}"
+        # Fields whose runtime reader uses a bespoke env name (rather than the
+        # nested ZEROTH_<SECTION>__<FIELD> scheme) declare it via
+        # json_schema_extra={"env": ...}; the reference must document that name.
+        extra = field.json_schema_extra if isinstance(field.json_schema_extra, dict) else {}
+        env_var = extra.get("env") or f"ZEROTH_{section_name.upper()}__{field_name.upper()}"
         type_str = _render_annotation(field.annotation).replace("|", "\\|")
         default_str = _render_default(field)
         secret_mark = "✓" if _annotation_contains_secret(field.annotation) else ""

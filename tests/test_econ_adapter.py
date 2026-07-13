@@ -72,11 +72,36 @@ async def test_adapter_enriches_response_with_cost(
     assert len(result.cost_event_id) > 0
 
 
+async def test_adapter_without_regulus_stamps_cost_but_emits_no_event(
+    response_with_tokens, cost_estimator, provider_request
+):
+    """regulus_client=None: cost is still attributed locally (litellm), no event emitted.
+
+    This is the on-by-default path — cost tracking works without a Regulus backend.
+    Proves the only client dereference (track_execution) is guarded.
+    """
+    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
+
+    inner = DeterministicProviderAdapter([response_with_tokens])
+    adapter = InstrumentedProviderAdapter(
+        inner=inner,
+        regulus_client=None,
+        cost_estimator=cost_estimator,
+        node_id="test-node",
+        run_id="run-1",
+        tenant_id="tenant-1",
+        deployment_ref="deploy-1",
+    )
+    result = await adapter.ainvoke(provider_request)
+    assert result.cost_usd is not None and result.cost_usd > 0
+    assert result.cost_event_id is None  # no Regulus event to reference
+
+
 async def test_adapter_calls_track_execution_with_correct_event(
     response_with_tokens, mock_regulus_client, cost_estimator, provider_request
 ):
     """InstrumentedProviderAdapter calls track_execution with correct ExecutionEvent fields."""
-    from econ_instrumentation import ExecutionEvent
+    from zeroth.core.econ.instrumentation import ExecutionEvent
 
     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 

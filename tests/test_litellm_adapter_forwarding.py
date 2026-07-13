@@ -36,7 +36,7 @@ class TestLiteLLMAdapterForwarding:
         tools = [{"type": "function", "function": {"name": "f"}}]
         request = ProviderRequest(model_name="openai/gpt-4o", tools=tools)
 
-        with patch.object(adapter, "_get_client", return_value=mock_client):
+        with patch.object(adapter, "_get_client_async", AsyncMock(return_value=mock_client)):
             await adapter.ainvoke(request)
 
         _, kwargs = mock_client.ainvoke.call_args
@@ -50,7 +50,7 @@ class TestLiteLLMAdapterForwarding:
 
         request = ProviderRequest(model_name="openai/gpt-4o", tool_choice="auto")
 
-        with patch.object(adapter, "_get_client", return_value=mock_client):
+        with patch.object(adapter, "_get_client_async", AsyncMock(return_value=mock_client)):
             await adapter.ainvoke(request)
 
         _, kwargs = mock_client.ainvoke.call_args
@@ -66,7 +66,7 @@ class TestLiteLLMAdapterForwarding:
         fmt = {"type": "json_schema", "json_schema": {"name": "T", "schema": {}}}
         request = ProviderRequest(model_name="openai/gpt-4o", response_format=fmt)
 
-        with patch.object(adapter, "_get_client", return_value=mock_client):
+        with patch.object(adapter, "_get_client_async", AsyncMock(return_value=mock_client)):
             await adapter.ainvoke(request)
 
         _, kwargs = mock_client.ainvoke.call_args
@@ -92,7 +92,7 @@ class TestLiteLLMAdapterForwarding:
 
         request = ProviderRequest(model_name="openai/gpt-4o", output_model=TestOutput)
 
-        with patch.object(adapter, "_get_client", return_value=mock_client):
+        with patch.object(adapter, "_get_client_async", AsyncMock(return_value=mock_client)):
             response = await adapter.ainvoke(request)
 
         # A strict json_schema response_format was bound, with every property
@@ -118,7 +118,7 @@ class TestLiteLLMAdapterForwarding:
             model_params=ModelParams(temperature=0.7, max_tokens=100),
         )
 
-        with patch.object(adapter, "_get_client", return_value=mock_client):
+        with patch.object(adapter, "_get_client_async", AsyncMock(return_value=mock_client)):
             await adapter.ainvoke(request)
 
         _, kwargs = mock_client.ainvoke.call_args
@@ -136,7 +136,7 @@ class TestLiteLLMAdapterForwarding:
             model_params=ModelParams(top_p=0.9, stop=["END"], seed=42),
         )
 
-        with patch.object(adapter, "_get_client", return_value=mock_client):
+        with patch.object(adapter, "_get_client_async", AsyncMock(return_value=mock_client)):
             await adapter.ainvoke(request)
 
         _, kwargs = mock_client.ainvoke.call_args
@@ -152,7 +152,7 @@ class TestLiteLLMAdapterForwarding:
 
         request = ProviderRequest(model_name="openai/gpt-4o")
 
-        with patch.object(adapter, "_get_client", return_value=mock_client):
+        with patch.object(adapter, "_get_client_async", AsyncMock(return_value=mock_client)):
             await adapter.ainvoke(request)
 
         args, kwargs = mock_client.ainvoke.call_args
@@ -171,7 +171,7 @@ class TestLiteLLMAdapterForwarding:
             model_params=ModelParams(),
         )
 
-        with patch.object(adapter, "_get_client", return_value=mock_client):
+        with patch.object(adapter, "_get_client_async", AsyncMock(return_value=mock_client)):
             await adapter.ainvoke(request)
 
         args, kwargs = mock_client.ainvoke.call_args

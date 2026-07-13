@@ -33,9 +33,7 @@ StrategyFn = Callable[..., Any]
 # ``pkg.mod.fn`` or ``pkg.mod.sub.fn``. At least one dot required so
 # single-segment module names like ``os`` are rejected (prevents accidental
 # top-level stdlib imports). Rejected BEFORE any importlib call.
-_REDUCER_REF_PATTERN = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$"
-)
+_REDUCER_REF_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
 
 def _reduce_collect(
@@ -59,8 +57,7 @@ def _reduce_merge(
             continue
         if not isinstance(out, dict):
             raise MergeStrategyError(
-                f"merge strategy requires dict outputs, branch {i} produced "
-                f"{type(out).__name__}"
+                f"merge strategy requires dict outputs, branch {i} produced {type(out).__name__}"
             )
         merged.update(out)
     return merged
@@ -88,9 +85,7 @@ def _reduce_fold(
         except MergeStrategyError:
             raise
         except Exception as exc:  # noqa: BLE001 - wrap any reducer failure
-            raise MergeStrategyError(
-                f"reducer raised {type(exc).__name__}: {exc}"
-            ) from exc
+            raise MergeStrategyError(f"reducer raised {type(exc).__name__}: {exc}") from exc
     return acc
 
 
@@ -118,14 +113,11 @@ def resolve_reducer_ref(reducer_ref: str) -> ReducerFn:
             f"reducer module {module_path!r} not importable: {exc}"
         ) from exc
     if not hasattr(module, attr):
-        raise ReducerRefValidationError(
-            f"reducer {attr!r} not found in module {module_path!r}"
-        )
+        raise ReducerRefValidationError(f"reducer {attr!r} not found in module {module_path!r}")
     fn = getattr(module, attr)
     if not callable(fn):
         raise ReducerRefValidationError(
-            f"reducer_ref {reducer_ref!r} resolved to {type(fn).__name__}, "
-            "expected a callable"
+            f"reducer_ref {reducer_ref!r} resolved to {type(fn).__name__}, expected a callable"
         )
     return fn
 
@@ -174,9 +166,7 @@ def dispatch_strategy(
     if strategy == "custom":
         if reducer_ref is None:
             # Defense in depth — model validator should have caught this.
-            raise MergeStrategyError(
-                "merge_strategy='custom' requires reducer_ref"
-            )
+            raise MergeStrategyError("merge_strategy='custom' requires reducer_ref")
         reducer = resolve_reducer_ref(reducer_ref)
         return _reduce_fold(outputs, reducer=reducer)
     handler = _STRATEGY_REGISTRY.get(strategy)

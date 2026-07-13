@@ -6,8 +6,8 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
-from governai.memory.connector import MemoryConnector
-from governai.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.memory.connector import MemoryConnector
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector
 

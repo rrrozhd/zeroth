@@ -131,6 +131,15 @@ class DockerSandboxConfig:
     container_name: str = "zeroth-sandbox"
     docker_binary: str = "docker"
     workspace_root: str = "/tmp/zeroth-sandbox"
+    # Container-hardening defaults: immutable root filesystem (the workspace
+    # bind mount and a /tmp tmpfs stay writable), all capabilities dropped,
+    # and privilege escalation blocked. Disable only for images that cannot
+    # run under these restrictions.
+    hardened: bool = True
+    # Optional uid[:gid] to run the container as (e.g. "65534:65534").
+    # Off by default: the bind-mounted workspace is host-owned, so forcing a
+    # non-root user breaks images whose units write outputs there.
+    run_as_user: str | None = None
 
 
 class SandboxStrictnessMode(StrEnum):
@@ -139,6 +148,25 @@ class SandboxStrictnessMode(StrEnum):
     PERMISSIVE = "permissive"
     STANDARD = "standard"
     STRICT = "strict"
+
+
+def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
+    """Container-hardening flags applied to every sandbox `docker run`."""
+    if not docker.hardened:
+        flags: list[str] = []
+    else:
+        flags = [
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--tmpfs",
+            "/tmp",
+        ]
+    if docker.run_as_user:
+        flags.extend(["--user", docker.run_as_user])
+    return flags
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,9 +451,7 @@ class SandboxManager:
         strictness = self._config.strictness_mode
         if configured is SandboxBackendMode.SIDECAR:
             if self._sidecar_client is None:
-                raise SandboxBackendUnavailableError(
-                    "sidecar client not configured"
-                )
+                raise SandboxBackendUnavailableError("sidecar client not configured")
             return SandboxBackendMode.SIDECAR
         if configured is SandboxBackendMode.LOCAL:
             if (
@@ -566,6 +592,7 @@ class SandboxManager:
                     docker.docker_binary,
                     "run",
                     "--rm",
+                    *_docker_hardening_flags(docker),
                     "-v",
                     f"{sandbox_root}:{container_root}",
                     *build_docker_resource_flags(resource_constraints),
@@ -630,26 +657,11 @@ class SandboxManager:
             input_text=input_text,
             timeout_seconds=timeout_seconds,
             environment=environment.variables,
-            cpu_cores=(
-                resource_constraints.cpu_cores
-                if resource_constraints
-                else None
-            ),
-            memory_mb=(
-                resource_constraints.memory_mb
-                if resource_constraints
-                else None
-            ),
-            max_processes=(
-                resource_constraints.max_processes
-                if resource_constraints
-                else None
-            ),
-            network_access=(
-                resource_constraints.network_access
-                if resource_constraints
-                else False
-            ) or False,
+            cpu_cores=(resource_constraints.cpu_cores if resource_constraints else None),
+            memory_mb=(resource_constraints.memory_mb if resource_constraints else None),
+            max_processes=(resource_constraints.max_processes if resource_constraints else None),
+            network_access=(resource_constraints.network_access if resource_constraints else False)
+            or False,
         )
         response = asyncio.run(self._sidecar_client.execute(request))
         return SandboxExecutionResult(

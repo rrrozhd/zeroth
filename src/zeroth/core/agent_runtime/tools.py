@@ -14,6 +14,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.core.policy.errors import require_capabilities
+from zeroth.core.policy.models import Capability
+
 
 class ToolAttachmentError(ValueError):
     """Base error for anything that goes wrong with tool attachments."""
@@ -42,6 +45,11 @@ class ToolAttachmentManifest(BaseModel):
     description: str = ""
     parameters_schema: dict[str, Any] | None = None
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
+    # WS-C: the Capability set the agent must be granted to invoke this tool.
+    # Authoritative source is the target executable unit's declared capabilities
+    # (resolved by the runner factory); free-string ``permission_scope`` above is
+    # a SEPARATE, coarser ACL and is not part of the Capability system.
+    required_capabilities: tuple[Capability, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
     # Per-tool override for the model-boundary output cap; None inherits the
@@ -94,6 +102,7 @@ class ToolAttachmentBinding(BaseModel):
     description: str = ""
     parameters_schema: dict[str, Any] | None = None
     permission_scope: tuple[str, ...] = Field(default_factory=tuple)
+    required_capabilities: tuple[Capability, ...] = Field(default_factory=tuple)
     timeout_override_seconds: float | None = Field(default=None, ge=0.0)
     side_effect_allowed: bool = False
     max_output_chars: int | None = Field(default=None, ge=1)
@@ -110,6 +119,7 @@ class ToolAttachmentBinding(BaseModel):
                 dict(manifest.parameters_schema) if manifest.parameters_schema else None
             ),
             permission_scope=manifest.permission_scope,
+            required_capabilities=tuple(manifest.required_capabilities),
             timeout_override_seconds=manifest.timeout_override_seconds,
             side_effect_allowed=manifest.side_effect_allowed,
             max_output_chars=manifest.max_output_chars,
@@ -227,6 +237,30 @@ class ToolAttachmentBridge:
                 f"missing permissions for {binding.alias}: {', '.join(missing)}"
             )
 
+    def check_capabilities(
+        self,
+        binding: ToolAttachmentBinding | ToolAttachmentManifest,
+        effective_capabilities: set[Capability],
+        *,
+        node_id: str,
+    ) -> None:
+        """Gate a tool call on the agent's granted Capability set (WS-C).
+
+        The tool's ``required_capabilities`` (the target unit's declared
+        capabilities) must be covered by ``effective_capabilities`` (what the
+        policy guard granted the agent node). Raises
+        :class:`~zeroth.core.policy.errors.CapabilityDeniedError` otherwise.
+
+        Fail-closed: an empty granted set denies any tool that requires a
+        capability. Only invoked when enforcement is active — the runner passes
+        ``None`` (and does not call this) when the policy guard is not wired.
+        """
+        require_capabilities(
+            binding.required_capabilities,
+            effective_capabilities,
+            node_id=node_id,
+        )
+
     def build_resolution_audit(
         self,
         *,
@@ -276,6 +310,7 @@ class ToolAttachmentBridge:
             "alias": binding.alias,
             "executable_unit_ref": binding.executable_unit_ref,
             "permission_scope": list(binding.permission_scope),
+            "required_capabilities": [cap.value for cap in binding.required_capabilities],
             "timeout_override_seconds": binding.timeout_override_seconds,
             "side_effect_allowed": binding.side_effect_allowed,
             "metadata": dict(binding.metadata),

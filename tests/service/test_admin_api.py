@@ -30,13 +30,14 @@ async def _make_service_and_app(sqlite_db, graph_id: str, deployment_ref: str):
     return service, app
 
 
-async def test_list_admin_runs_requires_admin_role(sqlite_db) -> None:
+async def test_list_admin_runs_requires_auth(sqlite_db) -> None:
+    """Listing is RUN_READ (read-only) since v0.4.10 — but never anonymous."""
     service, app = await _make_service_and_app(sqlite_db, "graph-admin-list", DEPLOYMENT + "-list")
 
     with TestClient(app) as client:
-        r = client.get("/admin/runs", headers=operator_headers())
+        r = client.get("/admin/runs")
 
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 async def test_list_admin_runs_returns_runs(sqlite_db) -> None:
@@ -302,3 +303,21 @@ async def test_interrupt_run_returns_waiting_interrupt_status(sqlite_db) -> None
 
     assert response.status_code == 200
     assert response.json()["status"] == "waiting_interrupt"
+
+
+async def test_operator_can_list_runs(sqlite_db) -> None:
+    """Run listing is read-only: RUN_READ suffices; mutations stay RUN_ADMIN."""
+    from tests.service.helpers import operator_headers
+
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-admin-list-op"))
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        r = client.get("/admin/runs", headers=operator_headers())
+
+    assert r.status_code == 200

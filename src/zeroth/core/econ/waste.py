@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.audit.models import NodeAuditRecord
 from zeroth.core.runs import RunStatus
+from zeroth.core.runs.models import Run
 
 
 class WasteKind(StrEnum):
@@ -327,3 +328,151 @@ def waste_gate(
         problems.append(f"waste_ratio {report.waste_ratio:.1%} > max {max_waste_ratio:.1%}")
     if problems:
         raise EconThresholdError("; ".join(problems))
+
+
+# ---------------------------------------------------------------------------
+# Deployment-wide rollup (ECON-WASTE-02) -- the API/console surface.
+#
+# analyze_run is per-run; this rolls it up over a window of top-level runs so the
+# waste report has a home on the Cost page next to unit economics. Confirmed and
+# flagged never share a dollar (analyze_run guarantees it), so the summed totals
+# stay as honest as the per-run buckets.
+# ---------------------------------------------------------------------------
+
+
+class WasteRollupFinding(WasteFinding):
+    """A waste finding tagged with the run it came from, so it stays actionable."""
+
+    run_id: str
+
+
+class WasteKindTotal(BaseModel):
+    """Per-kind waste totals across the window."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: WasteKind
+    count: int = 0
+    wasted_usd: float = 0.0
+
+
+class WasteRollup(BaseModel):
+    """Deployment-wide economic-waste rollup over a window of runs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    window_runs: int = 0
+    runs_with_waste: int = 0
+    runs_with_cost: int = 0
+    total_cost_usd: float = 0.0
+    total_confirmed_waste_usd: float = 0.0
+    total_flagged_waste_usd: float = 0.0
+    # (confirmed + flagged) / total spend across the window -- spend-weighted, not a
+    # mean of per-run ratios; 0.0 when nothing was spent.
+    waste_ratio: float = 0.0
+    findings: int = 0
+    confirmed_findings: int = 0
+    flagged_findings: int = 0
+    by_kind: list[WasteKindTotal] = Field(default_factory=list)
+    top_findings: list[WasteRollupFinding] = Field(default_factory=list)
+    note: str = ""
+
+
+def waste_rollup(
+    runs: Sequence[Run],
+    audits: Sequence[NodeAuditRecord],
+    *,
+    top_n: int = 10,
+) -> WasteRollup:
+    """Aggregate per-run waste over a window of top-level runs into a deployment rollup.
+
+    Calls :func:`analyze_run` per top-level run (grouping that run's audits, passing its
+    status) and sums the confirmed/flagged buckets. ``run.status`` is passed straight
+    through -- :func:`analyze_run` compares it against ``RunStatus.FAILED`` and reads its
+    ``.value`` defensively, so an enum or a bare string both work (no coercion that could
+    raise on an unexpected value). Sub-graph children are dropped (``parent_run_id``).
+    """
+    audits_by_run: dict[str, list[NodeAuditRecord]] = {}
+    for record in audits:
+        audits_by_run.setdefault(record.run_id, []).append(record)
+
+    top_level = [r for r in runs if r.parent_run_id is None]
+    # Waste is a property of finished runs -- an in-flight run's spend hasn't resolved to
+    # an outcome yet, so (consistent with unit economics) analyze only terminal runs.
+    terminal_statuses = {RunStatus.COMPLETED.value, RunStatus.FAILED.value}
+    terminal = [r for r in top_level if getattr(r.status, "value", r.status) in terminal_statuses]
+
+    total_cost = confirmed = flagged = 0.0
+    runs_with_cost = runs_with_waste = 0
+    n_findings = n_confirmed = n_flagged = 0
+    by_kind: dict[WasteKind, list[float]] = {}  # kind -> [count, wasted]
+    ranked: list[WasteRollupFinding] = []
+
+    for run in terminal:
+        report = analyze_run(run.run_id, run.status, audits_by_run.get(run.run_id, []))
+        total_cost += report.total_cost_usd
+        if report.total_cost_usd > 0:
+            runs_with_cost += 1
+        c, f = report.confirmed_waste_usd, report.flagged_waste_usd
+        confirmed += c
+        flagged += f
+        if c + f > 0:
+            runs_with_waste += 1
+        for finding in report.findings:
+            n_findings += 1
+            if finding.confirmed:
+                n_confirmed += 1
+            else:
+                n_flagged += 1
+            slot = by_kind.setdefault(finding.kind, [0.0, 0.0])
+            slot[0] += 1
+            slot[1] += finding.wasted_usd
+            # Only surface findings that name recoverable money -- a $0 info finding
+            # (cache hit-rate, cache-served loop) never reads as reclaimable.
+            if finding.wasted_usd > 0:
+                ranked.append(WasteRollupFinding(run_id=run.run_id, **finding.model_dump()))
+
+    ranked.sort(key=lambda x: x.wasted_usd, reverse=True)
+    waste_ratio = round((confirmed + flagged) / total_cost, 4) if total_cost > 0 else 0.0
+
+    rollup = WasteRollup(
+        window_runs=len(terminal),
+        runs_with_waste=runs_with_waste,
+        runs_with_cost=runs_with_cost,
+        total_cost_usd=round(total_cost, 6),
+        total_confirmed_waste_usd=round(confirmed, 6),
+        total_flagged_waste_usd=round(flagged, 6),
+        waste_ratio=waste_ratio,
+        findings=n_findings,
+        confirmed_findings=n_confirmed,
+        flagged_findings=n_flagged,
+        by_kind=[
+            WasteKindTotal(kind=k, count=int(v[0]), wasted_usd=round(v[1], 6))
+            for k, v in by_kind.items()
+        ],
+        top_findings=ranked[:top_n],
+    )
+    rollup.note = _rollup_note(rollup)
+    return rollup
+
+
+def _rollup_note(report: WasteRollup) -> str:
+    """Honest one-line reading of the rollup -- never overclaim, never fake a number."""
+    if report.window_runs == 0:
+        return "No runs on record yet — invoke a workflow to build a waste history."
+    if report.runs_with_cost == 0:
+        return (
+            f"The last {report.window_runs} run(s) are recorded but none has attributed cost — "
+            "no priced model spend to analyse for waste yet."
+        )
+    if report.total_confirmed_waste_usd + report.total_flagged_waste_usd == 0:
+        return f"No economic waste detected across the last {report.window_runs} run(s)."
+    where = ""
+    if report.top_findings:
+        top = report.top_findings[0]
+        where = f"; largest: {top.kind} on {top.node_id or top.run_id} at ${top.wasted_usd:.4f}"
+    return (
+        f"${report.total_confirmed_waste_usd:.4f} confirmed + "
+        f"${report.total_flagged_waste_usd:.4f} flagged waste across {report.window_runs} run(s) "
+        f"({report.waste_ratio:.0%} of ${report.total_cost_usd:.4f} spend){where}."
+    )

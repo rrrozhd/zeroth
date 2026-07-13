@@ -10,10 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
+from copy import copy, deepcopy
 from typing import Any
 
-from governai.integrations.tool_calls import build_tool_message
-from governai.memory.models import MemoryScope
 from pydantic import BaseModel, ValidationError
 
 from zeroth.core.agent_runtime.errors import (
@@ -47,6 +46,8 @@ from zeroth.core.agent_runtime.sanitization import (
 from zeroth.core.agent_runtime.tools import ToolAttachmentBridge
 from zeroth.core.agent_runtime.validation import OutputValidator
 from zeroth.core.audit import MemoryAccessRecord
+from zeroth.core.governed.integrations.tool_calls import build_tool_message
+from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.guardrails.content import (
     BlocklistFilter,
     ContentFilter,
@@ -55,6 +56,8 @@ from zeroth.core.guardrails.content import (
 )
 from zeroth.core.memory import MemoryConnectorResolver
 from zeroth.core.observability import start_span
+from zeroth.core.policy.errors import parse_effective_capabilities, require_capabilities
+from zeroth.core.policy.models import Capability
 
 
 class AgentRunner:
@@ -127,6 +130,20 @@ class AgentRunner:
         else:
             self.content_guardrail = None
 
+    def fork_for_dispatch(self) -> AgentRunner:
+        """Create an isolated runner while retaining safe service dependencies."""
+        fork = copy(self)
+        fork.config = deepcopy(self.config)
+        fork.tool_bridge = ToolAttachmentBridge.from_config(fork.config.tool_attachments)
+        fork.granted_tool_permissions = list(self.granted_tool_permissions)
+        fork._mcp_manager = None
+        if self.context_tracker is not None:
+            tracker_fork = getattr(self.context_tracker, "fork_for_dispatch", None)
+            fork.context_tracker = (
+                tracker_fork() if callable(tracker_fork) else deepcopy(self.context_tracker)
+            )
+        return fork
+
     async def run(
         self,
         input_payload: BaseModel | Mapping[str, Any],
@@ -173,11 +190,25 @@ class AgentRunner:
             validated_input, direction="input"
         )
         output_safety_audit: dict[str, Any] | None = None
+        # WS-C: the granted capability set for this node. ``None`` means the
+        # policy guard is not wired (enforcement inactive) — the orchestrator
+        # signals this with an explicit ``capability_enforcement_active`` flag,
+        # NOT by omitting keys, so absence can never silently bypass an active
+        # gate. When active, an empty set denies any memory/tool op (fail-closed).
+        capability_enforcement_active = bool(
+            (enforcement_context or {}).get("capability_enforcement_active")
+        )
+        effective_capabilities: set[Capability] | None = (
+            parse_effective_capabilities(enforcement_context)
+            if capability_enforcement_active
+            else None
+        )
         thread_state = await self._load_thread_state(thread_id)
         resolved_runtime_context = dict(runtime_context or {})
         memory_context, memory_interactions = await self._load_memory(
             thread_id=thread_id,
             runtime_context=resolved_runtime_context,
+            effective_capabilities=effective_capabilities,
         )
         if memory_context:
             # Memory is added to the prompt context as normal input.
@@ -228,7 +259,7 @@ class AgentRunner:
                     cap=cap,
                 )
 
-        await self._start_mcp_servers()
+        await self._start_mcp_servers(effective_capabilities)
         try:
             last_error: Exception | None = None
             attempts = 0
@@ -247,6 +278,7 @@ class AgentRunner:
                         messages=messages,
                         provider_timeout_seconds=provider_timeout_seconds,
                         approval_required_for_side_effects=approval_required_for_side_effects,
+                        effective_capabilities=effective_capabilities,
                     )
                     # Validation turns the provider response into the typed Zeroth output.
                     output = self.output_validator.validate(self.config.output_model, response)
@@ -307,6 +339,7 @@ class AgentRunner:
                             output.model_dump(mode="json"),
                             thread_id=thread_id,
                             runtime_context=resolved_runtime_context,
+                            effective_capabilities=effective_capabilities,
                         )
                     )
                     # Keep both memory reads and writes in the final audit record.
@@ -327,6 +360,9 @@ class AgentRunner:
                         record,
                         compacted_messages=_compacted_msgs,
                         archived_messages=_archived_msgs,
+                        conversation=self._updated_conversation(
+                            thread_state, validated_input, output
+                        ),
                     )
                     return AgentRunResult(
                         input_data=validated_input.model_dump(mode="json"),
@@ -403,6 +439,8 @@ class AgentRunner:
         self,
         messages: list[Any],
         metadata: dict[str, Any],
+        *,
+        tool_choice: str | None = None,
     ) -> ProviderRequest:
         """Build a ProviderRequest with tools, output_model, and model_params from config."""
         # Convert tool_attachments to OpenAI tool schemas
@@ -422,6 +460,7 @@ class AgentRunner:
             messages=messages,
             metadata=metadata,
             tools=tools,
+            tool_choice=tool_choice,
             output_model=output_model,
             model_params=self.config.model_params,
         )
@@ -478,6 +517,7 @@ class AgentRunner:
         messages: list[Any],
         provider_timeout_seconds: float | None,
         approval_required_for_side_effects: bool,
+        effective_capabilities: set[Capability] | None = None,
     ) -> tuple[Any, list[Any], list[dict[str, Any]]]:
         """Execute any tool calls the model requested and re-call the model.
 
@@ -496,9 +536,23 @@ class AgentRunner:
                 )
             tool_calls = list(current_response.tool_calls)
             if tool_calls_used + len(tool_calls) > self.config.max_tool_calls:
-                raise AgentProviderError(
-                    f"provider exceeded max_tool_calls={self.config.max_tool_calls}"
+                # Tool budget exhausted. Real models sometimes keep requesting
+                # tools instead of answering; don't fail the node — drop the
+                # unexecuted request and re-invoke with tool_choice="none" so
+                # the model must produce its final answer from what it has.
+                # (The pending assistant tool-call message is NOT appended:
+                # providers reject tool calls without matching results.)
+                current_response = await run_provider_with_timeout(
+                    self.provider,
+                    self._build_provider_request(current_messages, {}, tool_choice="none"),
+                    timeout_seconds=provider_timeout_seconds,
                 )
+                if getattr(current_response, "tool_calls", None):
+                    raise AgentProviderError(
+                        f"provider exceeded max_tool_calls={self.config.max_tool_calls} "
+                        "and kept requesting tools under tool_choice='none'"
+                    )
+                break
             current_messages.append(self._assistant_message_for(current_response))
             for call in tool_calls:
                 tool_calls_used += 1
@@ -514,6 +568,17 @@ class AgentRunner:
                     )
                 self.tool_bridge.validate_permissions(binding, self.granted_tool_permissions)
                 try:
+                    # WS-C: capability gate BEFORE any dispatch. A denial raises
+                    # CapabilityDeniedError, which the except branch below turns
+                    # into an is_error tool result (never executing the tool),
+                    # so the model can react instead of the run hard-failing.
+                    # Only enforced when active; None means the guard is unwired.
+                    if effective_capabilities is not None:
+                        self.tool_bridge.check_capabilities(
+                            binding,
+                            effective_capabilities,
+                            node_id=self.config.name,
+                        )
                     with start_span("zeroth.tool", {"zeroth.tool": call["name"]}):
                         # Route MCP tool calls through MCPClientManager
                         if (
@@ -592,10 +657,23 @@ class AgentRunner:
             )
         return current_response, current_messages, tool_audits
 
-    async def _start_mcp_servers(self) -> None:
-        """Start MCP server connections and register discovered tools."""
+    async def _start_mcp_servers(self, effective_capabilities: set[Capability] | None) -> None:
+        """Start MCP server connections and register discovered tools.
+
+        Starting an MCP server spawns a subprocess that talks to external
+        services, so under active enforcement the node must hold BOTH
+        PROCESS_SPAWN and EXTERNAL_API_CALL before any process exists —
+        denying only at tool-call time would leave the side effect already
+        performed. ``None`` means enforcement is inactive (advisory mode).
+        """
         if not self.config.mcp_servers:
             return
+        if effective_capabilities is not None:
+            require_capabilities(
+                {Capability.PROCESS_SPAWN, Capability.EXTERNAL_API_CALL},
+                effective_capabilities,
+                node_id=self.config.name,
+            )
         self._mcp_manager = MCPClientManager(self.config.mcp_servers)
         discovered_tools = await self._mcp_manager.start()
         # Register discovered MCP tools into the tool bridge registry
@@ -663,6 +741,7 @@ class AgentRunner:
         *,
         compacted_messages: list[Any] | None = None,
         archived_messages: list[Any] | None = None,
+        conversation: list[Any] | None = None,
     ) -> None:
         """Save the current input, output, and audit record as thread state."""
         if thread_id is None or self.thread_state_store is None:
@@ -677,18 +756,54 @@ class AgentRunner:
             state["compacted_messages"] = compacted_messages
         if archived_messages is not None:
             state["archived_messages"] = archived_messages
+        if conversation is not None:
+            state["conversation"] = conversation
         await self.thread_state_store.checkpoint(thread_id, state)
+
+    def _updated_conversation(
+        self,
+        thread_state: Mapping[str, Any] | None,
+        validated_input: BaseModel,
+        output: BaseModel,
+    ) -> list[Any] | None:
+        """Roll the persistent conversation forward: prior + incoming + reply.
+
+        Only active when the agent both takes message-list input and opts into
+        persistence. The reply is stored as an ``ai`` turn carrying the typed
+        output as JSON, so the next run replays it verbatim.
+        """
+        prompt_config = self.config.prompt_config
+        if not (prompt_config.messages_key and prompt_config.persist_conversation):
+            return None
+        prior: list[Any] = []
+        if thread_state is not None and isinstance(thread_state.get("conversation"), list):
+            prior = list(thread_state["conversation"])
+        incoming = validated_input.model_dump(mode="json").get(prompt_config.messages_key)
+        turns = list(incoming) if isinstance(incoming, list) else []
+        reply = {
+            "role": "ai",
+            "content": json.dumps(
+                output.model_dump(mode="json"), ensure_ascii=False, sort_keys=True
+            ),
+        }
+        conversation = prior + turns + [reply]
+        if prompt_config.conversation_max_turns is not None:
+            conversation = conversation[-prompt_config.conversation_max_turns :]
+        return conversation
 
     async def _load_memory(
         self,
         *,
         thread_id: str | None,
         runtime_context: Mapping[str, Any],
+        effective_capabilities: set[Capability] | None = None,
     ) -> tuple[dict[str, Any], list[MemoryAccessRecord]]:
         """Read data from all configured memory connectors for this agent.
 
         Returns the memory payload to include in the prompt and a list
-        of audit records describing each memory read.
+        of audit records describing each memory read. ``effective_capabilities``
+        (WS-C) gates the read on ``MEMORY_READ``; ``None`` leaves the connector
+        un-gated (enforcement inactive).
         """
         resolver = self.memory_resolver
         if resolver is None or not self.config.memory_refs:
@@ -698,6 +813,7 @@ class AgentRunner:
             thread_id=thread_id,
             runtime_context=runtime_context,
             node_id=self.config.name,
+            effective_capabilities=effective_capabilities,
         )
         memory_payload: dict[str, Any] = {}
         interactions: list[MemoryAccessRecord] = []
@@ -724,10 +840,13 @@ class AgentRunner:
         *,
         thread_id: str | None,
         runtime_context: Mapping[str, Any],
+        effective_capabilities: set[Capability] | None = None,
     ) -> list[MemoryAccessRecord]:
         """Write the agent's output to all configured memory connectors.
 
         Returns a list of audit records describing each memory write.
+        ``effective_capabilities`` (WS-C) gates the write on ``MEMORY_WRITE``;
+        ``None`` leaves the connector un-gated (enforcement inactive).
         """
         resolver = self.memory_resolver
         if resolver is None or not self.config.memory_refs:
@@ -737,6 +856,7 @@ class AgentRunner:
             thread_id=thread_id,
             runtime_context=runtime_context,
             node_id=self.config.name,
+            effective_capabilities=effective_capabilities,
         )
         interactions: list[MemoryAccessRecord] = []
         for binding in bindings:

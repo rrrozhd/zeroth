@@ -4,16 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getApiBase, getApiKey, isConfigured, setConfig } from "@/app/lib/config";
+import { getLastWorkflowId } from "@/app/lib/lastWorkflow";
 import { getHealth } from "@/app/lib/api";
 import { Button, Input, useConnected } from "@/app/components/ui";
 
+// Studio right after Overview: authoring is the center of the product, so it
+// gets the most prominent slot; the operate/govern views follow.
 const LINKS = [
   { href: "/", label: "Overview" },
+  { href: "/studio", label: "Studio" },
   { href: "/runs", label: "Runs" },
   { href: "/approvals", label: "Approvals" },
   { href: "/audit", label: "Audit" },
   { href: "/cost", label: "Cost" },
-  { href: "/studio", label: "Studio" },
+  { href: "/connectors", label: "Connectors" },
   { href: "/guide", label: "Guide" },
 ];
 
@@ -22,6 +26,16 @@ export function Header() {
   const active = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
+  // Studio deep-links to the last-edited workflow. Resolved after mount (and
+  // re-resolved on every route change) so server HTML and the first client
+  // render agree on href="/studio" — reading localStorage during render would
+  // be a hydration mismatch.
+  const [studioHref, setStudioHref] = useState("/studio");
+  useEffect(() => {
+    const last = getLastWorkflowId();
+    setStudioHref(last ? `/studio/edit?id=${encodeURIComponent(last)}` : "/studio");
+  }, [pathname]);
+
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface/80 backdrop-blur">
       {/* overflow-x-auto must stay on the nav only: putting it on this row
@@ -29,17 +43,26 @@ export function Header() {
           popover's first field then scrolls the nav out of view). */}
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="grid h-6 w-6 place-items-center rounded-md bg-accent text-[13px] font-bold text-accent-fg">
-            0
-          </span>
-          <span className="text-sm font-semibold tracking-tight">Zeroth</span>
+          {/* Brand mark (circled dot); two-tone per color scheme, matching
+              docs/assets/logo/zeroth-mark*.svg. */}
+          <svg viewBox="0 0 100 100" fill="none" role="img" aria-label="Zeroth" className="h-6 w-6">
+            <circle
+              cx="50"
+              cy="50"
+              r="34"
+              strokeWidth="10"
+              className="stroke-[#3d5dd1] dark:stroke-[#7091ec]"
+            />
+            <circle cx="50" cy="50" r="9" className="fill-[#3ba3d7] dark:fill-[#74c2e8]" />
+          </svg>
+          <span className="text-sm font-semibold tracking-tight">zeroth</span>
         </Link>
 
         <nav aria-label="Primary" className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
           {LINKS.map((l) => (
             <Link
               key={l.href}
-              href={l.href}
+              href={l.href === "/studio" ? studioHref : l.href}
               aria-current={active(l.href) ? "page" : undefined}
               className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
                 active(l.href)
@@ -91,11 +114,49 @@ function DeploymentChip() {
   );
 }
 
+// Two-stage probe mirroring the ops liveness check: /health proves the process
+// is up but never touches the DB, so it stays green even when the backend is
+// wedged — the DB-backed second stage with a hard timeout is what catches that.
+type ConnTest =
+  | { state: "testing" }
+  | { state: "ok"; ref: string }
+  | { state: "down"; detail: string }
+  | { state: "wedged" }
+  | { state: "denied"; status: number };
+
+async function testConnection(rawBase: string, key: string): Promise<ConnTest> {
+  const base = rawBase.trim().replace(/\/+$/, "");
+  let ref = "";
+  try {
+    const res = await fetch(`${base}/health`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return { state: "down", detail: `/health answered ${res.status}` };
+    ref = (await res.json())?.deployment_ref ?? "";
+  } catch {
+    return { state: "down", detail: "no response from /health" };
+  }
+  try {
+    const res = await fetch(`${base}/v1/deployments`, {
+      headers: { Accept: "application/json", "X-API-Key": key },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.status === 401 || res.status === 403) return { state: "denied", status: res.status };
+    if (!res.ok) return { state: "down", detail: `backend answered ${res.status}` };
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") return { state: "wedged" };
+    return { state: "down", detail: "backend request failed" };
+  }
+  return { state: "ok", ref };
+}
+
 function ConnectPopover() {
   const connected = useConnected();
   const [open, setOpen] = useState(false);
   const [base, setBase] = useState("");
   const [key, setKey] = useState("");
+  const [test, setTest] = useState<ConnTest | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
@@ -109,6 +170,7 @@ function ConnectPopover() {
     if (!open) return;
     setBase(getApiBase());
     setKey(getApiKey());
+    setTest(null);
     firstFieldRef.current?.focus();
   }, [open]);
 
@@ -181,9 +243,50 @@ function ConnectPopover() {
               Sent as the <code>X-API-Key</code> header.
             </span>
           </label>
-          <Button type="submit" variant="primary" size="sm" className="w-full">
-            Save &amp; reload
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="flex-1"
+              disabled={test?.state === "testing"}
+              onClick={async () => {
+                setTest({ state: "testing" });
+                setTest(await testConnection(base, key));
+              }}
+            >
+              {test?.state === "testing" ? "Testing…" : "Test"}
+            </Button>
+            <Button type="submit" variant="primary" size="sm" className="flex-1">
+              Save &amp; reload
+            </Button>
+          </div>
+          {test && test.state !== "testing" && (
+            <p
+              role="status"
+              className={`rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed ${
+                test.state === "ok"
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                  : "bg-red-500/10 text-red-700 dark:text-red-400"
+              }`}
+            >
+              {test.state === "ok" && (
+                <>
+                  Connected — serving <span className="font-mono">{test.ref}</span>, backend
+                  responsive.
+                </>
+              )}
+              {test.state === "down" && <>Service unreachable ({test.detail}). Check the base URL and that it&apos;s running.</>}
+              {test.state === "wedged" && (
+                <>
+                  Service is up but the backend didn&apos;t answer within 5s — it may be
+                  wedged. Try restarting it.
+                </>
+              )}
+              {test.state === "denied" && (
+                <>Reachable, but the API key was rejected ({test.status}).</>
+              )}
+            </p>
+          )}
         </form>
       )}
     </div>

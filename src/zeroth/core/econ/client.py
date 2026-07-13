@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from econ_instrumentation import ExecutionEvent
-from econ_instrumentation.client import InstrumentationClient
+from zeroth.core.econ.instrumentation import ExecutionEvent
+from zeroth.core.econ.instrumentation.client import InstrumentationClient
 
 
 class RegulusClient:

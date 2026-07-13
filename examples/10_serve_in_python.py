@@ -180,14 +180,25 @@ def print_curl_hints(port: int) -> None:
     print("─" * 64 + "\n")
 
 
+async def serve(port: int) -> None:
+    # Bootstrap and uvicorn must share one event loop (same rule as
+    # zeroth.core.service.entrypoint): the app's async DB pool and background
+    # workers are bound to the loop that creates them. Building the app under
+    # its own asyncio.run() and then serving with uvicorn.run() would leave
+    # them bound to a closed loop — the service boots, then wedges once the
+    # pool recycles its initial connections.
+    app = await build_app()
+    print_curl_hints(port)
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
+    await uvicorn.Server(config).serve()
+
+
 def main() -> int:
     if not require_env("OPENAI_API_KEY"):
         return 0
 
     port = int(os.environ.get("ZEROTH_EXAMPLE_PORT", "8000"))
-    app = asyncio.run(build_app())
-    print_curl_hints(port)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    asyncio.run(serve(port))
     return 0
 
 
