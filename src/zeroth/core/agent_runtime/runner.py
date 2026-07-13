@@ -56,7 +56,7 @@ from zeroth.core.guardrails.content import (
 )
 from zeroth.core.memory import MemoryConnectorResolver
 from zeroth.core.observability import start_span
-from zeroth.core.policy.errors import parse_effective_capabilities
+from zeroth.core.policy.errors import parse_effective_capabilities, require_capabilities
 from zeroth.core.policy.models import Capability
 
 
@@ -259,7 +259,7 @@ class AgentRunner:
                     cap=cap,
                 )
 
-        await self._start_mcp_servers()
+        await self._start_mcp_servers(effective_capabilities)
         try:
             last_error: Exception | None = None
             attempts = 0
@@ -657,10 +657,25 @@ class AgentRunner:
             )
         return current_response, current_messages, tool_audits
 
-    async def _start_mcp_servers(self) -> None:
-        """Start MCP server connections and register discovered tools."""
+    async def _start_mcp_servers(
+        self, effective_capabilities: set[Capability] | None
+    ) -> None:
+        """Start MCP server connections and register discovered tools.
+
+        Starting an MCP server spawns a subprocess that talks to external
+        services, so under active enforcement the node must hold BOTH
+        PROCESS_SPAWN and EXTERNAL_API_CALL before any process exists —
+        denying only at tool-call time would leave the side effect already
+        performed. ``None`` means enforcement is inactive (advisory mode).
+        """
         if not self.config.mcp_servers:
             return
+        if effective_capabilities is not None:
+            require_capabilities(
+                {Capability.PROCESS_SPAWN, Capability.EXTERNAL_API_CALL},
+                effective_capabilities,
+                node_id=self.config.name,
+            )
         self._mcp_manager = MCPClientManager(self.config.mcp_servers)
         discovered_tools = await self._mcp_manager.start()
         # Register discovered MCP tools into the tool bridge registry
