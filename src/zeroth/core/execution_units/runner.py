@@ -319,7 +319,7 @@ class ExecutableUnitRunner:
         """
         manifest = binding.manifest
         enforcement = dict(enforcement_context or {})
-        manifest_env, secret_env_keys = self._manifest_environment(manifest)
+        manifest_env, secret_env_keys = await self._manifest_environment(manifest)
         secret_filtered_env = self._apply_allowed_secrets(
             manifest_env,
             enforcement,
@@ -601,11 +601,15 @@ class ExecutableUnitRunner:
         preserved_environment.update(filtered_secret_env)
         return preserved_environment
 
-    def _manifest_environment(
+    async def _manifest_environment(
         self,
         manifest: ExecutableUnitManifest,
     ) -> tuple[dict[str, str], set[str]]:
-        """Build the manifest-defined environment, resolving secret refs when needed."""
+        """Build the manifest-defined environment, resolving secret refs when needed.
+
+        Async because secret refs may resolve through a network-backed provider
+        (Vault); the async resolver keeps that fetch off the event loop.
+        """
         environment = dict(manifest.run_config.environment)
         secret_env_keys: set[str] = set()
         if not manifest.environment_variables:
@@ -630,7 +634,9 @@ class ExecutableUnitRunner:
         secret_env_keys = {
             item.name for item in manifest.environment_variables if item.secret_ref is not None
         }
-        environment.update(resolver.resolve_environment_variables(manifest.environment_variables))
+        environment.update(
+            await resolver.resolve_environment_variables_async(manifest.environment_variables)
+        )
         return environment, secret_env_keys
 
     def _effective_timeout(

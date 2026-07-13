@@ -135,3 +135,53 @@ def test_llm_key_map_overrides_logical_name() -> None:
     )
     adapter._get_client("openai/gpt-4o")
     assert captured["logical"] == "llm.openai_prod"
+
+
+# --- async resolution path (WS: MCP/Vault hardening) --------------------------
+
+
+class _AsyncOnlySecretProvider(_FakeSecretProvider):
+    """Fails loudly if the sync resolution path is used from async code."""
+
+    def resolve_secret(
+        self, logical_name: str, *, tenant_id: str | None = None, deployment_ref=None
+    ) -> str | None:
+        raise AssertionError("sync resolve_secret used on an async path")
+
+    async def resolve_secret_async(
+        self, logical_name: str, *, tenant_id: str | None = None, deployment_ref=None
+    ) -> str | None:
+        return "sk-async"
+
+
+@pytest.mark.asyncio
+async def test_get_client_async_uses_async_resolution() -> None:
+    adapter = LiteLLMProviderAdapter(
+        secret_provider=_AsyncOnlySecretProvider(), tenant_id="acme"
+    )
+    client = await adapter._get_client_async("openai/gpt-4o")
+    assert client.api_key == "sk-async"
+
+
+@pytest.mark.asyncio
+async def test_ainvoke_resolves_key_without_sync_provider_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from langchain_core.messages import AIMessage
+    from langchain_litellm import ChatLiteLLM
+
+    from zeroth.core.agent_runtime.provider import ProviderRequest
+
+    async def _fake_ainvoke(self, messages, **kwargs):  # noqa: ANN001
+        return AIMessage(content='{"ok": true}')
+
+    monkeypatch.setattr(ChatLiteLLM, "ainvoke", _fake_ainvoke)
+    adapter = LiteLLMProviderAdapter(
+        secret_provider=_AsyncOnlySecretProvider(), tenant_id="acme"
+    )
+    response = await adapter.ainvoke(
+        ProviderRequest(
+            model_name="openai/gpt-4o", messages=[{"role": "user", "content": "hi"}]
+        )
+    )
+    assert response.content == '{"ok": true}'

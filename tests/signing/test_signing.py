@@ -178,3 +178,37 @@ def test_build_kms_mode_end_to_end() -> None:
     assert isinstance(signer, Ed25519Signer)
     signature, key_id, algorithm = sign_digest(DIGEST, signer)
     assert verify_digest(DIGEST, signature, key_id, algorithm, signer) is True
+
+
+class _AsyncOnlyKeyProvider:
+    """Fails loudly if signing key material is resolved synchronously."""
+
+    def resolve(self, secret_ref, *, tenant_id=None):  # noqa: ANN001
+        raise AssertionError("sync resolve used on an async path")
+
+    def resolve_many(self, refs, *, tenant_id=None):  # noqa: ANN001
+        raise AssertionError("sync resolve_many used on an async path")
+
+    def resolve_secret(self, logical_name, *, tenant_id=None, deployment_ref=None):  # noqa: ANN001
+        raise AssertionError("sync resolve_secret used on an async path")
+
+    async def resolve_secret_async(
+        self, logical_name, *, tenant_id=None, deployment_ref=None
+    ):  # noqa: ANN001
+        return "shared-hmac-key"
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_build_signing_provider_async_resolves_without_sync_call() -> None:
+    from zeroth.core.signing import build_signing_provider_async
+
+    signer = await build_signing_provider_async(
+        ProvenanceSigningSettings(mode="env", signing_key_id="k1"),
+        _AsyncOnlyKeyProvider(),
+    )
+    assert isinstance(signer, EnvHmacSigner)
+    signature = signer.sign(signable_bytes(DIGEST, "k1", "hmac-sha256"))
+    assert signer.verify(signable_bytes(DIGEST, "k1", "hmac-sha256"), signature, "k1")

@@ -36,7 +36,7 @@ def _make_ai_message(content="Hello", input_tokens=10, output_tokens=5):
 async def test_ainvoke_returns_content(adapter):
     """LiteLLMProviderAdapter returns provider response with content."""
     mock_msg = _make_ai_message(content="Hi there")
-    with patch.object(adapter, "_get_client") as mock_get:
+    with patch.object(adapter, "_get_client_async", new_callable=AsyncMock) as mock_get:
         mock_client = AsyncMock()
         mock_client.ainvoke.return_value = mock_msg
         mock_get.return_value = mock_client
@@ -49,7 +49,7 @@ async def test_ainvoke_returns_content(adapter):
 async def test_ainvoke_extracts_token_usage(adapter):
     """Token usage is extracted from AIMessage.usage_metadata."""
     mock_msg = _make_ai_message(input_tokens=100, output_tokens=50)
-    with patch.object(adapter, "_get_client") as mock_get:
+    with patch.object(adapter, "_get_client_async", new_callable=AsyncMock) as mock_get:
         mock_client = AsyncMock()
         mock_client.ainvoke.return_value = mock_msg
         mock_get.return_value = mock_client
@@ -71,7 +71,7 @@ async def test_ainvoke_handles_no_usage_metadata(adapter):
     mock_msg.usage_metadata = None
     mock_msg.response_metadata = {}
     mock_msg.tool_calls = []
-    with patch.object(adapter, "_get_client") as mock_get:
+    with patch.object(adapter, "_get_client_async", new_callable=AsyncMock) as mock_get:
         mock_client = AsyncMock()
         mock_client.ainvoke.return_value = mock_msg
         mock_get.return_value = mock_client
@@ -85,7 +85,7 @@ async def test_ainvoke_converts_prompt_messages(adapter):
     from zeroth.core.agent_runtime.models import PromptMessage
 
     mock_msg = _make_ai_message()
-    with patch.object(adapter, "_get_client") as mock_get:
+    with patch.object(adapter, "_get_client_async", new_callable=AsyncMock) as mock_get:
         mock_client = AsyncMock()
         mock_client.ainvoke.return_value = mock_msg
         mock_get.return_value = mock_client
@@ -109,7 +109,7 @@ async def test_ainvoke_converts_prompt_messages(adapter):
 async def test_ainvoke_metadata_includes_provider(adapter):
     """Response metadata includes provider and model info."""
     mock_msg = _make_ai_message()
-    with patch.object(adapter, "_get_client") as mock_get:
+    with patch.object(adapter, "_get_client_async", new_callable=AsyncMock) as mock_get:
         mock_client = AsyncMock()
         mock_client.ainvoke.return_value = mock_msg
         mock_get.return_value = mock_client
@@ -132,7 +132,7 @@ async def test_ainvoke_fallback_response_metadata(adapter):
         }
     }
     mock_msg.tool_calls = []
-    with patch.object(adapter, "_get_client") as mock_get:
+    with patch.object(adapter, "_get_client_async", new_callable=AsyncMock) as mock_get:
         mock_client = AsyncMock()
         mock_client.ainvoke.return_value = mock_msg
         mock_get.return_value = mock_client

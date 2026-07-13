@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
 import secrets
@@ -253,6 +254,16 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         regulus_client = getattr(app.state.bootstrap, "regulus_client", None)
         if regulus_client is not None:
             regulus_client.stop()
+
+        # Close the shared secret provider's pooled HTTP client (Vault). The
+        # lifespan is the single owner of this shutdown: entrypoints and
+        # bootstrap never close it, so it happens exactly once.
+        secret_provider = getattr(app.state.bootstrap, "secret_provider", None)
+        provider_aclose = getattr(secret_provider, "aclose", None)
+        if callable(provider_aclose):
+            close_result = provider_aclose()
+            if inspect.isawaitable(close_result):
+                await close_result
 
     app = FastAPI(
         title="Zeroth Platform API",

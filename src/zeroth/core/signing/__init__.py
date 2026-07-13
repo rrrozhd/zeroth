@@ -15,6 +15,7 @@ from zeroth.core.signing.provider import (
     SigningConfigError,
     SigningKeyProvider,
     build_signing_provider,
+    build_signing_provider_async,
     sign_digest,
     verify_digest,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "SigningConfigError",
     "SigningKeyProvider",
     "build_signing_provider",
+    "build_signing_provider_async",
     "sign_digest",
     "signable_bytes",
     "verify_digest",
