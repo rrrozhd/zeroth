@@ -85,11 +85,14 @@ class MCPClientManager:
                         parameters_schema=(
                             tool.inputSchema if hasattr(tool, "inputSchema") else None
                         ),
-                        # WS-C: an MCP tool call reaches out to an external server,
-                        # so it is gated on EXTERNAL_API_CALL. An agent that wires
-                        # MCP servers must declare that capability; there is no
-                        # graph node behind an mcp:// ref to derive a finer set from.
-                        required_capabilities=(Capability.EXTERNAL_API_CALL,),
+                        # WS-C: an MCP tool runs inside a spawned server process
+                        # and reaches out to external services, so it carries the
+                        # same pair the startup gate demands. There is no graph
+                        # node behind an mcp:// ref to derive a finer set from.
+                        required_capabilities=(
+                            Capability.EXTERNAL_API_CALL,
+                            Capability.PROCESS_SPAWN,
+                        ),
                     )
                 )
             logger.info(
