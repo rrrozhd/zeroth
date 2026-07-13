@@ -29,6 +29,8 @@ zeroth_dev.db-wal
 zeroth_live.db
 zeroth_live.db-shm
 zeroth_live.db-wal
+econ_plane.db
+.zeroth/
 
 # Regenerated at docs-build time by scripts/dump_openapi.py
 docs/assets/openapi/
