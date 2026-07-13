@@ -158,6 +158,18 @@ def _node_config(node: Node) -> dict[str, Any]:
     return getattr(node, field).model_dump(mode="json")
 
 
+# NodeBase governance fields the canvas doesn't author (yet): emitted to the
+# console for visibility, and preserved server-side on save when the payload
+# omits them — a client that doesn't know a field must not be able to wipe it.
+_GOVERNANCE_FIELDS = (
+    "capability_bindings",
+    "policy_bindings",
+    "execution_config",
+    "audit_config",
+    "parallel_config",
+)
+
+
 def _node_to_studio_data(node: Node) -> dict[str, Any]:
     """The `data` blob the canvas inspector reads/writes for a node."""
     return {
@@ -165,11 +177,30 @@ def _node_to_studio_data(node: Node) -> dict[str, Any]:
         "config": _node_config(node),
         "input_contract_ref": node.input_contract_ref,
         "output_contract_ref": node.output_contract_ref,
+        "capability_bindings": list(node.capability_bindings),
+        "policy_bindings": list(node.policy_bindings),
+        "execution_config": dict(node.execution_config),
+        "audit_config": dict(node.audit_config),
+        "parallel_config": (
+            node.parallel_config.model_dump(mode="json")
+            if node.parallel_config is not None
+            else None
+        ),
     }
 
 
-def _build_node(sn: StudioNodeResponse, graph_version_ref: str) -> Node:
-    """Construct a real executable Node from a canvas node (draft authoring)."""
+def _build_node(
+    sn: StudioNodeResponse, graph_version_ref: str, existing: Node | None = None
+) -> Node:
+    """Construct a real executable Node from a canvas node (draft authoring).
+
+    Governance fields follow present-wins semantics: a key present in the
+    canvas ``data`` is authoritative (an explicit ``[]`` clears), an absent
+    key falls back to ``existing`` — the node this id currently maps to in
+    the stored graph — so bindings authored via the API/Python survive a
+    canvas save. ``node_version`` and non-title display metadata are never
+    client-settable and always carry over from ``existing``.
+    """
     builder = _NODE_BUILDERS.get(sn.type)
     if builder is None:
         raise HTTPException(
@@ -186,13 +217,25 @@ def _build_node(sn: StudioNodeResponse, graph_version_ref: str) -> Node:
         config.setdefault("execution_mode", "inline")
         config.setdefault("inline_source", "")
     label = data.get("label") or sn.id
+    governed: dict[str, Any] = {}
+    for gov_field in _GOVERNANCE_FIELDS:
+        if gov_field in data:
+            governed[gov_field] = data[gov_field]
+        elif existing is not None:
+            governed[gov_field] = getattr(existing, gov_field)
+    if existing is not None:
+        governed["node_version"] = existing.node_version
+        display = existing.display.model_copy(update={"title": label})
+    else:
+        display = DisplayMetadata(title=label)
     try:
         return node_cls(
             node_id=sn.id,
             graph_version_ref=graph_version_ref,
-            display=DisplayMetadata(title=label),
+            display=display,
             input_contract_ref=data.get("input_contract_ref"),
             output_contract_ref=data.get("output_contract_ref"),
+            **governed,
             **{field: data_cls(**config)},
         )
     except ValidationError as exc:
@@ -453,7 +496,10 @@ async def update_workflow(
     # so the Graph validator sees a consistent set (edges must reference nodes).
     if body.nodes is not None:
         graph_version_ref = f"{graph.graph_id}@{graph.version}"
-        updates["nodes"] = [_build_node(n, graph_version_ref) for n in body.nodes]
+        existing_nodes = {n.node_id: n for n in graph.nodes}
+        updates["nodes"] = [
+            _build_node(n, graph_version_ref, existing_nodes.get(n.id)) for n in body.nodes
+        ]
         updates["edges"] = [_build_edge(e) for e in (body.edges or [])]
         # The entrypoint node owns the entry step: when the canvas has one,
         # entry_step is derived, never hand-picked.
