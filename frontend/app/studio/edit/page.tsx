@@ -95,6 +95,8 @@ import { getApiKey } from "@/app/lib/config";
 import { setLastWorkflowId } from "@/app/lib/lastWorkflow";
 import { WORKFLOW_TEMPLATES } from "@/app/lib/templates";
 
+import { canDeployWorkflow, canRunWorkflow, servedGraphId } from "./runEligibility";
+
 const nodeTypes = { studio: StudioNodeView };
 
 type Cfg = Record<string, unknown>;
@@ -1153,7 +1155,7 @@ function Editor({ id }: { id: string }) {
                     History
                   </Button>
                 )}
-                {readOnly ? (
+                {canDeployWorkflow(status) ? (
                   <>
                     <Button onClick={clone} disabled={cloning}>
                       {cloning ? "Cloning…" : "Clone to draft"}
@@ -1544,7 +1546,8 @@ function RunPanel({
 }) {
   const [open, setOpen] = useState(() => readStoredRunPanel(workflowId).runId != null);
   // undefined = health check in flight; null = unreachable/no deployment.
-  const [deployedId, setDeployedId] = useState<string | null | undefined>(undefined);
+  const [servedRef, setServedRef] = useState<string | null | undefined>(undefined);
+  const deployedId = servedRef == null ? servedRef : servedGraphId(servedRef);
   const [payload, setPayload] = useState(
     () => readStoredRunPanel(workflowId).payload ?? DEFAULT_RUN_PAYLOAD,
   );
@@ -1587,17 +1590,17 @@ function RunPanel({
     let cancelled = false;
     getHealth()
       .then((h) => {
-        if (!cancelled) setDeployedId(h.graph_version_ref.split("@")[0]);
+        if (!cancelled) setServedRef(h.graph_version_ref);
       })
       .catch(() => {
-        if (!cancelled) setDeployedId(null);
+        if (!cancelled) setServedRef(null);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const isDeployed = deployedId != null && deployedId === workflowId;
+  const isDeployed = canRunWorkflow(workflowId, servedRef);
   const polling = runId !== null && (run === null || isActiveStatus(run.status));
 
   // Poll status + timeline while the submitted run is active; cleanup covers
