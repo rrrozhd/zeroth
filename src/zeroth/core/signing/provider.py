@@ -79,15 +79,19 @@ class NullSigner:
     _ALGORITHM = "none"
 
     def key_id(self) -> str:
+        """Return the sentinel key id ``"unsigned"``."""
         return self._KEY_ID
 
     def algorithm(self) -> str:
+        """Return the sentinel algorithm token ``"none"``."""
         return self._ALGORITHM
 
     def sign(self, message: bytes) -> bytes:
+        """Return empty bytes so callers persist the record unsigned-legacy."""
         return b""
 
     def verify(self, message: bytes, signature: bytes, key_id: str) -> bool:
+        """Always return ``False`` — nothing can read as verified under the null signer."""
         return False
 
 
@@ -109,15 +113,19 @@ class EnvHmacSigner:
         self._keys = dict(keys)
 
     def key_id(self) -> str:
+        """Return the active signing key id."""
         return self._key_id
 
     def algorithm(self) -> str:
+        """Return ``"HS256"``."""
         return self.ALGORITHM
 
     def sign(self, message: bytes) -> bytes:
+        """HMAC-SHA256 ``message`` with the active key."""
         return hmac.new(self._keys[self._key_id], message, hashlib.sha256).digest()
 
     def verify(self, message: bytes, signature: bytes, key_id: str) -> bool:
+        """Check ``signature`` with the key named ``key_id``; an unknown key id fails closed."""
         key = self._keys.get(key_id)
         if key is None:
             return False
@@ -176,17 +184,21 @@ class Ed25519Signer:
         return cls(key_id=key_id, public_keys=public_keys, private_key=private_key)
 
     def key_id(self) -> str:
+        """Return the active signing key id."""
         return self._key_id
 
     def algorithm(self) -> str:
+        """Return ``"Ed25519"``."""
         return self.ALGORITHM
 
     def sign(self, message: bytes) -> bytes:
+        """Sign ``message`` with the private key; raises when verify-only (no private key)."""
         if self._private_key is None:
             raise SigningConfigError("Ed25519Signer has no private key (verify-only); cannot sign")
         return self._private_key.sign(message)
 
     def verify(self, message: bytes, signature: bytes, key_id: str) -> bool:
+        """Check ``signature`` against the public key named ``key_id``; unknown ids fail closed."""
         from cryptography.exceptions import InvalidSignature
 
         public_key = self._public_keys.get(key_id)
@@ -299,6 +311,11 @@ def _signer_from_material(
     logical_name: str,
     key_material: str | None,
 ) -> SigningKeyProvider | None:
+    """Build the mode-appropriate signer from resolved key material (shared builder tail).
+
+    ``env`` with no key yields ``None`` (rows stay unsigned-legacy); ``kms``
+    with no key raises :class:`SigningConfigError` — fail-closed strong path.
+    """
     if mode == "env":
         if not key_material:
             return None
@@ -326,6 +343,11 @@ def _signer_from_material(
 
 
 def _parse_public_keys(settings: ProvenanceSigningSettings) -> dict[str, str]:
+    """Parse ``provenance.public_keys_json`` into a ``key_id -> public-key-hex`` map.
+
+    Accepts a pydantic secret or plain string; unset/empty yields ``{}``. Invalid
+    JSON or a non-object value raises :class:`SigningConfigError`.
+    """
     raw = settings.public_keys_json
     if raw is None:
         return {}

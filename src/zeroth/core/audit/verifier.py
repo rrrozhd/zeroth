@@ -86,6 +86,11 @@ class AuditContinuityVerifier:
         self._signer = signer
 
     async def verify_run(self, run_id: str) -> AuditContinuityReport:
+        """Verify digest continuity and signatures for one run's audit chain.
+
+        Records are strictly ordered first; an ordering violation yields a
+        failed report (``verified=False``) rather than an exception.
+        """
         records = await self._repository.list_by_run(run_id)
         try:
             ordered = order_audit_records(records, strict=True)
@@ -99,6 +104,12 @@ class AuditContinuityVerifier:
         return self._verify_records(scope=f"run:{run_id}", records=ordered)
 
     async def verify_deployment(self, deployment_ref: str) -> AuditContinuityReport:
+        """Verify every run recorded under ``deployment_ref``.
+
+        Chains are per-run: each run is ordered and verified independently,
+        with per-run signature states aggregated into one three-state result.
+        The first failing run short-circuits into a failed deployment report.
+        """
         records = await self._repository.list_by_deployment(deployment_ref)
         if not records:
             return AuditContinuityReport(
@@ -156,6 +167,12 @@ class AuditContinuityVerifier:
         scope: str,
         records: list[NodeAuditRecord],
     ) -> AuditContinuityReport:
+        """Walk an ordered chain checking predecessor links, digests, and signatures.
+
+        The digest and signature axes are independent: an unsigned-legacy record
+        (no ``signing_key_id``) is counted separately and never fails the
+        signature axis.
+        """
         previous_digest: str | None = None
         signed_count = 0
         signature_failed = False
@@ -263,6 +280,13 @@ def _compute_pii_commitments(record: NodeAuditRecord) -> dict[str, str]:
 
 
 def _compute_record_digest(record: NodeAuditRecord) -> str:
+    """Recompute a record's digest under the historical byte layout.
+
+    ``record_digest`` is nulled in place, WS-D/WS-E fields are popped (see
+    ``_DIGEST_EXCLUDED_FIELDS``), and for ``digest_version >= 2`` the PII fields
+    are replaced by commitment hashes — recomputed from live plaintext for
+    non-erased records, taken from the stored commitments for erased ones.
+    """
     payload = record.model_dump(mode="json")
     # Historical layout: record_digest is nulled IN PLACE (key retained).
     payload["record_digest"] = None

@@ -107,6 +107,7 @@ class RedisArtifactStore:
         return f"{self._prefix}:{key}:meta"
 
     def _receipt_key(self, idempotency_key: str) -> str:
+        """Build the Redis key for an erasure-operation replay receipt."""
         return f"{self._prefix}:erasure-receipt:{idempotency_key}"
 
     async def store(
@@ -331,9 +332,11 @@ class FilesystemArtifactStore:
         return self._base_dir / f"{key}.meta.json"
 
     def _receipt_path(self, idempotency_key: str) -> Path:
+        """Resolve the filesystem path for an erasure-operation replay receipt."""
         return self._base_dir / ".erasure-receipts" / f"{idempotency_key}.json"
 
     def _write_receipt(self, idempotency_key: str, payload: dict[str, Any]) -> None:
+        """Persist a replay receipt atomically (temp file + rename)."""
         path = self._receipt_path(idempotency_key)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
@@ -341,6 +344,7 @@ class FilesystemArtifactStore:
         temporary.replace(path)
 
     def _read_receipt(self, idempotency_key: str) -> dict[str, Any] | None:
+        """Load a stored replay receipt, or None when the operation is new."""
         path = self._receipt_path(idempotency_key)
         return json.loads(path.read_text()) if path.exists() else None
 
@@ -483,6 +487,7 @@ class FilesystemArtifactStore:
         self._validate_key(key)
 
         def _delete() -> bool:
+            """Synchronous idempotent delete for use with asyncio.to_thread."""
             receipt = self._read_receipt(idempotency_key)
             if receipt is None:
                 result = self._file_path(key).exists()
@@ -518,6 +523,7 @@ class FilesystemArtifactStore:
         meta_path = self._meta_path(key)
 
         def _refresh() -> bool:
+            """Synchronous sidecar TTL rewrite for use with asyncio.to_thread."""
             if not meta_path.exists():
                 msg = f"Cannot refresh TTL for missing artifact: {key}"
                 raise ArtifactTTLError(msg)
@@ -542,6 +548,7 @@ class FilesystemArtifactStore:
         self._validate_key(key)
 
         def _check() -> bool:
+            """Synchronous existence + expiry check for use with asyncio.to_thread."""
             file_path = self._file_path(key)
             if not file_path.exists():
                 return False
@@ -565,6 +572,7 @@ class FilesystemArtifactStore:
         """
 
         def _cleanup() -> int:
+            """Synchronous idempotent run-tree removal for use with asyncio.to_thread."""
             run_dir = self._base_dir / run_id
             receipt = self._read_receipt(idempotency_key)
             if receipt is None:

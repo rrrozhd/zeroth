@@ -120,6 +120,7 @@ class ErasureResponse(BaseModel):
 
 
 def _policy_response(policy: RetentionPolicy) -> RetentionPolicyResponse:
+    """Map a domain retention policy onto the public response model."""
     return RetentionPolicyResponse(
         tenant_id=policy.tenant_id,
         audit_ttl_seconds=policy.audit_ttl_seconds,
@@ -129,6 +130,7 @@ def _policy_response(policy: RetentionPolicy) -> RetentionPolicyResponse:
 
 
 def _hold_response(hold: LegalHold) -> LegalHoldResponse:
+    """Map a domain legal hold onto the public response model."""
     return LegalHoldResponse(
         hold_id=hold.hold_id,
         tenant_id=hold.tenant_id,
@@ -140,6 +142,7 @@ def _hold_response(hold: LegalHold) -> LegalHoldResponse:
 
 
 def _bootstrap(request: Request) -> RetentionBootstrapLike:
+    """Fetch the service bootstrap from app state."""
     bootstrap = getattr(request.app.state, "bootstrap", None)
     if bootstrap is None:
         raise RuntimeError("service bootstrap is not configured")
@@ -151,6 +154,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
 
     @app.get("/retention/policy", response_model=RetentionPolicyResponse)
     async def get_retention_policy(request: Request) -> RetentionPolicyResponse:
+        """Return the caller tenant's resolved retention policy (admin-tier)."""
         principal = await require_permission(request, Permission.RETENTION_ADMIN)
         bootstrap = _bootstrap(request)
         policy = await bootstrap.retention_policy_repository.resolve(principal.tenant_id)
@@ -161,6 +165,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         body: RetentionPolicyBody,
     ) -> RetentionPolicyResponse:
+        """Create or replace the caller tenant's retention policy (admin-tier)."""
         principal = await require_permission(request, Permission.RETENTION_ADMIN)
         bootstrap = _bootstrap(request)
         policy = RetentionPolicy(
@@ -181,6 +186,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         body: LegalHoldBody,
     ) -> LegalHoldResponse:
+        """Place a run-scoped or tenant-wide legal hold for the caller's tenant."""
         principal = await require_permission(request, Permission.RETENTION_ADMIN)
         bootstrap = _bootstrap(request)
         # A run-scoped hold must target a run the caller's tenant owns.
@@ -199,6 +205,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         hold_id: str,
     ) -> LegalHoldResponse:
+        """Release a legal hold owned by the caller's tenant (404 otherwise)."""
         await require_permission(request, Permission.RETENTION_ADMIN)
         bootstrap = _bootstrap(request)
         hold = await bootstrap.legal_hold_repository.get(hold_id)
@@ -222,6 +229,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         body: ErasureRequestBody,
     ) -> ErasureResponse:
+        """Erase one run or every non-held run of the caller's tenant (409 on hold)."""
         principal = await require_permission(request, Permission.RETENTION_ADMIN)
         bootstrap = _bootstrap(request)
         if (body.run_id is None) == (body.tenant_id is None):
@@ -248,6 +256,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         principal: AuthenticatedPrincipal,
         run_id: str,
     ) -> ErasureResponse:
+        """Erase a single run after verifying tenant ownership (409 if held)."""
         tenant_id = principal.tenant_id
         # Ownership: the run (or its audits) must belong to the caller's tenant.
         await _require_run_tenant(request, bootstrap, run_id)
@@ -263,6 +272,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         bootstrap: RetentionBootstrapLike,
         tenant_id: str,
     ) -> ErasureResponse:
+        """Erase every erasable run for a tenant, skipping runs under legal hold."""
         from datetime import UTC, datetime
 
         holds = await bootstrap.legal_hold_repository.active_holds_for_tenant(tenant_id)
@@ -314,6 +324,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
 
 
 def _run_result(result: object) -> ErasureRunResult:
+    """Map an erasure-service result onto the public per-run counts."""
     return ErasureRunResult(
         run_id=result.run_id,
         audits_erased=result.audits_erased,

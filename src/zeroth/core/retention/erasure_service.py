@@ -60,6 +60,8 @@ class StaleCleanupClaimError(RuntimeError):
 
 @dataclass(slots=True)
 class _CleanupReplayState:
+    """Current claim/lease/terminal view of one cleanup manifest (replayed or materialized)."""
+
     manifest: CleanupManifest
     generation: int = 0
     revision: int = 0
@@ -493,6 +495,7 @@ class RetentionErasureService:
         tenant_id: str | None,
         records: Sequence[Any],
     ) -> str:
+        """Resolve a run's tenant: explicit arg, then run row, then audits, else ``default``."""
         if tenant_id is not None:
             return tenant_id
         run = await self._runs.get(run_id)
@@ -508,6 +511,7 @@ class RetentionErasureService:
         artifact_keys: list[str],
         join_keys: list[str],
     ) -> CleanupManifest:
+        """Build the external-cleanup manifest (artifact + econ operations) for an erased run."""
         artifact_status = "pending" if self._artifact_store is not None else "skipped"
         econ_status = "pending" if self._econ_eraser is not None else "skipped"
         operations = [
@@ -569,6 +573,7 @@ class RetentionErasureService:
         authorization: dict[str, Any],
         entries: list[dict[str, Any]],
     ) -> _CleanupReplayState:
+        """Rebuild cleanup state by replaying a run's retention audit entries (legacy rows)."""
         log_id = str(authorization["log_id"])
         tenant_id = str(authorization["tenant_id"])
         run_id = str(authorization["run_id"])
@@ -756,6 +761,7 @@ class RetentionErasureService:
         connection: Any,
         authorization_log_id: str,
     ) -> CleanupStateRecord:
+        """Return the materialized cleanup state row, replaying legacy audit history when absent."""
         state = await self._cleanup_state.get_state_in_transaction(
             connection,
             authorization_log_id,
@@ -776,6 +782,7 @@ class RetentionErasureService:
 
     @staticmethod
     def _manifest_complete(manifest: CleanupManifest) -> bool:
+        """Return True when every manifest operation is already completed or skipped."""
         return all(
             operation.status in {"completed", "skipped"} for operation in manifest.operations
         )
@@ -788,6 +795,7 @@ class RetentionErasureService:
         generation: int,
         manifest: CleanupManifest,
     ) -> str:
+        """Run all unfinished manifest operations under the claim; return the terminal log id."""
         terminal_log_id = ""
         for index, operation in enumerate(manifest.operations):
             if operation.status in {"completed", "skipped"}:
@@ -840,6 +848,7 @@ class RetentionErasureService:
         return terminal_log_id
 
     async def _execute_operation(self, operation: CleanupOperation) -> int:
+        """Dispatch one operation to its external surface; return the deleted-item count."""
         if operation.kind == "artifact_prefix":
             return int(
                 await self._call_with_idempotency(
@@ -874,6 +883,7 @@ class RetentionErasureService:
         generation: int,
         operation: CleanupOperation,
     ) -> int:
+        """Run one operation while heartbeating the claim lease every third of its window."""
         task = asyncio.create_task(self._execute_operation(operation))
         interval = max(self._cleanup_lease_seconds / 3, 0.01)
         try:
@@ -902,6 +912,7 @@ class RetentionErasureService:
         tenant_id: str,
         run_id: str,
     ) -> str:
+        """Extend the active claim's lease (fenced against stale claims); return the log id."""
         async with self._coordinator.transaction(tenant_id) as transaction:
             state = await self._get_or_materialize_state_record(
                 transaction.connection,
@@ -939,6 +950,7 @@ class RetentionErasureService:
         *args: Any,
         idempotency_key: str,
     ) -> Any:
+        """Await ``method`` with the operation's idempotency key forwarded."""
         return await method(*args, idempotency_key=idempotency_key)
 
     async def _record_operation_delta(
@@ -948,6 +960,7 @@ class RetentionErasureService:
         generation: int,
         operation: CleanupOperation,
     ) -> str:
+        """Persist one operation's status delta (log entry + state row) under the claim fence."""
         async with self._coordinator.transaction(operation.tenant_id) as transaction:
             state = await self._get_or_materialize_state_record(
                 transaction.connection,
@@ -990,6 +1003,7 @@ class RetentionErasureService:
         claim_id: str,
         generation: int,
     ) -> None:
+        """Raise :class:`StaleCleanupClaimError` unless the claim/generation still own the state."""
         if state.active_claim_id != claim_id or state.generation != generation:
             raise StaleCleanupClaimError(
                 f"cleanup claim {claim_id!r} generation {generation} is stale"
@@ -1004,6 +1018,7 @@ class RetentionErasureService:
         *,
         failed: bool,
     ) -> str:
+        """Record the completed/failed terminal event and state, fenced against stale claims."""
         async with self._coordinator.transaction(manifest.tenant_id) as transaction:
             state = await self._get_or_materialize_state_record(
                 transaction.connection,
@@ -1045,6 +1060,7 @@ class RetentionErasureService:
         run_id: str,
         reason: str,
     ) -> None:
+        """Best-effort release of an aborted claim so a later retry can re-claim immediately."""
         try:
             async with self._coordinator.transaction(tenant_id) as transaction:
                 state = await self._get_or_materialize_state_record(
@@ -1084,6 +1100,7 @@ class RetentionErasureService:
         retry_log_id: str | None,
         force_status: str | None = None,
     ) -> ErasureResult:
+        """Project a cleanup manifest into the :class:`ErasureResult` returned to callers."""
         statuses = {operation.status for operation in manifest.operations}
         cleanup_status = force_status
         if cleanup_status is None:
@@ -1120,6 +1137,7 @@ class RetentionErasureService:
         )
 
     async def _record_database_compatibility_steps(self, result: ErasureResult) -> None:
+        """Emit legacy per-step database log entries (best-effort; failures only logged)."""
         for action, detail in (
             ("crypto_erase_audits", {"count": result.audits_erased}),
             ("erase_checkpoints", {"count": result.checkpoints_deleted}),
@@ -1143,6 +1161,7 @@ class RetentionErasureService:
         *,
         failed: bool,
     ) -> None:
+        """Emit legacy artifact/econ/completion log entries mirroring pre-manifest logging."""
         await self._record_compatibility_log(
             result,
             "artifact_cleanup",
@@ -1186,6 +1205,7 @@ class RetentionErasureService:
         action: str,
         detail: dict[str, Any],
     ) -> None:
+        """Write one best-effort compatibility log entry; failures are logged, never raised."""
         try:
             await self._log.record(
                 tenant_id=result.tenant_id,
@@ -1199,6 +1219,7 @@ class RetentionErasureService:
 
     @staticmethod
     def _result_detail(result: ErasureResult) -> dict[str, Any]:
+        """Serialize an :class:`ErasureResult` into the ``erase_run_complete`` detail payload."""
         return {
             "audits_erased": result.audits_erased,
             "checkpoints_deleted": result.checkpoints_deleted,
