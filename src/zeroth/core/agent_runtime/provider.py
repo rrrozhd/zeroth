@@ -229,6 +229,7 @@ class LiteLLMProviderAdapter:
         return f"llm.{provider}"
 
     def _check_fail_closed(self, model: str, key: str | None) -> None:
+        """Raise :class:`SecretResolutionError` when *key* is unresolved and fallback is off."""
         if key is None and not self._allow_env_fallback:
             # Fail closed: do NOT let LiteLLM silently read process env.
             raise SecretResolutionError(
@@ -270,6 +271,7 @@ class LiteLLMProviderAdapter:
         return self._client_for(model, await self._resolve_api_key_async(model))
 
     def _client_for(self, model: str, api_key: str | None) -> ChatLiteLLM:
+        """Build or reuse the client cached under (model, tenant, key fingerprint)."""
         cache_key = (model, self._tenant_id, _key_fingerprint(api_key))
         if cache_key not in self._clients:
             kwargs: dict[str, Any] = {"model": model, "timeout": self._default_timeout}

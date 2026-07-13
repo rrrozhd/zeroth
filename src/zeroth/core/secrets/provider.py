@@ -84,9 +84,11 @@ class EnvSecretProvider:
         self._environment = dict(environment or {})
 
     def _scoped_name(self, tenant_id: str, name_token: str) -> str:
+        """Compose the ``ZEROTH_SECRET__{TENANT}__{NAME}`` environment-variable key."""
         return f"ZEROTH_SECRET__{normalize_secret_name(tenant_id)}__{name_token}"
 
     def resolve(self, secret_ref: str, *, tenant_id: str | None = None) -> str | None:
+        """Resolve a concrete ref from the environment; the tenant-scoped key wins."""
         # Tenant-scoped override wins when present; the bare ref is the
         # back-compatible fallback (http client passes ``config.secret_key``).
         if tenant_id:
@@ -96,6 +98,7 @@ class EnvSecretProvider:
         return self._environment.get(secret_ref)
 
     def resolve_many(self, refs: list[str], *, tenant_id: str | None = None) -> dict[str, str]:
+        """Resolve several refs; refs that do not resolve are omitted from the result."""
         return {
             ref: value
             for ref in refs
@@ -109,6 +112,7 @@ class EnvSecretProvider:
         tenant_id: str | None = None,
         deployment_ref: str | None = None,
     ) -> str | None:
+        """Resolve a logical name; the tenant-scoped token wins over the bare env token."""
         name_token = normalize_secret_name(logical_name)
         if tenant_id:
             scoped = self._scoped_name(tenant_id, name_token)
@@ -120,11 +124,13 @@ class EnvSecretProvider:
     # Native async variants: lookups are in-memory dict reads, so they resolve
     # immediately without a thread hop.
     async def resolve_async(self, secret_ref: str, *, tenant_id: str | None = None) -> str | None:
+        """Async variant of :meth:`resolve` (pure dict read; no thread hop needed)."""
         return self.resolve(secret_ref, tenant_id=tenant_id)
 
     async def resolve_many_async(
         self, refs: list[str], *, tenant_id: str | None = None
     ) -> dict[str, str]:
+        """Async variant of :meth:`resolve_many`."""
         return self.resolve_many(refs, tenant_id=tenant_id)
 
     async def resolve_secret_async(
@@ -134,6 +140,7 @@ class EnvSecretProvider:
         tenant_id: str | None = None,
         deployment_ref: str | None = None,
     ) -> str | None:
+        """Async variant of :meth:`resolve_secret`."""
         return self.resolve_secret(logical_name, tenant_id=tenant_id, deployment_ref=deployment_ref)
 
 
@@ -197,6 +204,7 @@ class SecretResolver:
         self,
         variables: list[EnvironmentVariable],
     ) -> dict[str, str]:
+        """Resolve variable models into an env dict; a missing secret ref raises ``KeyError``."""
         refs = [item.secret_ref for item in variables if item.secret_ref]
         loaded = self.provider.resolve_many([ref for ref in refs if ref is not None])
         return self._merge_resolved(variables, loaded)
@@ -215,6 +223,7 @@ class SecretResolver:
         variables: list[EnvironmentVariable],
         loaded: dict[str, str],
     ) -> dict[str, str]:
+        """Merge secrets and literal values into one env dict; missing refs raise ``KeyError``."""
         resolved: dict[str, str] = {}
         for variable in variables:
             if variable.secret_ref:
@@ -229,9 +238,11 @@ class SecretResolver:
         return resolved
 
     def known_secrets(self) -> dict[str, str]:
+        """Snapshot every secret value resolved so far, keyed by secret ref."""
         return dict(self._resolved)
 
     def redactor(self) -> SecretRedactor:
+        """Build a :class:`SecretRedactor` seeded with every resolved secret value."""
         return SecretRedactor(self.known_secrets())
 
 

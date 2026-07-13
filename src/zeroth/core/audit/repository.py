@@ -346,4 +346,5 @@ class AuditRepository:
 
     @staticmethod
     def _hydrate(row: dict[str, object]) -> NodeAuditRecord:
+        """Rebuild a :class:`NodeAuditRecord` from a fetched row via the shared hydrator."""
         return hydrate_audit_row(row)

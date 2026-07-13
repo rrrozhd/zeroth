@@ -42,6 +42,8 @@ _SECRET_FIELD = "value"
 
 @dataclass(slots=True)
 class _CacheEntry:
+    """A cached secret value with its monotonic-clock expiry."""
+
     value: str | None
     expires_at: float
 
@@ -109,6 +111,7 @@ class VaultSecretProvider:
         return self.resolve_secret(secret_ref, tenant_id=tenant_id)
 
     def resolve_many(self, refs: list[str], *, tenant_id: str | None = None) -> dict[str, str]:
+        """Resolve several refs; refs that do not resolve are omitted from the result."""
         return {
             ref: value
             for ref in refs
@@ -122,6 +125,7 @@ class VaultSecretProvider:
         tenant_id: str | None = None,
         deployment_ref: str | None = None,
     ) -> str | None:
+        """Resolve a logical name via the TTL cache, doing one sync Vault GET on a miss."""
         tenant = tenant_id or _DEFAULT_TENANT
         key = (tenant, logical_name)
         now = time.monotonic()
@@ -141,11 +145,13 @@ class VaultSecretProvider:
     # ------------------------------------------------------------------
 
     async def resolve_async(self, secret_ref: str, *, tenant_id: str | None = None) -> str | None:
+        """Async variant of :meth:`resolve`, served by the pooled client."""
         return await self.resolve_secret_async(secret_ref, tenant_id=tenant_id)
 
     async def resolve_many_async(
         self, refs: list[str], *, tenant_id: str | None = None
     ) -> dict[str, str]:
+        """Async variant of :meth:`resolve_many`; refs that do not resolve are omitted."""
         return {
             ref: value
             for ref in refs
@@ -159,6 +165,7 @@ class VaultSecretProvider:
         tenant_id: str | None = None,
         deployment_ref: str | None = None,
     ) -> str | None:
+        """Async :meth:`resolve_secret`: cache first, then one single-flight fetch per key."""
         tenant = tenant_id or _DEFAULT_TENANT
         key = (tenant, logical_name)
         cached = self._cache.get(key)
@@ -194,6 +201,7 @@ class VaultSecretProvider:
             return value
 
     async def _get_async_client(self) -> httpx.AsyncClient:
+        """Return the pooled async client, creating it once under the client lock."""
         if self._async_client is not None:
             return self._async_client
         async with self._client_lock:
@@ -244,16 +252,20 @@ class VaultSecretProvider:
     # ------------------------------------------------------------------
 
     def _secret_path(self, tenant: str, logical_name: str) -> str:
+        """Build the KV v2 data URL for a tenant's normalized, lower-cased logical name."""
         name = normalize_secret_name(logical_name).lower()
         return f"{self._addr}/v1/{self._mount}/data/tenants/{tenant}/{name}"
 
     def _make_client(self) -> httpx.Client:
+        """Create a short-lived sync client (honors the injected test transport)."""
         return httpx.Client(transport=self._transport, timeout=self._timeout)
 
     def _make_async_client(self) -> httpx.AsyncClient:
+        """Create the pooled async client (honors the injected test transport)."""
         return httpx.AsyncClient(transport=self._async_transport, timeout=self._timeout)
 
     def _fetch_sync(self, tenant: str, logical_name: str) -> str | None:
+        """Perform one blocking Vault GET; non-auth failures log (redacted) and yield ``None``."""
         try:
             token = self._ensure_token_sync()
             with self._make_client() as client:
@@ -276,6 +288,7 @@ class VaultSecretProvider:
     async def _fetch_async(
         self, client: httpx.AsyncClient, token: str, tenant: str, logical_name: str
     ) -> str | None:
+        """Perform one Vault GET on the pooled client; response parsing matches the sync path."""
         resp = await client.get(
             self._secret_path(tenant, logical_name),
             headers={"X-Vault-Token": token},
@@ -283,6 +296,7 @@ class VaultSecretProvider:
         return self._extract_value(resp, tenant, logical_name)
 
     def _extract_value(self, resp: httpx.Response, tenant: str, logical_name: str) -> str | None:
+        """Extract the ``value`` field from a KV v2 response; 404/errors/bad bodies -> ``None``."""
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:
@@ -306,6 +320,7 @@ class VaultSecretProvider:
     # ------------------------------------------------------------------
 
     def _ensure_token_sync(self) -> str:
+        """Return the cached token or perform a blocking AppRole login; fail closed otherwise."""
         if self._token:
             return self._token
         if not (self._role_id and self._secret_id):
@@ -320,6 +335,7 @@ class VaultSecretProvider:
         return token
 
     async def _ensure_token_async(self) -> str:
+        """Return the cached token; AppRole login is single-flighted behind the token lock."""
         if self._token:
             return self._token
         if not (self._role_id and self._secret_id):
@@ -338,6 +354,7 @@ class VaultSecretProvider:
 
     @staticmethod
     def _token_from_login(resp: httpx.Response) -> str:
+        """Extract ``client_token`` from an AppRole login response; errors mention status only."""
         if resp.status_code != 200:
             raise SecretResolutionError(
                 f"vault AppRole login failed with status {resp.status_code}"
@@ -348,6 +365,7 @@ class VaultSecretProvider:
         return token
 
     def _redactor_known(self) -> dict[str, str]:
+        """Rebuild the redactor's name -> value seed map from cached entries."""
         # SecretRedactor keeps its map private; rebuild from cache values.
         return {name: entry.value for (_tenant, name), entry in self._cache.items() if entry.value}
 
