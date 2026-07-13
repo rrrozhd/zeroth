@@ -10,7 +10,7 @@ Calling an LLM from application code is deceptively hard: you have to assemble s
 
 ## Where it fits
 
-Agents are invoked by the [orchestrator](orchestrator.md) once per `AgentNode` visit. The runner reads an `AgentConfig` derived from the node's `AgentNodeData`, assembles a prompt via `PromptAssembler`, calls a `ProviderAdapter` (litellm, GovernAI, or deterministic), validates the output with `OutputValidator` against the node's output contract, and hands an `AgentRunResult` back to the orchestrator. Tools declared on the node are resolved through `ToolAttachmentRegistry`; thread state is persisted through `RepositoryThreadStateStore`. Memory, secrets, and policy hooks plug in through the runtime context.
+Agents are invoked by the [orchestrator](orchestrator.md) once per `AgentNode` visit. The runner reads an `AgentConfig` derived from the node's `AgentNodeData`, assembles a prompt via `PromptAssembler`, calls a `ProviderAdapter` (litellm or deterministic), validates the output with `OutputValidator` against the node's output contract, and hands an `AgentRunResult` back to the orchestrator. Tools declared on the node are resolved through `ToolAttachmentRegistry`; thread state is persisted through `RepositoryThreadStateStore`. Memory, secrets, and policy hooks plug in through the runtime context.
 
 ## Key types
 

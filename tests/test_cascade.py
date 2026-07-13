@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from governai.integrations.tool_calls import NormalizedToolCall
+from zeroth.core.governed.integrations.tool_calls import NormalizedToolCall
 
 from zeroth.core.agent_runtime.cascade import CascadingProviderAdapter, _is_blank_response
 from zeroth.core.agent_runtime.provider import ProviderRequest, ProviderResponse

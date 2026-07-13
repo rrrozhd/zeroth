@@ -16,8 +16,7 @@ import contextlib
 import logging
 from typing import Any
 
-from governai.memory.models import MemoryScope
-
+from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.memory.connectors import (
     KeyValueMemoryConnector,
     RunEphemeralMemoryConnector,

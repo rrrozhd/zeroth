@@ -19,9 +19,9 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
-from governai.memory.models import MemoryScope
 from pydantic import BaseModel, ConfigDict, Field
 
+from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.memory.runtime_configs import apply_config
 from zeroth.core.service.authorization import Permission, require_permission
 

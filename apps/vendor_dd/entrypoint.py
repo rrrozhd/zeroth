@@ -45,7 +45,6 @@ os.environ.setdefault("ZEROTH_APPROVAL_SLA__ENABLED", "false")
 os.environ.setdefault("ZEROTH_REDIS__MODE", "disabled")
 
 import uvicorn
-from governai.memory.models import MemoryScope
 
 from apps.vendor_dd.fixtures.policy_corpus import POLICY_CORPUS
 from apps.vendor_dd.graphs import (
@@ -61,6 +60,7 @@ from zeroth.core.config.settings import get_settings
 from zeroth.core.contracts import ContractRegistry
 from zeroth.core.deployments import SQLiteDeploymentRepository
 from zeroth.core.execution_units import ExecutableUnitRunner
+from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.graph.serialization import deserialize_graph
 from zeroth.core.identity import ServiceRole
 from zeroth.core.policy import (

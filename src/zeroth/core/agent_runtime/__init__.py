@@ -32,7 +32,6 @@ from zeroth.core.agent_runtime.models import (
 from zeroth.core.agent_runtime.prompt import AgentAuditSerializer, PromptAssembler
 from zeroth.core.agent_runtime.provider import (
     DeterministicProviderAdapter,
-    GovernedLLMProviderAdapter,
     LiteLLMProviderAdapter,
     ProviderAdapter,
     ProviderMessage,
@@ -90,7 +89,6 @@ __all__ = [
     "ContentSafetyConfig",
     "DeterministicProviderAdapter",
     "FallbackProviderAdapter",
-    "GovernedLLMProviderAdapter",
     "HeuristicInjectionScreener",
     "InMemoryResponseCache",
     "InMemoryThreadStateStore",

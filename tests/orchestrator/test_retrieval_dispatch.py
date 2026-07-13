@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from governai.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.audit import AuditRepository
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner

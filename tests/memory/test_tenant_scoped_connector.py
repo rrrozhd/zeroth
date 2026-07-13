@@ -15,8 +15,8 @@ from __future__ import annotations
 import fnmatch
 
 import pytest
-from governai.memory.models import MemoryScope
-from governai.memory.scoped import ScopedMemoryConnector
+from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.core.governed.memory.scoped import ScopedMemoryConnector
 
 from zeroth.core.memory.connectors import KeyValueMemoryConnector
 from zeroth.core.memory.redis_kv import RedisKVMemoryConnector

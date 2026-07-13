@@ -16,9 +16,10 @@ from typing import Any
 
 import litellm
 import psycopg
-from governai.memory.models import MemoryEntry, MemoryScope
-from governai.models.common import JSONValue
 from pgvector.psycopg import register_vector_async
+
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.models.common import JSONValue
 
 # Unquoted PostgreSQL identifiers: letter/underscore followed by word chars, max 63.
 # Restricting to this subset lets us embed self._table directly in DDL/DML without

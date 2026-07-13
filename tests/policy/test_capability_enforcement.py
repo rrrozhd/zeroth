@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 
 from zeroth.core.agent_runtime.tools import ToolAttachmentBinding, ToolAttachmentBridge
 from zeroth.core.memory.capability_guard import CapabilityEnforcingMemoryConnector

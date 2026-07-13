@@ -11,7 +11,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from governai.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.core.graph import (

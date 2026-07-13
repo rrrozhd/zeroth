@@ -52,6 +52,7 @@ Teams can author and operate governed multi-agent workflows without sacrificing 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Regulus ABSORBED into the zeroth namespace (v0.8) | Single owner, no re-sync; `/regulus` mount + `ECP_` prefix kept for compatibility | ✓ Good |
+| governai ABSORBED into `zeroth.core.governed` (v0.10) | Zeroth is the sole product; it used only a curated slice (memory types + wrappers, RunState/RunStatus, tool primitives, tool-call helpers, spec types, audit emitters), so that slice was vendored and the external dep dropped. The execution kernel was left behind — zeroth runs its own orchestrator | ✓ Good |
 | In-repo Next.js console replaces separate Vue `zeroth-studio` | One repo, one release cadence; console ships pre-built via extra | ✓ Good |
 | LiteLLM as provider abstraction layer | Routes to 100+ models without per-provider adapters | ✓ Good |
 | Postgres production storage, SQLite for dev/test | Production needs vs developer experience | ✓ Good — dual backend |
