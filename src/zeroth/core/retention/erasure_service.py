@@ -119,17 +119,24 @@ class RetentionErasureService:
         reason: str,
         *,
         tenant_id: str | None = None,
+        ttl_cutoff: datetime | None = None,
     ) -> ErasureResult:
         """Erase every PII surface for a run, unless an active legal hold blocks.
 
         ``reason`` is one of ``ttl`` | ``rte`` | ``manual``. Idempotent: re-running
         deletes nothing already gone and still returns a result. Raises
         :class:`LegalHoldError` when the run (or its tenant) is on hold.
+
+        ``ttl_cutoff`` marks a TTL-sweep call: the run row is locked and its
+        tenant/terminal-status/``updated_at`` eligibility re-verified inside the
+        destructive transaction, so a run resurrected between unlocked selection
+        and erasure is left untouched (an all-zero result is returned).
         """
         initial_records = await self._audits.list_by_run(run_id)
         resolved_tenant = await self._resolve_tenant(run_id, tenant_id, initial_records)
         result = ErasureResult(run_id=run_id, tenant_id=resolved_tenant, reason=reason)
         blocked = False
+        ineligible = False
         authorization_log_id = ""
         manifest: CleanupManifest | None = None
 
@@ -147,6 +154,23 @@ class RetentionErasureService:
                     reason=reason,
                 )
                 blocked = True
+            elif ttl_cutoff is not None and (
+                await self._runs.lock_and_recheck_erasable_run(
+                    transaction.connection,
+                    run_id,
+                    resolved_tenant,
+                    ttl_cutoff,
+                )
+                is None
+            ):
+                await self._log.record_in_transaction(
+                    transaction.connection,
+                    tenant_id=resolved_tenant,
+                    run_id=run_id,
+                    action="ttl_recheck_ineligible",
+                    reason=reason,
+                )
+                ineligible = True
             else:
                 persisted_tenant = await self._runs.tenant_id_for_run_in_transaction(
                     transaction.connection,
@@ -236,6 +260,8 @@ class RetentionErasureService:
             raise LegalHoldError(
                 f"run {run_id!r} is under an active legal hold and cannot be erased"
             )
+        if ineligible:
+            return result  # zero surfaces touched; no cleanup manifest exists
 
         result = await self.retry_external_cleanup(authorization_log_id)
         await self._record_database_compatibility_steps(result)
@@ -411,6 +437,42 @@ class RetentionErasureService:
                     detail={"audits_erased": result.audits_erased},
                 )
         return list(results.values())
+
+    async def purge_runs(self, tenant_id: str) -> list[ErasureResult]:
+        """Run-TTL sweep: fully erase aged COMPLETED/FAILED runs.
+
+        Selection is an unlocked snapshot over persisted ``updated_at`` and
+        terminal status; each erasure re-verifies eligibility (and holds)
+        inside its own tenant-coordinated destructive transaction, so runs
+        resurrected mid-sweep survive untouched.
+        """
+        policy = await self._policies.resolve(tenant_id)
+        if not policy.enabled or policy.run_ttl_seconds is None:
+            return []
+
+        holds = await self._holds.active_holds_for_tenant(tenant_id)
+        if holds.tenant_wide:
+            await self._log.record(
+                tenant_id=tenant_id,
+                action="purge_skipped_tenant_hold",
+                reason="ttl",
+            )
+            return []
+
+        cutoff = datetime.now(UTC) - timedelta(seconds=policy.run_ttl_seconds)
+        run_ids = await self._runs.list_erasable_run_ids(tenant_id, cutoff)
+
+        results: list[ErasureResult] = []
+        for run_id in run_ids:
+            if run_id in holds.run_ids:
+                continue
+            try:
+                results.append(
+                    await self.erase_run(run_id, "ttl", tenant_id=tenant_id, ttl_cutoff=cutoff)
+                )
+            except LegalHoldError:
+                continue  # raced with a hold placed mid-sweep; leave it frozen
+        return results
 
     async def purge_tenant(self, tenant_id: str) -> list[ErasureResult]:
         """TTL purge: erase every aged, non-held run for a tenant.
