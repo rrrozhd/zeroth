@@ -310,3 +310,90 @@ async def test_run_ttl_ignores_runs_with_old_audits_but_recent_activity(env) -> 
     assert await env.service.purge_runs("t-recent") == []
     run = await env.run_repo.get("run-active")
     assert "rec-22-2222" in str(run.final_output)
+
+
+# --- sweep verification (retention-correctness task 6) ------------------------
+
+
+async def test_signed_chain_verifies_after_audit_ttl_tombstoning(env) -> None:
+    from zeroth.core.audit import AuditContinuityVerifier
+
+    old = datetime.now(UTC) - timedelta(days=60)
+    await env.seed_run("run-chain", tenant_id="t-chain", created_at=old, n_audits=3)
+    await env.policy_repo.upsert(
+        RetentionPolicy(
+            tenant_id="t-chain", audit_ttl_seconds=int(timedelta(days=30).total_seconds())
+        )
+    )
+
+    results = await env.service.purge_audits("t-chain")
+    assert results[0].audits_erased == 3
+
+    report = await AuditContinuityVerifier(env.audit_repo, signer=env.signer).verify_run(
+        "run-chain"
+    )
+    assert report.verified is True, report.error
+
+
+async def test_audit_sweep_query_count_does_not_scale_with_records(env, monkeypatch) -> None:
+    """Selection is one cutoff-bounded projection query plus one UPDATE per aged
+    record — never a per-record list-by-run query."""
+    from contextlib import asynccontextmanager
+
+    old = datetime.now(UTC) - timedelta(days=60)
+    ttl = int(timedelta(days=30).total_seconds())
+    await env.seed_run("run-q3", tenant_id="t-q3", created_at=old, n_audits=3)
+    await env.seed_run("run-q8", tenant_id="t-q8", created_at=old, n_audits=8)
+    await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-q3", audit_ttl_seconds=ttl))
+    await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-q8", audit_ttl_seconds=ttl))
+
+    class _CountingConnection:
+        def __init__(self, inner, log: list[str]) -> None:
+            self._inner = inner
+            self._log = log
+
+        async def fetch_all(self, sql, params=()):  # noqa: ANN001
+            self._log.append(sql)
+            return await self._inner.fetch_all(sql, params)
+
+        async def fetch_one(self, sql, params=()):  # noqa: ANN001
+            self._log.append(sql)
+            return await self._inner.fetch_one(sql, params)
+
+        async def execute(self, sql, params=()):  # noqa: ANN001
+            self._log.append(sql)
+            return await self._inner.execute(sql, params)
+
+        def __getattr__(self, name):  # noqa: ANN001
+            return getattr(self._inner, name)
+
+    real_transaction = env.database.transaction
+    queries: list[str] = []
+
+    @asynccontextmanager
+    async def counting_transaction(**kwargs):  # noqa: ANN003
+        async with real_transaction(**kwargs) as connection:
+            yield _CountingConnection(connection, queries)
+
+    monkeypatch.setattr(env.database, "transaction", counting_transaction)
+
+    def _sweep_counts() -> tuple[int, int]:
+        selects = sum(1 for q in queries if q.lstrip().upper().startswith("SELECT"))
+        updates = sum(
+            1 for q in queries if q.lstrip().upper().startswith("UPDATE NODE_AUDITS")
+        )
+        return selects, updates
+
+    queries.clear()
+    assert (await env.service.purge_audits("t-q3"))[0].audits_erased == 3
+    selects_3, updates_3 = _sweep_counts()
+
+    queries.clear()
+    assert (await env.service.purge_audits("t-q8"))[0].audits_erased == 8
+    selects_8, updates_8 = _sweep_counts()
+
+    assert updates_3 == 3
+    assert updates_8 == 8
+    # The SELECT count is flat: policy + holds + lock row + one projection —
+    # NOT one list-by-run query per record.
+    assert selects_3 == selects_8
