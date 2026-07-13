@@ -10,11 +10,16 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from zeroth.core.audit.coordination import advance_audit_chain, lock_audit_chain
+from zeroth.core.audit.coordination import (
+    advance_audit_chain,
+    hydrate_audit_row,
+    load_ordered_run_records,
+    lock_audit_chain,
+)
 from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.core.storage import AsyncDatabase
-from zeroth.core.storage.json import load_typed_value, to_json_value
+from zeroth.core.storage.json import to_json_value
 
 if TYPE_CHECKING:
     from zeroth.core.signing import SigningKeyProvider
@@ -148,6 +153,24 @@ class AuditRepository:
         is given, all records are returned.
         """
         query = query or AuditQuery()
+        if query.run_id is not None:
+            async with self._database.transaction() as connection:
+                records = await load_ordered_run_records(connection, query.run_id)
+            filter_fields = (
+                "thread_id",
+                "node_id",
+                "graph_version_ref",
+                "deployment_ref",
+                "tenant_id",
+            )
+            return [
+                record
+                for record in records
+                if all(
+                    getattr(query, field) is None or getattr(record, field) == getattr(query, field)
+                    for field in filter_fields
+                )
+            ]
         clauses: list[str] = []
         params: list[str] = []
         for field in (
@@ -166,13 +189,7 @@ class AuditRepository:
         sql = "SELECT record_json, chain_sequence FROM node_audits"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        if query.run_id is not None:
-            sql += (
-                " ORDER BY CASE WHEN chain_sequence IS NULL THEN 0 ELSE 1 END, "
-                "chain_sequence, created_at, audit_id"
-            )
-        else:
-            sql += " ORDER BY created_at, audit_id"
+        sql += " ORDER BY created_at, audit_id"
         async with self._database.transaction() as connection:
             rows = await connection.fetch_all(sql, tuple(params))
         return [self._hydrate(row) for row in rows]
@@ -273,6 +290,4 @@ class AuditRepository:
 
     @staticmethod
     def _hydrate(row: dict[str, object]) -> NodeAuditRecord:
-        payload = load_typed_value(row["record_json"], dict)
-        payload["chain_sequence"] = row.get("chain_sequence")
-        return NodeAuditRecord.model_validate(payload)
+        return hydrate_audit_row(row)
