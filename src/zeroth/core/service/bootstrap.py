@@ -566,7 +566,21 @@ async def bootstrap_service(
         RetentionPurgeWorker,
     )
 
-    retention_policy_repository = RetentionPolicyRepository(database)
+    retention_default_policy = None
+    if (
+        settings.retention.default_audit_ttl_seconds is not None
+        or settings.retention.default_run_ttl_seconds is not None
+    ):
+        from zeroth.core.retention.models import SYSTEM_DEFAULT_TENANT, RetentionPolicy
+
+        retention_default_policy = RetentionPolicy(
+            tenant_id=SYSTEM_DEFAULT_TENANT,
+            audit_ttl_seconds=settings.retention.default_audit_ttl_seconds,
+            run_ttl_seconds=settings.retention.default_run_ttl_seconds,
+        )
+    retention_policy_repository = RetentionPolicyRepository(
+        database, default_policy=retention_default_policy
+    )
     legal_hold_repository = LegalHoldRepository(database)
     retention_log_repository = RetentionAuditLogRepository(database)
     retention_erasure_service = RetentionErasureService(
