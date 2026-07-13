@@ -28,8 +28,12 @@ def _assert_receipt_table(database_url: str, *, expected: bool) -> None:
 
 
 def test_econ_erasure_receipt_migration_roundtrips_sqlite(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("ECP_DATABASE_URL", raising=False)
     database_url = f"sqlite:///{tmp_path / 'econ-receipts.db'}"
+    # setenv, not delenv: alembic's env.py prefers ECP_DATABASE_URL over the
+    # config option, and with the var deleted a first-time econ_plane.config
+    # import inside this test binds the settings singleton to ./econ_plane.db
+    # at the repo root for the rest of the session.
+    monkeypatch.setenv("ECP_DATABASE_URL", database_url)
     config = _econ_config(database_url)
     command.upgrade(config, "20260712_03")
     _assert_receipt_table(database_url, expected=True)
@@ -41,7 +45,6 @@ def test_econ_erasure_receipt_migration_roundtrips_sqlite(tmp_path: Path, monkey
 
 @requires_docker
 def test_econ_erasure_receipt_migration_runs_on_postgres(postgres_container, monkeypatch) -> None:
-    monkeypatch.delenv("ECP_DATABASE_URL", raising=False)
     from sqlalchemy.engine import make_url
 
     root_url = make_url(postgres_container.get_connection_url().replace("psycopg2", "psycopg"))
@@ -50,6 +53,7 @@ def test_econ_erasure_receipt_migration_runs_on_postgres(postgres_container, mon
     with admin_engine.connect() as connection:
         connection.execute(sa.text(f'CREATE DATABASE "{database_name}"'))
     database_url = root_url.set(database=database_name).render_as_string(hide_password=False)
+    monkeypatch.setenv("ECP_DATABASE_URL", database_url)
     try:
         command.upgrade(_econ_config(database_url), "20260712_03")
         _assert_receipt_table(database_url, expected=True)
