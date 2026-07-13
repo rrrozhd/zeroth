@@ -29,6 +29,18 @@ def _sqlite_to_psycopg(sql: str) -> str:
     return _PLACEHOLDER_RE.sub("%s", sql)
 
 
+def _is_lock_timeout_error(exc: LockNotAvailable | QueryCanceled) -> bool:
+    """Distinguish configured lock timeouts from other PostgreSQL cancellations."""
+    diag = exc.diag
+    messages = (
+        str(exc),
+        diag.message_primary,
+        diag.message_detail,
+        diag.context,
+    )
+    return "lock timeout" in " ".join(message for message in messages if message).casefold()
+
+
 class PostgresConnection:
     """AsyncConnection implementation wrapping a psycopg AsyncConnection."""
 
@@ -108,16 +120,18 @@ class AsyncPostgresDatabase:
     @asynccontextmanager
     async def transaction(self, *, write_lock: bool = False) -> AsyncIterator[PostgresConnection]:
         """Acquire a connection from the pool, run inside a transaction."""
-        async with self._pool.connection() as conn, conn.transaction():
-            if write_lock:
-                try:
+        try:
+            async with self._pool.connection() as conn, conn.transaction():
+                if write_lock:
                     timeout_ms = max(1, round(self.coordination_timeout_seconds * 1000))
                     await conn.execute(f"SET LOCAL lock_timeout = '{timeout_ms}ms'")
-                except (LockNotAvailable, QueryCanceled) as exc:
-                    raise CoordinationTimeoutError(
-                        "timed out configuring PostgreSQL coordination lock"
-                    ) from exc
-            yield PostgresConnection(conn)
+                yield PostgresConnection(conn)
+        except (LockNotAvailable, QueryCanceled) as exc:
+            if write_lock and _is_lock_timeout_error(exc):
+                raise CoordinationTimeoutError(
+                    "timed out acquiring PostgreSQL coordination lock"
+                ) from exc
+            raise
 
     async def close(self) -> None:
         """Close the connection pool."""
