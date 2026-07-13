@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from zeroth.core.storage import AsyncConnection, AsyncDatabase, ensure_and_lock_row
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionTransaction:
+    """A database transaction whose retention tenant cannot be reassigned."""
+
+    connection: AsyncConnection
+    tenant_id: str
 
 
 class RetentionCoordinator:
@@ -15,7 +24,7 @@ class RetentionCoordinator:
         self._database = database
 
     @asynccontextmanager
-    async def transaction(self, tenant_id: str) -> AsyncIterator[AsyncConnection]:
+    async def transaction(self, tenant_id: str) -> AsyncIterator[RetentionTransaction]:
         """Yield a write transaction holding the tenant coordination row."""
         async with self._database.transaction(write_lock=True) as connection:
             row = await ensure_and_lock_row(
@@ -27,4 +36,4 @@ class RetentionCoordinator:
             )
             if row is None:  # pragma: no cover - INSERT + SELECT is invariant
                 raise RuntimeError(f"failed to initialize retention lock for {tenant_id!r}")
-            yield connection
+            yield RetentionTransaction(connection=connection, tenant_id=tenant_id)
