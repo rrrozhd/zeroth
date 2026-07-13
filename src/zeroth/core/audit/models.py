@@ -155,8 +155,8 @@ class NodeAuditRecord(BaseModel):
     # change the digest, so the append-only hash-chain still verifies.
     #
     # ``digest_version``: 1 = legacy whole-payload SHA-256 (grandfathered,
-    # un-erasable); 2 = commitment digest (each PII field replaced by
-    # sha256(canonical_json(plaintext)) in ``pii_commitments`` before hashing).
+    # un-erasable); 2 = original commitment digest; 3 = expanded commitments
+    # covering condition and approval structured payloads as well.
     erased: bool = False
     erased_at: datetime | None = None
     erasure_reason: str | None = None  # ttl | rte | manual

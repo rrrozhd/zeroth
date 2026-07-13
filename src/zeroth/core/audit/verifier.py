@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 # NONE of these keys, but loading it through ``NodeAuditRecord.model_validate``
 # fills the defaults, so ``model_dump`` would otherwise inject them and break the
 # byte layout the legacy digest was computed over. Popping them restores the
-# exact pre-WS-E payload. For digest_version=2 the PII fields are ALSO popped and
+# exact pre-WS-E payload. For commitment digests the PII fields are ALSO popped and
 # replaced by ``pii_commitments`` (see ``_compute_record_digest``), which makes
 # the digest identical whether the plaintext is present or crypto-erased.
 _DIGEST_EXCLUDED_FIELDS = frozenset(
@@ -71,7 +71,7 @@ _DIGEST_EXCLUDED_FIELDS = frozenset(
 # ``digest_version >= 2``. Nulling any of these during crypto-erasure leaves the
 # digest unchanged because the digest folds in ``pii_commitments`` (stamped once
 # at write time) rather than these raw values.
-_PII_COMMITMENT_FIELDS: tuple[str, ...] = (
+_PII_COMMITMENT_FIELDS_V2: tuple[str, ...] = (
     "input_snapshot",
     "output_snapshot",
     "validation_results",
@@ -82,6 +82,17 @@ _PII_COMMITMENT_FIELDS: tuple[str, ...] = (
     "tool_calls",
     "memory_interactions",
 )
+
+_PII_COMMITMENT_FIELDS_V3: tuple[str, ...] = (
+    *_PII_COMMITMENT_FIELDS_V2,
+    "condition_results",
+    "approval_actions",
+)
+
+
+def _pii_commitment_fields(digest_version: int) -> tuple[str, ...]:
+    """Select the immutable commitment schema used by a digest version."""
+    return _PII_COMMITMENT_FIELDS_V3 if digest_version >= 3 else _PII_COMMITMENT_FIELDS_V2
 
 
 class AuditContinuityVerifier:
@@ -269,7 +280,7 @@ def _compute_pii_commitments(record: NodeAuditRecord) -> dict[str, str]:
     dumped = record.model_dump(mode="json")
     return {
         field: hashlib.sha256(_canonical(dumped[field]).encode("utf-8")).hexdigest()
-        for field in _PII_COMMITMENT_FIELDS
+        for field in _pii_commitment_fields(record.digest_version or 1)
     }
 
 
@@ -282,7 +293,7 @@ def _compute_record_digest(record: NodeAuditRecord) -> str:
     # the exact pre-WS-E payload (grandfathered).
     for field in _DIGEST_EXCLUDED_FIELDS:
         payload.pop(field, None)
-    # WS-E digest_version=2: substitute the per-field commitment hashes for the
+    # WS-E commitment digests: substitute per-field commitment hashes for the
     # raw PII payload fields.
     #
     # G3 (content-integrity): the commitment folded in must BIND the live PII,
@@ -298,7 +309,7 @@ def _compute_record_digest(record: NodeAuditRecord) -> str:
     # is non-erased and its live PII equals what produced the stored commitments,
     # so recomputed == stored — write and verify agree.
     if (record.digest_version or 1) >= 2:
-        for field in _PII_COMMITMENT_FIELDS:
+        for field in _pii_commitment_fields(record.digest_version or 1):
             payload.pop(field, None)
         if record.erased:
             payload["pii_commitments"] = record.pii_commitments or {}

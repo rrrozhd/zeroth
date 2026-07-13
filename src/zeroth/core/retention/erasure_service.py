@@ -38,6 +38,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_AUDIT_CLEANUP_PAYLOAD_FIELDS = (
+    "input_snapshot",
+    "output_snapshot",
+    "validation_results",
+    "execution_metadata",
+    "condition_results",
+    "memory_interactions",
+    "tool_calls",
+    "approval_actions",
+)
+
 
 class LegalHoldError(RuntimeError):
     """Raised when erasure is refused because an active legal hold covers it."""
@@ -75,6 +86,12 @@ def _harvest_join_keys(payload: Any) -> set[str]:
         for item in payload:
             found |= _harvest_join_keys(item)
     return found
+
+
+def _audit_cleanup_payloads(record: Any) -> tuple[Any, ...]:
+    """Return every structured audit surface that can hold cleanup references."""
+    dumped = record.model_dump(mode="json")
+    return tuple(dumped[field] for field in _AUDIT_CLEANUP_PAYLOAD_FIELDS)
 
 
 class RetentionErasureService:
@@ -153,9 +170,7 @@ class RetentionErasureService:
                         raise ValueError(
                             f"run {run_id!r} does not belong to tenant {resolved_tenant!r}"
                         )
-                    payloads.extend(
-                        (record.input_snapshot, record.output_snapshot, record.execution_metadata)
-                    )
+                    payloads.extend(_audit_cleanup_payloads(record))
                 payloads.extend(
                     await self._runs.erasure_payloads_in_transaction(
                         transaction.connection,
@@ -174,20 +189,19 @@ class RetentionErasureService:
                 for record in records:
                     if record.erased:
                         continue
-                    try:
-                        erased = await self._audits.crypto_erase_in_transaction(
-                            transaction.connection,
-                            record.audit_id,
-                            reason=reason,
-                            record=record,
-                        )
-                    except ValueError:
+                    if (record.digest_version or 1) < 2:
                         logger.info(
                             "skipping legacy (digest_version=1) audit %s during erasure of run %s",
                             record.audit_id,
                             run_id,
                         )
                         continue
+                    erased = await self._audits.crypto_erase_in_transaction(
+                        transaction.connection,
+                        record.audit_id,
+                        reason=reason,
+                        record=record,
+                    )
                     if erased is not None:
                         result.audits_erased += 1
                 result.checkpoints_deleted = (

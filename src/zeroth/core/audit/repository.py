@@ -35,8 +35,10 @@ _ERASED_PII_VALUES: dict[str, object] = {
     "stdout": None,
     "stderr": None,
     "error": None,
+    "condition_results": [],
     "tool_calls": [],
     "memory_interactions": [],
+    "approval_actions": [],
 }
 
 
@@ -71,15 +73,15 @@ class AuditRepository:
                 backend=self._database.backend,
                 run_id=record.run_id,
             )
-            # WS-E: stamp digest_version=2 + per-field PII commitments BEFORE the
+            # WS-E: stamp the latest commitment digest version BEFORE the
             # digest is computed, so the digest folds in the commitments and stays
             # identical after a later crypto-erasure nulls the plaintext. Always
-            # populated for a v2 write — never left None (an empty-commitment v2
+            # populated for a commitment write — never left None (an empty
             # record would still "verify" while binding no PII).
-            prepared = record.model_copy(
+            versioned = record.model_copy(update={"digest_version": 3})
+            prepared = versioned.model_copy(
                 update={
-                    "digest_version": 2,
-                    "pii_commitments": _compute_pii_commitments(record),
+                    "pii_commitments": _compute_pii_commitments(versioned),
                     "chain_sequence": head.next_sequence,
                 }
             )
@@ -270,6 +272,11 @@ class AuditRepository:
                 f"audit_id {audit_id!r} is digest_version=1 (legacy) and cannot be "
                 "crypto-erased; legacy whole-payload digests are grandfathered"
             )
+        if record.digest_version == 2 and (record.condition_results or record.approval_actions):
+            raise ValueError(
+                f"audit_id {audit_id!r} is digest_version=2 and contains structured "
+                "PII that predates expanded commitments; it cannot be crypto-erased"
+            )
         if record.erased:
             return record  # idempotent: already erased, commitments/digest intact
         erased = record.model_copy(
@@ -293,7 +300,7 @@ class AuditRepository:
         *,
         exclude_run_ids: Sequence[str] | None = None,
     ) -> list[NodeAuditRecord]:
-        """Return erasable (digest_version=2) records older than a cutoff.
+        """Return erasable commitment-digest records older than a cutoff.
 
         Scoped to one tenant and to records created before ``older_than``
         (compared as UTC isoformat, matching the write path). Legacy v1 records
