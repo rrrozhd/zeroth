@@ -1,6 +1,6 @@
 # Runtime Dispatch Isolation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Prevent concurrent graph runs from mutating or observing another run's agent-runner state.
 
@@ -17,7 +17,7 @@
 - Modify: `src/zeroth/core/context_window/tracker.py`
 - Test: `tests/agent_runtime/test_runner_dispatch_isolation.py`
 
-- [ ] **Step 1: Write the failing ownership test**
+- [x] **Step 1: Write the failing ownership test**
 
 ```python
 def test_fork_for_dispatch_rebuilds_mutable_state(base_runner):
@@ -33,12 +33,12 @@ def test_fork_for_dispatch_rebuilds_mutable_state(base_runner):
     assert base_runner.config.instruction != "local"
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `uv run pytest -q tests/agent_runtime/test_runner_dispatch_isolation.py::test_fork_for_dispatch_rebuilds_mutable_state`
 Expected: FAIL because `AgentRunner.fork_for_dispatch` does not exist.
 
-- [ ] **Step 3: Implement the minimal fork**
+- [x] **Step 3: Implement the minimal fork**
 
 First add `ContextWindowTracker.fork_for_dispatch()` that constructs a tracker with a
 deep copy of settings, a shallow copy of the strategy (preserving safe provider/client
@@ -61,12 +61,12 @@ def fork_for_dispatch(self) -> AgentRunner:
 
 Preserve caller-supplied provider, memory resolver, budget enforcer, tool executor, thread store, and sanitizer references as starting dependencies; they are references on the fork and any later reassignment is local.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `uv run pytest -q tests/agent_runtime/test_runner_dispatch_isolation.py`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/zeroth/core/agent_runtime/runner.py src/zeroth/core/context_window/tracker.py tests/agent_runtime/test_runner_dispatch_isolation.py
@@ -79,7 +79,7 @@ git commit -m "fix: add dispatch-local agent runners"
 - Modify: `src/zeroth/core/orchestrator/runtime.py:1257`
 - Test: `tests/orchestrator/test_concurrent_agent_dispatch_isolation.py`
 
-- [ ] **Step 1: Write a deterministic interleaving regression test**
+- [x] **Step 1: Write a deterministic interleaving regression test**
 
 Create a provider whose first two calls wait on a barrier and record the runner config,
 provider wrapper, tenant, memory resolver result, budget-enforcer tenant, context tracker,
@@ -103,12 +103,12 @@ assert prototype.config.instruction == "base"
 assert prototype.provider is base_provider
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `uv run pytest -q tests/orchestrator/test_concurrent_agent_dispatch_isolation.py`
 Expected: FAIL because both dispatches mutate the registered runner.
 
-- [ ] **Step 3: Fork immediately after prototype lookup**
+- [x] **Step 3: Fork immediately after prototype lookup**
 
 ```python
 prototype = self.agent_runners.get(node.node_id) or self.agent_runners.get(base_node_id(node.node_id))
@@ -119,12 +119,12 @@ runner = prototype.fork_for_dispatch() if hasattr(prototype, "fork_for_dispatch"
 
 The fallback is only for lightweight test doubles. Remove restoration assignments whose only purpose was protecting the prototype; keep resource cleanup and support test doubles without the fork method.
 
-- [ ] **Step 4: Run GREEN and adjacent tests**
+- [x] **Step 4: Run GREEN and adjacent tests**
 
 Run: `uv run pytest -q tests/orchestrator/test_concurrent_agent_dispatch_isolation.py tests/orchestrator/test_tool_edge_dispatch.py tests/context_window/test_orchestrator_integration.py`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/zeroth/core/orchestrator/runtime.py tests/orchestrator/test_concurrent_agent_dispatch_isolation.py
@@ -137,7 +137,7 @@ git commit -m "fix: isolate concurrent agent dispatch state"
 - Modify: `tests/orchestrator/test_concurrent_agent_dispatch_isolation.py`
 - Modify: `tests/agent_runtime/test_runner_dispatch_isolation.py`
 
-- [ ] Add failure-path tests proving a raised provider/tool/MCP error leaves the prototype untouched and closes only the fork's MCP manager.
-- [ ] Run: `uv run pytest -q tests/agent_runtime/test_runner_dispatch_isolation.py tests/orchestrator/test_concurrent_agent_dispatch_isolation.py`.
-- [ ] Run: `uv run pytest -q tests/agent_runtime tests/orchestrator`.
-- [ ] Commit tests/refactor only after all remain green.
+- [x] Add failure-path tests proving a raised provider/tool/MCP error leaves the prototype untouched and closes only the fork's MCP manager.
+- [x] Run: `uv run pytest -q tests/agent_runtime/test_runner_dispatch_isolation.py tests/orchestrator/test_concurrent_agent_dispatch_isolation.py`.
+- [x] Run: `uv run pytest -q tests/agent_runtime tests/orchestrator`.
+- [x] Commit tests/refactor only after all remain green.
