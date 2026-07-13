@@ -354,6 +354,64 @@ class RetentionErasureService:
     async def _after_lock_acquired(self) -> None:
         """Test seam invoked while the tenant coordination lock is held."""
 
+    async def purge_audits(self, tenant_id: str) -> list[ErasureResult]:
+        """Audit-TTL sweep: tombstone aged v2 audits, touching nothing else.
+
+        Crypto-erases each aged audit's PII in one tenant-coordinated
+        transaction (holds re-checked inside it) while the run row,
+        checkpoints, artifacts, and newer audits remain intact — run-surface
+        removal is :meth:`purge_runs`'s job. Returns one result per affected
+        run carrying only ``audits_erased``.
+        """
+        policy = await self._policies.resolve(tenant_id)
+        if not policy.enabled or policy.audit_ttl_seconds is None:
+            return []
+        cutoff = datetime.now(UTC) - timedelta(seconds=policy.audit_ttl_seconds)
+
+        results: dict[str, ErasureResult] = {}
+        async with self._coordinator.transaction(tenant_id) as transaction:
+            await self._after_lock_acquired()
+            holds = await self._holds.active_holds_for_tenant_in_transaction(transaction)
+            if holds.tenant_wide:
+                await self._log.record_in_transaction(
+                    transaction.connection,
+                    tenant_id=tenant_id,
+                    action="purge_skipped_tenant_hold",
+                    reason="ttl",
+                )
+                return []
+            records = await self._audits.list_erasable_in_transaction(
+                transaction.connection,
+                tenant_id,
+                cutoff,
+                exclude_run_ids=holds.run_ids,
+            )
+            for record in records:
+                was_erased = record.erased
+                erased = await self._audits.crypto_erase_in_transaction(
+                    transaction.connection,
+                    record.audit_id,
+                    reason="ttl",
+                    record=record,
+                )
+                if erased is None or was_erased:
+                    continue
+                result = results.setdefault(
+                    record.run_id,
+                    ErasureResult(run_id=record.run_id, tenant_id=tenant_id, reason="ttl"),
+                )
+                result.audits_erased += 1
+            for run_id, result in results.items():
+                await self._log.record_in_transaction(
+                    transaction.connection,
+                    tenant_id=tenant_id,
+                    run_id=run_id,
+                    action="audit_ttl_purged",
+                    reason="ttl",
+                    detail={"audits_erased": result.audits_erased},
+                )
+        return list(results.values())
+
     async def purge_tenant(self, tenant_id: str) -> list[ErasureResult]:
         """TTL purge: erase every aged, non-held run for a tenant.
 
