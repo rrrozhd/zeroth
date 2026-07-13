@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from tests.retention.conftest import make_audit_record
 from zeroth.core.retention.erasure_service import LegalHoldError
 
 
@@ -121,31 +122,106 @@ async def test_refused_hold_is_logged(env) -> None:
 
 
 class _FailOnceArtifactStore:
-    def __init__(self) -> None:
-        self.blobs = {"external/key-a": b"a", "external/key-b": b"b"}
+    def __init__(self, keys: list[str], *, fail_key: str) -> None:
+        self.blobs = {key: key.encode() for key in keys}
         self.delete_calls: list[str] = []
         self._failed = False
+        self._fail_key = fail_key
 
     async def cleanup_run(self, run_id: str) -> int:
         return 0
 
     async def delete(self, key: str) -> bool:
         self.delete_calls.append(key)
-        if key == "external/key-b" and not self._failed:
+        if key == self._fail_key and not self._failed:
             self._failed = True
             raise RuntimeError("injected external cleanup failure")
         return self.blobs.pop(key, None) is not None
 
 
 async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) -> None:
-    store = _FailOnceArtifactStore()
+    artifact_keys = [
+        "approval/key",
+        "checkpoint/key",
+        "condition/key",
+        "memory/key",
+        "snapshot/key",
+        "tool-arguments/key",
+        "tool-outcome/key",
+        "validation/key",
+    ]
+    store = _FailOnceArtifactStore(artifact_keys, fail_key="validation/key")
     env.service._artifact_store = store
-    await env.seed_run(
-        "run-retry",
-        n_audits=1,
-        artifact_key="external/key-a",
+    await env.seed_run("run-retry", n_audits=0, ssn="909-90-9090")
+    base_record = make_audit_record(
+        audit_id="run-retry-a0",
+        run_id="run-retry",
+        artifact_key="snapshot/key",
         ssn="909-90-9090",
     )
+    record = base_record.__class__.model_validate(
+        {
+            **base_record.model_dump(mode="python"),
+            "validation_results": {
+                "nested": {
+                    "artifact": {"store": "filesystem", "key": "validation/key"},
+                    "join_key": "validation-join",
+                }
+            },
+            "condition_results": [
+                {
+                    "payload": {"store": "filesystem", "key": "condition/key"},
+                    "join_key": "condition-join",
+                }
+            ],
+            "memory_interactions": [
+                {
+                    "memory_ref": "memory",
+                    "connector_type": "kv",
+                    "scope": "run",
+                    "operation": "write",
+                    "key": "record",
+                    "value": {
+                        "artifact": {"store": "filesystem", "key": "memory/key"},
+                        "join_key": "memory-join",
+                    },
+                }
+            ],
+            "tool_calls": [
+                {
+                    "tool_ref": "tool",
+                    "alias": "nested",
+                    "arguments": {
+                        "artifact": {
+                            "store": "filesystem",
+                            "key": "tool-arguments/key",
+                        },
+                        "join_key": "tool-arguments-join",
+                    },
+                    "outcome": {
+                        "artifact": {"store": "filesystem", "key": "tool-outcome/key"},
+                        "join_key": "tool-outcome-join",
+                    },
+                }
+            ],
+            "approval_actions": [
+                {
+                    "approval_id": "approval",
+                    "action": "approved",
+                    "metadata": {
+                        "artifact": {"store": "filesystem", "key": "approval/key"},
+                        "join_key": "approval-join",
+                        "duplicates": [
+                            {"store": "filesystem", "key": "validation/key"},
+                            {"join_key": "validation-join"},
+                        ],
+                    },
+                }
+            ],
+            "execution_metadata": {"join_key": "metadata-join"},
+        }
+    )
+    await env.audit_repo.write(record)
     # A second key exists only in the database checkpoint/run payload, proving
     # authorization harvests every database-resident surface before redaction.
     async with env.database.transaction() as connection:
@@ -157,7 +233,7 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
         state = json.loads(row["state_json"])
         state["metadata"]["external"] = {
             "store": "filesystem",
-            "key": "external/key-b",
+            "key": "checkpoint/key",
         }
         await connection.execute(
             "UPDATE run_checkpoints SET state_json = ? WHERE checkpoint_id = ?",
@@ -166,25 +242,36 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
 
     first = await env.service.erase_run("run-retry", "rte")
     assert first.audits_erased == 1
-    assert store.delete_calls == ["external/key-a", "external/key-b"]
-    assert "external/key-a" not in store.blobs
-    assert "external/key-b" in store.blobs
+    assert store.delete_calls == artifact_keys
+    assert set(store.blobs) == {"validation/key"}
+
+    erased = (await env.audit_repo.list_by_run("run-retry"))[0]
+    assert erased.validation_results == {}
+    assert erased.condition_results == []
+    assert erased.memory_interactions == []
+    assert erased.tool_calls == []
+    assert erased.approval_actions == []
 
     entries = await env.log_repo.list_for_run("run-retry")
     authorization = next(row for row in entries if row["action"] == "erasure_authorized")
     manifest = json.loads(authorization["detail"])
-    assert manifest["artifact_keys"] == ["external/key-a", "external/key-b"]
-    assert manifest["join_keys"] == ["run-retry"]
-    assert manifest["cleanup_status"]["artifact_keys"]["external/key-a"]["status"] == "pending"
+    assert manifest["artifact_keys"] == artifact_keys
+    assert manifest["join_keys"] == [
+        "approval-join",
+        "condition-join",
+        "memory-join",
+        "metadata-join",
+        "run-retry",
+        "tool-arguments-join",
+        "tool-outcome-join",
+        "validation-join",
+    ]
+    assert manifest["cleanup_status"]["artifact_keys"]["approval/key"]["status"] == "pending"
     assert any(row["action"] == "external_cleanup_failed" for row in entries)
 
     retried = await env.service.retry_external_cleanup(authorization["log_id"])
-    assert retried.artifacts_deleted == 2
-    assert store.delete_calls == [
-        "external/key-a",
-        "external/key-b",
-        "external/key-b",
-    ]
+    assert retried.artifacts_deleted == len(artifact_keys)
+    assert store.delete_calls == [*artifact_keys, "validation/key"]
     assert store.blobs == {}
     entries = await env.log_repo.list_for_run("run-retry")
     assert any(row["action"] == "external_cleanup_completed" for row in entries)

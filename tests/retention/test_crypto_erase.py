@@ -7,14 +7,18 @@ from datetime import UTC, datetime
 from tests.retention.conftest import make_audit_record
 
 from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
-from zeroth.core.audit.verifier import _compute_record_digest, compute_chained_record
+from zeroth.core.audit.verifier import (
+    _compute_pii_commitments,
+    _compute_record_digest,
+    compute_chained_record,
+)
 from zeroth.core.signing import EnvHmacSigner
 
 
 async def test_crypto_erase_preserves_chain_verification(sqlite_db) -> None:
     """THE invariant: erase the middle of a SIGNED chain, chain still verifies.
 
-    Post-erasure the v2 digest is unchanged (it is over the commitments, not the
+    Post-erasure the commitment digest is unchanged (it covers commitments, not the
     plaintext), so the WS-D signature over that digest still verifies too — the
     stronger, signed proof.
     """
@@ -42,7 +46,7 @@ async def test_crypto_erase_removes_plaintext_keeps_commitment(sqlite_db) -> Non
     await repo.write(make_audit_record(audit_id="a0", run_id="run-y"))
 
     original = await repo.get("a0")
-    assert original.digest_version == 2
+    assert original.digest_version == 3
     assert original.pii_commitments  # stamped at write
     digest_before = original.record_digest
 
@@ -120,6 +124,53 @@ async def test_legacy_v1_record_cannot_be_erased(sqlite_db) -> None:
     still = await repo.get("legacy-1")
     assert still.input_snapshot == {"ssn": "123-45-6789"}
     assert still.erased is False
+
+
+async def test_v2_uncommitted_structured_payload_cannot_be_erased(sqlite_db) -> None:
+    """Old v2 records remain verifiable but cannot erase fields v2 never committed."""
+    original = make_audit_record(audit_id="v2-structured", run_id="run-v2").model_copy(
+        update={
+            "digest_version": 2,
+            "condition_results": [{"subject": "legacy pii"}],
+        }
+    )
+    prepared = original.model_copy(update={"pii_commitments": _compute_pii_commitments(original)})
+    chained = compute_chained_record(prepared, None, None)
+    from zeroth.core.storage.json import to_json_value
+
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
+            """
+            INSERT INTO node_audits
+                (audit_id, run_id, thread_id, node_id, graph_version_ref,
+                 deployment_ref, tenant_id, workspace_id, created_at, record_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chained.audit_id,
+                chained.run_id,
+                None,
+                chained.node_id,
+                chained.graph_version_ref,
+                chained.deployment_ref,
+                chained.tenant_id,
+                None,
+                datetime.now(UTC).isoformat(),
+                to_json_value(chained.model_dump(mode="json")),
+            ),
+        )
+
+    repo = AuditRepository(sqlite_db)
+    before = await AuditContinuityVerifier(repo).verify_run("run-v2")
+    assert before.verified is True
+    try:
+        await repo.crypto_erase("v2-structured", reason="rte")
+    except ValueError as exc:
+        assert "digest_version=2" in str(exc)
+    else:  # pragma: no cover - chain-preservation contract
+        raise AssertionError("v2 uncommitted structured PII must not be erased")
+    after = await AuditContinuityVerifier(repo).verify_run("run-v2")
+    assert after.verified is True
 
 
 async def test_list_erasable_excludes_legacy_and_held(sqlite_db) -> None:
