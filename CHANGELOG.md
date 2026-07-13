@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1.1] - 2026-07-13
+
+CI-gate hotfix for the 0.9.1 release candidate; no behavior changes.
+
+### Fixed
+
+- Docstring coverage restored above the CI `interrogate` gate (the v0.9/v0.9.1
+  hardening code shipped under-documented helpers and API models).
+- `docs/reference/configuration.md` regenerated to match current settings
+  (regulus default-enabled, `FAIL_CLOSED`, `PER_RUN_CAP_USD`, secrets,
+  provenance, and retention sections).
+
 ## [0.9.1] - 2026-07-13
 
 v0.9 hardening pass — closes the findings of the 2026-07-12 audit across six
