@@ -155,6 +155,7 @@ asyncio_mode = "auto"
 addopts = "-m 'not live'"
 markers = [
     "live: marks tests requiring live API keys (deselect with '-m not live')",
+    "postgres: marks tests exercising PostgreSQL-specific coordination",
 ]
 
 [tool.ruff]
