@@ -13,10 +13,11 @@ from zeroth.core.agent_runtime import (
     ProviderResponse,
     ToolAttachmentManifest,
 )
+from zeroth.core.agent_runtime.mcp import MCPServerConfig
 from zeroth.core.memory.connectors import KeyValueMemoryConnector
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
-from zeroth.core.policy import Capability
+from zeroth.core.policy import Capability, CapabilityDeniedError
 
 
 class DemoInput(BaseModel):
@@ -193,4 +194,86 @@ async def test_runner_memory_allowed_with_read_and_write() -> None:
             "effective_capabilities": ["memory_read", "memory_write"],
         },
     )
+    assert result.output_data == {"answer": "a", "score": 1}
+
+
+def _mcp_config() -> AgentConfig:
+    return AgentConfig(
+        name="agent",
+        instruction="Use MCP tools.",
+        model_name="governai:test",
+        input_model=DemoInput,
+        output_model=DemoOutput,
+        mcp_servers=[MCPServerConfig(name="files", command="mcp-files")],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "granted",
+    [[], ["process_spawn"], ["external_api_call"]],
+)
+async def test_mcp_startup_denied_before_any_process_spawn(monkeypatch, granted) -> None:
+    """A partial grant must deny BEFORE MCPClientManager exists — no subprocess,
+    no connection, no discovery."""
+    constructions: list[object] = []
+
+    def _record_construction(self, configs) -> None:
+        constructions.append(configs)
+
+    monkeypatch.setattr(
+        "zeroth.core.agent_runtime.runner.MCPClientManager.__init__", _record_construction
+    )
+    provider = DeterministicProviderAdapter([ProviderResponse(content='{"answer":"a","score":1}')])
+    runner = AgentRunner(_mcp_config(), provider)
+    with pytest.raises(CapabilityDeniedError):
+        await runner.run(
+            {"query": "hi"},
+            enforcement_context={
+                "capability_enforcement_active": True,
+                "effective_capabilities": granted,
+            },
+        )
+    assert constructions == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_startup_allowed_with_both_capabilities(monkeypatch) -> None:
+    async def _fake_start(self):  # noqa: ANN001
+        return []
+
+    async def _fake_stop(self):  # noqa: ANN001
+        return None
+
+    monkeypatch.setattr("zeroth.core.agent_runtime.runner.MCPClientManager.start", _fake_start)
+    monkeypatch.setattr("zeroth.core.agent_runtime.runner.MCPClientManager.stop", _fake_stop)
+    provider = DeterministicProviderAdapter([ProviderResponse(content='{"answer":"a","score":1}')])
+    runner = AgentRunner(_mcp_config(), provider)
+    result = await runner.run(
+        {"query": "hi"},
+        enforcement_context={
+            "capability_enforcement_active": True,
+            "effective_capabilities": ["process_spawn", "external_api_call"],
+        },
+    )
+    assert result.output_data == {"answer": "a", "score": 1}
+
+
+@pytest.mark.asyncio
+async def test_mcp_startup_ungated_when_enforcement_inactive(monkeypatch) -> None:
+    started: list[str] = []
+
+    async def _fake_start(self):  # noqa: ANN001
+        started.append("started")
+        return []
+
+    async def _fake_stop(self):  # noqa: ANN001
+        return None
+
+    monkeypatch.setattr("zeroth.core.agent_runtime.runner.MCPClientManager.start", _fake_start)
+    monkeypatch.setattr("zeroth.core.agent_runtime.runner.MCPClientManager.stop", _fake_stop)
+    provider = DeterministicProviderAdapter([ProviderResponse(content='{"answer":"a","score":1}')])
+    runner = AgentRunner(_mcp_config(), provider)
+    result = await runner.run({"query": "hi"})
+    assert started == ["started"]
     assert result.output_data == {"answer": "a", "score": 1}
