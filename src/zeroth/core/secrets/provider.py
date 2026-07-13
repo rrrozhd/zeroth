@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Protocol
 
@@ -116,6 +117,70 @@ class EnvSecretProvider:
         # Bare fallback: the un-scoped logical env token (e.g. ``LLM_OPENAI``).
         return self._environment.get(name_token)
 
+    # Native async variants: lookups are in-memory dict reads, so they resolve
+    # immediately without a thread hop.
+    async def resolve_async(self, secret_ref: str, *, tenant_id: str | None = None) -> str | None:
+        return self.resolve(secret_ref, tenant_id=tenant_id)
+
+    async def resolve_many_async(
+        self, refs: list[str], *, tenant_id: str | None = None
+    ) -> dict[str, str]:
+        return self.resolve_many(refs, tenant_id=tenant_id)
+
+    async def resolve_secret_async(
+        self,
+        logical_name: str,
+        *,
+        tenant_id: str | None = None,
+        deployment_ref: str | None = None,
+    ) -> str | None:
+        return self.resolve_secret(
+            logical_name, tenant_id=tenant_id, deployment_ref=deployment_ref
+        )
+
+
+async def resolve_async(
+    provider: SecretProvider, secret_ref: str, *, tenant_id: str | None = None
+) -> str | None:
+    """Resolve one secret ref without blocking the event loop.
+
+    Awaits the provider's native ``resolve_async`` when it has one; sync-only
+    providers (which may perform blocking I/O, e.g. Vault over HTTP) run via
+    ``asyncio.to_thread``.
+    """
+    native = getattr(provider, "resolve_async", None)
+    if native is not None:
+        return await native(secret_ref, tenant_id=tenant_id)
+    return await asyncio.to_thread(provider.resolve, secret_ref, tenant_id=tenant_id)
+
+
+async def resolve_many_async(
+    provider: SecretProvider, refs: list[str], *, tenant_id: str | None = None
+) -> dict[str, str]:
+    """Resolve several secret refs without blocking the event loop."""
+    native = getattr(provider, "resolve_many_async", None)
+    if native is not None:
+        return await native(refs, tenant_id=tenant_id)
+    return await asyncio.to_thread(provider.resolve_many, refs, tenant_id=tenant_id)
+
+
+async def resolve_secret_async(
+    provider: SecretProvider,
+    logical_name: str,
+    *,
+    tenant_id: str | None = None,
+    deployment_ref: str | None = None,
+) -> str | None:
+    """Resolve a logical secret name without blocking the event loop."""
+    native = getattr(provider, "resolve_secret_async", None)
+    if native is not None:
+        return await native(logical_name, tenant_id=tenant_id, deployment_ref=deployment_ref)
+    return await asyncio.to_thread(
+        lambda: provider.resolve_secret(
+            logical_name, tenant_id=tenant_id, deployment_ref=deployment_ref
+        )
+    )
+
 
 class SecretResolver:
     """Resolve environment-variable models into a concrete runtime environment."""
@@ -156,4 +221,7 @@ __all__ = [
     "SecretResolutionError",
     "SecretResolver",
     "normalize_secret_name",
+    "resolve_async",
+    "resolve_many_async",
+    "resolve_secret_async",
 ]
