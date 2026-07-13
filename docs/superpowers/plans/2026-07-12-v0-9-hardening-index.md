@@ -1,6 +1,6 @@
 # Zeroth v0.9 Hardening Implementation Plan Index
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Coordinate six independently testable hardening plans into a verified v0.9.1 bug-fix release candidate.
 
@@ -30,12 +30,12 @@ Migration ownership is fixed:
 
 ## Integration checkpoints
 
-- [ ] After plans 1–2: run `uv run pytest -q tests/agent_runtime tests/orchestrator tests/deployments tests/service/test_deployment_api.py tests/service/test_cross_tenant_leak_matrix.py`.
-- [ ] After plans 3–4: run SQLite migration round-trip, durable audit-sequence skew/
+- [x] After plans 1–2: run `uv run pytest -q tests/agent_runtime tests/orchestrator tests/deployments tests/service/test_deployment_api.py tests/service/test_cross_tenant_leak_matrix.py`.
+- [x] After plans 3–4: run SQLite migration round-trip, durable audit-sequence skew/
   concurrency tests, and all `tests/audit tests/retention tests/storage`.
-- [ ] After plan 5: run `tests/agent_runtime tests/graph tests/secrets tests/service/test_cli_and_factory.py`.
-- [ ] After plan 6: run frontend tests/build, full Python suite, formatting, wheel build, and clean-wheel smoke test.
-- [ ] Confirm `.claude/launch.json` and `.planning/gov-sec-parity-progress.md` remain outside implementation commits unless the user explicitly requests otherwise.
+- [x] After plan 5: run `tests/agent_runtime tests/graph tests/secrets tests/service/test_cli_and_factory.py`.
+- [x] After plan 6: run frontend tests/build, full Python suite, formatting, wheel build, and clean-wheel smoke test.
+- [x] Confirm `.claude/launch.json` and `.planning/gov-sec-parity-progress.md` remain outside implementation commits unless the user explicitly requests otherwise.
 
 ## Final verification
 
