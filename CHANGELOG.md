@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1.2] - 2026-07-13
+
+### Fixed
+
+- **Studio saves no longer wipe node governance fields** — the canvas
+  round-trip dropped `capability_bindings`, `policy_bindings`,
+  `execution_config`, `audit_config`, and `parallel_config` on every
+  structural save, silently stripping API-authored capability restrictions
+  (security-relevant under v0.9's enforce-by-default). The Studio API now
+  emits these fields in node `data` and, on save, preserves the stored value
+  for any key the payload omits (an explicit value, including `[]`, still
+  overrides). `node_version` and non-title display metadata also carry over
+  instead of resetting.
+
 ## [0.9.1.1] - 2026-07-13
 
 CI-gate hotfix for the 0.9.1 release candidate; no behavior changes.
