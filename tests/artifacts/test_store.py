@@ -74,6 +74,7 @@ class TestRedisArtifactStore:
 
         # Async methods on the client
         client.get = AsyncMock(return_value=None)
+        client.set = AsyncMock(return_value=True)
         client.exists = AsyncMock(return_value=0)
         client.delete = AsyncMock(return_value=1)
         client.scan_iter = MagicMock()
@@ -111,7 +112,9 @@ class TestRedisArtifactStore:
         assert pipeline.setex.call_count == 2
 
     @pytest.mark.asyncio()
-    async def test_store_without_ttl(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
+    async def test_store_without_ttl(
+        self, store: RedisArtifactStore, mock_redis: MagicMock
+    ) -> None:
         """store() without TTL calls pipeline with two set operations (no TTL)."""
         pipeline = mock_redis.pipeline.return_value
         pipeline.execute.return_value = [True, True]
@@ -132,7 +135,9 @@ class TestRedisArtifactStore:
             await store.store("run1/node1/abc", b"x" * 11, "text/plain")
 
     @pytest.mark.asyncio()
-    async def test_retrieve_existing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
+    async def test_retrieve_existing(
+        self, store: RedisArtifactStore, mock_redis: MagicMock
+    ) -> None:
         """retrieve() returns bytes for existing key."""
         mock_redis.get.return_value = b"file-contents"
 
@@ -154,8 +159,9 @@ class TestRedisArtifactStore:
         """delete() returns True for existing key."""
         pipeline = mock_redis.pipeline.return_value
         pipeline.execute.return_value = [1, 1]
+        mock_redis.exists.return_value = 1
 
-        result = await store.delete("run1/node1/abc123")
+        result = await store.delete("run1/node1/abc123", idempotency_key="delete-existing")
 
         assert result is True
 
@@ -165,9 +171,35 @@ class TestRedisArtifactStore:
         pipeline = mock_redis.pipeline.return_value
         pipeline.execute.return_value = [0, 0]
 
-        result = await store.delete("run1/node1/missing")
+        result = await store.delete("run1/node1/missing", idempotency_key="delete-missing")
 
         assert result is False
+
+    @pytest.mark.asyncio()
+    async def test_delete_replay_returns_stable_receipt(
+        self, store: RedisArtifactStore, mock_redis: MagicMock
+    ) -> None:
+        receipts: dict[str, bytes] = {}
+
+        async def get(key: str):
+            return receipts.get(key)
+
+        async def set_value(key: str, value: str, *, nx: bool = False):
+            if not nx or key not in receipts:
+                receipts[key] = value.encode()
+                return True
+            return False
+
+        mock_redis.get.side_effect = get
+        mock_redis.set.side_effect = set_value
+        mock_redis.exists.side_effect = [1, 0]
+        pipeline = mock_redis.pipeline.return_value
+        pipeline.execute.return_value = [1, 1]
+
+        first = await store.delete("run1/node1/replay", idempotency_key="redis-replay")
+        second = await store.delete("run1/node1/replay", idempotency_key="redis-replay")
+
+        assert first is True and second is True
 
     @pytest.mark.asyncio()
     async def test_refresh_ttl_existing(
@@ -220,7 +252,7 @@ class TestRedisArtifactStore:
         )
         mock_redis.delete.return_value = 1
 
-        count = await store.cleanup_run("run1")
+        count = await store.cleanup_run("run1", idempotency_key="cleanup-run1")
 
         assert count == 2
         mock_redis.scan_iter.assert_called_once()
@@ -290,18 +322,14 @@ class TestFilesystemArtifactStore:
         assert file_path.exists()
 
     @pytest.mark.asyncio()
-    async def test_store_rejects_oversized_payload(
-        self, store: FilesystemArtifactStore
-    ) -> None:
+    async def test_store_rejects_oversized_payload(self, store: FilesystemArtifactStore) -> None:
         """store() rejects payload exceeding max_artifact_size_bytes."""
         store._max_size = 10
         with pytest.raises(ArtifactStorageError, match="exceeds maximum"):
             await store.store("run1/node1/abc", b"x" * 11, "text/plain")
 
     @pytest.mark.asyncio()
-    async def test_retrieve_existing(
-        self, store: FilesystemArtifactStore, tmp_path: Path
-    ) -> None:
+    async def test_retrieve_existing(self, store: FilesystemArtifactStore, tmp_path: Path) -> None:
         """retrieve() returns file contents for existing artifact."""
         await store.store("run1/node1/abc123", b"stored data", "text/plain", ttl=3600)
 
@@ -316,9 +344,7 @@ class TestFilesystemArtifactStore:
             await store.retrieve("run1/node1/nonexistent")
 
     @pytest.mark.asyncio()
-    async def test_retrieve_expired(
-        self, store: FilesystemArtifactStore, tmp_path: Path
-    ) -> None:
+    async def test_retrieve_expired(self, store: FilesystemArtifactStore, tmp_path: Path) -> None:
         """retrieve() raises ArtifactNotFoundError for expired artifact."""
         # Store with very short TTL
         store._default_ttl = 1
@@ -334,13 +360,11 @@ class TestFilesystemArtifactStore:
             await store.retrieve("run1/node1/expired")
 
     @pytest.mark.asyncio()
-    async def test_delete_existing(
-        self, store: FilesystemArtifactStore, tmp_path: Path
-    ) -> None:
+    async def test_delete_existing(self, store: FilesystemArtifactStore, tmp_path: Path) -> None:
         """delete() removes both file and sidecar, returns True."""
         await store.store("run1/node1/abc123", b"data", "text/plain")
 
-        result = await store.delete("run1/node1/abc123")
+        result = await store.delete("run1/node1/abc123", idempotency_key="fs-delete")
 
         assert result is True
         assert not (tmp_path / "run1" / "node1" / "abc123").exists()
@@ -349,7 +373,7 @@ class TestFilesystemArtifactStore:
     @pytest.mark.asyncio()
     async def test_delete_missing(self, store: FilesystemArtifactStore) -> None:
         """delete() returns False for missing file."""
-        result = await store.delete("run1/node1/nonexistent")
+        result = await store.delete("run1/node1/nonexistent", idempotency_key="fs-missing")
 
         assert result is False
 
@@ -378,9 +402,7 @@ class TestFilesystemArtifactStore:
             await store.refresh_ttl("run1/node1/nonexistent", 600)
 
     @pytest.mark.asyncio()
-    async def test_exists_true(
-        self, store: FilesystemArtifactStore, tmp_path: Path
-    ) -> None:
+    async def test_exists_true(self, store: FilesystemArtifactStore, tmp_path: Path) -> None:
         """exists() returns True for existing non-expired artifact."""
         await store.store("run1/node1/abc123", b"data", "text/plain", ttl=3600)
 
@@ -413,20 +435,41 @@ class TestFilesystemArtifactStore:
         assert result is False
 
     @pytest.mark.asyncio()
-    async def test_cleanup_run(
-        self, store: FilesystemArtifactStore, tmp_path: Path
-    ) -> None:
+    async def test_cleanup_run(self, store: FilesystemArtifactStore, tmp_path: Path) -> None:
         """cleanup_run() removes entire {base_dir}/{run_id}/ directory tree."""
         await store.store("myrun/node1/file1", b"data1", "text/plain")
         await store.store("myrun/node2/file2", b"data2", "text/plain")
         await store.store("otherrun/node1/file3", b"data3", "text/plain")
 
-        count = await store.cleanup_run("myrun")
+        count = await store.cleanup_run("myrun", idempotency_key="fs-cleanup")
 
         assert count > 0
         assert not (tmp_path / "myrun").exists()
         # Other runs should be untouched
         assert (tmp_path / "otherrun").exists()
+
+    @pytest.mark.asyncio()
+    async def test_delete_replay_returns_stable_logical_result(
+        self, store: FilesystemArtifactStore
+    ) -> None:
+        await store.store("run1/node1/replay", b"data", "text/plain")
+
+        first = await store.delete("run1/node1/replay", idempotency_key="op-replay")
+        second = await store.delete("run1/node1/replay", idempotency_key="op-replay")
+
+        assert first is True and second is True
+
+    @pytest.mark.asyncio()
+    async def test_cleanup_replay_returns_stable_logical_count(
+        self, store: FilesystemArtifactStore
+    ) -> None:
+        await store.store("replay-run/n1/a", b"a", "text/plain")
+        await store.store("replay-run/n2/b", b"b", "text/plain")
+
+        first = await store.cleanup_run("replay-run", idempotency_key="cleanup-replay")
+        second = await store.cleanup_run("replay-run", idempotency_key="cleanup-replay")
+
+        assert first == second == 2
 
     @pytest.mark.asyncio()
     async def test_path_traversal_rejected(self, store: FilesystemArtifactStore) -> None:

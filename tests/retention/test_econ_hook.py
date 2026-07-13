@@ -83,6 +83,9 @@ async def test_sqlalchemy_econ_eraser_predicates_tenant_and_join_key(monkeypatch
         rowcount = 0
 
     class _Session:
+        def get(self, model, operation_id):
+            return None
+
         def execute(self, statement):
             statements.append(statement)
             return _Result()
@@ -90,12 +93,15 @@ async def test_sqlalchemy_econ_eraser_predicates_tenant_and_join_key(monkeypatch
         def commit(self):
             return None
 
+        def add(self, receipt):
+            return None
+
         def close(self):
             return None
 
     monkeypatch.setattr(econ_database, "SessionLocal", _Session)
 
-    deleted = SqlAlchemyEconEventEraser()._delete_sync("tenant-a", ["shared-key"])
+    deleted = SqlAlchemyEconEventEraser()._delete_sync("tenant-a", ["shared-key"], "econ-operation")
 
     assert deleted == 0
     assert len(statements) == 2
@@ -105,3 +111,40 @@ async def test_sqlalchemy_econ_eraser_predicates_tenant_and_join_key(monkeypatch
         assert "join_key" in str(compiled)
         assert "tenant-a" in compiled.params.values()
         assert ["shared-key"] in compiled.params.values()
+
+
+async def test_sqlalchemy_econ_eraser_replays_durable_receipt(monkeypatch) -> None:
+    from zeroth.econ_plane import database as econ_database
+
+    receipts = {}
+    execute_calls = 0
+
+    class _Result:
+        rowcount = 1
+
+    class _Session:
+        def get(self, model, operation_id):
+            return receipts.get(operation_id)
+
+        def execute(self, statement):
+            nonlocal execute_calls
+            execute_calls += 1
+            return _Result()
+
+        def add(self, receipt):
+            receipts[receipt.operation_id] = receipt
+
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(econ_database, "SessionLocal", _Session)
+    eraser = SqlAlchemyEconEventEraser()
+
+    first = eraser._delete_sync("tenant-a", ["join"], "stable-operation")
+    second = eraser._delete_sync("tenant-a", ["join"], "stable-operation")
+
+    assert first == second == 2
+    assert execute_calls == 2

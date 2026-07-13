@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
 
 
@@ -58,14 +59,20 @@ class SqlAlchemyEconEventEraser:
         keys = [k for k in dict.fromkeys(join_keys) if k]
         if not keys:
             return 0
-        return await asyncio.to_thread(self._delete_sync, tenant_id, keys)
+        return await asyncio.to_thread(self._delete_sync, tenant_id, keys, idempotency_key)
 
-    def _delete_sync(self, tenant_id: str, keys: list[str]) -> int:
+    def _delete_sync(
+        self,
+        tenant_id: str,
+        keys: list[str],
+        idempotency_key: str,
+    ) -> int:
         # Lazy import: keeps the econ_plane dependency out of the base install.
         from sqlalchemy import delete
 
         from zeroth.econ_plane.database import SessionLocal
         from zeroth.econ_plane.instrumentation.models import (
+            EconErasureReceipt,
             ExecutionEvent,
             OutcomeEvent,
         )
@@ -73,6 +80,11 @@ class SqlAlchemyEconEventEraser:
         deleted = 0
         session = SessionLocal()
         try:
+            receipt = session.get(EconErasureReceipt, idempotency_key)
+            if receipt is not None:
+                if receipt.tenant_id != tenant_id:
+                    raise ValueError("econ erasure idempotency key tenant mismatch")
+                return int(receipt.deleted_count)
             for model in (ExecutionEvent, OutcomeEvent):
                 result = session.execute(
                     delete(model).where(
@@ -81,6 +93,14 @@ class SqlAlchemyEconEventEraser:
                     )
                 )
                 deleted += int(result.rowcount or 0)
+            session.add(
+                EconErasureReceipt(
+                    operation_id=idempotency_key,
+                    tenant_id=tenant_id,
+                    deleted_count=deleted,
+                    created_at=datetime.now(UTC),
+                )
+            )
             session.commit()
         finally:
             session.close()

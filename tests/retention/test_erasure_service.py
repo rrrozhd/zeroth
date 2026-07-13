@@ -131,10 +131,10 @@ class _FailOnceArtifactStore:
         self._failed = False
         self._fail_key = fail_key
 
-    async def cleanup_run(self, run_id: str) -> int:
+    async def cleanup_run(self, run_id: str, *, idempotency_key: str) -> int:
         return 0
 
-    async def delete(self, key: str) -> bool:
+    async def delete(self, key: str, *, idempotency_key: str) -> bool:
         self.delete_calls.append(key)
         if key == self._fail_key and not self._failed:
             self._failed = True
