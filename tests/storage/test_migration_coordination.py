@@ -85,7 +85,7 @@ def test_coordination_migration_roundtrips_and_backfills_sqlite(tmp_path: Path) 
         _executemany: bool,
     ) -> None:
         normalized = " ".join(statement.split())
-        if "UPDATE node_audits SET chain_sequence" in normalized:
+        if normalized.startswith("WITH ranked AS") and "chain_sequence" in normalized:
             backfill_statements.append(normalized)
 
     sa.event.listen(sa.engine.Engine, "before_cursor_execute", capture_backfill)
@@ -94,6 +94,11 @@ def test_coordination_migration_roundtrips_and_backfills_sqlite(tmp_path: Path) 
     finally:
         sa.event.remove(sa.engine.Engine, "before_cursor_execute", capture_backfill)
     assert len(backfill_statements) == 1
+    assert (
+        "UPDATE node_audits AS target SET chain_sequence = ranked.chain_sequence FROM ranked"
+        in backfill_statements[0]
+    )
+    assert "SET chain_sequence = ( SELECT" not in backfill_statements[0]
     tables, columns, indexes = _schema(database_url)
     assert {"audit_chain_heads", "retention_coordination"} <= tables
     assert "chain_sequence" in columns
@@ -193,7 +198,26 @@ def test_coordination_backfill_uses_window_ordering_on_postgres(postgres_contain
     command.downgrade(config, "009")
     try:
         _insert_legacy_audits(database_url)
-        command.upgrade(config, "010")
+        backfill_statements: list[str] = []
+
+        def capture_backfill(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            normalized = " ".join(statement.split())
+            if normalized.startswith("WITH ranked AS") and "chain_sequence" in normalized:
+                backfill_statements.append(normalized)
+
+        sa.event.listen(sa.engine.Engine, "before_cursor_execute", capture_backfill)
+        try:
+            command.upgrade(config, "010")
+        finally:
+            sa.event.remove(sa.engine.Engine, "before_cursor_execute", capture_backfill)
+        assert len(backfill_statements) == 1
 
         engine = sa.create_engine(database_url)
         try:
@@ -205,12 +229,18 @@ def test_coordination_backfill_uses_window_ordering_on_postgres(postgres_contain
                         "ORDER BY run_id, chain_sequence"
                     )
                 ).mappings().all()
+                plan = connection.execute(
+                    sa.text(f"EXPLAIN (FORMAT JSON) {backfill_statements[0]}")
+                ).scalar_one()
             assert [(row["audit_id"], row["chain_sequence"]) for row in rows] == [
                 ("a-first-a", 1),
                 ("a-first-z", 2),
                 ("a-later", 3),
                 ("b-only", 1),
             ]
+            serialized_plan = json.dumps(plan)
+            assert "WindowAgg" in serialized_plan
+            assert "SubPlan" not in serialized_plan
         finally:
             engine.dispose()
     finally:

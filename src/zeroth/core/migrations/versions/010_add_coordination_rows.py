@@ -46,12 +46,10 @@ def upgrade() -> None:
                 ) AS chain_sequence
             FROM node_audits
         )
-        UPDATE node_audits
-        SET chain_sequence = (
-            SELECT ranked.chain_sequence
-            FROM ranked
-            WHERE ranked.audit_id = node_audits.audit_id
-        )
+        UPDATE node_audits AS target
+        SET chain_sequence = ranked.chain_sequence
+        FROM ranked
+        WHERE ranked.audit_id = target.audit_id
     """)
 
     op.create_index(
