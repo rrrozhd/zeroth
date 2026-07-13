@@ -25,17 +25,25 @@ class FakeArtifactStore:
         self.blobs: dict[str, bytes] = {}
         self.cleanup_calls: list[str] = []
         self.deleted_keys: list[str] = []
+        self._receipts: dict[str, int | bool] = {}
 
-    async def cleanup_run(self, run_id: str) -> int:
+    async def cleanup_run(self, run_id: str, *, idempotency_key: str) -> int:
+        if idempotency_key in self._receipts:
+            return int(self._receipts[idempotency_key])
         self.cleanup_calls.append(run_id)
         removed = [k for k in self.blobs if k.startswith(f"{run_id}/")]
         for key in removed:
             del self.blobs[key]
+        self._receipts[idempotency_key] = len(removed)
         return len(removed)
 
-    async def delete(self, key: str) -> bool:
+    async def delete(self, key: str, *, idempotency_key: str) -> bool:
+        if idempotency_key in self._receipts:
+            return bool(self._receipts[idempotency_key])
         self.deleted_keys.append(key)
-        return self.blobs.pop(key, None) is not None
+        result = self.blobs.pop(key, None) is not None
+        self._receipts[idempotency_key] = result
+        return result
 
 
 def make_audit_record(

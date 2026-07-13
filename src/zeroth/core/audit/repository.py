@@ -255,6 +255,10 @@ class AuditRepository:
             record = None if row is None else self._hydrate(row)
         if record is None:
             return None
+        if record.audit_id != audit_id:
+            raise ValueError(
+                f"supplied record audit_id {record.audit_id!r} does not match {audit_id!r}"
+            )
         if (record.digest_version or 1) < 2:
             raise ValueError(
                 f"audit_id {audit_id!r} is digest_version=1 (legacy) and cannot be "
