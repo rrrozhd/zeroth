@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 
 from tests.graph.test_models import build_graph
 from tests.service.helpers import approval_resume_graph, deploy_service

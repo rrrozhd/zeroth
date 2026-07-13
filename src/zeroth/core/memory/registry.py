@@ -10,11 +10,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from governai.audit.emitter import AuditEmitter
-from governai.memory.auditing import AuditingMemoryConnector
-from governai.memory.models import MemoryScope
-from governai.memory.scoped import ScopedMemoryConnector
-
+from zeroth.core.governed.audit.emitter import AuditEmitter
+from zeroth.core.governed.memory.auditing import AuditingMemoryConnector
+from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.core.governed.memory.scoped import ScopedMemoryConnector
 from zeroth.core.memory.capability_guard import CapabilityEnforcingMemoryConnector
 from zeroth.core.memory.models import (
     ConnectorManifest,

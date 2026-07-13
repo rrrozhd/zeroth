@@ -15,7 +15,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from governai.tools.python_tool import PythonHandler
 from pydantic import BaseModel, ValidationError
 
 from zeroth.core.execution_units.adapters import PythonRuntimeAdapter
@@ -40,6 +39,7 @@ from zeroth.core.execution_units.sandbox import (
     SandboxManager,
     SandboxStrictnessMode,
 )
+from zeroth.core.governed.tools.python_tool import PythonHandler
 from zeroth.core.policy import Capability, apply_secret_policy
 from zeroth.core.secrets import SecretResolver
 

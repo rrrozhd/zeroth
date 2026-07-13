@@ -13,8 +13,6 @@ import inspect
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
-from governai.integrations.llm import GovernedLLM
-from governai.integrations.tool_calls import NormalizedToolCall, extract_tool_calls
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from zeroth.core.agent_runtime.models import ModelParams, PromptMessage
 from zeroth.core.agent_runtime.response_format import build_response_format
 from zeroth.core.audit.models import TokenUsage
+from zeroth.core.governed.integrations.tool_calls import NormalizedToolCall, extract_tool_calls
 from zeroth.core.secrets import SecretResolutionError, resolve_secret_async
 
 if TYPE_CHECKING:
@@ -139,45 +138,6 @@ class DeterministicProviderAdapter:
         if isinstance(next_item, ProviderResponse):
             return next_item
         return ProviderResponse(content=next_item, raw=next_item)
-
-
-class GovernedLLMProviderAdapter:
-    """Adapter that connects to a GovernAI-managed LLM.
-
-    Wraps a GovernedLLM instance so it can be used by the agent runtime.
-    Handles both sync and async invoke methods automatically.
-    """
-
-    def __init__(self, model: GovernedLLM | Any):
-        self._model = model
-
-    async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
-        """Send messages to the GovernAI LLM and return a normalized response."""
-        messages = [
-            message.model_dump(mode="json") if hasattr(message, "model_dump") else message
-            for message in request.messages
-        ]
-        invoker = getattr(self._model, "ainvoke", None)
-        if not callable(invoker):
-            invoker = getattr(self._model, "invoke", None)
-        if not callable(invoker):
-            raise RuntimeError("provider does not expose invoke/ainvoke")
-        result = invoker(messages, model=request.model_name)
-        if inspect.isawaitable(result):
-            result = await result
-        raw = result.raw if hasattr(result, "raw") else result
-        content = getattr(result, "content", None)
-        if content is None and hasattr(raw, "content"):
-            content = raw.content
-        if content is None and not hasattr(result, "tool_calls"):
-            content = result
-        tool_calls = list(getattr(result, "tool_calls", None) or extract_tool_calls(raw))
-        return ProviderResponse(
-            content=content,
-            raw=raw,
-            tool_calls=tool_calls,
-            metadata={"provider": "governai"},
-        )
 
 
 class LiteLLMProviderAdapter:

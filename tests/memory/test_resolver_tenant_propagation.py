@@ -9,7 +9,7 @@ and the SAME registered raw connector must not see each other's memory.
 from __future__ import annotations
 
 import pytest
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 
 from zeroth.core.memory.connectors import KeyValueMemoryConnector
 from zeroth.core.memory.models import ConnectorManifest

@@ -9,7 +9,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 import pytest
 from pydantic import BaseModel
 

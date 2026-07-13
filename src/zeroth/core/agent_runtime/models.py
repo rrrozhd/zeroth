@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol
 
-from governai.tools.base import ExecutionPlacement
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from zeroth.core.agent_runtime.mcp import MCPServerConfig
 from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
+from zeroth.core.governed.tools.base import ExecutionPlacement
 
 
 class RetryPolicy(BaseModel):

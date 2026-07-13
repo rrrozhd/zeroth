@@ -13,8 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from governai import RunStatus
-
+from zeroth.core.governed import RunStatus
 from zeroth.core.runs.models import (
     Run,
     RunConditionResult,

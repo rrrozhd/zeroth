@@ -15,8 +15,8 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from governai.memory.models import MemoryEntry, MemoryScope
-from governai.models.common import JSONValue
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.models.common import JSONValue
 
 if TYPE_CHECKING:
     import redis.asyncio as aioredis

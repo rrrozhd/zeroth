@@ -21,7 +21,7 @@ The [orchestrator](orchestrator.md) produces and advances runs — every node th
 All of these live under `zeroth.core.runs`:
 
 - **`Run`** — the full Pydantic model of a single execution, including its status, thread ID, and history.
-- **`RunStatus`** — the enum of lifecycle states (re-exported from GovernAI).
+- **`RunStatus`** — the enum of lifecycle states (from the vendored `zeroth.core.governed` runtime).
 - **`RunHistoryEntry`** — one node execution: node ID, status, input/output snapshots, timing.
 - **`RunConditionResult`** — a recorded conditional-edge decision.
 - **`RunFailureState`** — structured failure detail when a run fails.

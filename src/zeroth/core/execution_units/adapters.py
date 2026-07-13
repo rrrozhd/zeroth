@@ -11,9 +11,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Protocol, TypeVar
 
-from governai import Tool
-from governai.tools.python_tool import PythonHandler, PythonTool
-
 from zeroth.core.execution_units.errors import UnsupportedRuntimeAdapterError
 from zeroth.core.execution_units.models import (
     ExecutableUnitManifest,
@@ -22,6 +19,8 @@ from zeroth.core.execution_units.models import (
     WrappedCommandUnitManifest,
 )
 from zeroth.core.execution_units.validator import ExecutableUnitValidator
+from zeroth.core.governed import Tool
+from zeroth.core.governed.tools.python_tool import PythonHandler, PythonTool
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")

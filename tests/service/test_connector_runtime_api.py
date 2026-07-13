@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 
 from tests.service.helpers import (
     agent_graph,

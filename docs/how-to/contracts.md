@@ -58,7 +58,7 @@ asyncio.run(main())
 - **Name contracts after the concept, not the call site.** Prefer `customer.profile.v1` over `get_profile_input` so the same contract can be reused across nodes, tools, and APIs.
 - **Register at startup.** Call `registry.register(...)` for every model your service uses during application bootstrap, not lazily — this gives you a fail-fast at boot if something is misconfigured.
 - **Resolve by reference, not by class.** In downstream code, pass a `ContractReference(name=..., version=...)` instead of the Python class directly; this keeps runtime code decoupled from the class path.
-- **Tool bindings.** For GovernAI tools, use `ToolContractBinding` instead of `StepContractBinding`; it captures extra metadata like execution placement and side-effect flags.
+- **Tool bindings.** For governed tools, use `ToolContractBinding` instead of `StepContractBinding`; it captures extra metadata like execution placement and side-effect flags.
 
 ## Pitfalls
 

@@ -20,9 +20,8 @@ means "declared nothing" and therefore denies — fail-closed.
 
 from __future__ import annotations
 
-from governai.memory.models import MemoryEntry, MemoryScope
-from governai.models.common import JSONValue
-
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.models.common import JSONValue
 from zeroth.core.policy.errors import require_capabilities
 from zeroth.core.policy.models import Capability
 

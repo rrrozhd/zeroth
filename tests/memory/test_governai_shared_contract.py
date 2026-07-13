@@ -1,26 +1,22 @@
-"""WS-B: pin governai's SHARED-target contract that our isolation relies on.
+"""WS-B: pin the vendored SHARED-target contract that our isolation relies on.
 
 TenantScopedMemoryConnector namespaces whatever target ScopedMemoryConnector
-resolves. The cross-tenant SHARED leak exists precisely because governai maps
-SHARED -> the un-tenanted constant ``"__shared__"``. If a future governai bump
-changed that mapping (e.g. to include a tenant, or a different literal), our
-wrapper's assumptions — and the isolation proof — would silently shift. This
-contract test fails loudly on such a change so the isolation design is
-re-reviewed rather than quietly broken.
+resolves. The cross-tenant SHARED leak exists precisely because the connector
+maps SHARED -> the un-tenanted constant ``"__shared__"``. If that mapping ever
+changed (e.g. to include a tenant, or a different literal), our wrapper's
+assumptions — and the isolation proof — would silently shift. This contract test
+fails loudly on such a change so the isolation design is re-reviewed rather than
+quietly broken.
+
+``ScopedMemoryConnector`` was absorbed from governai 0.2.3 into
+``zeroth.core.governed`` (see that package's PROVENANCE.md); this is now an
+internal invariant test over vendored code, not an external-version pin.
 """
 
 from __future__ import annotations
 
-from importlib.metadata import version
-
-from governai.memory.models import MemoryScope
-from governai.memory.scoped import ScopedMemoryConnector
-
-
-def test_governai_is_exactly_pinned():
-    # tenant_scoped.py is written against this exact contract; keep the pin and
-    # this test in lockstep.
-    assert version("governai") == "0.2.3"
+from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.core.governed.memory.scoped import ScopedMemoryConnector
 
 
 def test_shared_resolves_to_untenanted_literal():

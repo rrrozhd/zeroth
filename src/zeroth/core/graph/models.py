@@ -11,7 +11,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from governai.app.spec import (
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from zeroth.core.context_window.models import ContextWindowSettings
+from zeroth.core.governed.app.spec import (
     GovernedFlowSpec,
     GovernedStepSpec,
     TransitionSpec,
@@ -20,9 +23,6 @@ from governai.app.spec import (
     route_to,
     then,
 )
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from zeroth.core.context_window.models import ContextWindowSettings
 from zeroth.core.mappings.models import EdgeMapping
 from zeroth.core.parallel.models import ParallelConfig
 from zeroth.core.policy.models import Capability

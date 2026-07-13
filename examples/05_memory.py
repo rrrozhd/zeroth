@@ -31,8 +31,6 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import asyncio
 import sys
 
-from governai.memory.models import MemoryScope
-
 from examples._common import print_run_summary, running_service
 from examples._contracts import Answer, Question
 from zeroth.core.agent_runtime import (
@@ -41,6 +39,7 @@ from zeroth.core.agent_runtime import (
     DeterministicProviderAdapter,
     ProviderResponse,
 )
+from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.graph import (
     AgentNode,
     AgentNodeData,

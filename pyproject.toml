@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.9.1.2"
+version = "0.10"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -39,7 +39,6 @@ dependencies = [
     "PyJWT[crypto]>=2.10",
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
-    "governai==0.2.3",
     "tenacity>=8.2",
     "cachetools>=5.5",
     "jsonschema>=4.22",
@@ -164,7 +163,7 @@ target-version = "py312"
 # Absorbed Regulus subsystem (see PROVENANCE.md in each tree) -- Zeroth-owned,
 # but its ~6500 LOC predate Zeroth's lint rules; full D/ruff conformance is a
 # deferred cleanup, so keep it excluded for now rather than block on a mass reformat.
-extend-exclude = ["src/zeroth/core/econ/instrumentation", "src/zeroth/econ_plane"]
+extend-exclude = ["src/zeroth/core/econ/instrumentation", "src/zeroth/econ_plane", "src/zeroth/core/governed"]
 force-exclude = true
 
 [tool.ruff.lint]
@@ -193,4 +192,4 @@ fail-under = 90
 ignore-init-method = true
 ignore-init-module = true
 ignore-nested-functions = true
-exclude = ["src/zeroth/core/migrations", "tests", "scripts", "src/zeroth/core/econ/instrumentation", "src/zeroth/econ_plane"]
+exclude = ["src/zeroth/core/migrations", "tests", "scripts", "src/zeroth/core/econ/instrumentation", "src/zeroth/econ_plane", "src/zeroth/core/governed"]
