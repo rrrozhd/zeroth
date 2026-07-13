@@ -29,16 +29,53 @@ def _convert_row(row: aiosqlite.Row) -> dict[str, Any]:
 def _split_sql_script(sql: str) -> Iterator[str]:
     """Yield complete SQLite statements without committing the transaction."""
     buffer: list[str] = []
-    for character in sql:
+    state = "normal"
+    index = 0
+    while index < len(sql):
+        character = sql[index]
         buffer.append(character)
-        if character == ";":
-            statement = "".join(buffer)
-            if not sqlite3.complete_statement(statement):
-                continue
-            statement = statement.strip()
-            if statement:
-                yield statement
-            buffer.clear()
+
+        if state == "normal":
+            if character in {"'", '"', "`"}:
+                state = character
+            elif character == "[":
+                state = "]"
+            elif character == "-" and index + 1 < len(sql) and sql[index + 1] == "-":
+                index += 1
+                buffer.append(sql[index])
+                state = "line_comment"
+            elif character == "/" and index + 1 < len(sql) and sql[index + 1] == "*":
+                index += 1
+                buffer.append(sql[index])
+                state = "block_comment"
+            elif character == ";":
+                statement = "".join(buffer)
+                if sqlite3.complete_statement(statement):
+                    statement = statement.strip()
+                    if statement:
+                        yield statement
+                    buffer.clear()
+        elif state in {"'", '"', "`"} and character == state:
+            if index + 1 < len(sql) and sql[index + 1] == state:
+                index += 1
+                buffer.append(sql[index])
+            else:
+                state = "normal"
+        elif (state == "]" and character == "]") or (
+            state == "line_comment" and character in {"\r", "\n"}
+        ):
+            state = "normal"
+        elif (
+            state == "block_comment"
+            and character == "*"
+            and index + 1 < len(sql)
+            and sql[index + 1] == "/"
+        ):
+            index += 1
+            buffer.append(sql[index])
+            state = "normal"
+
+        index += 1
 
     trailing_statement = "".join(buffer).strip()
     if trailing_statement:
