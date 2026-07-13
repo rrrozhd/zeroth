@@ -361,7 +361,8 @@ async def test_graceful_shutdown_waits_for_active_tasks(
 # ---------------------------------------------------------------------------
 
 
-def test_extract_run_id_from_task_name() -> None:
+@pytest.mark.asyncio
+async def test_extract_run_id_from_task_name() -> None:
     """_extract_run_id should parse run_id from task name prefixes."""
     worker = RunWorker(
         deployment_ref=DEPLOYMENT,
@@ -371,23 +372,20 @@ def test_extract_run_id_from_task_name() -> None:
         lease_manager=None,  # type: ignore[arg-type]
     )
 
-    loop = asyncio.new_event_loop()
+    async def _noop() -> None:
+        pass
+
+    tasks = {
+        name: asyncio.create_task(_noop(), name=name)
+        for name in ("run-abc123", "wakeup-abc123", "recover-abc123", "unknown-task")
+    }
     try:
-
-        async def _noop():
-            pass
-
-        task_run = loop.create_task(_noop(), name="run-abc123")
-        task_wakeup = loop.create_task(_noop(), name="wakeup-abc123")
-        task_recover = loop.create_task(_noop(), name="recover-abc123")
-        task_unknown = loop.create_task(_noop(), name="unknown-task")
-
-        assert worker._extract_run_id(task_run) == "abc123"
-        assert worker._extract_run_id(task_wakeup) == "abc123"
-        assert worker._extract_run_id(task_recover) == "abc123"
-        assert worker._extract_run_id(task_unknown) is None
+        assert worker._extract_run_id(tasks["run-abc123"]) == "abc123"
+        assert worker._extract_run_id(tasks["wakeup-abc123"]) == "abc123"
+        assert worker._extract_run_id(tasks["recover-abc123"]) == "abc123"
+        assert worker._extract_run_id(tasks["unknown-task"]) is None
     finally:
-        loop.close()
+        await asyncio.gather(*tasks.values())
 
 
 # ---------------------------------------------------------------------------
