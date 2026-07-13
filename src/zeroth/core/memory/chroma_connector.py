@@ -15,8 +15,9 @@ from typing import Any
 
 import chromadb
 import litellm
-from governai.memory.models import MemoryEntry, MemoryScope
-from governai.models.common import JSONValue
+
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.models.common import JSONValue
 
 # ChromaDB collection names must be 3-512 chars from [a-zA-Z0-9._-] and must
 # start and end with an alphanumeric character. Collapse any run of other

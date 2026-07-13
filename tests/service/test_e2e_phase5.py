@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from fastapi.testclient import TestClient
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 from pydantic import BaseModel
 
 from tests.service.helpers import (

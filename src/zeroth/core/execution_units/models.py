@@ -10,10 +10,10 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from governai.tools.base import ExecutionPlacement
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.core.execution_units.integrity import ManifestIntegrityRecord
+from zeroth.core.governed.tools.base import ExecutionPlacement
 
 
 class ExecutionMode(StrEnum):

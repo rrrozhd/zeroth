@@ -13,8 +13,6 @@ from collections.abc import Mapping
 from copy import copy, deepcopy
 from typing import Any
 
-from governai.integrations.tool_calls import build_tool_message
-from governai.memory.models import MemoryScope
 from pydantic import BaseModel, ValidationError
 
 from zeroth.core.agent_runtime.errors import (
@@ -48,6 +46,8 @@ from zeroth.core.agent_runtime.sanitization import (
 from zeroth.core.agent_runtime.tools import ToolAttachmentBridge
 from zeroth.core.agent_runtime.validation import OutputValidator
 from zeroth.core.audit import MemoryAccessRecord
+from zeroth.core.governed.integrations.tool_calls import build_tool_message
+from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.guardrails.content import (
     BlocklistFilter,
     ContentFilter,

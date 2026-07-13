@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10] - 2026-07-13
+
+### Changed
+
+- **Absorbed the `governai` dependency in-tree.** Zeroth used only a curated slice
+  of the external `governai==0.2.3` framework (memory types + connector wrappers,
+  `RunState`/`RunStatus`, tool primitives, tool-call helpers, flow/step spec types,
+  audit emitters); that slice is now vendored under `zeroth.core.governed` and the
+  external dependency is dropped. Behavior is unchanged — a pure move, proven by the
+  full suite and the `ScopedMemoryConnector` `SHARED → "__shared__"` isolation
+  invariant. governai's execution kernel (`runtime/local`, `workflows`, `approvals`,
+  `policies`, `agents`, `sandbox`) was intentionally left behind; zeroth runs its own
+  orchestrator. Transitive deps `lark`, `langgraph-sdk`, and `ormsgpack` are shed.
+
+### Removed
+
+- `GovernedLLMProviderAdapter` (unused; the production LLM path is
+  `LiteLLMProviderAdapter`), along with the `integrations.llm.GovernedLLM` binding.
+
 ## [0.9.1.2] - 2026-07-13
 
 ### Fixed

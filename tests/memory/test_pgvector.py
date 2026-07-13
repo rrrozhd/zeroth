@@ -11,8 +11,8 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from governai.memory.connector import MemoryConnector
-from governai.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.memory.connector import MemoryConnector
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.memory.pgvector_connector import PgvectorMemoryConnector
 

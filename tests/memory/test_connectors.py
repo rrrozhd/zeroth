@@ -8,8 +8,8 @@ with correct read/write/delete/search behavior.
 from __future__ import annotations
 
 import pytest
-from governai.memory.connector import MemoryConnector as GovernAIMemoryConnector
-from governai.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.memory.connector import MemoryConnector as GovernAIMemoryConnector
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.memory.connectors import (
     KeyValueMemoryConnector,

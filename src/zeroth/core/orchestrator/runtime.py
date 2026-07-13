@@ -1570,7 +1570,7 @@ class RuntimeOrchestrator:
                 f"retrieval node '{node.node_id}': input field '{data.query_key}' "
                 "must be a non-empty string"
             )
-        from governai.memory.models import MemoryScope
+        from zeroth.core.governed.memory.models import MemoryScope
 
         scope = {
             "run": MemoryScope.RUN,
@@ -1663,7 +1663,7 @@ class RuntimeOrchestrator:
         if not bindings or self.memory_resolver is None:
             return {}, []
 
-        from governai.memory.models import MemoryScope
+        from zeroth.core.governed.memory.models import MemoryScope
 
         _scope_map = {
             "run": MemoryScope.RUN,

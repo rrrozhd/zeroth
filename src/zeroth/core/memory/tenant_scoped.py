@@ -27,8 +27,8 @@ from __future__ import annotations
 import hashlib
 import re
 
-from governai.memory.models import MemoryEntry, MemoryScope
-from governai.models.common import JSONValue
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.models.common import JSONValue
 
 # Any run of characters outside ``[a-z0-9]`` is replaced by a single dash when
 # building the human-readable slug prefix. This mirrors the sanitization that

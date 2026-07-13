@@ -12,10 +12,10 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from governai import RunState
-from governai import RunStatus as GovernAIRunStatus
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.core.governed import RunState
+from zeroth.core.governed import RunStatus as GovernAIRunStatus
 from zeroth.core.identity import ActorIdentity
 
 

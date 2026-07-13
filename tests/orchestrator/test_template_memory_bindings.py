@@ -11,7 +11,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 from pydantic import BaseModel
 
 from zeroth.core.agent_runtime import AgentConfig, AgentRunner

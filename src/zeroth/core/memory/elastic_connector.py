@@ -13,8 +13,9 @@ import json
 from typing import Any
 
 from elasticsearch import AsyncElasticsearch, NotFoundError
-from governai.memory.models import MemoryEntry, MemoryScope
-from governai.models.common import JSONValue
+
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.models.common import JSONValue
 
 
 class ElasticsearchMemoryConnector:
