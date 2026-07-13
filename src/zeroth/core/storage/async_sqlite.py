@@ -7,7 +7,7 @@ WAL mode, and foreign key enforcement.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -24,6 +24,25 @@ from zeroth.core.storage.sqlite import EncryptedField
 def _convert_row(row: aiosqlite.Row) -> dict[str, Any]:
     """Convert an aiosqlite Row to a plain dict."""
     return dict(row)
+
+
+def _split_sql_script(sql: str) -> Iterator[str]:
+    """Yield complete SQLite statements without committing the transaction."""
+    buffer: list[str] = []
+    for character in sql:
+        buffer.append(character)
+        if character == ";":
+            statement = "".join(buffer)
+            if not sqlite3.complete_statement(statement):
+                continue
+            statement = statement.strip()
+            if statement:
+                yield statement
+            buffer.clear()
+
+    trailing_statement = "".join(buffer).strip()
+    if trailing_statement:
+        yield trailing_statement
 
 
 class AsyncSQLiteConnection:
@@ -52,7 +71,8 @@ class AsyncSQLiteConnection:
 
     async def execute_script(self, sql: str) -> None:
         """Execute a multi-statement SQL script."""
-        await self._conn.executescript(sql)
+        for statement in _split_sql_script(sql):
+            await self._conn.execute(statement)
 
 
 class AsyncSQLiteDatabase:
@@ -95,7 +115,11 @@ class AsyncSQLiteDatabase:
             await conn.execute("PRAGMA synchronous = NORMAL")
             timeout_ms = max(1, round(self.coordination_timeout_seconds * 1000))
             await conn.execute(f"PRAGMA busy_timeout = {timeout_ms}")
-            await conn.execute("BEGIN IMMEDIATE" if write_lock else "BEGIN")
+            if write_lock:
+                await conn.execute("BEGIN IMMEDIATE")
+            # Leave ordinary transactions lazy: an explicit deferred BEGIN followed
+            # by a read can become a stale WAL snapshot and fail its later write with
+            # SQLITE_BUSY_SNAPSHOT. aiosqlite begins implicitly on the first DML.
             yield AsyncSQLiteConnection(conn)
             await conn.commit()
         except sqlite3.OperationalError as exc:
