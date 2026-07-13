@@ -11,7 +11,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 from pydantic import BaseModel
 
 from zeroth.core.agent_runtime import AgentConfig, AgentRunner
@@ -29,6 +29,7 @@ from zeroth.core.graph import (
 from zeroth.core.memory.connectors import KeyValueMemoryConnector
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.core.memory.tenant_scoped import TenantScopedMemoryConnector
 from zeroth.core.orchestrator.runtime import MemoryBindingResolutionError, RuntimeOrchestrator
 from zeroth.core.runs import Run, RunRepository, RunStatus
 from zeroth.core.templates.registry import TemplateRegistry
@@ -108,8 +109,13 @@ async def _prepopulate(
     key: str,
     value: Any,
 ) -> None:
-    """Write to SHARED scope so ScopedMemoryConnector resolves it correctly."""
-    await raw.write(key, value, MemoryScope.SHARED, target="__shared__")
+    """Write to SHARED scope so ScopedMemoryConnector resolves it correctly.
+
+    Seeds through TenantScopedMemoryConnector for the run's default tenant so
+    the target matches what the tenant-scoped dispatch path reads back (WS-B).
+    """
+    tenant_raw = TenantScopedMemoryConnector(raw, tenant_id="default")
+    await tenant_raw.write(key, value, MemoryScope.SHARED, target="__shared__")
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +412,11 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
     tmpl_registry.register("skill-tmpl", 1, "Write code in {{ memory.language }}.")
     renderer = TemplateRenderer()
 
-    captured_instructions: list[str] = []
+    captured_prompts: list[str] = []
+
+    def _provider(request):
+        captured_prompts.append(repr(request.messages))
+        return ProviderResponse(content={"result": "ok"})
 
     runner = AgentRunner(
         AgentConfig(
@@ -416,19 +426,8 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
             input_model=_AnyInput,
             output_model=_AnyOutput,
         ),
-        CallableProviderAdapter(
-            lambda req: ProviderResponse(content={"result": "ok"})
-        ),
+        CallableProviderAdapter(_provider),
     )
-
-    # Patch runner.run to capture the rendered instruction (set on runner.config before call).
-    _original_run = runner.run
-
-    async def _capturing_run(input_data, **kwargs):
-        captured_instructions.append(runner.config.instruction)
-        return await _original_run(input_data, **kwargs)
-
-    runner.run = _capturing_run
 
     node = AgentNode(
         node_id="coder",
@@ -471,9 +470,9 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
     run = await orchestrator.run_graph(graph, {})
 
     assert run.status is RunStatus.COMPLETED
-    assert len(captured_instructions) == 1
-    assert "Python" in captured_instructions[0]
-    assert "{{ memory.language }}" not in captured_instructions[0]
+    assert len(captured_prompts) == 1
+    assert "Python" in captured_prompts[0]
+    assert "{{ memory.language }}" not in captured_prompts[0]
 
 
 @pytest.mark.asyncio

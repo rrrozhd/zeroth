@@ -73,6 +73,78 @@ async def test_deploy_published_graph_succeeds(sqlite_db) -> None:
     assert await service.list("graph-1-service") == [deployed]
 
 
+async def test_deploy_stamps_owner_from_graph_not_deployment_settings(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
+    graph = build_graph().model_copy(
+        update={
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+            "deployment_settings": {
+                "environment": "test",
+                "tenant_id": "spoofed-tenant",
+                "workspace_id": "spoofed-workspace",
+            },
+        }
+    )
+    await service.graph_repository.create(graph, tenant_id="tenant-a", workspace_id="workspace-a")
+    await service.graph_repository.publish(
+        graph.graph_id,
+        graph.version,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+
+    deployed = await service.deploy(
+        "graph-1-service",
+        graph.graph_id,
+        graph.version,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+
+    assert deployed.tenant_id == "tenant-a"
+    assert deployed.workspace_id == "workspace-a"
+
+
+@pytest.mark.parametrize(
+    ("tenant_id", "workspace_id"),
+    [
+        ("tenant-b", "workspace-a"),
+        ("tenant-a", "workspace-b"),
+        ("tenant-a", None),
+    ],
+)
+@pytest.mark.parametrize("graph_version", [1, None])
+async def test_foreign_scope_cannot_deploy_owned_graph(
+    sqlite_db,
+    tenant_id: str,
+    workspace_id: str | None,
+    graph_version: int | None,
+) -> None:
+    service = await _build_service(sqlite_db)
+    graph = build_graph().model_copy(
+        update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    )
+    await service.graph_repository.create(graph, tenant_id="tenant-a", workspace_id="workspace-a")
+    await service.graph_repository.publish(
+        graph.graph_id,
+        graph.version,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+
+    with pytest.raises(KeyError):
+        await service.deploy(
+            "foreign-service",
+            graph.graph_id,
+            graph_version,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+
+    assert await service.list("foreign-service") == []
+
+
 async def test_deploy_draft_graph_fails(sqlite_db) -> None:
     service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
@@ -212,6 +284,111 @@ async def test_reusing_existing_deployment_ref_for_different_graph_is_rejected(s
         await service.deploy("shared-service", second_graph.graph_id, second_graph.version)
 
 
+async def test_foreign_scope_cannot_rollback_or_supersede_existing_ref(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
+    graph_a = _retarget_graph("graph-a").model_copy(
+        update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    )
+    graph_b = _retarget_graph("graph-b").model_copy(
+        update={"tenant_id": "tenant-b", "workspace_id": "workspace-b"}
+    )
+    for graph in (graph_a, graph_b):
+        await service.graph_repository.create(
+            graph, tenant_id=graph.tenant_id, workspace_id=graph.workspace_id
+        )
+        await service.graph_repository.publish(
+            graph.graph_id,
+            graph.version,
+            tenant_id=graph.tenant_id,
+            workspace_id=graph.workspace_id,
+        )
+
+    original = await service.deploy(
+        "shared-service",
+        graph_a.graph_id,
+        graph_a.version,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+
+    with pytest.raises(KeyError):
+        await service.rollback(
+            "shared-service",
+            target_graph_version=graph_a.version,
+            tenant_id="tenant-b",
+            workspace_id="workspace-b",
+        )
+    with pytest.raises(KeyError):
+        await service.deploy(
+            "shared-service",
+            graph_b.graph_id,
+            graph_b.version,
+            tenant_id="tenant-b",
+            workspace_id="workspace-b",
+        )
+
+    history = await service.list("shared-service", tenant_id="tenant-a", workspace_id="workspace-a")
+    assert history == [original]
+    assert history[0].status is DeploymentStatus.ACTIVE
+
+
+async def test_interleaved_same_owner_deploy_cannot_cross_graph_lineages(
+    sqlite_db, monkeypatch
+) -> None:
+    service = await _build_service(sqlite_db)
+    graph_a = _retarget_graph("graph-race-a")
+    graph_b = _retarget_graph("graph-race-b")
+    published: dict[str, object] = {}
+    for graph in (graph_a, graph_b):
+        await service.graph_repository.create(graph)
+        published[graph.graph_id] = await service.graph_repository.publish(
+            graph.graph_id, graph.version
+        )
+
+    original_create = service.deployment_repository.create
+    competitor_inserted = False
+
+    async def interleaving_create(
+        deployment,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ):
+        nonlocal competitor_inserted
+        if not competitor_inserted:
+            competitor_inserted = True
+            competing_graph = published[graph_b.graph_id]
+            competing = deployment.model_copy(
+                update={
+                    "deployment_id": "competing-lineage",
+                    "graph_id": graph_b.graph_id,
+                    "graph_version": graph_b.version,
+                    "graph_version_ref": f"{graph_b.graph_id}@{graph_b.version}",
+                    "serialized_graph": serialize_graph(competing_graph),
+                }
+            )
+            await original_create(
+                competing,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
+        return await original_create(
+            deployment,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+
+    monkeypatch.setattr(service.deployment_repository, "create", interleaving_create)
+
+    with pytest.raises(DeploymentError, match="deployment_ref"):
+        await service.deploy("racing-service", graph_a.graph_id, graph_a.version)
+
+    history = await service.list("racing-service")
+    assert len(history) == 1
+    assert history[0].graph_id == graph_b.graph_id
+    assert history[0].status is DeploymentStatus.ACTIVE
+
+
 async def test_deploy_retries_when_version_insert_races(sqlite_db, monkeypatch) -> None:
     service = await _build_service(sqlite_db)
     graph_repository = service.graph_repository
@@ -222,14 +399,24 @@ async def test_deploy_retries_when_version_insert_races(sqlite_db, monkeypatch) 
     original_create = service.deployment_repository.create
     create_attempts = {"count": 0}
 
-    async def fake_next_version(deployment_ref: str) -> int:
+    async def fake_next_version(
+        deployment_ref: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> int:
         return next(versions)
 
-    async def flaky_create(deployment):
+    async def flaky_create(
+        deployment,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ):
         create_attempts["count"] += 1
         if create_attempts["count"] == 1:
             raise Exception("UNIQUE constraint failed: idx_deployment_versions_ref_version")
-        return await original_create(deployment)
+        return await original_create(deployment, tenant_id=tenant_id, workspace_id=workspace_id)
 
     monkeypatch.setattr(service.deployment_repository, "next_version", fake_next_version)
     monkeypatch.setattr(service.deployment_repository, "create", flaky_create)

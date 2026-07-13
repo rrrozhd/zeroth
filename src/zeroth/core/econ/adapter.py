@@ -18,10 +18,10 @@ from __future__ import annotations
 from decimal import Decimal
 from time import perf_counter
 
-from econ_instrumentation import ExecutionEvent
 from zeroth.core.agent_runtime.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.econ.cost import CostEstimator
+from zeroth.core.econ.instrumentation import ExecutionEvent
 
 
 class InstrumentedProviderAdapter:
@@ -41,7 +41,7 @@ class InstrumentedProviderAdapter:
     def __init__(
         self,
         inner: ProviderAdapter,
-        regulus_client: RegulusClient,
+        regulus_client: RegulusClient | None,
         cost_estimator: CostEstimator,
         *,
         node_id: str,
@@ -102,11 +102,21 @@ class InstrumentedProviderAdapter:
                 }
             )
 
+        # No Regulus client (cost tracking on, event stream off): still attribute the
+        # local litellm cost estimate so the audit trail and local econ lenses work,
+        # but emit no event and leave cost_event_id None — there is no Regulus event to
+        # reference. Mirrors the already-shipped cache-hit shape (cost_usd + no event).
+        if self._regulus_client is None:
+            return response.model_copy(
+                update={"cost_usd": float(estimated_cost), "cost_event_id": None}
+            )
+
         # Build and emit the Regulus ExecutionEvent
         event = ExecutionEvent(
             capability_id=self._node_id,
             implementation_id=request.model_name,
             model_version=request.model_name,
+            tenant_id=self._tenant_id,
             token_cost_usd=estimated_cost,
             latency_ms=elapsed_ms,
             compute_time_ms=elapsed_ms,

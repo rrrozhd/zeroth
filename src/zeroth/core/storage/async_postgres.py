@@ -12,7 +12,14 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from psycopg import AsyncConnection as PsycopgAsyncConnection
+from psycopg.errors import LockNotAvailable, QueryCanceled
 from psycopg_pool import AsyncConnectionPool
+
+from zeroth.core.storage.database import (
+    DEFAULT_COORDINATION_TIMEOUT_SECONDS,
+    CoordinationTimeoutError,
+    validate_coordination_timeout,
+)
 
 _PLACEHOLDER_RE = re.compile(r"\?")
 
@@ -20,6 +27,18 @@ _PLACEHOLDER_RE = re.compile(r"\?")
 def _sqlite_to_psycopg(sql: str) -> str:
     """Convert SQLite-style ? placeholders to psycopg %s placeholders."""
     return _PLACEHOLDER_RE.sub("%s", sql)
+
+
+def _is_lock_timeout_error(exc: LockNotAvailable | QueryCanceled) -> bool:
+    """Distinguish configured lock timeouts from other PostgreSQL cancellations."""
+    diag = exc.diag
+    messages = (
+        str(exc),
+        diag.message_primary,
+        diag.message_detail,
+        diag.context,
+    )
+    return "lock timeout" in " ".join(message for message in messages if message).casefold()
 
 
 class PostgresConnection:
@@ -67,8 +86,18 @@ class AsyncPostgresDatabase:
     Use the create() classmethod to construct an instance with an opened pool.
     """
 
-    def __init__(self, pool: AsyncConnectionPool) -> None:
+    backend = "postgres"
+
+    def __init__(
+        self,
+        pool: AsyncConnectionPool,
+        *,
+        coordination_timeout_seconds: float = DEFAULT_COORDINATION_TIMEOUT_SECONDS,
+    ) -> None:
         self._pool = pool
+        self.coordination_timeout_seconds = validate_coordination_timeout(
+            coordination_timeout_seconds
+        )
 
     @classmethod
     async def create(
@@ -77,17 +106,32 @@ class AsyncPostgresDatabase:
         *,
         min_size: int = 2,
         max_size: int = 10,
+        coordination_timeout_seconds: float = DEFAULT_COORDINATION_TIMEOUT_SECONDS,
     ) -> AsyncPostgresDatabase:
         """Create and open a connection pool, returning an AsyncPostgresDatabase."""
+        coordination_timeout_seconds = validate_coordination_timeout(coordination_timeout_seconds)
         pool = AsyncConnectionPool(dsn, min_size=min_size, max_size=max_size, open=False)
         await pool.open()
-        return cls(pool)
+        return cls(
+            pool,
+            coordination_timeout_seconds=coordination_timeout_seconds,
+        )
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[PostgresConnection]:
+    async def transaction(self, *, write_lock: bool = False) -> AsyncIterator[PostgresConnection]:
         """Acquire a connection from the pool, run inside a transaction."""
-        async with self._pool.connection() as conn, conn.transaction():
-            yield PostgresConnection(conn)
+        try:
+            async with self._pool.connection() as conn, conn.transaction():
+                if write_lock:
+                    timeout_ms = max(1, round(self.coordination_timeout_seconds * 1000))
+                    await conn.execute(f"SET LOCAL lock_timeout = '{timeout_ms}ms'")
+                yield PostgresConnection(conn)
+        except (LockNotAvailable, QueryCanceled) as exc:
+            if write_lock and _is_lock_timeout_error(exc):
+                raise CoordinationTimeoutError(
+                    "timed out acquiring PostgreSQL coordination lock"
+                ) from exc
+            raise
 
     async def close(self) -> None:
         """Close the connection pool."""

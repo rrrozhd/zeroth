@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from governai.app.spec import GovernedFlowSpec
+from zeroth.core.governed.app.spec import GovernedFlowSpec
 
 from zeroth.core.graph.models import (
     AgentNode,

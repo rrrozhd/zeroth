@@ -4,6 +4,34 @@
  */
 
 export interface paths {
+    "/api/studio/v1/contracts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Contracts
+         * @description List registered contracts (latest version each) for contract-ref pickers.
+         */
+        get: operations["list_contracts_api_studio_v1_contracts_get"];
+        put?: never;
+        /**
+         * Create Contract
+         * @description Register a schema-only contract authored in the console.
+         *
+         *     The schema is arbitrary JSON Schema — payload validation at run ingress
+         *     honors it exactly. Re-registering an existing name creates the next
+         *     version (the picker lists the latest).
+         */
+        post: operations["create_contract_api_studio_v1_contracts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/studio/v1/node-types": {
         parameters: {
             query?: never;
@@ -95,6 +123,49 @@ export interface paths {
          * @description Clone a published workflow into a new editable draft version.
          */
         post: operations["clone_workflow_api_studio_v1_workflows__workflow_id__clone_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/studio/v1/workflows/{workflow_id}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diff Workflow
+         * @description Structured diff between two versions of a workflow.
+         */
+        get: operations["diff_workflow_api_studio_v1_workflows__workflow_id__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/studio/v1/workflows/{workflow_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish Workflow
+         * @description Validate and publish the draft, making it immutable and deployable.
+         *
+         *     Validation failures return 422 with the structured issue list so the
+         *     canvas can point at the offending node/edge.
+         */
+        post: operations["publish_workflow_api_studio_v1_workflows__workflow_id__publish_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -243,6 +314,121 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Connectors
+         * @description All memory connectors registered for this deployment, by ref.
+         *
+         *     These are the values a retrieval node's ``connector_ref`` (and an
+         *     agent's ``memory_refs``) can resolve at run time. Runtime-managed
+         *     connectors include their backend_type and secret-masked params;
+         *     env-sourced connectors return ``params=None``.
+         */
+        get: operations["list_connectors_v1_connectors_get"];
+        put?: never;
+        /**
+         * Create Connector
+         * @description Create a runtime-managed connector: build, register live, persist.
+         *
+         *     Backend construction is cheap and may connect lazily (pgvector opens
+         *     its first connection on first use) -- use POST /connectors/{ref}/test
+         *     for a real connectivity check.
+         */
+        post: operations["create_connector_v1_connectors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Connector
+         * @description Reconfigure an existing runtime-managed connector (rebuild + re-register).
+         */
+        put: operations["update_connector_v1_connectors__ref__put"];
+        post?: never;
+        /**
+         * Delete Connector
+         * @description Delete a runtime-managed connector (env-sourced ones cannot be deleted).
+         */
+        delete: operations["delete_connector_v1_connectors__ref__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/{ref}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Connector
+         * @description Probe the LIVE connector with a tiny write+read round-trip.
+         *
+         *     Works for both env-sourced and runtime connectors. Connection
+         *     failures never raise 500 -- they come back as ``ok=false`` with the
+         *     error message. The probe is capped at 5 seconds.
+         *
+         *     Note: pgvector's write path generates an embedding via litellm, so
+         *     probing a pgvector connector performs one (tiny) embedding API call.
+         */
+        post: operations["test_connector_v1_connectors__ref__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Deployments
+         * @description All persisted deployment versions, newest first.
+         *
+         *     ``serving`` marks the deployment version this service instance was
+         *     bootstrapped with (the one /health reports).
+         */
+        get: operations["list_deployments_v1_deployments_get"];
+        put?: never;
+        /**
+         * Create Deployment
+         * @description Create a deployment version from a published graph.
+         *
+         *     Completes the authoring loop without Python: publish the graph
+         *     (studio API), deploy it here, then restart the service with
+         *     ``ZEROTH_DEPLOYMENT_REF`` set to the new ref to serve it.
+         */
+        post: operations["create_deployment_v1_deployments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/deployments/{deployment_ref}/approvals": {
         parameters: {
             query?: never;
@@ -303,6 +489,26 @@ export interface paths {
         };
         /** Get Attestation */
         get: operations["get_attestation_v1_deployments__deployment_ref__attestation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/deployments/{deployment_ref}/audit-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Deployment Audit Chain
+         * @description Verify digest-chain continuity across every run of a deployment.
+         */
+        get: operations["verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -433,6 +639,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/deployments/{deployment_ref}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rollback Deployment
+         * @description Create a new deployment version pinned to an earlier graph version.
+         */
+        post: operations["rollback_deployment_v1_deployments__deployment_ref__rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/deployments/{deployment_ref}/timeline": {
         parameters: {
             query?: never;
@@ -461,6 +687,29 @@ export interface paths {
         put?: never;
         /** Post Verify Attestation */
         post: operations["post_verify_attestation_v1_deployments__deployment_ref__verify_attestation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/manifests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Manifests
+         * @description All executable units and agent runners registered for this deployment.
+         *
+         *     These are the values an executable_unit node's ``manifest_ref`` can
+         *     reference, plus the runner names agent nodes bind to at run time.
+         */
+        get: operations["list_manifests_v1_manifests_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -510,6 +759,26 @@ export interface paths {
         };
         /** Get Run */
         get: operations["get_run_v1_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/audit-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Run Audit Chain
+         * @description Verify the tamper-evident digest chain over a run's audit records.
+         */
+        get: operations["verify_run_audit_chain_v1_runs__run_id__audit_verification_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -604,6 +873,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Tenant Budget
+         * @description Set the tenant spend cap enforced before LLM calls and fan-out.
+         */
+        put: operations["set_tenant_budget_v1_tenants__tenant_id__budget_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/cost": {
         parameters: {
             query?: never;
@@ -613,7 +902,7 @@ export interface paths {
         };
         /**
          * Get Tenant Cost
-         * @description Return cumulative spend for a tenant (per D-14, D-16).
+         * @description Return month-to-date spend and cap for a tenant (per D-14, D-16).
          */
         get: operations["get_tenant_cost_v1_tenants__tenant_id__cost_get"];
         put?: never;
@@ -901,6 +1190,15 @@ export interface components {
             mismatches?: string[];
             /** Verified */
             verified: boolean;
+            /**
+             * Digest Verified
+             * @default false
+             */
+            digest_verified: boolean;
+            /** Signature Verified */
+            signature_verified?: boolean | null;
+            /** Signing Key Id */
+            signing_key_id?: string | null;
         };
         /**
          * AuditRecordListResponse
@@ -925,11 +1223,130 @@ export interface components {
             run_id?: string | null;
         };
         /**
+         * AuditVerificationResponse
+         * @description Result of verifying the tamper-evident digest chain for a scope.
+         */
+        AuditVerificationResponse: {
+            /** Error */
+            error?: string | null;
+            /** Failed Audit Id */
+            failed_audit_id?: string | null;
+            /**
+             * Record Count
+             * @default 0
+             */
+            record_count: number;
+            /** Scope */
+            scope: string;
+            /** Verified */
+            verified: boolean;
+            /** Signature Verified */
+            signature_verified?: boolean | null;
+            /** Signing Key Id */
+            signing_key_id?: string | null;
+            /**
+             * Unsigned Record Count
+             * @default 0
+             */
+            unsigned_record_count: number;
+        };
+        /**
          * AuthMethod
          * @description Supported request authentication methods.
          * @enum {string}
          */
         AuthMethod: "api_key" | "bearer";
+        /**
+         * ConnectorCreateRequest
+         * @description Payload for creating a runtime-managed connector.
+         */
+        ConnectorCreateRequest: {
+            /** Backend Type */
+            backend_type: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /** Ref */
+            ref: string;
+        };
+        /**
+         * ConnectorSummaryResponse
+         * @description One registered memory connector, as shown in the console.
+         */
+        ConnectorSummaryResponse: {
+            /** Backend */
+            backend: string;
+            /** Backend Type */
+            backend_type?: string | null;
+            /** Connector Type */
+            connector_type: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            } | null;
+            /** Ref */
+            ref: string;
+            /** Scope */
+            scope: string;
+            /**
+             * Source
+             * @default env
+             */
+            source: string;
+        };
+        /**
+         * ConnectorTestResponse
+         * @description Result of a live connectivity probe against a registered connector.
+         */
+        ConnectorTestResponse: {
+            /** Detail */
+            detail?: string | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Ok */
+            ok: boolean;
+        };
+        /**
+         * ConnectorUpdateRequest
+         * @description Payload for reconfiguring an existing runtime-managed connector.
+         */
+        ConnectorUpdateRequest: {
+            /** Backend Type */
+            backend_type: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * CreateContractRequest
+         * @description Request body for registering a schema-only contract from the console.
+         */
+        CreateContractRequest: {
+            /** Json Schema */
+            json_schema: {
+                [key: string]: unknown;
+            };
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+        };
+        /**
+         * CreateDeploymentRequest
+         * @description Request body for POST /v1/deployments.
+         */
+        CreateDeploymentRequest: {
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Id */
+            graph_id: string;
+            /** Graph Version */
+            graph_version?: number | null;
+        };
         /**
          * CreateSubscriptionRequest
          * @description Request body for creating a webhook subscription.
@@ -1025,6 +1442,12 @@ export interface components {
             graph_version_ref: string;
             /** Settings Snapshot Digest */
             settings_snapshot_digest: string;
+            /** Attestation Signature */
+            attestation_signature?: string | null;
+            /** Attestation Signing Key Id */
+            attestation_signing_key_id?: string | null;
+            /** Attestation Algorithm */
+            attestation_algorithm?: string | null;
         };
         /**
          * DeploymentCostResponse
@@ -1084,6 +1507,24 @@ export interface components {
          * @enum {string}
          */
         DeploymentStatus: "active" | "superseded";
+        /**
+         * DeploymentSummaryResponse
+         * @description One persisted deployment version, as shown in the console.
+         */
+        DeploymentSummaryResponse: {
+            /** Created At */
+            created_at: string;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Version Ref */
+            graph_version_ref: string;
+            /** Serving */
+            serving: boolean;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
+        };
         /**
          * DeploymentVersionMetadataResponse
          * @description Public metadata for one deployed version.
@@ -1198,6 +1639,20 @@ export interface components {
              * @default ok
              */
             status: string;
+        };
+        /**
+         * ManifestSummaryResponse
+         * @description One registered executable unit or agent runner, as shown in the console.
+         */
+        ManifestSummaryResponse: {
+            /** Description */
+            description?: string | null;
+            /** Kind */
+            kind: string;
+            /** Manifest Ref */
+            manifest_ref: string;
+            /** Runtime */
+            runtime?: string | null;
         };
         /**
          * MemoryAccessRecord
@@ -1367,6 +1822,14 @@ export interface components {
             status: string;
         };
         /**
+         * RollbackDeploymentRequest
+         * @description Request body for POST /v1/deployments/{deployment_ref}/rollback.
+         */
+        RollbackDeploymentRequest: {
+            /** Target Graph Version */
+            target_graph_version: number;
+        };
+        /**
          * RunEvidenceResponse
          * @description Review-friendly evidence bundle for a single run.
          */
@@ -1492,12 +1955,35 @@ export interface components {
          */
         ServiceRole: "operator" | "reviewer" | "admin";
         /**
+         * StudioContractResponse
+         * @description A registered contract, for canvas contract-ref pickers.
+         */
+        StudioContractResponse: {
+            /** Json Schema */
+            json_schema?: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            /** Version */
+            version: number;
+        };
+        /**
          * StudioEdgeResponse
          * @description An edge as represented in the Studio frontend.
+         *
+         *     ``kind="tool"`` marks a tool attachment (agent → executable unit)
+         *     rather than a control-flow connection.
          */
         StudioEdgeResponse: {
             /** Id */
             id: string;
+            /**
+             * Kind
+             * @default data
+             * @enum {string}
+             */
+            kind: "data" | "tool";
             /** Source */
             source: string;
             /** Source Handle */
@@ -1587,6 +2073,14 @@ export interface components {
             version: number;
         };
         /**
+         * TenantBudgetRequest
+         * @description Request body for PUT /v1/tenants/{tenant_id}/budget.
+         */
+        TenantBudgetRequest: {
+            /** Budget Cap Usd */
+            budget_cap_usd: number;
+        };
+        /**
          * TenantCostResponse
          * @description Response for GET /v1/tenants/{tenant_id}/cost (per D-14).
          */
@@ -1663,6 +2157,8 @@ export interface components {
         UpdateWorkflowRequest: {
             /** Edges */
             edges?: components["schemas"]["StudioEdgeResponse"][] | null;
+            /** Entry Step */
+            entry_step?: string | null;
             /** Name */
             name?: string | null;
             /** Nodes */
@@ -1759,6 +2255,8 @@ export interface components {
         WorkflowDetailResponse: {
             /** Edges */
             edges: components["schemas"]["StudioEdgeResponse"][];
+            /** Entry Step */
+            entry_step?: string | null;
             /** Id */
             id: string;
             /** Name */
@@ -1798,6 +2296,59 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_contracts_api_studio_v1_contracts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioContractResponse"][];
+                };
+            };
+        };
+    };
+    create_contract_api_studio_v1_contracts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateContractRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioContractResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_node_types_api_studio_v1_node_types_get: {
         parameters: {
             query?: never;
@@ -1979,6 +2530,73 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diff_workflow_api_studio_v1_workflows__workflow_id__diff_get: {
+        parameters: {
+            query: {
+                left: number;
+                right: number;
+            };
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_workflow_api_studio_v1_workflows__workflow_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2214,6 +2832,207 @@ export interface operations {
             };
         };
     };
+    list_connectors_v1_connectors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSummaryResponse"][];
+                };
+            };
+        };
+    };
+    create_connector_v1_connectors_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_connector_v1_connectors__ref__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_connector_v1_connectors__ref__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_connector_v1_connectors__ref__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_deployments_v1_deployments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentSummaryResponse"][];
+                };
+            };
+        };
+    };
+    create_deployment_v1_deployments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDeploymentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_approvals_v1_deployments__deployment_ref__approvals_get: {
         parameters: {
             query?: {
@@ -2335,6 +3154,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeploymentAttestationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditVerificationResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2570,6 +3420,41 @@ export interface operations {
             };
         };
     };
+    rollback_deployment_v1_deployments__deployment_ref__rollback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RollbackDeploymentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_deployment_timeline_v1_deployments__deployment_ref__timeline_get: {
         parameters: {
             query?: never;
@@ -2632,6 +3517,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_manifests_v1_manifests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManifestSummaryResponse"][];
                 };
             };
         };
@@ -2707,6 +3612,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_run_audit_chain_v1_runs__run_id__audit_verification_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditVerificationResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2886,6 +3822,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_tenant_budget_v1_tenants__tenant_id__budget_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantBudgetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantCostResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

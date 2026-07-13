@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useState } from "react";
 import { errMsg } from "@/app/lib/api";
-import { isConfigured } from "@/app/lib/config";
+import { getApiBase, getApiKey, isConfigured } from "@/app/lib/config";
 
 // --- Async data hook: load on mount + manual refresh, with loading/error state.
 // `background` reloads (e.g. polling) don't toggle the visible loading flag.
@@ -92,6 +92,7 @@ const STATUS_TONES: Record<string, string> = {
   approved: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
   resolved: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
   ok: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  active: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
   running: "bg-blue-500/12 text-blue-700 dark:text-blue-400",
   approval_api: "bg-blue-500/12 text-blue-700 dark:text-blue-400",
   pending: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
@@ -104,6 +105,7 @@ const STATUS_TONES: Record<string, string> = {
   unavailable: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   unauthenticated: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   draft: "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400",
+  superseded: "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400",
   cancelled: "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400",
   failed: "bg-red-500/12 text-red-700 dark:text-red-400",
   error: "bg-red-500/12 text-red-700 dark:text-red-400",
@@ -121,6 +123,7 @@ const DOT_TONES: Record<string, string> = {
   approved: "bg-emerald-500",
   resolved: "bg-emerald-500",
   ok: "bg-emerald-500",
+  active: "bg-emerald-500",
   running: "bg-blue-500",
   approval_api: "bg-blue-500",
   pending: "bg-amber-500",
@@ -133,6 +136,7 @@ const DOT_TONES: Record<string, string> = {
   unavailable: "bg-amber-500",
   unauthenticated: "bg-amber-500",
   draft: "bg-zinc-400",
+  superseded: "bg-zinc-400",
   cancelled: "bg-zinc-400",
   failed: "bg-red-500",
   error: "bg-red-500",
@@ -353,4 +357,66 @@ export function useQueryParam(name: string): string | null {
     setValue(new URLSearchParams(window.location.search).get(name));
   }, [name]);
   return value;
+}
+
+/** The ready-to-run curl for invoking the deployed graph as an API service,
+    built from the console's live connection + the given payload. */
+export function buildRunCurl(payloadJson: string, threadId?: string): string {
+  const base =
+    getApiBase() || (typeof window === "undefined" ? "$API_BASE" : window.location.origin);
+  const key = getApiKey() || "$ZEROTH_API_KEY";
+  let payload = payloadJson.trim() || "{}";
+  try {
+    payload = JSON.stringify(JSON.parse(payload)); // compact if valid
+  } catch {
+    /* embed as typed — the API will report the parse error */
+  }
+  const thread = threadId?.trim()
+    ? `, "thread_id": ${JSON.stringify(threadId.trim())}`
+    : "";
+  const data = `{"input_payload": ${payload}${thread}}`.replaceAll("'", "'\\''");
+  return [
+    `curl -X POST "${base}/v1/runs" \\`,
+    `  -H "X-API-Key: ${key}" \\`,
+    `  -H "Content-Type: application/json" \\`,
+    `  -d '${data}'`,
+    ``,
+    `# poll until status is terminal:`,
+    `curl -H "X-API-Key: ${key}" "${base}/v1/runs/<run_id>"`,
+  ].join("\n");
+}
+
+/** Shell snippet with a copy button. The on-screen text masks `secret`;
+    copying yields the real command. */
+export function CurlBlock({ command, secret }: { command: string; secret?: string }) {
+  const [copied, setCopied] = useState(false);
+  const shown = secret ? command.replaceAll(secret, "••••••••") : command;
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(t);
+  }, [copied]);
+
+  return (
+    <div className="space-y-1.5">
+      <pre className="overflow-x-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-700 ring-1 ring-border dark:bg-zinc-900/60 dark:text-zinc-300">
+        {shown}
+      </pre>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-muted">
+          {secret ? "Copying includes your real API key." : ""}
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => {
+            navigator.clipboard?.writeText(command).then(() => setCopied(true));
+          }}
+        >
+          {copied ? "Copied ✓" : "Copy"}
+        </Button>
+      </div>
+    </div>
+  );
 }

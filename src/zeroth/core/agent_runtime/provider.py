@@ -8,12 +8,11 @@ must follow, plus several ready-made adapters for testing and production use.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from governai.integrations.llm import GovernedLLM
-from governai.integrations.tool_calls import NormalizedToolCall, extract_tool_calls
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,8 +20,51 @@ from pydantic import BaseModel, ConfigDict, Field
 from zeroth.core.agent_runtime.models import ModelParams, PromptMessage
 from zeroth.core.agent_runtime.response_format import build_response_format
 from zeroth.core.audit.models import TokenUsage
+from zeroth.core.governed.integrations.tool_calls import NormalizedToolCall, extract_tool_calls
+from zeroth.core.secrets import SecretResolutionError, resolve_secret_async
+
+if TYPE_CHECKING:
+    from zeroth.core.secrets import SecretProvider
 
 ProviderMessage = PromptMessage | dict[str, Any] | Any
+
+# LiteLLM provider prefix -> the ChatLiteLLM constructor field that pins that
+# provider's key. ChatLiteLLM copies each of these onto the litellm client at
+# call time (``_client_params``), and the constructor value wins over the env
+# var the field's validator would otherwise read. Providers absent here still
+# get the generic ``api_key`` (which sets ``litellm.api_key``).
+_PROVIDER_KEY_FIELD: dict[str, str] = {
+    "openai": "openai_api_key",
+    "azure": "azure_api_key",
+    "anthropic": "anthropic_api_key",
+    "replicate": "replicate_api_key",
+    "cohere": "cohere_api_key",
+    "openrouter": "openrouter_api_key",
+}
+
+
+def _provider_prefix(model: str) -> str:
+    """Derive the LiteLLM provider prefix from a model string.
+
+    ``'openai/gpt-4o'`` -> ``'openai'``. Bare model names are mapped by a small
+    heuristic (``gpt*`` -> openai, ``claude*`` -> anthropic); anything else
+    falls back to the model string itself so a logical name is still produced.
+    """
+    if "/" in model:
+        return model.split("/", 1)[0].lower()
+    lowered = model.lower()
+    if lowered.startswith("gpt") or lowered.startswith("o1") or lowered.startswith("o3"):
+        return "openai"
+    if lowered.startswith("claude"):
+        return "anthropic"
+    return lowered
+
+
+def _key_fingerprint(key: str | None) -> str:
+    """Short, non-reversible tag for a key used only in cache keys and logs."""
+    if key is None:
+        return "env"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
 
 class ProviderRequest(BaseModel):
@@ -98,45 +140,6 @@ class DeterministicProviderAdapter:
         return ProviderResponse(content=next_item, raw=next_item)
 
 
-class GovernedLLMProviderAdapter:
-    """Adapter that connects to a GovernAI-managed LLM.
-
-    Wraps a GovernedLLM instance so it can be used by the agent runtime.
-    Handles both sync and async invoke methods automatically.
-    """
-
-    def __init__(self, model: GovernedLLM | Any):
-        self._model = model
-
-    async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
-        """Send messages to the GovernAI LLM and return a normalized response."""
-        messages = [
-            message.model_dump(mode="json") if hasattr(message, "model_dump") else message
-            for message in request.messages
-        ]
-        invoker = getattr(self._model, "ainvoke", None)
-        if not callable(invoker):
-            invoker = getattr(self._model, "invoke", None)
-        if not callable(invoker):
-            raise RuntimeError("provider does not expose invoke/ainvoke")
-        result = invoker(messages, model=request.model_name)
-        if inspect.isawaitable(result):
-            result = await result
-        raw = result.raw if hasattr(result, "raw") else result
-        content = getattr(result, "content", None)
-        if content is None and hasattr(raw, "content"):
-            content = raw.content
-        if content is None and not hasattr(result, "tool_calls"):
-            content = result
-        tool_calls = list(getattr(result, "tool_calls", None) or extract_tool_calls(raw))
-        return ProviderResponse(
-            content=content,
-            raw=raw,
-            tool_calls=tool_calls,
-            metadata={"provider": "governai"},
-        )
-
-
 class LiteLLMProviderAdapter:
     """Universal LLM adapter using LangChain's ChatLiteLLM wrapper.
 
@@ -145,23 +148,103 @@ class LiteLLMProviderAdapter:
     Uses LangChain interface per D-01 for GovernAI compatibility.
 
     Model strings use LiteLLM format: ``openai/gpt-4o``,
-    ``anthropic/claude-sonnet-4-5-20250514``, etc.  API keys are read from
-    standard environment variables (``OPENAI_API_KEY``,
-    ``ANTHROPIC_API_KEY``, ...) by LiteLLM automatically.
+    ``anthropic/claude-sonnet-4-5-20250514``, etc.
+
+    Secret isolation (WS-F)
+    -----------------------
+    When a :class:`SecretProvider` is supplied, the api_key for each model's
+    provider is resolved through it (scoped to ``tenant_id``) and injected into
+    the ``ChatLiteLLM`` constructor, so the key never comes from a
+    process-global environment variable. Clients are cached by
+    ``(model, tenant_id, key_fingerprint)`` so a different tenant or a rotated
+    key never reuses a stale client. With ``allow_env_fallback=False`` a missing
+    key raises :class:`SecretResolutionError` instead of letting LiteLLM read
+    the ambient env. When no provider is supplied (or fallback is allowed and
+    the key is missing), LiteLLM's own env resolution is used, preserving the
+    original behaviour.
     """
 
-    def __init__(self, *, default_timeout: float = 600.0) -> None:
+    def __init__(
+        self,
+        *,
+        default_timeout: float = 600.0,
+        secret_provider: SecretProvider | None = None,
+        tenant_id: str | None = None,
+        allow_env_fallback: bool = True,
+        llm_key_map: dict[str, str] | None = None,
+    ) -> None:
         self._default_timeout = default_timeout
-        self._clients: dict[str, ChatLiteLLM] = {}
+        self._secret_provider = secret_provider
+        self._tenant_id = tenant_id
+        self._allow_env_fallback = allow_env_fallback
+        self._llm_key_map = dict(llm_key_map or {})
+        # Cache key is (model, tenant_id, key_fingerprint) — never the raw key.
+        self._clients: dict[tuple[str, str | None, str], ChatLiteLLM] = {}
+
+    def _logical_name(self, model: str) -> str:
+        """Map a model string to its logical secret name (e.g. ``llm.openai``)."""
+        provider = _provider_prefix(model)
+        if provider in self._llm_key_map:
+            return self._llm_key_map[provider]
+        return f"llm.{provider}"
+
+    def _check_fail_closed(self, model: str, key: str | None) -> None:
+        """Raise :class:`SecretResolutionError` when *key* is unresolved and fallback is off."""
+        if key is None and not self._allow_env_fallback:
+            # Fail closed: do NOT let LiteLLM silently read process env.
+            raise SecretResolutionError(
+                f"no secret for {self._logical_name(model)!r} "
+                f"(tenant={self._tenant_id!r}) and env fallback is disabled"
+            )
+
+    def _resolve_api_key(self, model: str) -> str | None:
+        """Resolve the api_key for *model* via the secret provider (fail-closed aware)."""
+        if self._secret_provider is None:
+            return None
+        key = self._secret_provider.resolve_secret(
+            self._logical_name(model), tenant_id=self._tenant_id
+        )
+        self._check_fail_closed(model, key)
+        return key
+
+    async def _resolve_api_key_async(self, model: str) -> str | None:
+        """Async variant of :meth:`_resolve_api_key` for event-loop callers.
+
+        A Vault-backed provider performs HTTP on a cache miss; resolving through
+        the async helper keeps that off the event loop instead of stalling every
+        concurrent run for the duration of the fetch.
+        """
+        if self._secret_provider is None:
+            return None
+        key = await resolve_secret_async(
+            self._secret_provider, self._logical_name(model), tenant_id=self._tenant_id
+        )
+        self._check_fail_closed(model, key)
+        return key
 
     def _get_client(self, model: str) -> ChatLiteLLM:
-        """Get or create a ChatLiteLLM client for the given model string."""
-        if model not in self._clients:
-            self._clients[model] = ChatLiteLLM(
-                model=model,
-                timeout=self._default_timeout,
-            )
-        return self._clients[model]
+        """Get or create a ChatLiteLLM client for *model*, with an injected key."""
+        return self._client_for(model, self._resolve_api_key(model))
+
+    async def _get_client_async(self, model: str) -> ChatLiteLLM:
+        """Get or create a client with the key resolved off the event loop."""
+        return self._client_for(model, await self._resolve_api_key_async(model))
+
+    def _client_for(self, model: str, api_key: str | None) -> ChatLiteLLM:
+        """Build or reuse the client cached under (model, tenant, key fingerprint)."""
+        cache_key = (model, self._tenant_id, _key_fingerprint(api_key))
+        if cache_key not in self._clients:
+            kwargs: dict[str, Any] = {"model": model, "timeout": self._default_timeout}
+            if api_key is not None:
+                # Set the generic key (pins ``litellm.api_key``) AND the
+                # per-provider named field, which is the one that otherwise
+                # retains the env value read by its validator at construction.
+                kwargs["api_key"] = api_key
+                named_field = _PROVIDER_KEY_FIELD.get(_provider_prefix(model))
+                if named_field is not None:
+                    kwargs[named_field] = api_key
+            self._clients[cache_key] = ChatLiteLLM(**kwargs)
+        return self._clients[cache_key]
 
     async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
         """Send request to LLM via ChatLiteLLM and return normalized response.
@@ -171,7 +254,7 @@ class LiteLLMProviderAdapter:
         This handles schema generation, provider-specific formatting, and
         response parsing automatically, returning a typed Pydantic instance.
         """
-        client = self._get_client(request.model_name)
+        client = await self._get_client_async(request.model_name)
         lc_messages = self._to_langchain_messages(request.messages)
         kwargs: dict[str, Any] = {}
         if request.tools is not None:
@@ -205,11 +288,20 @@ class LiteLLMProviderAdapter:
             # the JSON content back into the Pydantic model.
             bound = client.bind(response_format=response_format)
             ai_message: AIMessage = await bound.ainvoke(lc_messages, **kwargs)
-            parsed: BaseModel = request.output_model.model_validate_json(
-                ai_message.content
-            )
             token_usage = self._extract_token_usage(ai_message, request.model_name)
             tool_calls = self._extract_tool_calls(ai_message)
+            if tool_calls:
+                # A tool-call turn has no final content to parse — the agent
+                # runner executes the tools and re-invokes; only the closing
+                # response carries the structured output.
+                return ProviderResponse(
+                    content=ai_message.content or None,
+                    raw=ai_message,
+                    tool_calls=tool_calls,
+                    token_usage=token_usage,
+                    metadata={"provider": "litellm", "model": request.model_name},
+                )
+            parsed: BaseModel = request.output_model.model_validate_json(ai_message.content)
             return ProviderResponse(
                 content=parsed,
                 raw=ai_message,

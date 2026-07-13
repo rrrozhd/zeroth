@@ -7,6 +7,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10] - 2026-07-13
+
+### Changed
+
+- **Absorbed the `governai` dependency in-tree.** Zeroth used only a curated slice
+  of the external `governai==0.2.3` framework (memory types + connector wrappers,
+  `RunState`/`RunStatus`, tool primitives, tool-call helpers, flow/step spec types,
+  audit emitters); that slice is now vendored under `zeroth.core.governed` and the
+  external dependency is dropped. Behavior is unchanged — a pure move, proven by the
+  full suite and the `ScopedMemoryConnector` `SHARED → "__shared__"` isolation
+  invariant. governai's execution kernel (`runtime/local`, `workflows`, `approvals`,
+  `policies`, `agents`, `sandbox`) was intentionally left behind; zeroth runs its own
+  orchestrator. Transitive deps `lark`, `langgraph-sdk`, and `ormsgpack` are shed.
+
+### Removed
+
+- `GovernedLLMProviderAdapter` (unused; the production LLM path is
+  `LiteLLMProviderAdapter`), along with the `integrations.llm.GovernedLLM` binding.
+
+## [0.9.1.2] - 2026-07-13
+
+### Fixed
+
+- **Studio saves no longer wipe node governance fields** — the canvas
+  round-trip dropped `capability_bindings`, `policy_bindings`,
+  `execution_config`, `audit_config`, and `parallel_config` on every
+  structural save, silently stripping API-authored capability restrictions
+  (security-relevant under v0.9's enforce-by-default). The Studio API now
+  emits these fields in node `data` and, on save, preserves the stored value
+  for any key the payload omits (an explicit value, including `[]`, still
+  overrides). `node_version` and non-title display metadata also carry over
+  instead of resetting.
+
+## [0.9.1.1] - 2026-07-13
+
+CI-gate hotfix for the 0.9.1 release candidate; no behavior changes.
+
+### Fixed
+
+- Docstring coverage restored above the CI `interrogate` gate (the v0.9/v0.9.1
+  hardening code shipped under-documented helpers and API models).
+- `docs/reference/configuration.md` regenerated to match current settings
+  (regulus default-enabled, `FAIL_CLOSED`, `PER_RUN_CAP_USD`, secrets,
+  provenance, and retention sections).
+
+## [0.9.1] - 2026-07-13
+
+v0.9 hardening pass — closes the findings of the 2026-07-12 audit across six
+workstreams. Bug-fix release: no new product surface.
+
+### Fixed
+
+- **Runtime isolation** — concurrent runs no longer share mutable agent-runner
+  state: each dispatch gets a dispatch-local runner (config, provider, memory
+  resolver, context tracker, budget enforcer, tool executor), eliminating
+  prompt/template crossover and wrong-tenant cost attribution under load.
+- **Tenant-safe deployments** — deployment create/rollback/list are scoped to
+  the authenticated principal's tenant; graphs carry workspace ownership, and
+  Studio-authored deployments can no longer fall back to the `default` tenant.
+- **Database coordination** — audit-chain appends serialize through database
+  coordination rows (Postgres advisory locks / SQLite reserved rows), so
+  multi-worker deployments cannot fork the audit hash chain; durable audit
+  sequence numbers backfill in one statement; mixed/legacy chains recover.
+- **Retention correctness** — `run_ttl_seconds` is enforced (previously
+  persisted but ignored); TTLs validate as positive; audit TTL no longer
+  erases whole runs with newer records; legal holds and erasure serialize
+  race-free per tenant; erasure cleanup state is materialized instead of
+  replaying the full retention log per operation.
+- **MCP hardening** — declarative `mcp_servers` config now reaches generated
+  runners; agents must hold `process_spawn` + `external_api_call` BEFORE an
+  MCP server subprocess is spawned (enforced at dispatch, reported at publish
+  validation as `missing_mcp_capability`).
+- **Vault hardening** — secret resolution is async, pooled (one shared
+  `httpx.AsyncClient`), and single-flight per key and per AppRole login; LLM
+  key resolution, signing bootstrap, HTTP auth headers, and execution-unit
+  secret injection all resolve off the event loop; the provider closes once
+  at app shutdown.
+- Repo-root test residue (`econ_plane.db`, `.zeroth/`) is isolated to session
+  temp directories, removing an order-dependent test flake.
+
+### Changed
+
+- README, SECURITY.md, and `.planning/PROJECT.md` updated so product claims
+  match implemented behavior (deployment restart caveat, budget enforcement
+  requires the `regulus` extra, bare-install fail-open, current Next.js and
+  embedded-econ-plane architecture).
+
+## Pre-0.9 development series (2026-07-05 – 2026-07-12)
+
+Versions `0.3` – `0.9` shipped in rapid succession from a private working
+branch; their scope is summarized here from git history rather than
+reconstructed as full entries.
+
+## [0.9] - 2026-07-12
+
+- Governed+secure parity: tenant isolation, capability enforcement, signed
+  provenance, retention/right-to-erasure, pluggable secret provider (Vault).
+
+## [0.8] - 2026-07-10
+
+- Economic viability suite (cost-per-successful-outcome, waste rollups,
+  model right-sizing) and the Regulus control plane absorbed into the
+  `zeroth` namespace (`zeroth.econ_plane`, mounted at `/regulus`).
+
+## [0.7] - 2026-07-08
+
+- Agent tool edges (attached units as callable tools), message-list input,
+  persistent conversations, per-node economics on the cost page, and the
+  vendor-dd full-surface reference app.
+
+## [0.6] - 2026-07-08
+
+- Code node (author Python on the canvas, sandbox-executed), entrypoint
+  node, and user-defined JSON-Schema contracts in the console.
+
+## [0.5] - 2026-07-07
+
+- Runtime connector management, publish/deploy from the API and console
+  (the canvas→run loop closes), hardened Docker sandbox defaults.
+
+## [0.4] - 2026-07-06
+
+- Econ-plane auth holes closed, Studio/cost RBAC, console onboarding
+  (guide page, workflow templates, inline help), console packaged as the
+  `[console]` extra, full-screen Studio canvas, run-from-canvas replay.
+
+## [0.3] - 2026-07-05
+
+- Regulus economic control plane bundled in-repo; console UX quick wins;
+  first public release lineage of the `0.x` series.
+
+
 ## [0.2.0] - 2026-04-13
 
 v4.0 Platform Extensions — production-grade agentic workflow capabilities.

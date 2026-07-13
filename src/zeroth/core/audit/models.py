@@ -135,8 +135,33 @@ class NodeAuditRecord(BaseModel):
     stdout: str | None = None
     stderr: str | None = None
     supersedes_audit_id: str | None = None
+    # Allocated transactionally from the per-run database coordination row.
+    # Nullable keeps pre-migration audit payloads readable.
+    chain_sequence: int | None = None
     previous_record_digest: str | None = None
     record_digest: str | None = None
+    # WS-D keyed signature over ``record_digest``. Persisted inside record_json
+    # (no DDL). EXCLUDED from the digest itself (see verifier._compute_record_digest)
+    # so the digest is byte-identical whether or not a record is signed. Nullable
+    # so legacy records verify as unsigned-legacy, not signed-invalid.
+    record_signature: str | None = None
+    signing_key_id: str | None = None
+    signing_algorithm: str | None = None
+    # WS-E retention/crypto-erasure. All five fields are EXCLUDED from the digest
+    # (see verifier._DIGEST_EXCLUDED_FIELDS) so that: (a) pre-WS-E rows, which
+    # lack these keys entirely, recompute byte-identically once pydantic fills
+    # the defaults, and (b) crypto-erasure — which nulls the PII payload fields
+    # but leaves ``pii_commitments`` and ``record_digest`` untouched — does not
+    # change the digest, so the append-only hash-chain still verifies.
+    #
+    # ``digest_version``: 1 = legacy whole-payload SHA-256 (grandfathered,
+    # un-erasable); 2 = original commitment digest; 3 = expanded commitments
+    # covering condition and approval structured payloads as well.
+    erased: bool = False
+    erased_at: datetime | None = None
+    erasure_reason: str | None = None  # ttl | rte | manual
+    digest_version: int = 1
+    pii_commitments: dict[str, str] | None = None
     started_at: datetime = Field(default_factory=_utc_now)
     completed_at: datetime | None = None
 
@@ -165,6 +190,8 @@ class AuditQuery(BaseModel):
     node_id: str | None = None
     graph_version_ref: str | None = None
     deployment_ref: str | None = None
+    # WS-B: filter audit records to a single tenant. None = no tenant filter.
+    tenant_id: str | None = None
 
 
 class AuditTimeline(BaseModel):
@@ -190,3 +217,9 @@ class AuditContinuityReport(BaseModel):
     record_count: int = 0
     failed_audit_id: str | None = None
     error: str | None = None
+    # WS-D three-state signature result, independent of the ``verified`` digest
+    # axis: True = every signed record's signature checks out; False = a signed
+    # record failed verification; None = unsigned-legacy (no records were signed).
+    signature_verified: bool | None = None
+    # How many records in scope carried no signature (unsigned-legacy).
+    unsigned_record_count: int = 0

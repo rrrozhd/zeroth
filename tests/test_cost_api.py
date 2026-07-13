@@ -168,3 +168,39 @@ class TestCostAuthorization:
             client = TestClient(app)
             resp = client.get("/v1/tenants/t1/cost")
         assert resp.status_code == 200
+
+
+class TestTenantBudgetEndpoint:
+    """PUT /v1/tenants/{tenant_id}/budget."""
+
+    def test_admin_sets_cap_and_gets_status_back(self) -> None:
+        app = _make_app()
+        mock_client = _mock_httpx_client(
+            response_json={"tenant_id": "t1", "total_cost_usd": 2.5, "budget_cap_usd": 10.0}
+        )
+        mock_client.put = mock_client.get  # same canned-response AsyncMock shape
+
+        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+            client = TestClient(app)
+            resp = client.put("/v1/tenants/t1/budget", json={"budget_cap_usd": 10.0})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["budget_cap_usd"] == 10.0
+        assert data["total_cost_usd"] == 2.5
+
+    def test_operator_cannot_set_cap(self) -> None:
+        app = _make_app(roles=[ServiceRole.OPERATOR])
+
+        client = TestClient(app)
+        resp = client.put("/v1/tenants/t1/budget", json={"budget_cap_usd": 10.0})
+
+        assert resp.status_code == 403
+
+    def test_returns_503_when_regulus_not_configured(self) -> None:
+        app = _make_app(regulus_base_url=None)
+
+        client = TestClient(app)
+        resp = client.put("/v1/tenants/t1/budget", json={"budget_cap_usd": 10.0})
+
+        assert resp.status_code == 503

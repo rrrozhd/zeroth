@@ -6,6 +6,7 @@ retry logic, and thread state management. Import the classes you need
 directly from this package.
 """
 
+from zeroth.core.agent_runtime.cascade import CascadingProviderAdapter
 from zeroth.core.agent_runtime.errors import (
     AgentContentBlockedError,
     AgentInputValidationError,
@@ -31,7 +32,6 @@ from zeroth.core.agent_runtime.models import (
 from zeroth.core.agent_runtime.prompt import AgentAuditSerializer, PromptAssembler
 from zeroth.core.agent_runtime.provider import (
     DeterministicProviderAdapter,
-    GovernedLLMProviderAdapter,
     LiteLLMProviderAdapter,
     ProviderAdapter,
     ProviderMessage,
@@ -85,10 +85,10 @@ __all__ = [
     "AgentRuntimeError",
     "AgentTimeoutError",
     "CachingProviderAdapter",
+    "CascadingProviderAdapter",
     "ContentSafetyConfig",
     "DeterministicProviderAdapter",
     "FallbackProviderAdapter",
-    "GovernedLLMProviderAdapter",
     "HeuristicInjectionScreener",
     "InMemoryResponseCache",
     "InMemoryThreadStateStore",

@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
+from zeroth.core.policy.models import Capability
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,7 @@ class MCPClientManager:
                 args=config.args,
                 env=config.env,
             )
-            transport = await self._exit_stack.enter_async_context(
-                stdio_client(params)
-            )
+            transport = await self._exit_stack.enter_async_context(stdio_client(params))
             session = await self._exit_stack.enter_async_context(
                 ClientSession(transport[0], transport[1])
             )
@@ -73,8 +72,7 @@ class MCPClientManager:
                     # Namespace collision -- prefix with server name
                     tool_name = f"{config.name}__{tool.name}"
                     logger.warning(
-                        "MCP tool name collision: %s already registered, "
-                        "using namespaced name %s",
+                        "MCP tool name collision: %s already registered, using namespaced name %s",
                         tool.name,
                         tool_name,
                     )
@@ -86,6 +84,14 @@ class MCPClientManager:
                         description=tool.description or "",
                         parameters_schema=(
                             tool.inputSchema if hasattr(tool, "inputSchema") else None
+                        ),
+                        # WS-C: an MCP tool runs inside a spawned server process
+                        # and reaches out to external services, so it carries the
+                        # same pair the startup gate demands. There is no graph
+                        # node behind an mcp:// ref to derive a finer set from.
+                        required_capabilities=(
+                            Capability.EXTERNAL_API_CALL,
+                            Capability.PROCESS_SPAWN,
                         ),
                     )
                 )

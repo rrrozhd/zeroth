@@ -2,11 +2,27 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Card, PageHeader, StatusBadge, useAsync } from "@/app/components/ui";
-import { getHealth } from "@/app/lib/api";
+import {
+  ApiErrorNote,
+  Card,
+  Empty,
+  fmtTime,
+  PageHeader,
+  Skeleton,
+  StatusBadge,
+  useAsync,
+} from "@/app/components/ui";
+import { getHealth, listDeployments } from "@/app/lib/api";
 import { isConfigured } from "@/app/lib/config";
 
+// Studio first — authoring is the center of the product.
 const QUICK_LINKS: { href: string; title: string; desc: string; icon: string }[] = [
+  {
+    href: "/studio",
+    title: "Studio",
+    desc: "Author workflows",
+    icon: "M12 19l7-7 3 3-7 7-3-3zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5zM2 2l7.586 7.586M11 13a2 2 0 11-4 0 2 2 0 014 0z",
+  },
   { href: "/runs", title: "Runs", desc: "Submit & inspect runs", icon: "M5 3l14 9-14 9V3z" },
   {
     href: "/approvals",
@@ -27,10 +43,10 @@ const QUICK_LINKS: { href: string; title: string; desc: string; icon: string }[]
     icon: "M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6",
   },
   {
-    href: "/studio",
-    title: "Studio",
-    desc: "Author workflows",
-    icon: "M12 19l7-7 3 3-7 7-3-3zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5zM2 2l7.586 7.586M11 13a2 2 0 11-4 0 2 2 0 014 0z",
+    href: "/connectors",
+    title: "Connectors",
+    desc: "Memory & retrieval backends",
+    icon: "M12 2C6.5 2 2 3.6 2 5.5v13C2 20.4 6.5 22 12 22s10-1.6 10-3.5v-13C22 3.6 17.5 2 12 2z M2 5.5C2 7.4 6.5 9 12 9s10-1.6 10-3.5 M2 12c0 1.9 4.5 3.5 10 3.5s10-1.6 10-3.5",
   },
   {
     href: "/guide",
@@ -111,6 +127,8 @@ export default function Overview() {
         )}
       </Card>
 
+      {connected && <DeploymentsCard />}
+
       {/* Getting started — most useful before the first workflow exists, so it
           leads while unconnected and stays available (below the fold) after. */}
       <Card title="Getting started">
@@ -172,6 +190,48 @@ export default function Overview() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Every persisted deployment version — including graphs written in code and
+// deployed via the medium-code path — with the one this service serves marked.
+function DeploymentsCard() {
+  const { data, error, loading } = useAsync(listDeployments, []);
+  return (
+    <Card title="Deployments">
+      {error && <ApiErrorNote error={error} />}
+      {loading && !data && <Skeleton rows={2} />}
+      {data && data.length === 0 && (
+        <Empty>No deployments recorded yet — deploy a published graph to see it here.</Empty>
+      )}
+      {data && data.length > 0 && (
+        <ul className="divide-y divide-border">
+          {data.map((d) => (
+            <li
+              key={`${d.deployment_ref}@${d.version}`}
+              className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0 text-sm"
+            >
+              <div className="min-w-0">
+                <span className="font-medium">{d.deployment_ref}</span>
+                <span className="ml-2 text-xs text-muted">v{d.version}</span>
+                <div className="truncate font-mono text-xs text-muted">
+                  {d.graph_version_ref}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-3 text-xs text-muted">
+                <span>{fmtTime(d.created_at)}</span>
+                {d.serving && (
+                  <span className="rounded-full bg-accent/10 px-2 py-0.5 font-medium text-accent">
+                    Serving
+                  </span>
+                )}
+                <StatusBadge status={d.status} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

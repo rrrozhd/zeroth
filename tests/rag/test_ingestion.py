@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 
 from zeroth.core.rag import IngestionReport, SourceDocument, chunk_text, ingest_documents
 

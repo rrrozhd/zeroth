@@ -10,8 +10,8 @@ This example uses only the in-process `RunEphemeralMemoryConnector`, which requi
 
 ```python
 import asyncio
-from governai.memory.models import MemoryScope
 
+from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.memory import RunEphemeralMemoryConnector
 
 

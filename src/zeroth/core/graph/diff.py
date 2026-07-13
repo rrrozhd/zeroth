@@ -402,6 +402,8 @@ def _executable_binding(node: Node | None) -> dict[str, Any] | None:
         return {
             "manifest_ref": node.executable_unit.manifest_ref,
             "execution_mode": node.executable_unit.execution_mode,
+            "inline_source": node.executable_unit.inline_source,
+            "timeout_seconds": node.executable_unit.timeout_seconds,
             "runtime_binding": node.executable_unit.runtime_binding,
             "sandbox_config": node.executable_unit.sandbox_config,
             "output_extraction_strategy": node.executable_unit.output_extraction_strategy,

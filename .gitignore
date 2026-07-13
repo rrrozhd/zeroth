@@ -28,6 +28,8 @@ zeroth_dev.db-wal
 zeroth_live.db
 zeroth_live.db-shm
 zeroth_live.db-wal
+econ_plane.db
+.zeroth/
 
 # Regenerated at docs-build time by scripts/dump_openapi.py
 docs/assets/openapi/
@@ -75,3 +77,12 @@ examples_service.sqlite
 
 # Local verification screenshots
 /verify-*.png
+
+# zeroth-console package: built frontend export copied in by scripts/build_console_dist.sh
+packaging/console/src/zeroth_console/static/
+
+# vendor-dd reference app local state
+apps/vendor_dd/vendor_dd.sqlite*
+apps/vendor_dd/vendor_dd_econ.sqlite*
+apps/vendor_dd/project_unit/finmetrics/data/
+apps/vendor_dd/.runbook_state.json

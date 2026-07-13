@@ -12,10 +12,10 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from governai import RunState
-from governai import RunStatus as GovernAIRunStatus
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.core.governed import RunState
+from zeroth.core.governed import RunStatus as GovernAIRunStatus
 from zeroth.core.identity import ActorIdentity
 
 
@@ -62,6 +62,11 @@ class RunHistoryEntry(BaseModel):
     audit_ref: str | None = None
     started_at: datetime = Field(default_factory=_utc_now)
     completed_at: datetime | None = None
+    # Per-node cost (USD) promoted from the node's audit record. Lets
+    # ``_sum_run_cost`` / ``_sum_audit_cost`` aggregate a run's spend from its
+    # own history — the basis for the local per-run cost ceiling. ``None`` when
+    # no cost estimator populated a cost for the node.
+    cost_usd: float | None = None
 
 
 class RunConditionResult(BaseModel):

@@ -45,7 +45,9 @@ class ArtifactStore(Protocol):
         """Retrieve artifact data by key."""
         ...
 
-    async def delete(self, key: str) -> bool:  # pragma: no cover - protocol
+    async def delete(
+        self, key: str, *, idempotency_key: str
+    ) -> bool:  # pragma: no cover - protocol
         """Delete an artifact by key. Returns True if it existed."""
         ...
 
@@ -57,7 +59,9 @@ class ArtifactStore(Protocol):
         """Check whether an artifact exists."""
         ...
 
-    async def cleanup_run(self, run_id: str) -> int:  # pragma: no cover - protocol
+    async def cleanup_run(
+        self, run_id: str, *, idempotency_key: str
+    ) -> int:  # pragma: no cover - protocol
         """Remove all artifacts for a run. Returns count of deleted artifacts."""
         ...
 
@@ -101,6 +105,10 @@ class RedisArtifactStore:
     def _meta_key(self, key: str) -> str:
         """Build the metadata Redis key with prefix."""
         return f"{self._prefix}:{key}:meta"
+
+    def _receipt_key(self, idempotency_key: str) -> str:
+        """Build the Redis key for an erasure-operation replay receipt."""
+        return f"{self._prefix}:erasure-receipt:{idempotency_key}"
 
     async def store(
         self,
@@ -179,24 +187,39 @@ class RedisArtifactStore:
             raise ArtifactNotFoundError(msg)
         return data
 
-    async def delete(self, key: str) -> bool:
+    async def delete(self, key: str, *, idempotency_key: str) -> bool:
         """Delete an artifact and its metadata.
 
         Args:
             key: Artifact key to delete.
+            idempotency_key: Stable operation identifier used for replay receipts.
 
         Returns:
             True if the artifact existed and was deleted, False otherwise.
         """
         full_key = self._full_key(key)
         meta_key = self._meta_key(key)
+        receipt_key = self._receipt_key(idempotency_key)
+        receipt = await self._client.get(receipt_key)
+        if receipt is not None:
+            result = bool(int(receipt))
+            async with self._client.pipeline(transaction=True) as pipe:
+                pipe.delete(full_key)
+                pipe.delete(meta_key)
+                await pipe.execute()
+            return result
+
+        existed = bool(await self._client.exists(full_key))
+        await self._client.set(receipt_key, "1" if existed else "0", nx=True)
+        receipt = await self._client.get(receipt_key)
+        stable_result = existed if receipt is None else bool(int(receipt))
 
         async with self._client.pipeline(transaction=True) as pipe:
             pipe.delete(full_key)
             pipe.delete(meta_key)
-            results = await pipe.execute()
+            await pipe.execute()
 
-        return sum(results) > 0
+        return stable_result
 
     async def refresh_ttl(self, key: str, ttl: int) -> bool:
         """Refresh the TTL of an existing artifact.
@@ -236,23 +259,32 @@ class RedisArtifactStore:
         full_key = self._full_key(key)
         return bool(await self._client.exists(full_key))
 
-    async def cleanup_run(self, run_id: str) -> int:
+    async def cleanup_run(self, run_id: str, *, idempotency_key: str) -> int:
         """Remove all artifacts for a run using scan_iter.
 
         Scans for all keys matching the run_id prefix and deletes them.
 
         Args:
             run_id: Run identifier whose artifacts should be cleaned up.
+            idempotency_key: Stable operation identifier used for replay receipts.
 
         Returns:
             Count of deleted keys.
         """
         pattern = f"{self._prefix}:{run_id}/*"
-        count = 0
-        async for redis_key in self._client.scan_iter(match=pattern, count=100):
+        receipt_key = self._receipt_key(idempotency_key)
+        receipt = await self._client.get(receipt_key)
+        redis_keys = [key async for key in self._client.scan_iter(match=pattern, count=100)]
+        if receipt is None:
+            count = len(redis_keys)
+            await self._client.set(receipt_key, str(count), nx=True)
+            receipt = await self._client.get(receipt_key)
+            stable_count = count if receipt is None else int(receipt)
+        else:
+            stable_count = int(receipt)
+        for redis_key in redis_keys:
             await self._client.delete(redis_key)
-            count += 1
-        return count
+        return stable_count
 
 
 class FilesystemArtifactStore:
@@ -298,6 +330,23 @@ class FilesystemArtifactStore:
     def _meta_path(self, key: str) -> Path:
         """Resolve the filesystem path for an artifact's sidecar metadata."""
         return self._base_dir / f"{key}.meta.json"
+
+    def _receipt_path(self, idempotency_key: str) -> Path:
+        """Resolve the filesystem path for an erasure-operation replay receipt."""
+        return self._base_dir / ".erasure-receipts" / f"{idempotency_key}.json"
+
+    def _write_receipt(self, idempotency_key: str, payload: dict[str, Any]) -> None:
+        """Persist a replay receipt atomically (temp file + rename)."""
+        path = self._receipt_path(idempotency_key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, sort_keys=True))
+        temporary.replace(path)
+
+    def _read_receipt(self, idempotency_key: str) -> dict[str, Any] | None:
+        """Load a stored replay receipt, or None when the operation is new."""
+        path = self._receipt_path(idempotency_key)
+        return json.loads(path.read_text()) if path.exists() else None
 
     def _write_file(self, key: str, data: bytes, meta: dict[str, Any]) -> None:
         """Synchronous file write for use with asyncio.to_thread."""
@@ -425,17 +474,35 @@ class FilesystemArtifactStore:
 
         return await asyncio.to_thread(self._read_file, key)
 
-    async def delete(self, key: str) -> bool:
+    async def delete(self, key: str, *, idempotency_key: str) -> bool:
         """Delete an artifact and its sidecar.
 
         Args:
             key: Artifact key to delete.
+            idempotency_key: Stable operation identifier used for replay receipts.
 
         Returns:
             True if the artifact existed and was deleted, False otherwise.
         """
         self._validate_key(key)
-        return await asyncio.to_thread(self._delete_files, key)
+
+        def _delete() -> bool:
+            """Synchronous idempotent delete for use with asyncio.to_thread."""
+            receipt = self._read_receipt(idempotency_key)
+            if receipt is None:
+                result = self._file_path(key).exists()
+                self._write_receipt(
+                    idempotency_key,
+                    {"kind": "delete", "target": key, "result": result},
+                )
+            else:
+                if receipt.get("kind") != "delete" or receipt.get("target") != key:
+                    raise ArtifactStorageError("idempotency key reused for another operation")
+                result = bool(receipt["result"])
+            self._delete_files(key)
+            return result
+
+        return await asyncio.to_thread(_delete)
 
     async def refresh_ttl(self, key: str, ttl: int) -> bool:
         """Refresh the TTL of an existing artifact.
@@ -456,6 +523,7 @@ class FilesystemArtifactStore:
         meta_path = self._meta_path(key)
 
         def _refresh() -> bool:
+            """Synchronous sidecar TTL rewrite for use with asyncio.to_thread."""
             if not meta_path.exists():
                 msg = f"Cannot refresh TTL for missing artifact: {key}"
                 raise ArtifactTTLError(msg)
@@ -480,6 +548,7 @@ class FilesystemArtifactStore:
         self._validate_key(key)
 
         def _check() -> bool:
+            """Synchronous existence + expiry check for use with asyncio.to_thread."""
             file_path = self._file_path(key)
             if not file_path.exists():
                 return False
@@ -491,25 +560,41 @@ class FilesystemArtifactStore:
 
         return await asyncio.to_thread(_check)
 
-    async def cleanup_run(self, run_id: str) -> int:
+    async def cleanup_run(self, run_id: str, *, idempotency_key: str) -> int:
         """Remove all artifacts for a run by deleting the run directory tree.
 
         Args:
             run_id: Run identifier whose artifacts should be cleaned up.
+            idempotency_key: Stable operation identifier used for replay receipts.
 
         Returns:
             Count of deleted artifact files (excluding sidecars).
         """
 
         def _cleanup() -> int:
+            """Synchronous idempotent run-tree removal for use with asyncio.to_thread."""
             run_dir = self._base_dir / run_id
-            if not run_dir.exists():
-                return 0
-            # Count actual artifact files (not sidecars)
-            count = sum(
-                1 for f in run_dir.rglob("*") if f.is_file() and not f.name.endswith(".meta.json")
-            )
-            shutil.rmtree(run_dir)
+            receipt = self._read_receipt(idempotency_key)
+            if receipt is None:
+                count = (
+                    sum(
+                        1
+                        for f in run_dir.rglob("*")
+                        if f.is_file() and not f.name.endswith(".meta.json")
+                    )
+                    if run_dir.exists()
+                    else 0
+                )
+                self._write_receipt(
+                    idempotency_key,
+                    {"kind": "cleanup_run", "target": run_id, "result": count},
+                )
+            else:
+                if receipt.get("kind") != "cleanup_run" or receipt.get("target") != run_id:
+                    raise ArtifactStorageError("idempotency key reused for another operation")
+                count = int(receipt["result"])
+            if run_dir.exists():
+                shutil.rmtree(run_dir)
             return count
 
         return await asyncio.to_thread(_cleanup)

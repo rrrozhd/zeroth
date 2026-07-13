@@ -20,14 +20,40 @@ def build_response_format(output_model: type[BaseModel]) -> dict[str, Any] | Non
     # OpenAI structured outputs require additionalProperties: false AND
     # that every property appear in `required` on each object node.
     _enforce_strict_object_rules(schema)
+    # Free-form object fields (dict[str, Any] and friends) cannot be expressed
+    # in strict mode at all — strict requires every object to enumerate its
+    # properties. Ship those schemas non-strict instead of letting the
+    # provider reject the request outright.
+    strict = not _has_freeform_object(schema)
     return {
         "type": "json_schema",
         "json_schema": {
             "name": output_model.__name__,
             "schema": schema,
-            "strict": True,
+            "strict": strict,
         },
     }
+
+
+def _has_freeform_object(schema: dict[str, Any]) -> bool:
+    """True if any object node lacks enumerated properties (dict[str, Any])."""
+    if (schema.get("type") == "object" or "properties" in schema) and not schema.get("properties"):
+        return True
+    for key in ("properties", "$defs"):
+        sub = schema.get(key)
+        if isinstance(sub, dict) and any(
+            isinstance(v, dict) and _has_freeform_object(v) for v in sub.values()
+        ):
+            return True
+    for key in ("items", "anyOf", "oneOf", "allOf"):
+        sub = schema.get(key)
+        if isinstance(sub, dict) and _has_freeform_object(sub):
+            return True
+        if isinstance(sub, list) and any(
+            isinstance(item, dict) and _has_freeform_object(item) for item in sub
+        ):
+            return True
+    return False
 
 
 def _enforce_strict_object_rules(schema: dict[str, Any]) -> None:

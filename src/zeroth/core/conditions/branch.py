@@ -55,11 +55,14 @@ class BranchResolver:
         """
         runtime_context = self._as_context(context)
         traversal_state = traversal_state or self._traversal_state(runtime_context)
-        # Filter to only edges leaving this node (ignore edges from other nodes)
+        # Filter to only edges leaving this node (ignore edges from other
+        # nodes). Tool edges attach tools to an agent — they are never
+        # traversed, so they don't count as outgoing control flow.
+        tool_edge_ids = {edge.edge_id for edge in graph.edges if edge.kind == "tool"}
         bindings = [
             binding
             for binding in self._binder.bind_graph(graph)
-            if binding.source_node_id == source_node_id
+            if binding.source_node_id == source_node_id and binding.edge_id not in tool_edge_ids
         ]
         # No outgoing edges means this node is a terminal (end) node
         if not bindings:

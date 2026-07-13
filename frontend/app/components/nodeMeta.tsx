@@ -3,10 +3,20 @@
 // the Guide page), and an icon. Keyed by the backend node_type discriminator.
 
 export const NODE_META: Record<string, { blurb: string; help: string; icon: string }> = {
+  entrypoint: {
+    blurb: "Where a run starts",
+    help: "Every workflow starts here. The contract you pick is the workflow's public input shape — POST /v1/runs payloads are validated against it before anything executes. One per workflow, nothing flows into it.",
+    icon: "M8 5v14l11-7-11-7z",
+  },
   agent: {
     blurb: "LLM reasoning step",
     help: "Calls an LLM with your instruction. The upstream node's output arrives as context, and the model's reply flows downstream.",
     icon: "M9.6 3.2l1.3 3.5 3.5 1.3-3.5 1.3L9.6 12.8 8.3 9.3 4.8 8l3.5-1.3z M17 13l.8 2.2 2.2.8-2.2.8L17 19l-.8-2.2-2.2-.8 2.2-.8z",
+  },
+  code: {
+    blurb: "Write Python, run sandboxed",
+    help: "Runs the Python you write right here. The upstream payload arrives as JSON on stdin; whatever you write to stdout as JSON flows downstream. Runs in the sandbox with the standard library only — the code is frozen and content-hashed when the workflow publishes.",
+    icon: "M7 8l-4 4 4 4 M17 8l4 4-4 4 M14 4l-4 16",
   },
   executable_unit: {
     blurb: "Run code or a tool",

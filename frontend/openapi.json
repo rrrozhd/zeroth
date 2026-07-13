@@ -500,6 +500,53 @@
         "title": "AuditTimelineResponse",
         "type": "object"
       },
+      "AuditVerificationResponse": {
+        "additionalProperties": false,
+        "description": "Result of verifying the tamper-evident digest chain for a scope.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "failed_audit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Audit Id"
+          },
+          "record_count": {
+            "default": 0,
+            "title": "Record Count",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scope",
+          "verified"
+        ],
+        "title": "AuditVerificationResponse",
+        "type": "object"
+      },
       "AuthMethod": {
         "description": "Supported request authentication methods.",
         "enum": [
@@ -508,6 +555,199 @@
         ],
         "title": "AuthMethod",
         "type": "string"
+      },
+      "ConnectorCreateRequest": {
+        "additionalProperties": false,
+        "description": "Payload for creating a runtime-managed connector.",
+        "properties": {
+          "backend_type": {
+            "title": "Backend Type",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "backend_type"
+        ],
+        "title": "ConnectorCreateRequest",
+        "type": "object"
+      },
+      "ConnectorSummaryResponse": {
+        "additionalProperties": false,
+        "description": "One registered memory connector, as shown in the console.",
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "backend_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend Type"
+          },
+          "connector_type": {
+            "title": "Connector Type",
+            "type": "string"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Params"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "default": "env",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "connector_type",
+          "scope",
+          "backend"
+        ],
+        "title": "ConnectorSummaryResponse",
+        "type": "object"
+      },
+      "ConnectorTestResponse": {
+        "additionalProperties": false,
+        "description": "Result of a live connectivity probe against a registered connector.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "number"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "latency_ms"
+        ],
+        "title": "ConnectorTestResponse",
+        "type": "object"
+      },
+      "ConnectorUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Payload for reconfiguring an existing runtime-managed connector.",
+        "properties": {
+          "backend_type": {
+            "title": "Backend Type",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "backend_type"
+        ],
+        "title": "ConnectorUpdateRequest",
+        "type": "object"
+      },
+      "CreateContractRequest": {
+        "description": "Request body for registering a schema-only contract from the console.",
+        "properties": {
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^\\S+$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "json_schema"
+        ],
+        "title": "CreateContractRequest",
+        "type": "object"
+      },
+      "CreateDeploymentRequest": {
+        "additionalProperties": false,
+        "description": "Request body for POST /v1/deployments.",
+        "properties": {
+          "deployment_ref": {
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "graph_id": {
+            "title": "Graph Id",
+            "type": "string"
+          },
+          "graph_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Version"
+          }
+        },
+        "required": [
+          "deployment_ref",
+          "graph_id"
+        ],
+        "title": "CreateDeploymentRequest",
+        "type": "object"
       },
       "CreateSubscriptionRequest": {
         "additionalProperties": false,
@@ -856,6 +1096,46 @@
         "title": "DeploymentStatus",
         "type": "string"
       },
+      "DeploymentSummaryResponse": {
+        "additionalProperties": false,
+        "description": "One persisted deployment version, as shown in the console.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "graph_version_ref": {
+            "title": "Graph Version Ref",
+            "type": "string"
+          },
+          "serving": {
+            "title": "Serving",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deployment_ref",
+          "version",
+          "graph_version_ref",
+          "status",
+          "serving",
+          "created_at"
+        ],
+        "title": "DeploymentSummaryResponse",
+        "type": "object"
+      },
       "DeploymentVersionMetadataResponse": {
         "additionalProperties": false,
         "description": "Public metadata for one deployed version.",
@@ -1093,6 +1373,48 @@
           }
         },
         "title": "LivenessResponse",
+        "type": "object"
+      },
+      "ManifestSummaryResponse": {
+        "additionalProperties": false,
+        "description": "One registered executable unit or agent runner, as shown in the console.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "manifest_ref": {
+            "title": "Manifest Ref",
+            "type": "string"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime"
+          }
+        },
+        "required": [
+          "manifest_ref",
+          "kind"
+        ],
+        "title": "ManifestSummaryResponse",
         "type": "object"
       },
       "MemoryAccessRecord": {
@@ -1498,6 +1820,21 @@
         "title": "ReadinessResponse",
         "type": "object"
       },
+      "RollbackDeploymentRequest": {
+        "additionalProperties": false,
+        "description": "Request body for POST /v1/deployments/{deployment_ref}/rollback.",
+        "properties": {
+          "target_graph_version": {
+            "title": "Target Graph Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_graph_version"
+        ],
+        "title": "RollbackDeploymentRequest",
+        "type": "object"
+      },
       "RunEvidenceResponse": {
         "additionalProperties": false,
         "description": "Review-friendly evidence bundle for a single run.",
@@ -1876,11 +2213,44 @@
         "title": "ServiceRole",
         "type": "string"
       },
+      "StudioContractResponse": {
+        "description": "A registered contract, for canvas contract-ref pickers.",
+        "properties": {
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "StudioContractResponse",
+        "type": "object"
+      },
       "StudioEdgeResponse": {
-        "description": "An edge as represented in the Studio frontend.",
+        "description": "An edge as represented in the Studio frontend.\n\n``kind=\"tool\"`` marks a tool attachment (agent \u2192 executable unit)\nrather than a control-flow connection.",
         "properties": {
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "data",
+            "enum": [
+              "data",
+              "tool"
+            ],
+            "title": "Kind",
             "type": "string"
           },
           "source": {
@@ -2043,6 +2413,21 @@
         "title": "TemplateResponse",
         "type": "object"
       },
+      "TenantBudgetRequest": {
+        "additionalProperties": false,
+        "description": "Request body for PUT /v1/tenants/{tenant_id}/budget.",
+        "properties": {
+          "budget_cap_usd": {
+            "title": "Budget Cap Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "budget_cap_usd"
+        ],
+        "title": "TenantBudgetRequest",
+        "type": "object"
+      },
       "TenantCostResponse": {
         "additionalProperties": false,
         "description": "Response for GET /v1/tenants/{tenant_id}/cost (per D-14).",
@@ -2171,6 +2556,17 @@
               }
             ],
             "title": "Edges"
+          },
+          "entry_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Step"
           },
           "name": {
             "anyOf": [
@@ -2439,6 +2835,17 @@
             "title": "Edges",
             "type": "array"
           },
+          "entry_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Step"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -2526,6 +2933,72 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/studio/v1/contracts": {
+      "get": {
+        "description": "List registered contracts (latest version each) for contract-ref pickers.",
+        "operationId": "list_contracts_api_studio_v1_contracts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StudioContractResponse"
+                  },
+                  "title": "Response List Contracts Api Studio V1 Contracts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Contracts",
+        "tags": [
+          "studio"
+        ]
+      },
+      "post": {
+        "description": "Register a schema-only contract authored in the console.\n\nThe schema is arbitrary JSON Schema \u2014 payload validation at run ingress\nhonors it exactly. Re-registering an existing name creates the next\nversion (the picker lists the latest).",
+        "operationId": "create_contract_api_studio_v1_contracts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContractRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioContractResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Contract",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
     "/api/studio/v1/node-types": {
       "get": {
         "description": "Return all available node types with their port definitions.",
@@ -2784,6 +3257,112 @@
           }
         },
         "summary": "Clone Workflow",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
+    "/api/studio/v1/workflows/{workflow_id}/diff": {
+      "get": {
+        "description": "Structured diff between two versions of a workflow.",
+        "operationId": "diff_workflow_api_studio_v1_workflows__workflow_id__diff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "left",
+            "required": true,
+            "schema": {
+              "title": "Left",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "right",
+            "required": true,
+            "schema": {
+              "title": "Right",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Diff Workflow Api Studio V1 Workflows  Workflow Id  Diff Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diff Workflow",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
+    "/api/studio/v1/workflows/{workflow_id}/publish": {
+      "post": {
+        "description": "Validate and publish the draft, making it immutable and deployable.\n\nValidation failures return 422 with the structured issue list so the\ncanvas can point at the offending node/edge.",
+        "operationId": "publish_workflow_api_studio_v1_workflows__workflow_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Workflow",
         "tags": [
           "studio"
         ]
@@ -3080,6 +3659,268 @@
         ]
       }
     },
+    "/v1/connectors": {
+      "get": {
+        "description": "All memory connectors registered for this deployment, by ref.\n\nThese are the values a retrieval node's ``connector_ref`` (and an\nagent's ``memory_refs``) can resolve at run time. Runtime-managed\nconnectors include their backend_type and secret-masked params;\nenv-sourced connectors return ``params=None``.",
+        "operationId": "list_connectors_v1_connectors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorSummaryResponse"
+                  },
+                  "title": "Response List Connectors V1 Connectors Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Connectors",
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "description": "Create a runtime-managed connector: build, register live, persist.\n\nBackend construction is cheap and may connect lazily (pgvector opens\nits first connection on first use) -- use POST /connectors/{ref}/test\nfor a real connectivity check.",
+        "operationId": "create_connector_v1_connectors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Connector",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/connectors/{ref}": {
+      "delete": {
+        "description": "Delete a runtime-managed connector (env-sourced ones cannot be deleted).",
+        "operationId": "delete_connector_v1_connectors__ref__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Connector",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "description": "Reconfigure an existing runtime-managed connector (rebuild + re-register).",
+        "operationId": "update_connector_v1_connectors__ref__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Connector",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/connectors/{ref}/test": {
+      "post": {
+        "description": "Probe the LIVE connector with a tiny write+read round-trip.\n\nWorks for both env-sourced and runtime connectors. Connection\nfailures never raise 500 -- they come back as ``ok=false`` with the\nerror message. The probe is capped at 5 seconds.\n\nNote: pgvector's write path generates an embedding via litellm, so\nprobing a pgvector connector performs one (tiny) embedding API call.",
+        "operationId": "test_connector_v1_connectors__ref__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorTestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Connector",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/deployments": {
+      "get": {
+        "description": "All persisted deployment versions, newest first.\n\n``serving`` marks the deployment version this service instance was\nbootstrapped with (the one /health reports).",
+        "operationId": "list_deployments_v1_deployments_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeploymentSummaryResponse"
+                  },
+                  "title": "Response List Deployments V1 Deployments Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Deployments",
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "description": "Create a deployment version from a published graph.\n\nCompletes the authoring loop without Python: publish the graph\n(studio API), deploy it here, then restart the service with\n``ZEROTH_DEPLOYMENT_REF`` set to the new ref to serve it.",
+        "operationId": "create_deployment_v1_deployments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Deployment",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/deployments/{deployment_ref}/approvals": {
       "get": {
         "operationId": "list_approvals_v1_deployments__deployment_ref__approvals_get",
@@ -3323,6 +4164,49 @@
           }
         },
         "summary": "Get Attestation",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/deployments/{deployment_ref}/audit-verification": {
+      "get": {
+        "description": "Verify digest-chain continuity across every run of a deployment.",
+        "operationId": "verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Deployment Audit Chain",
         "tags": [
           "v1"
         ]
@@ -3687,6 +4571,59 @@
         ]
       }
     },
+    "/v1/deployments/{deployment_ref}/rollback": {
+      "post": {
+        "description": "Create a new deployment version pinned to an earlier graph version.",
+        "operationId": "rollback_deployment_v1_deployments__deployment_ref__rollback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rollback Deployment",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/deployments/{deployment_ref}/timeline": {
       "get": {
         "operationId": "get_deployment_timeline_v1_deployments__deployment_ref__timeline_get",
@@ -3776,6 +4713,32 @@
           }
         },
         "summary": "Post Verify Attestation",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/manifests": {
+      "get": {
+        "description": "All executable units and agent runners registered for this deployment.\n\nThese are the values an executable_unit node's ``manifest_ref`` can\nreference, plus the runner names agent nodes bind to at run time.",
+        "operationId": "list_manifests_v1_manifests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ManifestSummaryResponse"
+                  },
+                  "title": "Response List Manifests V1 Manifests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Manifests",
         "tags": [
           "v1"
         ]
@@ -3880,6 +4843,49 @@
           }
         },
         "summary": "Get Run",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/audit-verification": {
+      "get": {
+        "description": "Verify the tamper-evident digest chain over a run's audit records.",
+        "operationId": "verify_run_audit_chain_v1_runs__run_id__audit_verification_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Run Audit Chain",
         "tags": [
           "v1"
         ]
@@ -4131,9 +5137,62 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/budget": {
+      "put": {
+        "description": "Set the tenant spend cap enforced before LLM calls and fan-out.",
+        "operationId": "set_tenant_budget_v1_tenants__tenant_id__budget_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantBudgetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantCostResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Tenant Budget",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/cost": {
       "get": {
-        "description": "Return cumulative spend for a tenant (per D-14, D-16).",
+        "description": "Return month-to-date spend and cap for a tenant (per D-14, D-16).",
         "operationId": "get_tenant_cost_v1_tenants__tenant_id__cost_get",
         "parameters": [
           {

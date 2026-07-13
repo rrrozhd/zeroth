@@ -13,8 +13,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from governai.memory.models import MemoryEntry, MemoryScope
-from governai.models.common import JSONValue
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.models.common import JSONValue
 
 if TYPE_CHECKING:
     import redis.asyncio as aioredis
@@ -83,9 +83,7 @@ class RedisKVMemoryConnector:
             )
         await self._redis.set(self._key(key, scope, target), entry.model_dump_json())
 
-    async def delete(
-        self, key: str, scope: MemoryScope, *, target: str | None = None
-    ) -> None:
+    async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         """Remove a key. Raises ``KeyError`` if it does not exist."""
         deleted = await self._redis.delete(self._key(key, scope, target))
         if not deleted:

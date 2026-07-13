@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   ApiErrorNote,
+  buildRunCurl,
   Button,
   Card,
+  CurlBlock,
   Empty,
   ErrorBox,
   Field,
@@ -20,12 +22,15 @@ import {
   useAsync,
   useConnected,
 } from "@/app/components/ui";
+import { getApiKey } from "@/app/lib/config";
 import {
   errMsg,
   getRun,
+  getRunAuditVerification,
   getRunTimeline,
   listRuns,
   submitRun,
+  type AuditVerification,
   type RunStatus,
 } from "@/app/lib/api";
 
@@ -192,6 +197,16 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
         <Button variant="primary" onClick={submit} disabled={busy}>
           {busy ? "Submitting…" : "Submit run"}
         </Button>
+        {/* The same invocation as a shell command — the deployed graph IS an
+            API service; this is how anything outside the console calls it. */}
+        <details>
+          <summary className="cursor-pointer text-xs font-medium text-muted transition-colors hover:text-foreground">
+            Call this API with cURL
+          </summary>
+          <div className="mt-2">
+            <CurlBlock command={buildRunCurl(payload, thread)} secret={getApiKey() || undefined} />
+          </div>
+        </details>
       </div>
     </Card>
   );
@@ -236,8 +251,9 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
         {error && <ApiErrorNote error={error} />}
         {data && (
           <div className="space-y-3 text-sm">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <StatusBadge status={data.status} />
+              <AuditVerifiedBadge runId={runId} runStatus={data.status} />
               {active && <span className="text-xs text-muted">auto-refreshing…</span>}
               {data.current_step && (
                 <span className="text-muted">step: {data.current_step}</span>
@@ -283,5 +299,86 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
         {timeline ? <Json value={timeline} /> : <Empty>Not loaded.</Empty>}
       </Card>
     </div>
+  );
+}
+
+// Tamper-evidence marker: verifies the run's audit digest chain. Re-checks on
+// status transitions so the badge covers records appended while running.
+// Renders nothing when unavailable (e.g. the key lacks audit-read) — absence
+// of the feature shouldn't read as a broken chain.
+function AuditVerifiedBadge({ runId, runStatus }: { runId: string; runStatus: string }) {
+  const [result, setResult] = useState<AuditVerification | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRunAuditVerification(runId)
+      .then((r) => {
+        if (!cancelled) setResult(r);
+      })
+      .catch(() => {
+        if (!cancelled) setResult(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, runStatus]);
+
+  if (result === null || result.record_count === 0) return null;
+
+  const recordLabel = `${result.record_count} record${
+    result.record_count === 1 ? "" : "s"
+  }`;
+
+  // Digest-continuity axis first: a broken chain is the worst case and shows red
+  // regardless of the signature axis.
+  if (!result.verified) {
+    return (
+      <span
+        title={`${result.error ?? "Digest chain broken"}${
+          result.failed_audit_id ? ` at ${result.failed_audit_id}` : ""
+        }`}
+        className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+      >
+        <span aria-hidden>✕</span> Audit chain broken
+      </span>
+    );
+  }
+
+  // Digest chain intact — layer the WS-D keyed-signature axis (three-state).
+  // signature_verified === true -> signed & verified (green).
+  if (result.signature_verified === true) {
+    return (
+      <span
+        title={`Signed & verified over ${recordLabel}${
+          result.signing_key_id ? ` under key ${result.signing_key_id}` : ""
+        }`}
+        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400"
+      >
+        <span aria-hidden>✓</span> Signed &amp; verified
+      </span>
+    );
+  }
+  // signature_verified === false -> a signed record failed verification (red).
+  if (result.signature_verified === false) {
+    return (
+      <span
+        title={`A signed audit record failed signature verification${
+          result.failed_audit_id ? ` at ${result.failed_audit_id}` : ""
+        }`}
+        className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+      >
+        <span aria-hidden>✕</span> Signature invalid / tampered
+      </span>
+    );
+  }
+  // signature_verified == null -> unsigned-legacy: the digest chain is intact but
+  // records are not cryptographically signed. Neutral — never green, never red.
+  return (
+    <span
+      title={`Digest chain intact over ${recordLabel}; records are not cryptographically signed (unsigned-legacy)`}
+      className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/12 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+    >
+      <span aria-hidden>◇</span> Chain intact (unsigned)
+    </span>
   );
 }

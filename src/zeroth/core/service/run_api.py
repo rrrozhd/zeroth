@@ -96,6 +96,7 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
 
     @app.post("/runs", response_model=RunInvocationResponse, status_code=status.HTTP_202_ACCEPTED)
     async def create_run(request: Request, payload: RunInvocationRequest) -> RunInvocationResponse:
+        """Validate, guard-check, and queue a new run; requires ``Permission.RUN_CREATE``."""
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
         graph = bootstrap.graph
@@ -136,6 +137,7 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
 
     @app.get("/runs/{run_id}", response_model=RunStatusResponse)
     async def get_run(request: Request, run_id: str) -> RunStatusResponse:
+        """Return the public status of a run; requires ``Permission.RUN_READ``."""
         bootstrap = _bootstrap(request)
         await require_permission(request, Permission.RUN_READ)
         run = await bootstrap.run_repository.get(run_id)
@@ -155,6 +157,7 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
 
 
 def _bootstrap(request: Request) -> RunApiBootstrapLike:
+    """Fetch the service bootstrap from app state."""
     bootstrap = getattr(request.app.state, "bootstrap", None)
     if bootstrap is None:
         raise RuntimeError("service bootstrap is not configured")
@@ -165,6 +168,7 @@ async def _validate_input_payload(
     bootstrap: RunApiBootstrapLike,
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
+    """Validate the input payload against the deployment's pinned entry input contract."""
     deployment = bootstrap.deployment
     contract_ref = deployment.entry_input_contract_ref
     if contract_ref is None:
@@ -192,9 +196,11 @@ async def _validate_input_payload(
             ),
         ) from exc
     except ValidationError as exc:
+        # ctx can carry raw exception objects (e.g. the schema-contract
+        # validator's ValueError) which are not JSON-serializable.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=exc.errors(),
+            detail=exc.errors(include_url=False, include_context=False),
         ) from exc
     except Exception as exc:
         raise HTTPException(
@@ -234,6 +240,7 @@ async def _validate_thread_id(bootstrap: RunApiBootstrapLike, thread_id: str | N
 
 
 def _serialize_run(run: Run) -> RunStatusResponse:
+    """Serialize a stored run into the public status response."""
     status_value = _public_status(run)
     approval_paused_state = None
     pending_approval = _pending_approval_payload(run)
@@ -274,6 +281,7 @@ def _serialize_run(run: Run) -> RunStatusResponse:
 
 
 def _public_status(run: Run) -> RunPublicStatus:
+    """Map an internal run status onto the public lifecycle state."""
     if run.status == RunStatus.PENDING:
         return RunPublicStatus.QUEUED
     if run.status == RunStatus.RUNNING:
@@ -290,6 +298,7 @@ def _public_status(run: Run) -> RunPublicStatus:
 
 
 def _failed_status(failure_state: RunFailureState | None) -> RunPublicStatus:
+    """Refine a failed run into its public terminal state from the failure reason."""
     if failure_state is None:
         return RunPublicStatus.FAILED
     if failure_state.reason == "dead_letter":
@@ -302,6 +311,7 @@ def _failed_status(failure_state: RunFailureState | None) -> RunPublicStatus:
 
 
 def _pending_approval_payload(run: Run) -> dict[str, Any] | None:
+    """Extract the pending-approval payload from a run as a plain dict, if any."""
     pending = run.pending_approval or run.metadata.get("pending_approval")
     if pending is None:
         return None
@@ -366,6 +376,7 @@ async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
 
 
 def _entry_step(graph: object) -> str:
+    """Resolve the graph's entry step, falling back to its first node."""
     entry_step = getattr(graph, "entry_step", None)
     if entry_step:
         return str(entry_step)
@@ -380,6 +391,7 @@ def _entry_step(graph: object) -> str:
 
 
 def _initial_metadata(graph: object, input_payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Build the initial run metadata seeded with the entry-step payload."""
     entry_step = _entry_step(graph)
     return {
         "graph_id": getattr(graph, "graph_id", ""),

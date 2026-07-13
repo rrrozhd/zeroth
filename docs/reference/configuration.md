@@ -41,8 +41,8 @@ Service authentication settings.
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_AUTH__API_KEYS_JSON` | `str \| None` | `None` |  |  |
-| `ZEROTH_AUTH__BEARER_JSON` | `str \| None` | `None` |  |  |
+| `ZEROTH_SERVICE_API_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ | JSON **list** of credential objects: `[{"credential_id", "secret", "subject", "roles", "tenant_id"?, "workspace_id"?}]` |
+| `ZEROTH_SERVICE_BEARER_JSON` | `SecretStr \| None` | `None` | ✓ | JSON bearer/JWT verification config (issuer, audience, jwks) |
 
 ## Regulus
 
@@ -50,11 +50,13 @@ Regulus backend connection settings.
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_REGULUS__ENABLED` | `bool` | `False` |  |  |
+| `ZEROTH_REGULUS__ENABLED` | `bool` | `True` |  |  |
 | `ZEROTH_REGULUS__BASE_URL` | `str` | `"http://localhost:8000/v1"` |  |  |
 | `ZEROTH_REGULUS__API_KEY` | `SecretStr \| None` | `None` | ✓ |  |
 | `ZEROTH_REGULUS__BUDGET_CACHE_TTL` | `int` | `30` |  |  |
 | `ZEROTH_REGULUS__REQUEST_TIMEOUT` | `float` | `5.0` |  |  |
+| `ZEROTH_REGULUS__FAIL_CLOSED` | `bool` | `False` |  |  |
+| `ZEROTH_REGULUS__PER_RUN_CAP_USD` | `float \| None` | `None` |  |  |
 
 ## Memory
 
@@ -191,3 +193,51 @@ OpenTelemetry tracing configuration (requires the ``otel`` extra).
 | `ZEROTH_TRACING__ENABLED` | `bool` | `False` |  |  |
 | `ZEROTH_TRACING__SERVICE_NAME` | `str` | `"zeroth-core"` |  |  |
 | `ZEROTH_TRACING__OTLP_ENDPOINT` | `str \| None` | `None` |  |  |
+
+## Secrets
+
+Secret-resolution backend configuration (WS-F).
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_SECRETS__BACKEND` | `str` | `"env"` |  |  |
+| `ZEROTH_SECRETS__ALLOW_ENV_FALLBACK` | `bool` | `True` |  |  |
+| `ZEROTH_SECRETS__VAULT_ADDR` | `str \| None` | `None` |  |  |
+| `ZEROTH_SECRETS__VAULT_MOUNT` | `str` | `"secret"` |  |  |
+| `ZEROTH_SECRETS__VAULT_ROLE_ID` | `SecretStr \| None` | `None` | ✓ |  |
+| `ZEROTH_SECRETS__VAULT_SECRET_ID` | `SecretStr \| None` | `None` | ✓ |  |
+| `ZEROTH_SECRETS__VAULT_TOKEN` | `SecretStr \| None` | `None` | ✓ |  |
+| `ZEROTH_SECRETS__VAULT_CACHE_TTL` | `float` | `300.0` |  |  |
+| `ZEROTH_SECRETS__LLM_KEY_MAP` | `dict[str, str]` | `{}` |  |  |
+
+## Provenance
+
+Keyed provenance-signing configuration (WS-D).
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_PROVENANCE__MODE` | `str` | `"env"` |  |  |
+| `ZEROTH_PROVENANCE__ALGORITHM` | `str` | `"HS256"` |  |  |
+| `ZEROTH_PROVENANCE__SIGNING_KEY_REF` | `str \| None` | `None` |  |  |
+| `ZEROTH_PROVENANCE__SIGNING_KEY_ID` | `str` | `"dev-local"` |  |  |
+| `ZEROTH_PROVENANCE__PUBLIC_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ |  |
+
+## Policy
+
+Behavioral capability-enforcement configuration (WS-C).
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_POLICY__ENFORCE_CAPABILITIES` | `bool` | `True` |  |  |
+| `ZEROTH_POLICY__LOCAL_NETWORK_STRICT` | `bool` | `True` |  |  |
+
+## Retention
+
+WS-E retention / right-to-erasure configuration.
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_RETENTION__ENABLED` | `bool` | `False` |  |  |
+| `ZEROTH_RETENTION__WORKER_POLL_INTERVAL` | `float` | `3600.0` |  |  |
+| `ZEROTH_RETENTION__DEFAULT_AUDIT_TTL_SECONDS` | `int \| None` | `None` |  |  |
+| `ZEROTH_RETENTION__DEFAULT_RUN_TTL_SECONDS` | `int \| None` | `None` |  |  |

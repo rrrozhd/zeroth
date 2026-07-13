@@ -21,10 +21,19 @@ Zeroth is a governance-focused runtime; a few defaults matter when deploying it:
   Zeroth additionally blocks the econ token-issuer endpoint
   (`POST /regulus/**/auth/token`) at the gate, so it is unreachable over HTTP even
   with a valid key; Zeroth's own self-calls mint their econ token in-process.
-- **`ECP_JWT_SECRET` is required when Regulus is mounted.** The service fails
-  closed at startup if the bundled backend still uses its placeholder secret
-  (`change-me`). For local development only, set `ECP_ALLOW_INSECURE_JWT_SECRET=1`
-  to bypass the guard.
+- **`ECP_JWT_SECRET` — auto-generated ephemeral secret when unset.** The bundled
+  control plane is mounted by default, and it signs its Admin tokens with
+  `ECP_JWT_SECRET`. Rather than boot on the forgeable placeholder (`change-me`),
+  a fresh deploy that leaves it unset **auto-generates a cryptographically-strong
+  ephemeral per-process secret** at startup (logged at `WARNING`) — stronger than
+  the placeholder, so tokens stay unforgeable with zero configuration. This is
+  safe because the only client of `/regulus` is Zeroth's own in-process self-auth
+  in the same process (the open token issuer is blocked at the gate), so a
+  cross-worker secret mismatch is not a reachable path. **For multi-worker or
+  persistent deployments, set an explicit `ECP_JWT_SECRET`** so every worker signs
+  and verifies with the same key across restarts. Setting a real `ECP_JWT_SECRET`
+  uses it unchanged; `ECP_ALLOW_INSECURE_JWT_SECRET=1` keeps the literal
+  `change-me` placeholder (tests / deliberately-insecure local dev only).
 - **Studio and cost APIs enforce RBAC.** Workflow authoring requires the
   operator/admin tier; reading cost/spend is admin-only (consistent with the
   metrics endpoint). Scope issued API keys to the least role that a caller needs.
@@ -32,3 +41,20 @@ Zeroth is a governance-focused runtime; a few defaults matter when deploying it:
   backend is unreachable, runs proceed rather than halt — but the fail-open is now
   logged at WARNING so you can alert on caps not being enforced. Monitor econ-plane
   availability if budget caps are a hard requirement for you.
+- **Audit-chain integrity is database-coordinated across workers.** Appends to
+  the per-tenant audit hash chain serialize through a database coordination row
+  (advisory locking on Postgres, reserved-row locking on SQLite), so multiple
+  workers cannot fork the chain by racing on the same head. Chain verification
+  detects and reports mixed/legacy segments rather than silently passing.
+- **Vault secret resolution is async, pooled, and single-flight.** Cache misses
+  resolve through one shared `httpx.AsyncClient` with per-key and AppRole-login
+  single-flight locks, so a slow Vault cannot block the event loop and N
+  concurrent misses collapse into one fetch. Sync resolution remains only for
+  synchronous callers; service paths use the async helpers.
+- **MCP servers require capabilities before any process is spawned.** Under
+  active enforcement an agent must hold BOTH `process_spawn` and
+  `external_api_call` before its configured MCP server subprocesses are started
+  — a missing grant denies at startup, not after the side effect. Graph
+  validation reports the same requirement at publish time
+  (`missing_mcp_capability`), so enforced deployments never learn about the gap
+  at dispatch.

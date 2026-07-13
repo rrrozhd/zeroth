@@ -78,6 +78,34 @@ class PromptAssembler:
         thread_dump = _redact_value(dict(thread_state or {}), set(prompt_config.redact_keys))
         context_dump = _redact_value(dict(runtime_context or {}), set(prompt_config.redact_keys))
 
+        # Conversation input: the configured payload field is lifted out of the
+        # input JSON block and rendered as real chat turns after the user
+        # message. The audit metadata keeps the raw (redacted) list.
+        conversation_items: list[Any] = []
+        if (
+            prompt_config.messages_key
+            and isinstance(input_dump, dict)
+            and isinstance(input_dump.get(prompt_config.messages_key), list)
+        ):
+            conversation_items = input_dump.pop(prompt_config.messages_key)
+
+        # Persistent conversation: turns stored in thread state replay before
+        # the incoming ones, so a caller submitting the same thread_id only
+        # sends what is new. Lifted out of the thread-state block to avoid
+        # rendering the same turns twice.
+        stored_turns = 0
+        if (
+            prompt_config.messages_key
+            and prompt_config.persist_conversation
+            and isinstance(thread_dump, dict)
+            and isinstance(thread_dump.get("conversation"), list)
+        ):
+            stored = thread_dump.pop("conversation")
+            stored_turns = len(stored)
+            conversation_items = stored + conversation_items
+        if prompt_config.conversation_max_turns is not None:
+            conversation_items = conversation_items[-prompt_config.conversation_max_turns :]
+
         system_parts = [
             f"Agent: {config.name}",
             f"Instruction: {config.instruction}",
@@ -127,19 +155,67 @@ class PromptAssembler:
             PromptMessage(role="system", content="\n\n".join(system_parts)),
             PromptMessage(role="user", content="\n\n".join(user_parts)),
         ]
+        messages.extend(self._conversation_messages(config, conversation_items))
+        metadata = {
+            "agent_name": config.name,
+            "model_name": config.model_name,
+            "input_payload": input_dump,
+            "thread_state": thread_dump,
+            "runtime_context": context_dump,
+            "tool_refs": list(config.declared_tool_refs),
+            "memory_refs": list(config.memory_refs),
+        }
+        if conversation_items:
+            metadata["conversation_messages"] = conversation_items
+        if stored_turns:
+            metadata["conversation_stored_turns"] = stored_turns
         return PromptAssembly(
             messages=messages,
             rendered_prompt="\n\n".join(message.content for message in messages),
-            metadata={
-                "agent_name": config.name,
-                "model_name": config.model_name,
-                "input_payload": input_dump,
-                "thread_state": thread_dump,
-                "runtime_context": context_dump,
-                "tool_refs": list(config.declared_tool_refs),
-                "memory_refs": list(config.memory_refs),
-            },
+            metadata=metadata,
         )
+
+    def _conversation_messages(
+        self,
+        config: AgentConfig,
+        items: list[Any],
+    ) -> list[PromptMessage]:
+        """Map incoming chat items ({role, content}) to prompt messages.
+
+        ``human`` becomes a user turn, ``ai`` an assistant turn. ``tool``
+        content is externally produced, so it is rendered as an untrusted
+        provenance block (screened when safety is on) rather than replayed
+        as a bare turn.
+        """
+        safety = config.tool_output_safety
+        screener = (
+            HeuristicInjectionScreener() if safety.enabled and safety.screen_for_injection else None
+        )
+        result: list[PromptMessage] = []
+        for item in items:
+            if not isinstance(item, Mapping):
+                result.append(
+                    PromptMessage(role="user", content=json.dumps(item, ensure_ascii=False))
+                )
+                continue
+            role = str(item.get("role", "human")).lower()
+            content = item.get("content", "")
+            if not isinstance(content, str):
+                content = json.dumps(content, ensure_ascii=False, sort_keys=True)
+            if role in ("ai", "assistant"):
+                result.append(PromptMessage(role="assistant", content=content))
+            elif role == "tool":
+                name = item.get("name")
+                source = f"tool:{name}" if name else "tool"
+                if safety.enabled:
+                    flags = screener.screen(content) if screener else ()
+                    content = wrap_untrusted(content, source=source, flags=flags)
+                else:
+                    content = f"[{source} result]\n{content}"
+                result.append(PromptMessage(role="user", content=content))
+            else:
+                result.append(PromptMessage(role="user", content=content))
+        return result
 
     def _normalize_input(
         self,

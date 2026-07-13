@@ -6,11 +6,13 @@ from decimal import Decimal
 
 
 def test_regulus_settings_defaults():
-    """RegulusSettings has correct defaults: enabled=False, base_url, budget_cache_ttl=30."""
+    """RegulusSettings has correct defaults: enabled=True (G1), base_url, budget_cache_ttl=30."""
     from zeroth.core.econ.models import RegulusSettings
 
     s = RegulusSettings()
-    assert s.enabled is False
+    # G1: the bundled control plane is ON by default so per-tenant caps enforce
+    # out of the box (no env flags). Was False before v0.4-hardening.
+    assert s.enabled is True
     assert s.base_url == "http://localhost:8000/v1"
     assert s.budget_cache_ttl == 30
     assert s.request_timeout == 5.0
@@ -22,7 +24,8 @@ def test_regulus_settings_accessible_via_zeroth_settings():
 
     settings = ZerothSettings()
     assert hasattr(settings, "regulus")
-    assert settings.regulus.enabled is False
+    # G1: enabled by default (see test_regulus_settings_defaults).
+    assert settings.regulus.enabled is True
     assert settings.regulus.base_url == "http://localhost:8000/v1"
 
 
@@ -50,7 +53,7 @@ def test_regulus_client_delegates_to_instrumentation_client():
     """RegulusClient.track_execution() delegates to InstrumentationClient.track_execution()."""
     from unittest.mock import MagicMock
 
-    from econ_instrumentation import ExecutionEvent
+    from zeroth.core.econ.instrumentation import ExecutionEvent
 
     from zeroth.core.econ.client import RegulusClient
 

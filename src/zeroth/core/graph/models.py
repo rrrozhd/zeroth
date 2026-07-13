@@ -11,7 +11,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from governai.app.spec import (
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from zeroth.core.context_window.models import ContextWindowSettings
+from zeroth.core.governed.app.spec import (
     GovernedFlowSpec,
     GovernedStepSpec,
     TransitionSpec,
@@ -20,11 +23,9 @@ from governai.app.spec import (
     route_to,
     then,
 )
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from zeroth.core.context_window.models import ContextWindowSettings
 from zeroth.core.mappings.models import EdgeMapping
 from zeroth.core.parallel.models import ParallelConfig
+from zeroth.core.policy.models import Capability
 from zeroth.core.subgraph.models import SubgraphNodeData
 from zeroth.core.templates.models import TemplateReference
 
@@ -137,6 +138,63 @@ class TemplateMemoryBinding(BaseModel):
         return self
 
 
+_TOOL_NAME_PATTERN = r"^[a-zA-Z0-9_-]{1,64}$"
+
+
+class ToolArgument(BaseModel):
+    """One argument of a tool exposed to an agent.
+
+    The description is mandatory: the model only sees the JSON schema built
+    from these entries, so an undescribed argument is unusable in practice.
+    """
+
+    name: str = Field(pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+    type: Literal["string", "number", "integer", "boolean", "object", "array"] = "string"
+    description: str = Field(min_length=1)
+    required: bool = True
+
+    def to_schema_property(self) -> dict[str, Any]:
+        """Render this argument as a JSON Schema property."""
+        return {"type": self.type, "description": self.description}
+
+
+class AgentToolBinding(BaseModel):
+    """Exposes an attached executable-unit node as a callable tool.
+
+    The attachment itself is a tool-kind edge from the agent to the unit;
+    this binding carries what the model needs to call it — an alias distinct
+    from the node id, a description, and described arguments. All three are
+    author-provided, never derived, so the model never sees internal ids.
+    """
+
+    target_node_id: str
+    name: str = Field(pattern=_TOOL_NAME_PATTERN)
+    description: str = Field(min_length=1)
+    arguments: list[ToolArgument] = Field(default_factory=list)
+    # WS-C: extra capabilities this tool requires, UNIONED with (never replacing)
+    # the authoritative set derived from the target unit's own declared
+    # capabilities. Author-facing escape hatch for targets that carry none of
+    # their own — chiefly ``mcp://`` tools, whose target is an external server
+    # rather than a graph node.
+    required_capabilities: list[Capability] = Field(default_factory=list)
+
+    def parameters_schema(self) -> dict[str, Any]:
+        """Compile the argument list into a JSON Schema object for tool calling."""
+        return {
+            "type": "object",
+            "properties": {arg.name: arg.to_schema_property() for arg in self.arguments},
+            "required": [arg.name for arg in self.arguments if arg.required],
+            "additionalProperties": False,
+        }
+
+    @model_validator(mode="after")
+    def _validate_arguments(self) -> AgentToolBinding:
+        names = [arg.name for arg in self.arguments]
+        if len(names) != len(set(names)):
+            raise ValueError("tool argument names must be unique")
+        return self
+
+
 class AgentNodeData(BaseModel):
     """Configuration for an AI agent step.
 
@@ -147,6 +205,11 @@ class AgentNodeData(BaseModel):
     instruction: str
     model_provider: str
     tool_refs: list[str] = Field(default_factory=list)
+    tool_bindings: list[AgentToolBinding] = Field(default_factory=list)
+    # Cap on tool executions per agent step (None = runtime default). When
+    # the model requests calls beyond the cap, the runtime forces a final
+    # answer instead of executing them.
+    max_tool_calls: int | None = Field(default=None, ge=0)
     memory_refs: list[str] = Field(default_factory=list)
     retry_policy: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: int | None = Field(default=None, ge=1)
@@ -157,20 +220,59 @@ class AgentNodeData(BaseModel):
     template_ref: TemplateReference | None = None
     context_window: ContextWindowSettings | None = None
     template_memory_bindings: list[TemplateMemoryBinding] = Field(default_factory=list)
+    # When set, the input payload field under this key is read as a list of
+    # chat messages ({role: human|ai|tool, content}) and rendered as real
+    # conversation turns instead of being dumped inside the input JSON block.
+    input_messages_key: str | None = None
+    # Persist the conversation in thread state: stored turns are replayed
+    # before the incoming ones, and each successful run appends the new turns
+    # plus the agent's reply. Requires input_messages_key; runs continue a
+    # conversation by submitting the same thread_id.
+    persist_conversation: bool = False
+    # Cap on conversation turns kept (and replayed) when persisting.
+    # None keeps everything.
+    conversation_max_turns: int | None = Field(default=None, ge=1)
+    # Stakes tier for this node. Gates cost automation: the cheap-first cascade below is
+    # only ever activated on "low" nodes, because it escalates on hard failure but cannot
+    # judge subtle quality loss. "medium"/"high" nodes stay advise-only.
+    criticality: Literal["low", "medium", "high"] = "medium"
+    # Cost cascade (opt-in, off by default): when enabled, try `cheap_model` first and
+    # escalate to `model_provider` (the incumbent) only on a hard failure (provider error or
+    # blank response). A human enables this per node; the runtime additionally refuses to
+    # cascade unless `criticality == "low"`. `cheap_model` is a right-sizing candidate ref.
+    cascade_enabled: bool = False
+    cheap_model: str | None = None
 
 
 class ExecutableUnitNodeData(BaseModel):
     """Configuration for a code/script execution step.
 
-    Points to a manifest that describes what to run, how to run it,
-    and how to extract the output.
+    Two authoring paths share this node: a ``manifest_ref`` pointing at a
+    registered unit (the medium-code path), or ``inline_source`` carrying
+    authored code directly (the Studio code node). Exactly one must be set;
+    inline code always runs as a sandboxed subprocess.
     """
 
-    manifest_ref: str
-    execution_mode: Literal["native", "wrapped_command", "project"]
+    manifest_ref: str = ""
+    execution_mode: Literal["native", "wrapped_command", "project", "inline"]
+    inline_source: str | None = None
+    timeout_seconds: int | None = Field(default=None, gt=0)
     runtime_binding: str | None = None
     sandbox_config: dict[str, Any] = Field(default_factory=dict)
     output_extraction_strategy: str = "json_stdout"
+
+    @model_validator(mode="after")
+    def _validate_code_source(self) -> ExecutableUnitNodeData:
+        """Require exactly one of manifest_ref / inline_source, modes aligned."""
+        has_ref = bool(self.manifest_ref.strip())
+        has_inline = self.inline_source is not None
+        if has_ref and has_inline:
+            raise ValueError("manifest_ref and inline_source are mutually exclusive")
+        if has_inline and self.execution_mode != "inline":
+            raise ValueError("inline_source requires execution_mode='inline'")
+        if not has_inline and self.execution_mode == "inline":
+            raise ValueError("execution_mode='inline' requires inline_source")
+        return self
 
 
 class HumanApprovalNodeData(BaseModel):
@@ -203,6 +305,38 @@ class RetrievalNodeData(BaseModel):
     as_name: str = "retrieved"
 
 
+class EntrypointNodeData(BaseModel):
+    """Configuration for the workflow's entrypoint. Deliberately empty.
+
+    The entrypoint's contract lives on the node's shared ``input_contract_ref``
+    — it is the workflow's public input contract, pinned into the deployment
+    snapshot and enforced against every submitted run payload.
+    """
+
+
+class EntrypointNode(NodeBase):
+    """The node where a run enters the graph.
+
+    Declares the workflow's public input contract and passes the (already
+    ingress-validated) payload through unchanged, leaving an audit record of
+    what entered the workflow.
+    """
+
+    node_type: Literal["entrypoint"] = "entrypoint"
+    entrypoint: EntrypointNodeData = Field(default_factory=EntrypointNodeData)
+
+    def to_governed_step_spec(self) -> GovernedStepSpec:
+        """Convert this entrypoint into a spec the execution engine understands."""
+        return GovernedStepSpec(
+            name=self.node_id,
+            tool={
+                "kind": "entrypoint_ref",
+                "input_contract_ref": self.input_contract_ref,
+                "output_contract_ref": self.output_contract_ref,
+            },
+        )
+
+
 class AgentNode(NodeBase):
     """A graph node that runs an AI agent.
 
@@ -222,6 +356,7 @@ class AgentNode(NodeBase):
                 "provider_ref": self.agent.model_provider,
                 "instruction_ref": self.agent.instruction,
                 "tool_refs": list(self.agent.tool_refs),
+                "tool_bindings": [binding.model_dump() for binding in self.agent.tool_bindings],
                 "memory_refs": list(self.agent.memory_refs),
                 "input_contract_ref": self.input_contract_ref,
                 "output_contract_ref": self.output_contract_ref,
@@ -330,7 +465,12 @@ class RetrievalNode(NodeBase):
 
 
 Node = Annotated[
-    AgentNode | ExecutableUnitNode | HumanApprovalNode | SubgraphNode | RetrievalNode,
+    EntrypointNode
+    | AgentNode
+    | ExecutableUnitNode
+    | HumanApprovalNode
+    | SubgraphNode
+    | RetrievalNode,
     Field(discriminator="node_type"),
 ]
 
@@ -338,8 +478,10 @@ Node = Annotated[
 class Edge(BaseModel):
     """A connection between two nodes in the graph.
 
-    Edges define the flow of execution.  They can optionally carry a
+    Data edges define the flow of execution.  They can optionally carry a
     condition (to branch) and a mapping (to transform data between nodes).
+    Tool edges (``kind="tool"``) attach an executable unit to an agent as a
+    callable tool — they are structural, never traversed as control flow.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -347,6 +489,7 @@ class Edge(BaseModel):
     edge_id: str
     source_node_id: str
     target_node_id: str
+    kind: Literal["data", "tool"] = "data"
     mapping: EdgeMapping | None = None
     condition: Condition | None = None
     enabled: bool = True
@@ -367,6 +510,12 @@ class Graph(BaseModel):
     name: str
     version: int = Field(default=1, ge=1)
     status: GraphStatus = GraphStatus.DRAFT
+    # WS-B: tenant that owns this graph. Persisted BOTH inside the serialized
+    # payload (round-trips here) and as a dedicated ``graph_versions.tenant_id``
+    # column so the repository can filter by it. Defaults to the reserved
+    # single-tenant sentinel so backfilled/code-authored graphs stay readable.
+    tenant_id: str = "default"
+    workspace_id: str | None = None
     entry_step: str | None = None
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
@@ -458,7 +607,8 @@ class Graph(BaseModel):
         """Build a mapping from each node to its outgoing transition spec."""
         outgoing: dict[str, list[Edge]] = {}
         for edge in self.edges:
-            if not edge.enabled:
+            # Tool edges attach tools; they are not control-flow transitions.
+            if not edge.enabled or edge.kind == "tool":
                 continue
             outgoing.setdefault(edge.source_node_id, []).append(edge)
 

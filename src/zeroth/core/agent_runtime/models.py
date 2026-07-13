@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol
 
-from governai.tools.base import ExecutionPlacement
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from zeroth.core.agent_runtime.mcp import MCPServerConfig
 from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
+from zeroth.core.governed.tools.base import ExecutionPlacement
 
 
 class RetryPolicy(BaseModel):
@@ -62,6 +62,15 @@ class PromptConfig(BaseModel):
     # Keys whose values get replaced with "***REDACTED***" in prompts and audit logs
     redact_keys: tuple[str, ...] = ("password", "secret", "token")
     extra_context: dict[str, Any] = Field(default_factory=dict)
+    # When set, the input payload field under this key is read as a list of
+    # chat messages ({role: human|ai|tool, content}) and rendered as real
+    # conversation turns instead of staying inside the input JSON block.
+    messages_key: str | None = None
+    # Replay conversation turns stored in thread state before the incoming
+    # ones, and append new turns + the agent's reply after each run.
+    persist_conversation: bool = False
+    # Cap on conversation turns kept and replayed. None keeps everything.
+    conversation_max_turns: int | None = None
 
 
 class ModelParams(BaseModel):

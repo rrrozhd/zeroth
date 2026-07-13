@@ -1,8 +1,13 @@
-# Zeroth
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo/zeroth-logo-dark.svg">
+    <img src="docs/assets/logo/zeroth-logo.svg" alt="Zeroth" width="260">
+  </picture>
+</p>
 
 A governed medium-code platform for building, running, and deploying production-grade multi-agent systems as standalone API services.
 
-Zeroth treats an agentic application as an **explicit executable graph** rather than an opaque prompt chain. Every node boundary is typed, every executable unit runs inside a governed sandbox, memory is attachable and shareable, and audits are recorded per node. The result is a system you can reason about, govern, and deploy with confidence.
+Zeroth treats an agentic application as an **explicit executable graph** rather than an opaque prompt chain. Every node boundary is typed, executable units can run inside a hardened Docker/sidecar sandbox (the default local backend is for development), memory is attachable and shareable, and audits are recorded per node. The result is a system you can reason about, govern, and deploy with confidence.
 
 ---
 
@@ -34,6 +39,18 @@ Studio), and starts the service. Open **<http://127.0.0.1:8000/console/>** and
 connect with the demo key `demo-operator-key` — the console's Guide page and
 workflow templates take it from there.
 
+No clone needed — the pip install alone can serve a runnable demo:
+
+```bash
+pip install zeroth-core
+zeroth-core seed-demo   # creates schema + a deployed single-agent graph;
+                        # prints the export + curl commands for your first run
+zeroth-core serve
+```
+
+Or containerized: `docker build -t zeroth-core . && docker run -p 8000:8000 zeroth-core`
+(see `Dockerfile` and `docker-compose.yml`).
+
 ---
 
 ## Install
@@ -45,15 +62,18 @@ pip install zeroth-core
 Optional extras pull in swappable backends (base install stays minimal):
 
 ```bash
+pip install "zeroth-core[console]"       # Bundled web console UI (no Node needed)
 pip install "zeroth-core[memory-pg]"     # Postgres + pgvector memory backend
 pip install "zeroth-core[memory-chroma]" # Chroma memory backend
 pip install "zeroth-core[memory-es]"     # Elasticsearch memory backend
 pip install "zeroth-core[dispatch]"      # Distributed worker (redis + arq)
 pip install "zeroth-core[sandbox]"       # Sandbox sidecar marker
-pip install "zeroth-core[all]"           # Everything above
+pip install "zeroth-core[otel]"          # OpenTelemetry trace/metric export
+pip install "zeroth-core[regulus]"       # Bundled economic control plane backend
+pip install "zeroth-core[all]"           # Everything above except console
 ```
 
-Available extras: `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `all`.
+Available extras: `console`, `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `otel`, `regulus`, `all`.
 
 ---
 
@@ -76,13 +96,16 @@ Most agent frameworks prioritize getting something working quickly. Zeroth prior
 
 A **graph** is your application. It defines how agents, executable units, and approval steps connect and interact. Graphs can be cyclic, support branching conditions, and are executed asynchronously.
 
-### Three Node Types
+### Node Types
 
-Zeroth keeps its primitives minimal. Every graph is composed from just three node types:
+Zeroth keeps its primitives minimal. Every graph is composed from a small set of node types:
 
-- **Agent** — an AI-powered node backed by an LLM provider, with optional tool attachments and memory connectors
+- **Entrypoint** — where a run starts; its contract is the workflow's public input shape, validated before anything executes
+- **Agent** — an AI-powered node backed by an LLM provider, with optional memory connectors and tool attachments (other graph units can be attached as callable tools)
 - **Executable Unit** — a sandboxed unit of work (Python code, shell scripts, commands, or full projects) that handles transformations, integrations, routing, and any deterministic processing
 - **Human Approval** — a pause point where a human must review and approve before execution continues
+- **Retrieval** — queries a memory/knowledge connector and passes the top matches downstream (the grounding step in a RAG flow)
+- **Subgraph** — invokes another published graph as a single step, keeping workflows small and composable
 
 ### Contracts
 
@@ -100,15 +123,16 @@ A **run** is a single execution of a graph. A **thread** groups related runs tog
 
 Zeroth enforces governance at multiple layers:
 
-- **Policy** — capability-based rules controlling what agents can do (network access, file writes, memory access, secret usage)
+- **Policy** — capability-based rules controlling what agents can do (network access, file writes, memory access, secret usage). Enforcement is **on by default and fail-closed**: a served node that invokes a tool or touches memory without declaring the matching capability is *denied* (agent tool calls and memory reads/writes are behaviorally gated, not merely audited); an agent-invoked executable unit runs under the calling agent's enforcement envelope, so the sandbox network/secret gate applies to it too. Behavioral **network and filesystem** isolation for executable units requires the Docker or sidecar backend — the local backend refuses network-bearing nodes under the strict/standard sandbox posture rather than running them unconstrained. Turn enforcement off (capabilities become advisory) with `ZEROTH_POLICY__ENFORCE_CAPABILITIES=false`.
 - **Guardrails** — rate limiting, quota enforcement, and dead-letter queues for failed operations
+- **Budgets** — per-tenant spend caps enforced through the bundled economic control plane. Enforcement requires the `regulus` extra (included in `[all]`): with it installed, the plane is mounted in-process at `/regulus` with no env flags required, so a default deploy reaches it over the app's own ASGI transport, not a separate host, and per-tenant caps trip with per-node cost attribution from the first run. A fresh deploy auto-generates a strong **ephemeral per-process signing secret** for the mount, so it boots with no configuration; set `ECP_JWT_SECRET` to a persistent value for **multi-worker or persistent deployments**. Prefer an external Regulus instead? Point at it with `ZEROTH_REGULUS__BASE_URL` (and skip the in-process mount). Turn the plane off entirely with `ZEROTH_REGULUS__ENABLED=false`. The pre-LLM tenant check **fails open by default** — a control-plane outage never blocks a run, it is logged at `WARNING` and the cap simply isn't enforced for that call; flip to **fail-closed** (deny on backend error) with `ZEROTH_REGULUS__FAIL_CLOSED=true`. The tenant check is eventually consistent: it sees spend recorded *before* the current call (spend-to-date), so a single run can overshoot within one cycle. For a tighter, control-plane-independent guard, set a per-run cumulative ceiling with `ZEROTH_REGULUS__PER_RUN_CAP_USD` (USD) — enforced locally from the run's own audit cost, so it works even with the control plane disabled, halting a run on the next node once its accumulated cost crosses the cap. On a bare install (`pip install zeroth-core`, no extra) there is no enforcement backend at all — the pre-LLM tenant check fails open and caps are **not** enforced until you install the extra or point at an external plane.
 - **Audit** — per-node event tracking with secret redaction, timeline assembly, and evidence summaries
 - **Approvals** — human-in-the-loop gates with decision tracking
 - **Secrets** — resolved from secure providers and automatically redacted from logs
 
-### v4.0 Platform Extensions
+### Platform Extensions
 
-Zeroth v4.0 adds six subsystems for production agentic workflows:
+Six further subsystems support production agentic workflows:
 
 - **Resilient HTTP Client** — Platform-provided async HTTP with retry, circuit breaking, and connection pooling for external API calls
 - **Prompt Templates** — Versioned prompt template registry with Jinja2 sandboxed rendering and automatic secret redaction in audit records
@@ -142,6 +166,8 @@ REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template ma
 │  Context Window Mgmt    │  Resilient HTTP Client     │
 ├──────────────────────────────────────────────────────┤
 │  Audit  │  Guardrails  │  Secrets  │  Observability │
+├──────────────────────────────────────────────────────┤
+│  Econ Plane (cost attribution, tenant budget caps)   │
 ├──────────────────────────────────────────────────────┤
 │  Storage (SQLite + Redis)  │  Identity & Auth        │
 └──────────────────────────────────────────────────────┘
@@ -200,33 +226,46 @@ uv run ruff format src/
 ## Project Structure
 
 ```
-src/zeroth/
+src/zeroth/core/
 ├── agent_runtime/      # Agent execution, LLM providers, tool attachments
 ├── approvals/          # Human approval workflows and decision tracking
 ├── artifacts/          # Artifact externalization and retrieval
 ├── audit/              # Per-node event tracking, redaction, evidence
+├── cli.py              # zeroth-core CLI (serve, seed-demo, migrate)
 ├── conditions/         # Branch evaluation and traversal logging
+├── config/             # Runtime settings and configuration reference
 ├── context_window/     # Token tracking and context compaction
 ├── contracts/          # Pydantic-based schema registration and versioning
 ├── deployments/        # Immutable graph snapshots and version management
 ├── dispatch/           # Durable run dispatch and worker supervision
+├── econ/               # Cost estimation, budget enforcement, econ integration
+├── eval/               # Agent evaluation harness: datasets, scorers, CI gate
 ├── execution_units/    # Sandboxed code execution (Docker, Python, shell)
+├── governed/           # Vendored governed-runtime primitives (absorbed governai): memory types, tool contracts, run-state, audit emitters
 ├── graph/              # Workflow DAG structure and persistence
 ├── guardrails/         # Rate limiting, quotas, dead-letter queues
-├── http/               # Resilient async HTTP client (http_client) with retry and circuit breaking
+├── http/               # Resilient async HTTP client with retry and circuit breaking
 ├── identity/           # Authentication, principals, roles, scoping
 ├── mappings/           # Data flow definitions between graph nodes
 ├── memory/             # Persistent agent memory connectors
+├── migrations/         # Schema migrations applied at boot
 ├── observability/      # Metrics, correlation IDs, structured logging
 ├── orchestrator/       # Core workflow execution engine
 ├── parallel/           # Fan-out/fan-in concurrent branch execution
 ├── policy/             # Capability-based access control
+├── rag/                # Document ingestion for retrieval (chunk + embed)
 ├── runs/               # Run and thread state persistence
+├── sandbox_sidecar/    # Sidecar sandbox backend
 ├── secrets/            # Secret resolution and redaction
-├── service/            # FastAPI HTTP API and bootstrap
+├── service/            # FastAPI HTTP API, console mount, bootstrap
 ├── storage/            # SQLite, Redis, migrations, encryption
 ├── subgraph/           # Nested graph composition and resolution
-└── templates/          # Versioned prompt template registry
+├── templates/          # Versioned prompt template registry
+└── webhooks/           # Webhook subscriptions, signed delivery, dead-letter
+
+    econ_plane/         # Economic control plane backend (absorbed Regulus)
+    core/econ/instrumentation/  # Cost-instrumentation SDK used by core/econ/
+frontend/               # Next.js web console (static export, see below)
 ```
 
 ---
@@ -241,7 +280,7 @@ Zeroth supports three ways to define executable units:
 | **Wrapped Command** | Existing script, binary, or command with a manifest | Integrating existing tools without rewriting them |
 | **Project Unit** | Uploaded project/archive with build + run manifest | Complex workloads with dependencies |
 
-All executable units run inside sandboxed environments with resource constraints, cached environment reuse, and integrity verification.
+Executable units run under a configurable sandbox backend — hardened Docker (read-only root, all capabilities dropped, no-new-privileges) or a sidecar, with resource constraints, cached environment reuse, and integrity verification. The default `local` backend runs units as host subprocesses with env filtering only: choose Docker or sidecar for untrusted code.
 
 ---
 
@@ -288,27 +327,35 @@ The console is built once and runs in **two modes from the same bundle**:
 The console reads its API base URL and `X-API-Key` from the browser at runtime
 (localStorage), so the same artifact works in both modes.
 
-**What it covers:** an overview/health dashboard with a getting-started
-checklist; runs (submit with example payloads + a live-polling detail view);
-approvals (approve/reject); per-node audit; deployment cost; a Studio with
-workflow templates, CRUD, and a React Flow graph canvas; and an in-console
-Guide.
+**What it covers:** an overview/health dashboard with deployments and a
+getting-started checklist; runs (submit with example payloads, a live-polling
+detail view, and ready-made cURL for the deployed API); approvals
+(approve/reject); per-node audit; deployment cost; connector administration;
+a Studio with workflow templates, CRUD, publish/deploy, and a full-screen
+React Flow canvas; and an in-console Guide.
 
-> **Studio authoring edits draft graph structure.** On a *draft* you can add the
-> five executable node types (agent, executable_unit, human_approval, retrieval,
-> subgraph), edit each node's config, draw edges, and save real graph nodes/edges
-> plus layout. Published graphs are read-only — *clone to a draft* to edit. Note:
-> an authored draft still needs contracts + a registered runner + deployment to
-> actually run; the canvas authors graph *structure*, not the full medium-code
-> wiring.
+> **Studio authoring closes the canvas→run loop.** On a *draft* you can add
+> any of the node types above — plus inline Python **code** nodes that execute
+> in the sandbox — edit each node's config, draw data edges and agent **tool**
+> edges, author JSON-Schema contracts, and pick the entrypoint. Publish the
+> draft, deploy it, and run it straight from the canvas with live per-node
+> status and past-run replay — no Python required. One caveat, surfaced in the
+> deploy dialog too: creating a deployment registers a new version, but serving
+> it still needs a service restart — runs from the canvas execute against the
+> currently *served* deployment. Published graphs are read-only — *clone to a
+> draft* to edit.
 
 ```bash
-# Build the static export (requires Node; produces frontend/out/)
+# Easiest: the [console] extra ships the pre-built UI as the zeroth-console
+# package — no Node toolchain required. Any Zeroth service then serves it
+# at http://<host>/console/ automatically.
+pip install "zeroth-core[console]"
+
+# From a source checkout: build the static export yourself (requires Node;
+# produces frontend/out/, which takes precedence over the installed package)
 cd frontend && npm install && npm run build
 
-# Mounted: any Zeroth service auto-mounts frontend/out at /console.
-# Override the location with ZEROTH_CONSOLE_DIR=/path/to/out
-# Then open http://<host>/console/
+# Override the assets location explicitly with ZEROTH_CONSOLE_DIR=/path/to/out
 
 # Standalone dev against a running API on :8000
 npm run dev                       # serves http://localhost:3000/console/
@@ -318,7 +365,7 @@ export ZEROTH_CONSOLE_CORS_ORIGINS="http://localhost:3000"
 
 | Env var | Purpose |
 | ------- | ------- |
-| `ZEROTH_CONSOLE_DIR` | Explicit path to the built `out/` dir (defaults to `frontend/out`). |
+| `ZEROTH_CONSOLE_DIR` | Explicit path to the built `out/` dir (default resolution: `frontend/out` in a checkout, then the installed `zeroth-console` package). |
 | `ZEROTH_CONSOLE_CORS_ORIGINS` | Comma-separated origins allowed to call the API cross-origin (standalone mode). Unset = no CORS (mounted mode). |
 
 If no build is present (Python-only install / CI with no Node), the mount is

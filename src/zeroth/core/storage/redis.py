@@ -15,9 +15,10 @@ from enum import StrEnum
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from governai.audit.redis import RedisAuditEmitter
-from governai.runtime import RedisInterruptStore, RedisRunStore
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
+
+from zeroth.core.governed.audit.redis import RedisAuditEmitter
+from zeroth.core.governed.runtime import RedisInterruptStore, RedisRunStore
 
 
 class RedisDeploymentMode(StrEnum):

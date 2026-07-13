@@ -139,3 +139,24 @@ def test_policy_violation_is_raised_when_required_isolation_cannot_be_met() -> N
             ["echo", "hello"],
             resource_constraints=ResourceConstraints(network_access=False),
         )
+
+
+def test_docker_hardening_flags_applied_by_default() -> None:
+    from zeroth.core.execution_units.sandbox import DockerSandboxConfig, _docker_hardening_flags
+
+    flags = _docker_hardening_flags(DockerSandboxConfig())
+    assert "--read-only" in flags
+    assert flags[flags.index("--cap-drop") + 1] == "ALL"
+    assert flags[flags.index("--security-opt") + 1] == "no-new-privileges"
+    assert flags[flags.index("--tmpfs") + 1] == "/tmp"
+    assert "--user" not in flags
+
+
+def test_docker_hardening_flags_disabled_and_user_override() -> None:
+    from zeroth.core.execution_units.sandbox import DockerSandboxConfig, _docker_hardening_flags
+
+    assert _docker_hardening_flags(DockerSandboxConfig(hardened=False)) == []
+    flags = _docker_hardening_flags(
+        DockerSandboxConfig(hardened=False, run_as_user="65534:65534")
+    )
+    assert flags == ["--user", "65534:65534"]

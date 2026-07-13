@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from zeroth.core.contracts import ContractReference, ContractRegistry
@@ -13,11 +14,18 @@ from zeroth.core.deployments.provenance import (
     compute_contract_snapshot_digest,
     compute_graph_snapshot_digest,
     compute_settings_snapshot_digest,
+    sign_attestation,
 )
-from zeroth.core.deployments.repository import SQLiteDeploymentRepository
+from zeroth.core.deployments.repository import (
+    DeploymentRefLineageConflictError,
+    SQLiteDeploymentRepository,
+)
 from zeroth.core.graph import Graph, GraphRepository, GraphStatus, Node
 from zeroth.core.graph.serialization import serialize_graph
 from zeroth.core.graph.versioning import graph_version_ref
+
+if TYPE_CHECKING:
+    from zeroth.core.signing import SigningKeyProvider
 
 
 class DeploymentError(RuntimeError):
@@ -31,16 +39,32 @@ class DeploymentService:
     graph_repository: GraphRepository
     deployment_repository: SQLiteDeploymentRepository
     contract_registry: ContractRegistry | None = None
+    # WS-D signer: when None the attestation is stored unsigned-legacy. Injected
+    # post-construction by bootstrap once the shared secret provider is built.
+    signer: SigningKeyProvider | None = None
 
     async def deploy(
         self,
         deployment_ref: str,
         graph_id: str,
         graph_version: int | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> Deployment:
         """Create a new immutable deployment version from a published graph."""
-        await self._ensure_deployment_ref_lineage(deployment_ref, graph_id)
-        graph = await self._require_published_graph(graph_id, graph_version)
+        await self._ensure_deployment_ref_lineage(
+            deployment_ref,
+            graph_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        graph = await self._require_published_graph(
+            graph_id,
+            graph_version,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
         entry_node = self._entry_node(graph)
         # Contract versions are pinned now so the deployment keeps using
         # the same schema later.
@@ -53,13 +77,15 @@ class DeploymentService:
         last_error: Exception | None = None
         for _ in range(3):
             # Version allocation can race, so retry a few times on conflicts.
-            tenant_id = str(graph.deployment_settings.get("tenant_id", "default"))
-            workspace_id = graph.deployment_settings.get("workspace_id")
             serialized_graph = serialize_graph(graph)
             deployment = Deployment(
                 deployment_id=uuid4().hex,
                 deployment_ref=deployment_ref,
-                version=await self.deployment_repository.next_version(deployment_ref),
+                version=await self.deployment_repository.next_version(
+                    deployment_ref,
+                    tenant_id=graph.tenant_id,
+                    workspace_id=graph.workspace_id,
+                ),
                 graph_id=graph.graph_id,
                 graph_version=graph.version,
                 graph_version_ref=graph_version_ref(graph.graph_id, graph.version),
@@ -83,44 +109,126 @@ class DeploymentService:
                 settings_snapshot_digest=compute_settings_snapshot_digest(
                     dict(graph.deployment_settings)
                 ),
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
+                tenant_id=graph.tenant_id,
+                workspace_id=graph.workspace_id,
             )
             deployment.attestation_digest = str(
                 build_attestation_payload(deployment)["attestation_digest"]
             )
+            # Sign inside the version-allocation retry loop so the row that is
+            # ultimately persisted always carries a signature over ITS digest.
+            signature, key_id, algorithm = sign_attestation(
+                deployment.attestation_digest, self.signer
+            )
+            deployment.attestation_signature = signature
+            deployment.attestation_signing_key_id = key_id
+            deployment.attestation_algorithm = algorithm
             try:
-                return await self.deployment_repository.create(deployment)
+                return await self.deployment_repository.create(
+                    deployment,
+                    tenant_id=graph.tenant_id,
+                    workspace_id=graph.workspace_id,
+                )
+            except DeploymentRefLineageConflictError as exc:
+                msg = (
+                    f"deployment_ref {deployment_ref!r} is already bound to graph "
+                    f"{exc.graph_id!r} and cannot be reused for {graph_id!r}"
+                )
+                raise DeploymentError(msg) from exc
+            except KeyError:
+                raise
             except Exception as exc:
                 last_error = exc
         raise DeploymentError(
             f"failed to allocate deployment version for {deployment_ref!r} after retries"
         ) from last_error
 
-    async def get(self, deployment_ref: str, version: int | None = None) -> Deployment | None:
-        """Load the latest or a specific deployment version."""
-        return await self.deployment_repository.get(deployment_ref, version)
+    async def get(
+        self,
+        deployment_ref: str,
+        version: int | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> Deployment | None:
+        """Load the latest or a specific deployment version (optionally tenant-scoped)."""
+        return await self.deployment_repository.get(
+            deployment_ref,
+            version,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
 
-    async def list(self, deployment_ref: str | None = None) -> list[Deployment]:
-        """Return deployment history, optionally scoped to one ref."""
-        return await self.deployment_repository.list(deployment_ref)
+    async def list(
+        self,
+        deployment_ref: str | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> list[Deployment]:
+        """Return deployment history, optionally scoped to one ref and/or tenant."""
+        return await self.deployment_repository.list(
+            deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
 
-    async def rollback(self, deployment_ref: str, *, target_graph_version: int) -> Deployment:
+    async def rollback(
+        self,
+        deployment_ref: str,
+        *,
+        target_graph_version: int,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> Deployment:
         """Redeploy an earlier published graph version under the same ref."""
-        current = await self.deployment_repository.get(deployment_ref)
+        current = await self.deployment_repository.get(
+            deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
         if current is None:
             raise KeyError(deployment_ref)
-        return await self.deploy(deployment_ref, current.graph_id, target_graph_version)
+        return await self.deploy(
+            deployment_ref,
+            current.graph_id,
+            target_graph_version,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
 
-    async def _require_published_graph(self, graph_id: str, version: int | None) -> Graph:
+    async def _require_published_graph(
+        self,
+        graph_id: str,
+        version: int | None,
+        *,
+        tenant_id: str | None,
+        workspace_id: str | None,
+    ) -> Graph:
         """Load a graph version and ensure it is published before deploy."""
         graph = (
-            await self.graph_repository.get(graph_id, version)
+            await self.graph_repository.get(
+                graph_id,
+                version,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
             if version is not None
-            else await self._latest_published_graph(graph_id)
+            else await self._latest_published_graph(
+                graph_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
         )
         if graph is None:
             if version is None:
+                visible_graph = await self.graph_repository.get(
+                    graph_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                )
+                if tenant_id is not None and visible_graph is None:
+                    raise KeyError(graph_id)
                 raise DeploymentError(f"graph {graph_id} has no published versions to deploy")
             raise KeyError(f"{graph_id}@{version}")
         if graph.status is not GraphStatus.PUBLISHED:
@@ -128,16 +236,42 @@ class DeploymentService:
             raise DeploymentError(msg)
         return graph
 
-    async def _latest_published_graph(self, graph_id: str) -> Graph | None:
+    async def _latest_published_graph(
+        self,
+        graph_id: str,
+        *,
+        tenant_id: str | None,
+        workspace_id: str | None,
+    ) -> Graph | None:
         """Return the newest published graph version for a graph lineage."""
-        for graph in reversed(await self.graph_repository.list_versions(graph_id)):
+        graphs = await self.graph_repository.list_versions(
+            graph_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        for graph in reversed(graphs):
             if graph.status is GraphStatus.PUBLISHED:
                 return graph
         return None
 
-    async def _ensure_deployment_ref_lineage(self, deployment_ref: str, graph_id: str) -> None:
+    async def _ensure_deployment_ref_lineage(
+        self,
+        deployment_ref: str,
+        graph_id: str,
+        *,
+        tenant_id: str | None,
+        workspace_id: str | None,
+    ) -> None:
         """Reject rebinding a deployment ref to a different graph lineage."""
-        existing = await self.deployment_repository.get(deployment_ref)
+        existing = await self.deployment_repository.get(
+            deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        if existing is None and tenant_id is not None:
+            if await self.deployment_repository.get(deployment_ref) is not None:
+                raise KeyError(deployment_ref)
+            return
         if existing is None or existing.graph_id == graph_id:
             return
         msg = (

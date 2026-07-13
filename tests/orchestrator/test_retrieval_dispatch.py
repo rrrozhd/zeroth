@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from governai.memory.models import MemoryEntry, MemoryScope
+from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.audit import AuditRepository
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
@@ -94,6 +94,7 @@ def _run_stub() -> MagicMock:
     run = MagicMock()
     run.run_id = "r1"
     run.thread_id = ""
+    run.tenant_id = "default"  # WS-B: memory resolution is fail-closed on tenant
     return run
 
 

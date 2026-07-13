@@ -15,7 +15,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from governai.tools.python_tool import PythonHandler
 from pydantic import BaseModel, ValidationError
 
 from zeroth.core.execution_units.adapters import PythonRuntimeAdapter
@@ -29,6 +28,7 @@ from zeroth.core.execution_units.io import (
 )
 from zeroth.core.execution_units.models import (
     ExecutableUnitManifest,
+    InlineUnitManifest,
     NativeUnitManifest,
     ProjectUnitManifest,
     WrappedCommandUnitManifest,
@@ -39,6 +39,7 @@ from zeroth.core.execution_units.sandbox import (
     SandboxManager,
     SandboxStrictnessMode,
 )
+from zeroth.core.governed.tools.python_tool import PythonHandler
 from zeroth.core.policy import Capability, apply_secret_policy
 from zeroth.core.secrets import SecretResolver
 
@@ -159,6 +160,10 @@ class ExecutableUnitRegistry:
     def has(self, manifest_ref: str) -> bool:
         """Return True if a binding with this ref string exists."""
         return manifest_ref in self._bindings
+
+    def list(self) -> dict[str, ExecutableUnitBinding]:
+        """All registered bindings by manifest ref (shallow copy; used by /v1/manifests)."""
+        return dict(self._bindings)
 
 
 class ExecutableUnitRunner:
@@ -314,7 +319,7 @@ class ExecutableUnitRunner:
         """
         manifest = binding.manifest
         enforcement = dict(enforcement_context or {})
-        manifest_env, secret_env_keys = self._manifest_environment(manifest)
+        manifest_env, secret_env_keys = await self._manifest_environment(manifest)
         secret_filtered_env = self._apply_allowed_secrets(
             manifest_env,
             enforcement,
@@ -342,6 +347,10 @@ class ExecutableUnitRunner:
         with tempfile.TemporaryDirectory(prefix="zeroth-eu-") as tempdir:
             sandbox_root = Path(tempdir)
             cwd = self._resolve_workdir(sandbox_root, manifest.run_config.working_directory)
+            if isinstance(manifest, InlineUnitManifest):
+                # Inline units carry their code with them — materialize it as
+                # the entry file the manifest's run command expects.
+                (cwd / "main.py").write_text(manifest.artifact_source.source, encoding="utf-8")
             input_file = cwd / "zeroth-input.json"
             output_file = cwd / "zeroth-output.json"
             injected = inject_input(
@@ -592,11 +601,15 @@ class ExecutableUnitRunner:
         preserved_environment.update(filtered_secret_env)
         return preserved_environment
 
-    def _manifest_environment(
+    async def _manifest_environment(
         self,
         manifest: ExecutableUnitManifest,
     ) -> tuple[dict[str, str], set[str]]:
-        """Build the manifest-defined environment, resolving secret refs when needed."""
+        """Build the manifest-defined environment, resolving secret refs when needed.
+
+        Async because secret refs may resolve through a network-backed provider
+        (Vault); the async resolver keeps that fetch off the event loop.
+        """
         environment = dict(manifest.run_config.environment)
         secret_env_keys: set[str] = set()
         if not manifest.environment_variables:
@@ -621,7 +634,9 @@ class ExecutableUnitRunner:
         secret_env_keys = {
             item.name for item in manifest.environment_variables if item.secret_ref is not None
         }
-        environment.update(resolver.resolve_environment_variables(manifest.environment_variables))
+        environment.update(
+            await resolver.resolve_environment_variables_async(manifest.environment_variables)
+        )
         return environment, secret_env_keys
 
     def _effective_timeout(
@@ -638,7 +653,7 @@ class ExecutableUnitRunner:
 
     def _resource_constraints_for(
         self,
-        manifest: WrappedCommandUnitManifest | ProjectUnitManifest,
+        manifest: WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
         enforcement_context: Mapping[str, Any],
     ) -> ResourceConstraints | None:
         """Translate manifest limits plus policy network mode into sandbox constraints."""
@@ -667,7 +682,7 @@ class ExecutableUnitRunner:
 
     def _command_for(
         self,
-        manifest: WrappedCommandUnitManifest | ProjectUnitManifest,
+        manifest: WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
         argv: Sequence[str] = (),
     ) -> list[str]:
         """Build the full command list from the manifest's config plus extra args."""

@@ -14,6 +14,7 @@ class Permission(StrEnum):
     """Permissions enforced by the Phase 6 service surface."""
 
     DEPLOYMENT_READ = "deployment:read"
+    DEPLOYMENT_ADMIN = "deployment:admin"
     RUN_CREATE = "run:create"
     RUN_READ = "run:read"
     APPROVAL_READ = "approval:read"
@@ -21,15 +22,25 @@ class Permission(StrEnum):
     AUDIT_READ = "audit:read"
     RUN_ADMIN = "run:admin"
     METRICS_READ = "metrics:read"
+    METRICS_ADMIN = "metrics:admin"
     WEBHOOK_ADMIN = "webhook:admin"
     TEMPLATE_ADMIN = "template:admin"
     WORKFLOW_READ = "workflow:read"
     WORKFLOW_ADMIN = "workflow:admin"
+    CONNECTOR_ADMIN = "connector:admin"
+    # WS-E: retention policy, legal-hold, and right-to-erasure administration.
+    # Deliberately admin-tier (ADMIN holds all permissions); erasure is
+    # irreversible and destroys the plaintext behind the audit trail.
+    RETENTION_ADMIN = "retention:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
     ServiceRole.OPERATOR: {
         Permission.DEPLOYMENT_READ,
+        # Deploying a published graph is the tail of the operator authoring
+        # loop (author -> publish -> deploy); serving swaps remain an ops
+        # action (restart with the new deployment_ref).
+        Permission.DEPLOYMENT_ADMIN,
         Permission.RUN_CREATE,
         Permission.RUN_READ,
         Permission.APPROVAL_READ,
@@ -37,6 +48,10 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # (METRICS_READ) stays admin-only, consistent with the /metrics endpoint.
         Permission.WORKFLOW_READ,
         Permission.WORKFLOW_ADMIN,
+        # Operators author graphs and the infrastructure bindings those
+        # graphs depend on -- memory connector CRUD is part of that
+        # authoring surface. Reviewers stay read-only.
+        Permission.CONNECTOR_ADMIN,
     },
     ServiceRole.REVIEWER: {
         Permission.DEPLOYMENT_READ,
@@ -45,6 +60,10 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         Permission.APPROVAL_RESOLVE,
         # Reviewers see graphs but don't author them.
         Permission.WORKFLOW_READ,
+        # Reviewing evidence is the role's purpose: the audit trail is
+        # read-only governance data, same tier as runs and approvals.
+        # Cost/spend (METRICS_READ) stays admin-only.
+        Permission.AUDIT_READ,
     },
     ServiceRole.ADMIN: set(Permission),
 }

@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.4.2.3"
+version = "0.10"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -39,15 +39,18 @@ dependencies = [
     "PyJWT[crypto]>=2.10",
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
-    "governai>=0.2.3",
     "tenacity>=8.2",
     "cachetools>=5.5",
+    "jsonschema>=4.22",
     "litellm>=1.83,<2.0",
     "langchain-litellm>=0.3.4",
     "uvicorn>=0.30",
     "mcp>=1.7,<2.0",
     "redis>=5.3.1",
 ]
+
+[project.scripts]
+zeroth-core = "zeroth.core.cli:main"
 
 [project.optional-dependencies]
 memory-pg = [
@@ -70,8 +73,9 @@ otel = [
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-http>=1.27",
 ]
-# Bundled Regulus economic control plane (src/econ_plane). Source lives in-repo;
-# these are the extra runtime deps needed to import + boot the backend on SQLite.
+# Regulus economic control plane, absorbed into the package at
+# src/zeroth/econ_plane. These are the extra runtime deps needed to import + boot
+# the backend on SQLite.
 # (fastapi/uvicorn/httpx/sqlalchemy/pydantic-settings/redis are already core.)
 # Postgres adds psycopg (see memory-pg); kafka/prometheus/otel are lazy/flag-gated.
 regulus = [
@@ -79,6 +83,12 @@ regulus = [
     "email-validator>=2.2",
     "numpy>=1.26",
     "dramatiq>=1.17",
+]
+# Bundled web console UI (packaging/console): the built static export as a
+# companion package so no Node toolchain is needed. Deliberately NOT part of
+# [all] — a headless [all] install shouldn't pull UI assets.
+console = [
+    "zeroth-console",
 ]
 all = [
     "zeroth-core[memory-pg]",
@@ -93,7 +103,12 @@ docs = [
     "mkdocs>=1.6,<2.0",
     "mkdocs-material>=9.7.6,<10",
     "pymdown-extensions>=10.8",
-    "mkdocs-section-index>=0.3.9",
+    # Pinned to 0.3.9: 0.3.10+ added a dependency on `properdocs` (an MkDocs
+    # fork) whose package ships machinery that can silently redirect all
+    # mkdocs.* imports to itself, and prints solicitation banners during
+    # builds. Keep this pin until section-index drops that dependency or the
+    # docs stack is migrated deliberately.
+    "mkdocs-section-index==0.3.9",
     "mkdocstrings[python]>=0.26,<1",
 ]
 
@@ -108,11 +123,19 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# Namespace layout (PEP 420): src/zeroth has no __init__.py; hatchling packs src/zeroth/core/ under zeroth/core/ in the wheel. VERIFIED against 0.1.0 wheel. See 28-RESEARCH.md pitfall #2.
-packages = ["src/zeroth", "src/econ_instrumentation", "src/econ_plane"]
+# Namespace layout (PEP 420): src/zeroth has no __init__.py; hatchling packs
+# everything under src/zeroth/ (zeroth/core/, zeroth/econ_plane/, …) into the wheel.
+# The absorbed Regulus trees now live under src/zeroth, so a single package root
+# suffices. Re-verify wheel contents after the absorption (see 28-RESEARCH.md pitfall #2).
+packages = ["src/zeroth"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv.sources]
+# Resolve the [console] extra from the in-repo package during development —
+# published metadata keeps the plain name and resolves from PyPI.
+zeroth-console = { path = "packaging/console" }
 
 [dependency-groups]
 dev = [
@@ -131,14 +154,16 @@ asyncio_mode = "auto"
 addopts = "-m 'not live'"
 markers = [
     "live: marks tests requiring live API keys (deselect with '-m not live')",
+    "postgres: marks tests exercising PostgreSQL-specific coordination",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# Vendored from the Regulus repo (see src/econ_*/VENDOR.md) -- keep upstream
-# style intact so re-syncs stay clean rather than imposing Zeroth's lint rules.
-extend-exclude = ["src/econ_instrumentation", "src/econ_plane"]
+# Absorbed Regulus subsystem (see PROVENANCE.md in each tree) -- Zeroth-owned,
+# but its ~6500 LOC predate Zeroth's lint rules; full D/ruff conformance is a
+# deferred cleanup, so keep it excluded for now rather than block on a mass reformat.
+extend-exclude = ["src/zeroth/core/econ/instrumentation", "src/zeroth/econ_plane", "src/zeroth/core/governed"]
 force-exclude = true
 
 [tool.ruff.lint]
@@ -155,6 +180,9 @@ ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 # pydocstyle / line-length / unused-var rules are muted to keep the
 # tutorials focused on the topic instead of lint gymnastics.
 "examples/**/*.py" = ["D205", "D301", "E501", "F841", "N999", "SIM105", "SIM115"]
+# Reference apps set service env defaults before importing zeroth.core (the
+# settings singleton reads env at import time), so E402 is structural there.
+"apps/**/*.py" = ["D205", "D301", "E402"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -164,4 +192,4 @@ fail-under = 90
 ignore-init-method = true
 ignore-init-module = true
 ignore-nested-functions = true
-exclude = ["src/zeroth/core/migrations", "tests", "scripts", "src/econ_instrumentation", "src/econ_plane"]
+exclude = ["src/zeroth/core/migrations", "tests", "scripts", "src/zeroth/core/econ/instrumentation", "src/zeroth/econ_plane", "src/zeroth/core/governed"]

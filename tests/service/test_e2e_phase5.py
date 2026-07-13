@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from fastapi.testclient import TestClient
-from governai.memory.models import MemoryScope
+from zeroth.core.governed.memory.models import MemoryScope
 from pydantic import BaseModel
 
 from tests.service.helpers import (
@@ -350,6 +350,9 @@ def _shared_memory_graph(*, graph_id: str) -> Graph:
                 graph_version_ref=f"{graph_id}@1",
                 input_contract_ref="contract://input",
                 output_contract_ref="contract://output",
+                # WS-C: agents with memory_refs load AND store memory, so they
+                # must declare both MEMORY_READ and MEMORY_WRITE under enforcement.
+                capability_bindings=["memory_read", "memory_write"],
                 agent=AgentNodeData(
                     instruction="write",
                     model_provider="provider://writer",
@@ -361,6 +364,7 @@ def _shared_memory_graph(*, graph_id: str) -> Graph:
                 graph_version_ref=f"{graph_id}@1",
                 input_contract_ref="contract://input",
                 output_contract_ref="contract://output",
+                capability_bindings=["memory_read", "memory_write"],
                 agent=AgentNodeData(
                     instruction="read",
                     model_provider="provider://reader",
