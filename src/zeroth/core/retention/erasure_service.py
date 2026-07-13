@@ -475,36 +475,16 @@ class RetentionErasureService:
         return results
 
     async def purge_tenant(self, tenant_id: str) -> list[ErasureResult]:
-        """TTL purge: erase every aged, non-held run for a tenant.
+        """Combined TTL sweep: run erasure first, then audit tombstoning.
 
-        Resolves the tenant's retention policy, computes the audit TTL cutoff, and
-        erases each run with records older than the cutoff — skipping runs frozen
-        by a legal hold. A ``None`` audit TTL (keep forever) or a tenant-wide hold
-        means nothing is purged.
+        Convenience surface for manual/API callers. Run TTL fully erases aged
+        terminal runs; audit TTL then tombstones whatever aged audits remain.
+        An old audit no longer drags its whole run into erasure — that is
+        exclusively the run TTL's decision. The background worker invokes the
+        two sweeps independently instead of through this method.
         """
-        policy = await self._policies.resolve(tenant_id)
-        if not policy.enabled or policy.audit_ttl_seconds is None:
-            return []
-
-        holds = await self._holds.active_holds_for_tenant(tenant_id)
-        if holds.tenant_wide:
-            await self._log.record(
-                tenant_id=tenant_id,
-                action="purge_skipped_tenant_hold",
-                reason="ttl",
-            )
-            return []
-
-        cutoff = datetime.now(UTC) - timedelta(seconds=policy.audit_ttl_seconds)
-        aged = await self._audits.list_erasable(tenant_id, cutoff, exclude_run_ids=holds.run_ids)
-        run_ids = list(dict.fromkeys(record.run_id for record in aged))
-
-        results: list[ErasureResult] = []
-        for run_id in run_ids:
-            try:
-                results.append(await self.erase_run(run_id, "ttl", tenant_id=tenant_id))
-            except LegalHoldError:
-                continue  # raced with a hold placed mid-sweep; leave it frozen
+        results = await self.purge_runs(tenant_id)
+        results.extend(await self.purge_audits(tenant_id))
         return results
 
     async def _resolve_tenant(

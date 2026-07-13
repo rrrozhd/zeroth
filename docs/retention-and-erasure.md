@@ -97,12 +97,44 @@ runs. Releasing the hold re-enables erasure.
 ## Per-tenant retention TTLs
 
 `retention_policies` holds one row per tenant plus a system-default row
-(`tenant_id = 'default'`, seeded by migration 008 with keep-forever TTLs). A
-tenant with no explicit policy inherits the default. The `RetentionPurgeWorker`
-(started only when `ZEROTH_RETENTION__ENABLED=true`) sweeps every enabled policy
-on `worker_poll_interval`, computing an `audit_ttl_seconds` cutoff against each
-record's **`created_at`** (write time) and erasing aged, non-held runs. A `None`
-TTL means keep forever.
+(`tenant_id = 'default'`, seeded by migration 008 with keep-forever TTLs).
+TTLs are whole positive seconds — `0`, negative, and fractional values are
+rejected at validation. Policy resolution order for a tenant:
+
+1. the tenant's explicit row — a stored `NULL` TTL means **keep forever**,
+   even when a finite default is configured elsewhere;
+2. the configured defaults (`ZEROTH_RETENTION__DEFAULT_AUDIT_TTL_SECONDS` /
+   `ZEROTH_RETENTION__DEFAULT_RUN_TTL_SECONDS`) — environment-derived, never
+   persisted as rows, and consulted before the seeded system row because that
+   seed is all-`NULL`;
+3. the `'default'` system row;
+4. a synthesized keep-forever policy.
+
+The two TTLs govern **independent sweeps** with distinct semantics:
+
+- **`audit_ttl_seconds` — audit tombstoning.** Cutoff compares against each
+  audit record's persisted **`created_at`** (write time). Aged v2 records are
+  crypto-erased **individually** (plaintext nulled, commitments and chain
+  digest kept, so the signed chain still verifies). The run row, checkpoints,
+  newer audits, and artifacts are untouched — an old audit never drags its
+  run into erasure.
+- **`run_ttl_seconds` — full run erasure.** Cutoff compares against the run's
+  persisted **`updated_at`**. Only **terminal** runs qualify: `COMPLETED` and
+  `FAILED`. `PENDING`, `RUNNING`, `WAITING_APPROVAL`, and `WAITING_INTERRUPT`
+  runs are live work and are never TTL-erased regardless of age. Eligible
+  runs go through the full erasure path (audits crypto-erased, checkpoints
+  deleted, run row redacted, artifacts/econ cleanup). Selection is an
+  unlocked snapshot; the destructive transaction **locks the run row and
+  re-checks** tenant, terminal status, and `updated_at`, so a run replayed or
+  resumed mid-sweep survives untouched.
+
+The `RetentionPurgeWorker` (started only when `ZEROTH_RETENTION__ENABLED=true`)
+sweeps every enabled policy on `worker_poll_interval`, invoking the two
+surfaces independently — a failure in one sweep is logged and does not starve
+the other surface or the next tenant. A `None` TTL disables that surface's
+sweep. Legal holds beat both sweeps: a tenant-wide hold skips the tenant
+entirely, and held runs are excluded at selection AND re-checked inside every
+destructive transaction.
 
 ## Econ-event coverage: in-scope vs deferred
 
