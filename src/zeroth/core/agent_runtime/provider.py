@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from zeroth.core.agent_runtime.models import ModelParams, PromptMessage
 from zeroth.core.agent_runtime.response_format import build_response_format
 from zeroth.core.audit.models import TokenUsage
-from zeroth.core.secrets import SecretResolutionError
+from zeroth.core.secrets import SecretResolutionError, resolve_secret_async
 
 if TYPE_CHECKING:
     from zeroth.core.secrets import SecretProvider
@@ -228,6 +228,14 @@ class LiteLLMProviderAdapter:
             return self._llm_key_map[provider]
         return f"llm.{provider}"
 
+    def _check_fail_closed(self, model: str, key: str | None) -> None:
+        if key is None and not self._allow_env_fallback:
+            # Fail closed: do NOT let LiteLLM silently read process env.
+            raise SecretResolutionError(
+                f"no secret for {self._logical_name(model)!r} "
+                f"(tenant={self._tenant_id!r}) and env fallback is disabled"
+            )
+
     def _resolve_api_key(self, model: str) -> str | None:
         """Resolve the api_key for *model* via the secret provider (fail-closed aware)."""
         if self._secret_provider is None:
@@ -235,17 +243,33 @@ class LiteLLMProviderAdapter:
         key = self._secret_provider.resolve_secret(
             self._logical_name(model), tenant_id=self._tenant_id
         )
-        if key is None and not self._allow_env_fallback:
-            # Fail closed: do NOT let LiteLLM silently read process env.
-            raise SecretResolutionError(
-                f"no secret for {self._logical_name(model)!r} "
-                f"(tenant={self._tenant_id!r}) and env fallback is disabled"
-            )
+        self._check_fail_closed(model, key)
+        return key
+
+    async def _resolve_api_key_async(self, model: str) -> str | None:
+        """Async variant of :meth:`_resolve_api_key` for event-loop callers.
+
+        A Vault-backed provider performs HTTP on a cache miss; resolving through
+        the async helper keeps that off the event loop instead of stalling every
+        concurrent run for the duration of the fetch.
+        """
+        if self._secret_provider is None:
+            return None
+        key = await resolve_secret_async(
+            self._secret_provider, self._logical_name(model), tenant_id=self._tenant_id
+        )
+        self._check_fail_closed(model, key)
         return key
 
     def _get_client(self, model: str) -> ChatLiteLLM:
         """Get or create a ChatLiteLLM client for *model*, with an injected key."""
-        api_key = self._resolve_api_key(model)
+        return self._client_for(model, self._resolve_api_key(model))
+
+    async def _get_client_async(self, model: str) -> ChatLiteLLM:
+        """Get or create a client with the key resolved off the event loop."""
+        return self._client_for(model, await self._resolve_api_key_async(model))
+
+    def _client_for(self, model: str, api_key: str | None) -> ChatLiteLLM:
         cache_key = (model, self._tenant_id, _key_fingerprint(api_key))
         if cache_key not in self._clients:
             kwargs: dict[str, Any] = {"model": model, "timeout": self._default_timeout}
@@ -268,7 +292,7 @@ class LiteLLMProviderAdapter:
         This handles schema generation, provider-specific formatting, and
         response parsing automatically, returning a typed Pydantic instance.
         """
-        client = self._get_client(request.model_name)
+        client = await self._get_client_async(request.model_name)
         lc_messages = self._to_langchain_messages(request.messages)
         kwargs: dict[str, Any] = {}
         if request.tools is not None:

@@ -150,3 +150,29 @@ async def test_sync_only_provider_does_not_block_event_loop() -> None:
     assert value == "sync:llm.openai"
     # A blocked loop would have frozen the heartbeat for the full 200ms.
     assert heartbeats >= 5
+
+
+@pytest.mark.asyncio
+async def test_secret_resolver_resolves_environment_variables_async() -> None:
+    class _AsyncOnlyManyProvider:
+        def resolve(self, secret_ref, *, tenant_id=None):
+            raise AssertionError("sync resolve used on an async path")
+
+        def resolve_many(self, refs, *, tenant_id=None):
+            raise AssertionError("sync resolve_many used on an async path")
+
+        def resolve_secret(self, logical_name, *, tenant_id=None, deployment_ref=None):
+            raise AssertionError("sync resolve_secret used on an async path")
+
+        async def resolve_many_async(self, refs, *, tenant_id=None):
+            return {ref: f"v-{ref}" for ref in refs}
+
+    resolver = SecretResolver(_AsyncOnlyManyProvider())
+    resolved = await resolver.resolve_environment_variables_async(
+        [
+            EnvironmentVariable(name="API_KEY", secret_ref="ref-a"),
+            EnvironmentVariable(name="PLAIN", value="x"),
+        ]
+    )
+    assert resolved == {"API_KEY": "v-ref-a", "PLAIN": "x"}
+    assert resolver.known_secrets() == {"ref-a": "v-ref-a"}

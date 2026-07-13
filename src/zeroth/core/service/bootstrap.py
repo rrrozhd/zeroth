@@ -36,7 +36,7 @@ from zeroth.core.runs import RunRepository, ThreadRepository
 from zeroth.core.secrets import SecretProvider, build_secret_provider
 from zeroth.core.service.app import create_app
 from zeroth.core.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, ServiceAuthenticator
-from zeroth.core.signing import SigningKeyProvider, build_signing_provider
+from zeroth.core.signing import SigningKeyProvider, build_signing_provider_async
 from zeroth.core.storage import AsyncDatabase
 
 
@@ -459,7 +459,7 @@ async def bootstrap_service(
     # a loud warning rather than silently minting misleadingly-signed rows.
     import logging as _logging
 
-    signer = build_signing_provider(settings.provenance, secret_provider)
+    signer = await build_signing_provider_async(settings.provenance, secret_provider)
     if signer is None:
         _logging.getLogger(__name__).warning(
             "provenance signing key unresolved for mode=%r; deployment "

@@ -151,6 +151,10 @@ async def resolve_async(
     native = getattr(provider, "resolve_async", None)
     if native is not None:
         return await native(secret_ref, tenant_id=tenant_id)
+    if tenant_id is None:
+        # Bare call keeps duck-typed providers without the kwarg working (the
+        # sync call sites never passed tenant_id either).
+        return await asyncio.to_thread(provider.resolve, secret_ref)
     return await asyncio.to_thread(provider.resolve, secret_ref, tenant_id=tenant_id)
 
 
@@ -161,6 +165,8 @@ async def resolve_many_async(
     native = getattr(provider, "resolve_many_async", None)
     if native is not None:
         return await native(refs, tenant_id=tenant_id)
+    if tenant_id is None:
+        return await asyncio.to_thread(provider.resolve_many, refs)
     return await asyncio.to_thread(provider.resolve_many, refs, tenant_id=tenant_id)
 
 
@@ -193,9 +199,25 @@ class SecretResolver:
         self,
         variables: list[EnvironmentVariable],
     ) -> dict[str, str]:
-        resolved: dict[str, str] = {}
         refs = [item.secret_ref for item in variables if item.secret_ref]
         loaded = self.provider.resolve_many([ref for ref in refs if ref is not None])
+        return self._merge_resolved(variables, loaded)
+
+    async def resolve_environment_variables_async(
+        self,
+        variables: list[EnvironmentVariable],
+    ) -> dict[str, str]:
+        """Async variant for event-loop callers (execution-unit dispatch)."""
+        refs = [item.secret_ref for item in variables if item.secret_ref]
+        loaded = await resolve_many_async(self.provider, [ref for ref in refs if ref is not None])
+        return self._merge_resolved(variables, loaded)
+
+    def _merge_resolved(
+        self,
+        variables: list[EnvironmentVariable],
+        loaded: dict[str, str],
+    ) -> dict[str, str]:
+        resolved: dict[str, str] = {}
         for variable in variables:
             if variable.secret_ref:
                 value = loaded.get(variable.secret_ref)
