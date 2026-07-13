@@ -228,3 +228,85 @@ async def test_audit_ttl_sweep_respects_legal_holds(env) -> None:
     assert {r.run_id for r in results} == {"run-a-free"}
     assert await _pii_in_audits(env.database, "hhh-88-8888") is True
     assert await _pii_in_audits(env.database, "fff-99-9999") is False
+
+
+# --- terminal-run TTL (retention-correctness task 4) -------------------------
+
+
+async def _force_run_state(database, run_id: str, *, status: str, updated_at: datetime) -> None:
+    async with database.transaction() as connection:
+        await connection.execute(
+            "UPDATE runs SET status = ?, updated_at = ? WHERE run_id = ?",
+            (status, updated_at.astimezone(UTC).isoformat(), run_id),
+        )
+
+
+async def test_run_ttl_erases_only_old_terminal_runs(env) -> None:
+    old = datetime.now(UTC) - timedelta(days=60)
+    ttl = int(timedelta(days=30).total_seconds())
+    cases = {
+        "run-done": ("COMPLETED", old),
+        "run-fail": ("FAILED", old),
+        "run-pend": ("PENDING", old),
+        "run-live": ("RUNNING", old),
+        "run-appr": ("WAITING_APPROVAL", old),
+        "run-intr": ("WAITING_INTERRUPT", old),
+        "run-new": ("COMPLETED", datetime.now(UTC)),
+    }
+    for run_id, (status, updated_at) in cases.items():
+        await env.seed_run(run_id, tenant_id="t-run", ssn=f"ssn-{run_id}")
+        await _force_run_state(env.database, run_id, status=status, updated_at=updated_at)
+    await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-run", run_ttl_seconds=ttl))
+
+    results = await env.service.purge_runs("t-run")
+
+    assert {r.run_id for r in results} == {"run-done", "run-fail"}
+    for run_id in ("run-done", "run-fail"):
+        run = await env.run_repo.get(run_id)
+        assert f"ssn-{run_id}" not in str(run.final_output)
+        assert await _checkpoint_count(env.database, run_id) == 0
+        assert await _pii_in_audits(env.database, f"ssn-{run_id}") is False
+    for run_id in ("run-pend", "run-live", "run-appr", "run-intr", "run-new"):
+        run = await env.run_repo.get(run_id)
+        assert f"ssn-{run_id}" in str(run.final_output), run_id
+        assert await _pii_in_audits(env.database, f"ssn-{run_id}") is True
+
+
+async def test_run_ttl_recheck_blocks_resurrected_run(env) -> None:
+    """Barrier: a FAILED run selected for TTL erasure flips to PENDING before
+    the destructive transaction — the locked recheck must erase nothing."""
+    old = datetime.now(UTC) - timedelta(days=60)
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    await env.seed_run("run-barrier", tenant_id="t-bar", ssn="bar-11-1111")
+    await _force_run_state(env.database, "run-barrier", status="FAILED", updated_at=old)
+
+    selected = await env.run_repo.list_erasable_run_ids("t-bar", cutoff)
+    assert selected == ["run-barrier"]
+
+    # The race: a retry resurrects the run between selection and erasure.
+    await _force_run_state(env.database, "run-barrier", status="PENDING", updated_at=old)
+
+    result = await env.service.erase_run(
+        "run-barrier", "ttl", tenant_id="t-bar", ttl_cutoff=cutoff
+    )
+    assert result.audits_erased == 0
+    assert result.checkpoints_deleted == 0
+    assert result.run_redacted is False
+    run = await env.run_repo.get("run-barrier")
+    assert "bar-11-1111" in str(run.final_output)
+    assert await _pii_in_audits(env.database, "bar-11-1111") is True
+
+
+async def test_run_ttl_ignores_runs_with_old_audits_but_recent_activity(env) -> None:
+    old = datetime.now(UTC) - timedelta(days=60)
+    ttl = int(timedelta(days=30).total_seconds())
+    # Audits are old, but the run itself was recently updated (still terminal).
+    await env.seed_run("run-active", tenant_id="t-recent", created_at=old, ssn="rec-22-2222")
+    await _force_run_state(
+        env.database, "run-active", status="COMPLETED", updated_at=datetime.now(UTC)
+    )
+    await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-recent", run_ttl_seconds=ttl))
+
+    assert await env.service.purge_runs("t-recent") == []
+    run = await env.run_repo.get("run-active")
+    assert "rec-22-2222" in str(run.final_output)

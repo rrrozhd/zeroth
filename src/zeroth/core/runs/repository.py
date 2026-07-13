@@ -935,6 +935,67 @@ class RunRepository:
         )
         return None if row is None else str(row["tenant_id"])
 
+    async def list_erasable_run_ids(
+        self,
+        tenant_id: str,
+        older_than: datetime,
+        *,
+        terminal_statuses: frozenset[RunStatus] | set[RunStatus] | None = None,
+    ) -> list[str]:
+        """Select TTL-erasable run ids: terminal status AND stale ``updated_at``.
+
+        Only COMPLETED/FAILED runs qualify by default — PENDING, RUNNING, and
+        the WAITING_* states are live work regardless of age. Selection is an
+        unlocked snapshot; the destructive path must re-check via
+        :meth:`lock_and_recheck_erasable_run` inside its own transaction.
+        """
+        terminal = terminal_statuses or {RunStatus.COMPLETED, RunStatus.FAILED}
+        statuses = sorted(status.value for status in terminal)
+        placeholders = ", ".join("?" for _ in statuses)
+        cutoff = older_than.astimezone(UTC).isoformat()
+        async with self._store.database.transaction() as connection:
+            rows = await connection.fetch_all(
+                f"SELECT run_id FROM runs WHERE tenant_id = ? AND status IN ({placeholders}) "
+                "AND updated_at < ? ORDER BY updated_at, run_id",
+                (tenant_id, *statuses, cutoff),
+            )
+        return [str(row["run_id"]) for row in rows]
+
+    async def lock_and_recheck_erasable_run(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+        tenant_id: str,
+        cutoff: datetime,
+        *,
+        terminal_statuses: frozenset[RunStatus] | set[RunStatus] | None = None,
+    ) -> str | None:
+        """Lock the run row and re-verify TTL eligibility before destruction.
+
+        On PostgreSQL the row is locked with ``FOR UPDATE``; on SQLite the
+        caller's write transaction already serializes writers. Returns ``None``
+        when a replay/resume/update between selection and erasure made the run
+        ineligible (wrong tenant, non-terminal status, or fresh ``updated_at``).
+        """
+        statuses = {
+            status.value
+            for status in (terminal_statuses or {RunStatus.COMPLETED, RunStatus.FAILED})
+        }
+        suffix = " FOR UPDATE" if self._store.database.backend == "postgres" else ""
+        row = await connection.fetch_one(
+            f"SELECT run_id, tenant_id, status, updated_at FROM runs WHERE run_id = ?{suffix}",
+            (run_id,),
+        )
+        if row is None:
+            return None
+        if str(row["tenant_id"]) != tenant_id:
+            return None
+        if str(row["status"]) not in statuses:
+            return None
+        if str(row["updated_at"]) >= cutoff.astimezone(UTC).isoformat():
+            return None
+        return run_id
+
 
 class ThreadRepository:
     """High-level async interface for saving and loading threads.
