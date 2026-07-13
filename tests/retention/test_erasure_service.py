@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from tests.retention.conftest import make_audit_record
+from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.core.retention.erasure_service import LegalHoldError
+from zeroth.core.storage.json import to_json_value
 
 
 async def _pii_present(database, ssn: str) -> dict[str, bool]:
@@ -275,3 +278,108 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
     assert store.blobs == {}
     entries = await env.log_repo.list_for_run("run-retry")
     assert any(row["action"] == "external_cleanup_completed" for row in entries)
+
+
+@pytest.mark.parametrize(
+    "structured_update",
+    [
+        {"condition_results": [{"subject": "legacy pii"}]},
+        {
+            "approval_actions": [
+                {
+                    "approval_id": "legacy-approval",
+                    "action": "approved",
+                    "metadata": {"subject": "legacy pii"},
+                }
+            ]
+        },
+    ],
+    ids=["condition-results", "approval-actions"],
+)
+async def test_legacy_erased_v2_structured_payload_blocks_reauthorization(
+    env,
+    structured_update: dict[str, object],
+) -> None:
+    """An old partial tombstone must not be mistaken for safely erased data."""
+    await env.seed_run("run-partial-v2", n_audits=0, ssn="818-81-8181")
+    base_record = make_audit_record(
+        audit_id="run-partial-v2-a0",
+        run_id="run-partial-v2",
+        ssn="818-81-8181",
+    )
+    original = base_record.__class__.model_validate(
+        {
+            **base_record.model_dump(mode="python"),
+            "digest_version": 2,
+            **structured_update,
+        }
+    )
+    prepared = original.model_copy(update={"pii_commitments": _compute_pii_commitments(original)})
+    chained = compute_chained_record(prepared, None, None)
+    partial_tombstone = chained.model_copy(
+        update={
+            "input_snapshot": {},
+            "output_snapshot": {},
+            "validation_results": {},
+            "execution_metadata": {},
+            "stdout": None,
+            "stderr": None,
+            "error": None,
+            "tool_calls": [],
+            "memory_interactions": [],
+            "erased": True,
+            "erased_at": datetime.now(UTC),
+            "erasure_reason": "rte",
+        }
+    )
+    async with env.database.transaction() as connection:
+        await connection.execute(
+            """
+            INSERT INTO node_audits
+                (audit_id, run_id, thread_id, node_id, graph_version_ref,
+                 deployment_ref, tenant_id, workspace_id, created_at, record_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                partial_tombstone.audit_id,
+                partial_tombstone.run_id,
+                None,
+                partial_tombstone.node_id,
+                partial_tombstone.graph_version_ref,
+                partial_tombstone.deployment_ref,
+                partial_tombstone.tenant_id,
+                None,
+                datetime.now(UTC).isoformat(),
+                to_json_value(partial_tombstone.model_dump(mode="json")),
+            ),
+        )
+        audit_before = await connection.fetch_one(
+            "SELECT record_json FROM node_audits WHERE audit_id = ?",
+            (partial_tombstone.audit_id,),
+        )
+
+    with pytest.raises(ValueError, match="digest_version=2"):
+        await env.service.erase_run("run-partial-v2", "rte")
+
+    assert await env.log_repo.list_for_run("run-partial-v2") == []
+    async with env.database.transaction() as connection:
+        checkpoints = await connection.fetch_all(
+            "SELECT checkpoint_id FROM run_checkpoints WHERE run_id = ?",
+            ("run-partial-v2",),
+        )
+        run = await connection.fetch_one(
+            "SELECT final_output FROM runs WHERE run_id = ?",
+            ("run-partial-v2",),
+        )
+        audit_after = await connection.fetch_one(
+            "SELECT record_json FROM node_audits WHERE audit_id = ?",
+            (partial_tombstone.audit_id,),
+        )
+        coordination = await connection.fetch_one(
+            "SELECT tenant_id FROM retention_coordination WHERE tenant_id = ?",
+            ("default",),
+        )
+    assert checkpoints
+    assert run is not None and run["final_output"] is not None
+    assert audit_after == audit_before
+    assert coordination is None

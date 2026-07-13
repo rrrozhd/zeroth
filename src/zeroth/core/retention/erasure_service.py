@@ -187,8 +187,6 @@ class RetentionErasureService:
                 )
 
                 for record in records:
-                    if record.erased:
-                        continue
                     if (record.digest_version or 1) < 2:
                         logger.info(
                             "skipping legacy (digest_version=1) audit %s during erasure of run %s",
@@ -196,13 +194,14 @@ class RetentionErasureService:
                             run_id,
                         )
                         continue
+                    was_erased = record.erased
                     erased = await self._audits.crypto_erase_in_transaction(
                         transaction.connection,
                         record.audit_id,
                         reason=reason,
                         record=record,
                     )
-                    if erased is not None:
+                    if erased is not None and not was_erased:
                         result.audits_erased += 1
                 result.checkpoints_deleted = (
                     await self._runs.erase_checkpoints_for_run_in_transaction(
