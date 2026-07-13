@@ -18,7 +18,7 @@ from zeroth.core.audit.coordination import (
 )
 from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
-from zeroth.core.storage import AsyncDatabase
+from zeroth.core.storage import AsyncConnection, AsyncDatabase
 from zeroth.core.storage.json import to_json_value
 
 if TYPE_CHECKING:
@@ -198,6 +198,14 @@ class AuditRepository:
         """Return all audit records for a specific run."""
         return await self.list(AuditQuery(run_id=run_id))
 
+    async def list_by_run_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> list[NodeAuditRecord]:
+        """Return a run's records using the caller's database transaction."""
+        return await load_ordered_run_records(connection, run_id)
+
     async def list_by_thread(self, thread_id: str) -> list[NodeAuditRecord]:
         """Return all audit records for a specific thread."""
         return await self.list(AuditQuery(thread_id=thread_id))
@@ -233,7 +241,28 @@ class AuditRepository:
         tamper event. digest_version=1 (legacy) records are un-erasable and raise;
         an already-erased or missing record is a no-op (idempotent).
         """
-        record = await self.get(audit_id)
+        async with self._database.transaction() as connection:
+            return await self.crypto_erase_in_transaction(
+                connection,
+                audit_id,
+                reason=reason,
+            )
+
+    async def crypto_erase_in_transaction(
+        self,
+        connection: AsyncConnection,
+        audit_id: str,
+        *,
+        reason: str,
+        record: NodeAuditRecord | None = None,
+    ) -> NodeAuditRecord | None:
+        """Crypto-erase one audit through an existing transaction."""
+        if record is None:
+            row = await connection.fetch_one(
+                "SELECT record_json, chain_sequence FROM node_audits WHERE audit_id = ?",
+                (audit_id,),
+            )
+            record = None if row is None else self._hydrate(row)
         if record is None:
             return None
         if (record.digest_version or 1) < 2:
@@ -251,12 +280,11 @@ class AuditRepository:
                 "erasure_reason": reason,
             }
         )
-        async with self._database.transaction() as connection:
-            await connection.execute(
-                "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
-                (to_json_value(erased.model_dump(mode="json")), audit_id),
-            )
-        return await self.get(audit_id)
+        await connection.execute(
+            "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
+            (to_json_value(erased.model_dump(mode="json")), audit_id),
+        )
+        return erased
 
     async def list_erasable(
         self,
