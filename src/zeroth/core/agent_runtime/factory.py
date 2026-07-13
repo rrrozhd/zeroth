@@ -158,6 +158,7 @@ async def build_agent_runners(
             output_model=output_model,
             tool_attachments=tool_attachments,
             memory_refs=list(data.memory_refs),
+            mcp_servers=data.mcp_servers,
             prompt_config=prompt_config,
             retry_policy=RetryPolicy(**data.retry_policy) if data.retry_policy else RetryPolicy(),
             timeout_seconds=float(data.timeout_seconds) if data.timeout_seconds else None,
