@@ -164,3 +164,67 @@ async def test_configured_defaults_are_not_persisted_as_rows(sqlite_db) -> None:
     )
     await repo.resolve("tenant-ephemeral")
     assert await repo.get("tenant-ephemeral") is None
+
+
+# --- audit-TTL tombstoning (retention-correctness task 3) --------------------
+
+
+async def _checkpoint_count(database, run_id: str) -> int:
+    async with database.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT COUNT(*) AS n FROM run_checkpoints WHERE run_id = ?", (run_id,)
+        )
+    return int(row["n"])
+
+
+async def test_audit_ttl_tombstones_only_old_audits(env) -> None:
+    """One old + one new audit: the sweep erases the old audit's PII and
+    leaves the run row, checkpoints, and the new audit fully intact."""
+    old = datetime.now(UTC) - timedelta(days=60)
+    await env.seed_run("run-mixed", tenant_id="t-audit", n_audits=2, ssn="mmm-77-7777")
+    async with env.database.transaction() as connection:
+        await connection.execute(
+            "UPDATE node_audits SET created_at = ? WHERE audit_id = ?",
+            (old.isoformat(), "run-mixed-a0"),
+        )
+    await env.policy_repo.upsert(
+        RetentionPolicy(
+            tenant_id="t-audit", audit_ttl_seconds=int(timedelta(days=30).total_seconds())
+        )
+    )
+    checkpoints_before = await _checkpoint_count(env.database, "run-mixed")
+
+    results = await env.service.purge_audits("t-audit")
+
+    assert len(results) == 1
+    assert results[0].run_id == "run-mixed"
+    assert results[0].audits_erased == 1
+    assert results[0].run_redacted is False
+    assert results[0].checkpoints_deleted == 0
+
+    records = {r.audit_id: r for r in await env.audit_repo.list_by_run("run-mixed")}
+    assert records["run-mixed-a0"].erased is True
+    assert records["run-mixed-a1"].erased is False
+    assert "mmm-77-7777" in str(records["run-mixed-a1"].input_snapshot)
+    # Full-surface erasure did NOT happen: run row and checkpoints survive.
+    run = await env.run_repo.get("run-mixed")
+    assert "mmm-77-7777" in str(run.final_output)
+    assert await _checkpoint_count(env.database, "run-mixed") == checkpoints_before
+
+
+async def test_audit_ttl_sweep_respects_legal_holds(env) -> None:
+    old = datetime.now(UTC) - timedelta(days=60)
+    await env.seed_run("run-a-held", tenant_id="t-ah", created_at=old, ssn="hhh-88-8888")
+    await env.seed_run("run-a-free", tenant_id="t-ah", created_at=old, ssn="fff-99-9999")
+    await env.policy_repo.upsert(
+        RetentionPolicy(
+            tenant_id="t-ah", audit_ttl_seconds=int(timedelta(days=30).total_seconds())
+        )
+    )
+    await env.hold_repo.place("t-ah", run_id="run-a-held", reason="litigation")
+
+    results = await env.service.purge_audits("t-ah")
+
+    assert {r.run_id for r in results} == {"run-a-free"}
+    assert await _pii_in_audits(env.database, "hhh-88-8888") is True
+    assert await _pii_in_audits(env.database, "fff-99-9999") is False

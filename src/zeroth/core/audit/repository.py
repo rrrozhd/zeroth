@@ -308,15 +308,35 @@ class AuditRepository:
         are excluded (un-erasable), as are records for any run in
         ``exclude_run_ids`` (legal-hold protected).
         """
+        async with self._database.transaction() as connection:
+            return await self.list_erasable_in_transaction(
+                connection,
+                tenant_id,
+                older_than,
+                exclude_run_ids=exclude_run_ids,
+            )
+
+    async def list_erasable_in_transaction(
+        self,
+        connection: AsyncConnection,
+        tenant_id: str,
+        older_than: datetime,
+        *,
+        exclude_run_ids: Sequence[str] | None = None,
+    ) -> list[NodeAuditRecord]:
+        """Transaction-scoped :meth:`list_erasable` for coordinated sweeps.
+
+        One cutoff-bounded projection query; only aged rows are hydrated —
+        never the tenant's full audit history.
+        """
         excluded = set(exclude_run_ids or ())
         cutoff = older_than.astimezone(UTC).isoformat()
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(
-                "SELECT record_json, chain_sequence FROM node_audits "
-                "WHERE tenant_id = ? AND created_at < ? "
-                "ORDER BY created_at, audit_id",
-                (tenant_id, cutoff),
-            )
+        rows = await connection.fetch_all(
+            "SELECT record_json, chain_sequence FROM node_audits "
+            "WHERE tenant_id = ? AND created_at < ? "
+            "ORDER BY created_at, audit_id",
+            (tenant_id, cutoff),
+        )
         records = [self._hydrate(row) for row in rows]
         return [
             record
