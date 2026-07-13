@@ -82,9 +82,7 @@ async def test_tamper_and_recompute_digest_fails_signature_without_key(sqlite_db
     # Tamper the content, recompute the UNKEYED digest so continuity still holds,
     # and keep the OLD signature (over the original digest) — a forger has no key.
     tampered = stored.model_copy(update={"status": "tampered-by-attacker"})
-    tampered = tampered.model_copy(
-        update={"record_digest": _compute_record_digest(tampered)}
-    )
+    tampered = tampered.model_copy(update={"record_digest": _compute_record_digest(tampered)})
     async with sqlite_db.transaction() as connection:
         await connection.execute(
             "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
@@ -101,7 +99,7 @@ async def test_tamper_pii_leaving_commitments_and_signature_is_detected(sqlite_d
     """G3: editing a PII field while leaving pii_commitments/record_digest/
     record_signature untouched MUST be caught.
 
-    A signed v2 digest binds the LIVE PII: verify recomputes the per-field
+    A signed commitment digest binds the LIVE PII: verify recomputes the per-field
     commitments from the record's current PII and folds THOSE into the digest.
     An attacker who edits ``input_snapshot`` but keeps the stored commitments,
     digest, and signature (the classic content-integrity attack) now yields a
@@ -124,7 +122,7 @@ async def test_tamper_pii_leaving_commitments_and_signature_is_detected(sqlite_d
     await repo.write(original)
 
     stored = await repo.get("a1")
-    assert stored.digest_version == 2
+    assert stored.digest_version == 3
     assert stored.erased is False
     assert stored.record_signature  # signed
 
