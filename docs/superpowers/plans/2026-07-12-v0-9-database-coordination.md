@@ -20,7 +20,11 @@
 
 - [ ] Write RED tests that open two SQLite database instances against one file, hold `transaction(write_lock=True)` in the first, and prove the second cannot enter its critical section until release.
 - [ ] Add `backend: Literal["sqlite", "postgres"]` and `transaction(*, write_lock: bool = False)` to `AsyncDatabase`.
-- [ ] SQLite: execute `BEGIN IMMEDIATE` before yielding when `write_lock=True`; use explicit `BEGIN` otherwise. Configure a bounded busy timeout and raise `CoordinationTimeoutError` on lock timeout.
+- [ ] SQLite: execute `BEGIN IMMEDIATE` before yielding when `write_lock=True`.
+  Ordinary transactions deliberately retain aiosqlite's lazy transaction start:
+  explicit deferred `BEGIN` creates stale WAL read snapshots in existing
+  read-then-write repository flows and causes non-retryable `SQLITE_BUSY_SNAPSHOT`.
+  Configure a bounded busy timeout and raise `CoordinationTimeoutError` on lock timeout.
 - [ ] Postgres: expose `backend = "postgres"` and, for `write_lock=True`, execute
   `SET LOCAL lock_timeout = '<configured milliseconds>ms'` before yielding. Map
   psycopg lock-timeout/query-cancel exceptions to the same `CoordinationTimeoutError`.
