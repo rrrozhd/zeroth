@@ -652,8 +652,8 @@ async def test_compatibility_log_failure_does_not_block_external_cleanup(env) ->
     assert key not in env.artifact_store.blobs
 
 
-async def test_operation_progress_events_are_constant_size_deltas(env) -> None:
-    keys = [f"run-linear/n/{index}" for index in range(20)]
+async def test_operation_progress_events_are_constant_size_deltas(env, monkeypatch) -> None:
+    keys = [f"run-linear/n/{index}" for index in range(100)]
     operations = [
         CleanupOperation(
             operation_id=operation_id("default", "run-linear", "artifact_prefix", "run-linear"),
@@ -700,10 +700,83 @@ async def test_operation_progress_events_are_constant_size_deltas(env) -> None:
     store.release.set()
     env.service._artifact_store = store
 
+    full_log_loads = 0
+    replay_calls = 0
+    operation_lookups = 0
+    original_list = env.log_repo.list_for_run_in_transaction
+    original_replay = env.service._replay_cleanup_state
+    original_operation_lookup = env.service._cleanup_state.get_operation_in_transaction
+
+    async def counted_list(*args, **kwargs):
+        nonlocal full_log_loads
+        full_log_loads += 1
+        return await original_list(*args, **kwargs)
+
+    def counted_replay(*args, **kwargs):
+        nonlocal replay_calls
+        replay_calls += 1
+        return original_replay(*args, **kwargs)
+
+    async def counted_operation_lookup(*args, **kwargs):
+        nonlocal operation_lookups
+        operation_lookups += 1
+        return await original_operation_lookup(*args, **kwargs)
+
+    monkeypatch.setattr(env.log_repo, "list_for_run_in_transaction", counted_list)
+    monkeypatch.setattr(env.service, "_replay_cleanup_state", counted_replay)
+    monkeypatch.setattr(
+        type(env.service._cleanup_state),
+        "get_operation_in_transaction",
+        staticmethod(counted_operation_lookup),
+    )
+
     await env.service.retry_external_cleanup(log_id)
+
+    assert full_log_loads == 1
+    assert replay_calls == 1
+    assert operation_lookups == 2 * len(keys)
 
     rows = await env.log_repo.list_for_run("run-linear")
     deltas = [row for row in rows if row["action"] == "external_cleanup_operation"]
     assert len(deltas) == 2 * len(keys)
     assert all('"manifest"' not in row["detail"] for row in deltas)
     assert max(len(row["detail"]) for row in deltas) < 800
+
+
+async def test_new_authorization_uses_materialized_state_without_log_replay(
+    env, monkeypatch
+) -> None:
+    await env.seed_run(
+        "run-materialized",
+        n_audits=1,
+        artifact_key="run-materialized/n/blob",
+    )
+    full_log_loads = 0
+    original_list = env.log_repo.list_for_run_in_transaction
+
+    async def counted_list(*args, **kwargs):
+        nonlocal full_log_loads
+        full_log_loads += 1
+        return await original_list(*args, **kwargs)
+
+    monkeypatch.setattr(env.log_repo, "list_for_run_in_transaction", counted_list)
+
+    result = await env.service.erase_run("run-materialized", "rte")
+
+    assert result.external_cleanup_status == "complete"
+    assert full_log_loads == 0
+    async with env.database.transaction() as connection:
+        state = await connection.fetch_one(
+            "SELECT * FROM retention_cleanup_state WHERE authorization_log_id = ?",
+            (result.authorization_log_id,),
+        )
+        operations = await connection.fetch_all(
+            """
+            SELECT operation_id FROM retention_cleanup_operations
+            WHERE authorization_log_id = ?
+            """,
+            (result.authorization_log_id,),
+        )
+    assert state is not None
+    assert state["terminal_status"] == "completed"
+    assert len(operations) == 3
