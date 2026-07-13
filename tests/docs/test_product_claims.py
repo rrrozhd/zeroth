@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -39,6 +41,8 @@ def test_readme_documents_fail_open_default() -> None:
 
 
 def test_project_md_reflects_current_architecture() -> None:
+    if not (REPO_ROOT / ".planning/PROJECT.md").exists():
+        pytest.skip("private planning docs are not part of the public history")
     project = _read(".planning/PROJECT.md")
     assert "Next.js" in project
     assert "0.9" in project
