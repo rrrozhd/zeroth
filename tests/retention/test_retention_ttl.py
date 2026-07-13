@@ -122,3 +122,45 @@ def test_settings_worker_poll_interval_stays_float() -> None:
     from zeroth.core.config.settings import RetentionSettings
 
     assert RetentionSettings(worker_poll_interval=0.5).worker_poll_interval == 0.5
+
+
+# --- configured defaults (retention-correctness task 2) ---------------------
+
+
+async def test_missing_tenant_policy_inherits_configured_defaults(sqlite_db) -> None:
+    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+
+    repo = RetentionPolicyRepository(
+        sqlite_db,
+        default_policy=RetentionPolicy(
+            tenant_id="default", audit_ttl_seconds=3600, run_ttl_seconds=7200
+        ),
+    )
+    resolved = await repo.resolve("tenant-without-policy")
+    assert resolved.tenant_id == "tenant-without-policy"
+    assert resolved.audit_ttl_seconds == 3600
+    assert resolved.run_ttl_seconds == 7200
+
+
+async def test_explicit_none_ttl_beats_configured_default(sqlite_db) -> None:
+    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+
+    repo = RetentionPolicyRepository(
+        sqlite_db,
+        default_policy=RetentionPolicy(tenant_id="default", audit_ttl_seconds=3600),
+    )
+    await repo.upsert(RetentionPolicy(tenant_id="tenant-forever", audit_ttl_seconds=None))
+    resolved = await repo.resolve("tenant-forever")
+    # Explicit NULL = keep forever, even though the configured default is finite.
+    assert resolved.audit_ttl_seconds is None
+
+
+async def test_configured_defaults_are_not_persisted_as_rows(sqlite_db) -> None:
+    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+
+    repo = RetentionPolicyRepository(
+        sqlite_db,
+        default_policy=RetentionPolicy(tenant_id="default", audit_ttl_seconds=3600),
+    )
+    await repo.resolve("tenant-ephemeral")
+    assert await repo.get("tenant-ephemeral") is None
