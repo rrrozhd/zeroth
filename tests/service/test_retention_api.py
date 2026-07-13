@@ -216,3 +216,26 @@ async def test_release_cross_tenant_hold_denied(sqlite_db) -> None:
             headers=api_key_headers("key-tenant-b"),
         )
         assert denied.status_code == 404
+
+
+async def test_put_retention_policy_rejects_invalid_ttls(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-ret-badttl"))
+    app = await bootstrap_app(
+        sqlite_db, deployment_ref=service.deployment.deployment_ref, auth_config=service.auth_config
+    )
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        for bad in (0, -1, 1.5):
+            r = client.put(
+                "/v1/retention/policy",
+                json={"audit_ttl_seconds": bad, "run_ttl_seconds": None, "enabled": True},
+                headers=admin_headers(),
+            )
+            assert r.status_code == 422, f"audit_ttl_seconds={bad}: {r.status_code} {r.text}"
+            r = client.put(
+                "/v1/retention/policy",
+                json={"audit_ttl_seconds": None, "run_ttl_seconds": bad, "enabled": True},
+                headers=admin_headers(),
+            )
+            assert r.status_code == 422, f"run_ttl_seconds={bad}: {r.status_code} {r.text}"

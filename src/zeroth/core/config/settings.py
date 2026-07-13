@@ -235,9 +235,11 @@ class RetentionSettings(BaseModel):
     """
 
     enabled: bool = False
-    worker_poll_interval: float = 3600.0
-    default_audit_ttl_seconds: float | None = None
-    default_run_ttl_seconds: float | None = None
+    # Interval, not a persisted TTL — stays a positive float.
+    worker_poll_interval: float = Field(default=3600.0, gt=0)
+    # Whole positive seconds, like the per-tenant policy TTLs.
+    default_audit_ttl_seconds: int | None = Field(default=None, ge=1)
+    default_run_ttl_seconds: int | None = Field(default=None, ge=1)
 
 
 class PolicySettings(BaseModel):
