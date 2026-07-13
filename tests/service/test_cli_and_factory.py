@@ -9,6 +9,7 @@ from zeroth.core.agent_runtime.factory import (
     build_agent_runners,
     build_runners_for_deployment,
 )
+from zeroth.core.agent_runtime.mcp import MCPServerConfig
 from zeroth.core.contracts.registry import ContractRegistry
 from zeroth.core.examples.demo_service import (
     DEMO_GRAPH_ID,
@@ -55,6 +56,23 @@ async def test_factory_builds_runner_from_agent_node_data(sqlite_db):
     assert config.input_model is DemoQuestion
     assert config.output_model is DemoAnswer
     assert config.instruction
+
+
+async def test_factory_preserves_declared_mcp_servers(sqlite_db):
+    registry = ContractRegistry(sqlite_db)
+    await registry.register(DemoQuestion, name=DEMO_INPUT_CONTRACT)
+    await registry.register(DemoAnswer, name=DEMO_OUTPUT_CONTRACT)
+
+    graph = build_hello_graph(model="anthropic/claude-sonnet-5")
+    graph.nodes[0].agent.mcp_servers = [
+        {"name": "files", "command": "npx", "args": ["mcp-files"]},
+        {"name": "search", "command": "python", "args": ["-m", "mcp_search"]},
+    ]
+    runners = await build_agent_runners(graph, registry)
+
+    config = runners["agent"].config
+    assert [server.name for server in config.mcp_servers] == ["files", "search"]
+    assert all(isinstance(server, MCPServerConfig) for server in config.mcp_servers)
 
 
 async def test_factory_raises_actionable_error_for_unregistered_contract(sqlite_db):
