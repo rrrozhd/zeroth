@@ -132,11 +132,17 @@ class ResilientHttpClient:
                 f"{', '.join(sorted(str(c) for c in missing))}"
             )
 
-    def _resolve_auth_headers(self, config: EndpointConfig) -> dict[str, str]:
-        """Resolve auth headers from :class:`SecretProvider` if configured."""
+    async def _resolve_auth_headers(self, config: EndpointConfig) -> dict[str, str]:
+        """Resolve auth headers from :class:`SecretProvider` if configured.
+
+        Async so a Vault-backed provider's HTTP fetch on a cache miss runs off
+        the event loop instead of stalling every in-flight request.
+        """
         if not config.secret_key or self._secret_provider is None:
             return {}
-        value = self._secret_provider.resolve(config.secret_key)
+        from zeroth.core.secrets.provider import resolve_async  # noqa: PLC0415
+
+        value = await resolve_async(self._secret_provider, config.secret_key)
         if value is None:
             return {}
 
@@ -203,7 +209,7 @@ class ResilientHttpClient:
         self._check_capabilities(method, effective_capabilities)
 
         # 3. Auth headers
-        auth_headers = self._resolve_auth_headers(config)
+        auth_headers = await self._resolve_auth_headers(config)
         if auth_headers:
             headers = dict(kwargs.pop("headers", None) or {})
             headers.update(auth_headers)

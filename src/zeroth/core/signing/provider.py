@@ -257,40 +257,71 @@ def build_signing_provider(
     """
     mode = (settings.mode or "env").lower()
     logical_name = settings.signing_key_ref or "signing.deployment"
-
     if mode == "off":
         return NullSigner()
+    if mode not in ("env", "kms"):
+        raise SigningConfigError(
+            f"unknown provenance.mode {settings.mode!r} (expected 'env', 'kms', or 'off')"
+        )
+    key_material = secret_provider.resolve_secret(logical_name, tenant_id=tenant_id)
+    return _signer_from_material(settings, mode, logical_name, key_material)
 
+
+async def build_signing_provider_async(
+    settings: ProvenanceSigningSettings,
+    secret_provider: SecretProvider,
+    *,
+    tenant_id: str | None = None,
+) -> SigningKeyProvider | None:
+    """Async variant of :func:`build_signing_provider` for event-loop callers.
+
+    Key material resolves through the async secret helper so a Vault-backed
+    provider cannot block the loop during service bootstrap; signer selection
+    is identical to the sync builder.
+    """
+    from zeroth.core.secrets.provider import resolve_secret_async
+
+    mode = (settings.mode or "env").lower()
+    logical_name = settings.signing_key_ref or "signing.deployment"
+    if mode == "off":
+        return NullSigner()
+    if mode not in ("env", "kms"):
+        raise SigningConfigError(
+            f"unknown provenance.mode {settings.mode!r} (expected 'env', 'kms', or 'off')"
+        )
+    key_material = await resolve_secret_async(secret_provider, logical_name, tenant_id=tenant_id)
+    return _signer_from_material(settings, mode, logical_name, key_material)
+
+
+def _signer_from_material(
+    settings: ProvenanceSigningSettings,
+    mode: str,
+    logical_name: str,
+    key_material: str | None,
+) -> SigningKeyProvider | None:
     if mode == "env":
-        key = secret_provider.resolve_secret(logical_name, tenant_id=tenant_id)
-        if not key:
+        if not key_material:
             return None
         return EnvHmacSigner(
             key_id=settings.signing_key_id,
-            keys={settings.signing_key_id: key.encode("utf-8")},
+            keys={settings.signing_key_id: key_material.encode("utf-8")},
         )
-
-    if mode == "kms":
-        private_key_hex = secret_provider.resolve_secret(logical_name, tenant_id=tenant_id)
-        if not private_key_hex:
-            raise SigningConfigError(
-                "provenance.mode='kms' requires a resolvable signing key "
-                f"({logical_name!r}) but the secret provider returned nothing"
-            )
-        public_keys_hex = _parse_public_keys(settings)
-        if settings.signing_key_id not in public_keys_hex:
-            raise SigningConfigError(
-                "provenance.mode='kms' requires provenance.public_keys_json to "
-                f"contain the active signing_key_id {settings.signing_key_id!r}"
-            )
-        return Ed25519Signer.from_raw(
-            key_id=settings.signing_key_id,
-            public_keys_hex=public_keys_hex,
-            private_key_hex=private_key_hex,
+    # mode == "kms": fail closed on unresolvable key material.
+    if not key_material:
+        raise SigningConfigError(
+            "provenance.mode='kms' requires a resolvable signing key "
+            f"({logical_name!r}) but the secret provider returned nothing"
         )
-
-    raise SigningConfigError(
-        f"unknown provenance.mode {settings.mode!r} (expected 'env', 'kms', or 'off')"
+    public_keys_hex = _parse_public_keys(settings)
+    if settings.signing_key_id not in public_keys_hex:
+        raise SigningConfigError(
+            "provenance.mode='kms' requires provenance.public_keys_json to "
+            f"contain the active signing_key_id {settings.signing_key_id!r}"
+        )
+    return Ed25519Signer.from_raw(
+        key_id=settings.signing_key_id,
+        public_keys_hex=public_keys_hex,
+        private_key_hex=key_material,
     )
 
 

@@ -64,7 +64,10 @@ async def test_instrumented_wrapping_composes_and_cost_fires(
     adapter = LiteLLMProviderAdapter(secret_provider=_FakeSecretProvider(), tenant_id="acme")
     # Swap the leaf network client for a fake; the full LiteLLMProviderAdapter
     # ainvoke path (message conversion, token extraction, response build) runs.
-    monkeypatch.setattr(adapter, "_get_client", lambda model: _FakeChatClient())
+    async def _fake_get_client_async(model: str) -> _FakeChatClient:
+        return _FakeChatClient()
+
+    monkeypatch.setattr(adapter, "_get_client_async", _fake_get_client_async)
 
     wrapped = InstrumentedProviderAdapter(
         inner=adapter,

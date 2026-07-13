@@ -7,6 +7,9 @@ from zeroth.core.secrets.provider import (
     SecretResolutionError,
     SecretResolver,
     normalize_secret_name,
+    resolve_async,
+    resolve_many_async,
+    resolve_secret_async,
 )
 from zeroth.core.secrets.redaction import SecretRedactor
 from zeroth.core.secrets.vault import VaultSecretProvider
@@ -21,4 +24,7 @@ __all__ = [
     "VaultSecretProvider",
     "build_secret_provider",
     "normalize_secret_name",
+    "resolve_async",
+    "resolve_many_async",
+    "resolve_secret_async",
 ]
