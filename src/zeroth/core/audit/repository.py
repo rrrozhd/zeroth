@@ -6,11 +6,11 @@ NodeAuditRecord objects using an async database.
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from zeroth.core.audit.coordination import advance_audit_chain, lock_audit_chain
 from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.core.storage import AsyncDatabase
@@ -53,17 +53,6 @@ class AuditRepository:
         # atomically. None -> records stay unsigned-legacy (injected post-build
         # by bootstrap once the shared secret provider exists).
         self._signer = signer
-        # Chain writes read the current head then insert; concurrent fan-out
-        # branches on separate connections would otherwise both chain off the
-        # same predecessor and silently fork the tamper-evident digest chain.
-        # A process-wide lock serializes the read-head+insert critical section;
-        # multi-process deployments additionally need DB-level enforcement.
-        self._chain_lock = asyncio.Lock()
-        # created_at orders both head selection and chain verification, so it
-        # must be monotonic in WRITE order. Node start times are not (a
-        # fan-out source node starts before the branch records it is written
-        # after), which used to fork the chain.
-        self._last_created_at: datetime | None = None
 
     async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         """Save an audit record to the database.
@@ -71,8 +60,12 @@ class AuditRepository:
         Writes are append-only. Duplicate audit IDs are rejected so history
         cannot be silently rewritten.
         """
-        async with self._chain_lock, self._database.transaction() as connection:
-            previous = await self._latest_for_run(connection, record.run_id)
+        async with self._database.transaction(write_lock=True) as connection:
+            head = await lock_audit_chain(
+                connection,
+                backend=self._database.backend,
+                run_id=record.run_id,
+            )
             # WS-E: stamp digest_version=2 + per-field PII commitments BEFORE the
             # digest is computed, so the digest folds in the commitments and stays
             # identical after a later crypto-erasure nulls the plaintext. Always
@@ -82,11 +75,12 @@ class AuditRepository:
                 update={
                     "digest_version": 2,
                     "pii_commitments": _compute_pii_commitments(record),
+                    "chain_sequence": head.next_sequence,
                 }
             )
             chained = compute_chained_record(
                 prepared,
-                previous.record_digest if previous is not None else None,
+                head.digest,
                 self._signer,
             )
             existing = await connection.fetch_one(
@@ -96,9 +90,6 @@ class AuditRepository:
             if existing is not None:
                 raise ValueError(f"audit_id {record.audit_id!r} already exists")
             created_at = datetime.now(UTC)
-            if self._last_created_at is not None and created_at <= self._last_created_at:
-                created_at = self._last_created_at + timedelta(microseconds=1)
-            self._last_created_at = created_at
             await connection.execute(
                 """
                 INSERT INTO node_audits (
@@ -111,8 +102,9 @@ class AuditRepository:
                     tenant_id,
                     workspace_id,
                     created_at,
+                    chain_sequence,
                     record_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     chained.audit_id,
@@ -124,8 +116,17 @@ class AuditRepository:
                     chained.tenant_id,
                     chained.workspace_id,
                     created_at.isoformat(),
+                    chained.chain_sequence,
                     to_json_value(chained.model_dump(mode="json")),
                 ),
+            )
+            if chained.record_digest is None:  # pragma: no cover - compute contract
+                raise RuntimeError("audit record digest was not computed")
+            await advance_audit_chain(
+                connection,
+                run_id=record.run_id,
+                digest=chained.record_digest,
+                next_sequence=head.next_sequence + 1,
             )
         return await self.get(record.audit_id)
 
@@ -133,12 +134,12 @@ class AuditRepository:
         """Look up a single audit record by its ID. Returns None if not found."""
         async with self._database.transaction() as connection:
             row = await connection.fetch_one(
-                "SELECT record_json FROM node_audits WHERE audit_id = ?",
+                "SELECT record_json, chain_sequence FROM node_audits WHERE audit_id = ?",
                 (audit_id,),
             )
         if row is None:
             return None
-        return NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
+        return self._hydrate(row)
 
     async def list(self, query: AuditQuery | None = None) -> list[NodeAuditRecord]:
         """Return audit records matching the given filters, ordered by time.
@@ -162,16 +163,19 @@ class AuditRepository:
                 continue
             clauses.append(f"{field} = ?")
             params.append(value)
-        sql = "SELECT record_json FROM node_audits"
+        sql = "SELECT record_json, chain_sequence FROM node_audits"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY created_at, audit_id"
+        if query.run_id is not None:
+            sql += (
+                " ORDER BY CASE WHEN chain_sequence IS NULL THEN 0 ELSE 1 END, "
+                "chain_sequence, created_at, audit_id"
+            )
+        else:
+            sql += " ORDER BY created_at, audit_id"
         async with self._database.transaction() as connection:
             rows = await connection.fetch_all(sql, tuple(params))
-        return [
-            NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
-            for row in rows
-        ]
+        return [self._hydrate(row) for row in rows]
 
     async def list_by_run(self, run_id: str) -> list[NodeAuditRecord]:
         """Return all audit records for a specific run."""
@@ -255,32 +259,20 @@ class AuditRepository:
         cutoff = older_than.astimezone(UTC).isoformat()
         async with self._database.transaction() as connection:
             rows = await connection.fetch_all(
-                "SELECT record_json FROM node_audits "
+                "SELECT record_json, chain_sequence FROM node_audits "
                 "WHERE tenant_id = ? AND created_at < ? "
                 "ORDER BY created_at, audit_id",
                 (tenant_id, cutoff),
             )
-        records = [
-            NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
-            for row in rows
-        ]
+        records = [self._hydrate(row) for row in rows]
         return [
             record
             for record in records
             if (record.digest_version or 1) >= 2 and record.run_id not in excluded
         ]
 
-    async def _latest_for_run(self, connection, run_id: str) -> NodeAuditRecord | None:  # noqa: ANN001
-        row = await connection.fetch_one(
-            """
-            SELECT record_json
-            FROM node_audits
-            WHERE run_id = ?
-            ORDER BY created_at DESC, audit_id DESC
-            LIMIT 1
-            """,
-            (run_id,),
-        )
-        if row is None:
-            return None
-        return NodeAuditRecord.model_validate(load_typed_value(row["record_json"], dict))
+    @staticmethod
+    def _hydrate(row: dict[str, object]) -> NodeAuditRecord:
+        payload = load_typed_value(row["record_json"], dict)
+        payload["chain_sequence"] = row.get("chain_sequence")
+        return NodeAuditRecord.model_validate(payload)

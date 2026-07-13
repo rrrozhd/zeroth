@@ -135,6 +135,9 @@ class NodeAuditRecord(BaseModel):
     stdout: str | None = None
     stderr: str | None = None
     supersedes_audit_id: str | None = None
+    # Allocated transactionally from the per-run database coordination row.
+    # Nullable keeps pre-migration audit payloads readable.
+    chain_sequence: int | None = None
     previous_record_digest: str | None = None
     record_digest: str | None = None
     # WS-D keyed signature over ``record_digest``. Persisted inside record_json

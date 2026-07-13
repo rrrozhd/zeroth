@@ -61,6 +61,8 @@ _DIGEST_EXCLUDED_FIELDS = frozenset(
         "erasure_reason",
         "digest_version",
         "pii_commitments",
+        # Database ordering metadata, absent from historical digest payloads.
+        "chain_sequence",
     }
 )
 
@@ -114,7 +116,10 @@ class AuditContinuityVerifier:
         total_unsigned = 0
         signature_states: list[bool | None] = []
         for run_id in sorted(by_run):
-            report = self._verify_records(scope=f"run:{run_id}", records=by_run[run_id])
+            report = self._verify_records(
+                scope=f"run:{run_id}",
+                records=_order_run_records(by_run[run_id]),
+            )
             total += report.record_count
             total_unsigned += report.unsigned_record_count
             signature_states.append(report.signature_verified)
@@ -184,6 +189,18 @@ class AuditContinuityVerifier:
             signature_verified=_resolve_signature_state(signed_count, signature_failed),
             unsigned_record_count=len(records) - signed_count,
         )
+
+
+def _order_run_records(records: list[NodeAuditRecord]) -> list[NodeAuditRecord]:
+    """Order sequenced records while retaining query order for legacy rows."""
+    indexed_records = list(enumerate(records))
+    indexed_records.sort(
+        key=lambda item: (
+            0 if item[1].chain_sequence is None else 1,
+            item[0] if item[1].chain_sequence is None else item[1].chain_sequence,
+        )
+    )
+    return [record for _, record in indexed_records]
 
 
 def compute_chained_record(
