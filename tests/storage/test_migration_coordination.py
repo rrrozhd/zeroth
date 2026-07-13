@@ -10,6 +10,8 @@ import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 
+from tests.conftest import requires_docker
+
 
 def _config(database_url: str) -> Config:
     root = Path(__file__).resolve().parents[2]
@@ -72,7 +74,26 @@ def test_coordination_migration_roundtrips_and_backfills_sqlite(tmp_path: Path) 
     command.upgrade(config, "009")
     _insert_legacy_audits(database_url)
 
-    command.upgrade(config, "010")
+    backfill_statements: list[str] = []
+
+    def capture_backfill(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        normalized = " ".join(statement.split())
+        if "UPDATE node_audits SET chain_sequence" in normalized:
+            backfill_statements.append(normalized)
+
+    sa.event.listen(sa.engine.Engine, "before_cursor_execute", capture_backfill)
+    try:
+        command.upgrade(config, "010")
+    finally:
+        sa.event.remove(sa.engine.Engine, "before_cursor_execute", capture_backfill)
+    assert len(backfill_statements) == 1
     tables, columns, indexes = _schema(database_url)
     assert {"audit_chain_heads", "retention_coordination"} <= tables
     assert "chain_sequence" in columns
@@ -162,3 +183,46 @@ def test_coordination_migration_enforces_per_run_sequence_uniqueness(tmp_path: P
                 connection.execute(sql, values | {"audit_id": "second"})
     finally:
         engine.dispose()
+
+
+@requires_docker
+def test_coordination_backfill_uses_window_ordering_on_postgres(postgres_container) -> None:
+    database_url = postgres_container.get_connection_url().replace("psycopg2", "psycopg")
+    config = _config(database_url)
+    command.upgrade(config, "010")
+    command.downgrade(config, "009")
+    try:
+        _insert_legacy_audits(database_url)
+        command.upgrade(config, "010")
+
+        engine = sa.create_engine(database_url)
+        try:
+            with engine.connect() as connection:
+                rows = connection.execute(
+                    sa.text(
+                        "SELECT audit_id, chain_sequence FROM node_audits "
+                        "WHERE audit_id IN ('a-later', 'a-first-z', 'a-first-a', 'b-only') "
+                        "ORDER BY run_id, chain_sequence"
+                    )
+                ).mappings().all()
+            assert [(row["audit_id"], row["chain_sequence"]) for row in rows] == [
+                ("a-first-a", 1),
+                ("a-first-z", 2),
+                ("a-later", 3),
+                ("b-only", 1),
+            ]
+        finally:
+            engine.dispose()
+    finally:
+        command.upgrade(config, "010")
+        engine = sa.create_engine(database_url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    sa.text(
+                        "DELETE FROM node_audits "
+                        "WHERE audit_id IN ('a-later', 'a-first-z', 'a-first-a', 'b-only')"
+                    )
+                )
+        finally:
+            engine.dispose()
