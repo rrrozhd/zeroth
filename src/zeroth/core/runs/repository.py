@@ -24,8 +24,8 @@ from zeroth.core.runs.models import (
     ThreadMemoryBinding,
     ThreadStatus,
 )
-from zeroth.core.storage import AsyncDatabase
-from zeroth.core.storage.json import load_typed_value, to_json_value
+from zeroth.core.storage import AsyncConnection, AsyncDatabase
+from zeroth.core.storage.json import from_json_value, load_typed_value, to_json_value
 
 ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
     RunStatus.PENDING: {RunStatus.RUNNING, RunStatus.FAILED},
@@ -682,6 +682,11 @@ class RunRepository:
     def __init__(self, database: AsyncDatabase):
         self._store = _RunThreadStore(database)
 
+    @property
+    def database(self) -> AsyncDatabase:
+        """Database backing this repository, for coordinated service transactions."""
+        return self._store.database
+
     async def create(self, run: Run) -> Run:
         """Save a new run and return the persisted version."""
         return await self.put(run)
@@ -842,17 +847,24 @@ class RunRepository:
         remove that snapshot. Returns the number of checkpoint rows deleted;
         idempotent (a second call deletes nothing and returns 0).
         """
-        database = self._store.database
-        async with database.transaction() as connection:
-            rows = await connection.fetch_all(
-                "SELECT checkpoint_id FROM run_checkpoints WHERE run_id = ?",
+        async with self.database.transaction() as connection:
+            return await self.erase_checkpoints_for_run_in_transaction(connection, run_id)
+
+    async def erase_checkpoints_for_run_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> int:
+        """Delete checkpoints through an existing transaction."""
+        rows = await connection.fetch_all(
+            "SELECT checkpoint_id FROM run_checkpoints WHERE run_id = ?",
+            (run_id,),
+        )
+        if rows:
+            await connection.execute(
+                "DELETE FROM run_checkpoints WHERE run_id = ?",
                 (run_id,),
             )
-            if rows:
-                await connection.execute(
-                    "DELETE FROM run_checkpoints WHERE run_id = ?",
-                    (run_id,),
-                )
         return len(rows)
 
     async def redact_run(self, run_id: str) -> bool:
@@ -864,20 +876,64 @@ class RunRepository:
         they are reset to the empty-object sentinel rather than NULL. Idempotent.
         Returns True if the run existed.
         """
-        database = self._store.database
-        async with database.transaction() as connection:
-            existing = await connection.fetch_one(
-                "SELECT 1 FROM runs WHERE run_id = ?",
-                (run_id,),
-            )
-            if existing is None:
-                return False
-            await connection.execute(
-                "UPDATE runs SET final_output = NULL, artifacts = '{}', "
-                "metadata = '{}', error = NULL WHERE run_id = ?",
-                (run_id,),
-            )
+        async with self.database.transaction() as connection:
+            return await self.redact_run_in_transaction(connection, run_id)
+
+    async def redact_run_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> bool:
+        """Redact a run through an existing transaction."""
+        existing = await connection.fetch_one(
+            "SELECT 1 FROM runs WHERE run_id = ?",
+            (run_id,),
+        )
+        if existing is None:
+            return False
+        await connection.execute(
+            "UPDATE runs SET final_output = NULL, artifacts = '{}', "
+            "metadata = '{}', error = NULL WHERE run_id = ?",
+            (run_id,),
+        )
         return True
+
+    async def erasure_payloads_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> list[Any]:
+        """Load database-resident run/checkpoint payloads before erasure."""
+        payloads: list[Any] = []
+        run = await connection.fetch_one(
+            "SELECT final_output, artifacts, metadata, error FROM runs WHERE run_id = ?",
+            (run_id,),
+        )
+        if run is not None:
+            for column in ("final_output", "artifacts", "metadata"):
+                raw = run[column]
+                if raw is not None:
+                    payloads.append(from_json_value(raw))
+            if run["error"] is not None:
+                payloads.append(run["error"])
+        checkpoints = await connection.fetch_all(
+            "SELECT state_json FROM run_checkpoints WHERE run_id = ?",
+            (run_id,),
+        )
+        payloads.extend(from_json_value(row["state_json"]) for row in checkpoints)
+        return payloads
+
+    async def tenant_id_for_run_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> str | None:
+        """Resolve a run's persisted tenant inside a caller transaction."""
+        row = await connection.fetch_one(
+            "SELECT tenant_id FROM runs WHERE run_id = ?",
+            (run_id,),
+        )
+        return None if row is None else str(row["tenant_id"])
 
 
 class ThreadRepository:

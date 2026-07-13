@@ -5,10 +5,15 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from zeroth.core.audit import AuditRepository
 from tests.conftest import requires_docker
 from zeroth.core.retention.coordination import RetentionCoordinator, RetentionTransaction
+from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
+from zeroth.core.retention.erasure_service import RetentionErasureService
 from zeroth.core.retention.legal_hold_repository import LegalHoldRepository
 from zeroth.core.retention.models import LegalHold
+from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+from zeroth.core.runs import RunRepository
 from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.core.storage.database import AsyncDatabase, CoordinationTimeoutError
@@ -233,3 +238,65 @@ async def test_retention_transaction_binds_tenant_identity(
     assert released_foreign_hold is False
     stored_tenant_b_hold = await repository.get(tenant_b_hold.hold_id)
     assert stored_tenant_b_hold is not None and stored_tenant_b_hold.active
+
+
+class _PausedErasureService(RetentionErasureService):
+    def __init__(
+        self, *args: object, locked: asyncio.Event, release: asyncio.Event, **kwargs: object
+    ):
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self._locked = locked
+        self._release = release
+
+    async def _after_lock_acquired(self) -> None:
+        self._locked.set()
+        await self._release.wait()
+
+
+@pytest.mark.asyncio
+async def test_erasure_and_hold_placement_serialize_on_tenant_lock(env) -> None:
+    await env.seed_run("run-race", tenant_id="tenant-race", n_audits=1)
+    second_database = AsyncSQLiteDatabase(env.database.path)
+    locked = asyncio.Event()
+    release = asyncio.Event()
+    service = _PausedErasureService(
+        audit_repository=AuditRepository(env.database, signer=env.signer),
+        run_repository=RunRepository(env.database),
+        policy_repository=RetentionPolicyRepository(env.database),
+        legal_hold_repository=LegalHoldRepository(env.database),
+        log_repository=RetentionAuditLogRepository(env.database),
+        artifact_store=env.artifact_store,
+        locked=locked,
+        release=release,
+    )
+    contender = LegalHoldRepository(second_database)
+    erase_task = asyncio.create_task(service.erase_run("run-race", "rte", tenant_id="tenant-race"))
+    hold_task: asyncio.Task[LegalHold] | None = None
+    try:
+        await asyncio.wait_for(locked.wait(), timeout=1.0)
+        hold_task = asyncio.create_task(
+            contender.place("tenant-race", run_id="run-race", reason="late hold")
+        )
+        done, _ = await asyncio.wait({hold_task}, timeout=0.05)
+        assert done == set(), "hold placement entered while erasure owned tenant lock"
+
+        release.set()
+        result = await asyncio.wait_for(erase_task, timeout=1.0)
+        hold = await asyncio.wait_for(hold_task, timeout=1.0)
+
+        assert result.audits_erased == 1
+        assert hold.run_id == "run-race"
+        records = await env.audit_repo.list_by_run("run-race")
+        assert records[0].erased is True
+    finally:
+        release.set()
+        if not erase_task.done():
+            erase_task.cancel()
+        if hold_task is not None and not hold_task.done():
+            hold_task.cancel()
+        await asyncio.gather(
+            erase_task,
+            *(tuple([hold_task]) if hold_task is not None else ()),
+            return_exceptions=True,
+        )
+        await second_database.close()
