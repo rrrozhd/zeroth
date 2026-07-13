@@ -135,9 +135,7 @@ class ParallelExecutor:
         ``cancelled_branch_contexts`` attached so
         ``_execute_parallel_fan_out`` can stash run-wide pause state.
         """
-        tasks = [
-            asyncio.create_task(branch_coro_factory(ctx)) for ctx in branch_contexts
-        ]
+        tasks = [asyncio.create_task(branch_coro_factory(ctx)) for ctx in branch_contexts]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # D-11: detect pause signal and hand control to the caller.

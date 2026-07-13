@@ -45,9 +45,7 @@ class RetentionPurgeWorker:
                     try:
                         await self.erasure_service.purge_tenant(policy.tenant_id)
                     except Exception:
-                        logger.exception(
-                            "retention purge failed for tenant %s", policy.tenant_id
-                        )
+                        logger.exception("retention purge failed for tenant %s", policy.tenant_id)
             except asyncio.CancelledError:
                 raise
             except Exception:

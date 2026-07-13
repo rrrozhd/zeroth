@@ -174,8 +174,7 @@ def _build_chroma(params: dict[str, Any]) -> tuple[ConnectorManifest, Any]:
 def _build_elasticsearch(params: dict[str, Any]) -> tuple[ConnectorManifest, Any]:
     if AsyncElasticsearch is None or ElasticsearchMemoryConnector is None:
         raise ValueError(
-            "elasticsearch connector dependencies not installed; "
-            "install zeroth-core[memory-es]"
+            "elasticsearch connector dependencies not installed; install zeroth-core[memory-es]"
         )
     hosts = _require_param(params, "hosts", "elasticsearch")
     if isinstance(hosts, str):
