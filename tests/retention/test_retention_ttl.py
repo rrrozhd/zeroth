@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from pydantic import ValidationError
+
 from zeroth.core.retention.models import RetentionPolicy
 
 
@@ -87,3 +90,35 @@ async def test_disabled_policy_skips_purge(env) -> None:
     )
     assert await env.service.purge_tenant("tenant-dis") == []
     assert await _pii_in_audits(env.database, "ddd-66-6666") is True
+
+
+# --- TTL input validation (retention-correctness task 1) --------------------
+
+
+@pytest.mark.parametrize("bad_ttl", [0, -1, -86400])
+def test_policy_rejects_non_positive_ttls(bad_ttl: int) -> None:
+    with pytest.raises(ValidationError):
+        RetentionPolicy(tenant_id="t", audit_ttl_seconds=bad_ttl)
+    with pytest.raises(ValidationError):
+        RetentionPolicy(tenant_id="t", run_ttl_seconds=bad_ttl)
+
+
+def test_policy_rejects_fractional_ttls() -> None:
+    with pytest.raises(ValidationError):
+        RetentionPolicy(tenant_id="t", audit_ttl_seconds=1.5)
+
+
+@pytest.mark.parametrize("bad_ttl", [0, -1, 1.5])
+def test_settings_reject_invalid_default_ttls(bad_ttl: float) -> None:
+    from zeroth.core.config.settings import RetentionSettings
+
+    with pytest.raises(ValidationError):
+        RetentionSettings(default_audit_ttl_seconds=bad_ttl)
+    with pytest.raises(ValidationError):
+        RetentionSettings(default_run_ttl_seconds=bad_ttl)
+
+
+def test_settings_worker_poll_interval_stays_float() -> None:
+    from zeroth.core.config.settings import RetentionSettings
+
+    assert RetentionSettings(worker_poll_interval=0.5).worker_poll_interval == 0.5
