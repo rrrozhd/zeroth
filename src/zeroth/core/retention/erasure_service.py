@@ -18,12 +18,22 @@ service refuses and raises :class:`LegalHoldError`.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Sequence
-from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
+from zeroth.core.artifacts.helpers import extract_artifact_refs
+from zeroth.core.audit.erasure_schema import AUDIT_CLEANUP_PAYLOAD_FIELDS
+from zeroth.core.retention.cleanup_manifest import (
+    CleanupManifest,
+    CleanupOperation,
+    DatabaseErasureOutcome,
+    operation_id,
+    parse_cleanup_manifest,
+)
 from zeroth.core.retention.coordination import RetentionCoordinator
 from zeroth.core.retention.models import ErasureResult
 from zeroth.core.storage.json import from_json_value
@@ -38,60 +48,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_AUDIT_CLEANUP_PAYLOAD_FIELDS = (
-    "input_snapshot",
-    "output_snapshot",
-    "validation_results",
-    "execution_metadata",
-    "condition_results",
-    "memory_interactions",
-    "tool_calls",
-    "approval_actions",
-)
-
 
 class LegalHoldError(RuntimeError):
     """Raised when erasure is refused because an active legal hold covers it."""
 
 
-def _harvest_artifact_keys(payload: Any) -> set[str]:
-    """Recursively collect ArtifactReference keys embedded in a snapshot.
-
-    An artifact reference serializes to a dict carrying both ``store`` and
-    ``key``; we pull the ``key`` so the erasure service can per-key delete the
-    externalized blob even if run-prefix cleanup misses it.
-    """
-    found: set[str] = set()
-    if isinstance(payload, dict):
-        if isinstance(payload.get("store"), str) and isinstance(payload.get("key"), str):
-            found.add(payload["key"])
-        for value in payload.values():
-            found |= _harvest_artifact_keys(value)
-    elif isinstance(payload, (list, tuple)):
-        for item in payload:
-            found |= _harvest_artifact_keys(item)
-    return found
-
-
-def _harvest_join_keys(payload: Any) -> set[str]:
-    """Recursively collect explicit economic ``join_key`` values."""
-    found: set[str] = set()
-    if isinstance(payload, dict):
-        join_key = payload.get("join_key")
-        if isinstance(join_key, str) and join_key:
-            found.add(join_key)
-        for value in payload.values():
-            found |= _harvest_join_keys(value)
-    elif isinstance(payload, (list, tuple)):
-        for item in payload:
-            found |= _harvest_join_keys(item)
-    return found
+def _harvest_artifact_keys(payload: Any, *, run_id: str) -> set[str]:
+    """Collect fully validated artifact refs owned by ``run_id``'s key namespace."""
+    refs = extract_artifact_refs({"payload": payload})
+    prefix = f"{run_id}/"
+    return {ref.key for ref in refs if ref.key.startswith(prefix)}
 
 
 def _audit_cleanup_payloads(record: Any) -> tuple[Any, ...]:
     """Return every structured audit surface that can hold cleanup references."""
     dumped = record.model_dump(mode="json")
-    return tuple(dumped[field] for field in _AUDIT_CLEANUP_PAYLOAD_FIELDS)
+    return tuple(dumped[field] for field in AUDIT_CLEANUP_PAYLOAD_FIELDS)
 
 
 class RetentionErasureService:
@@ -135,7 +107,7 @@ class RetentionErasureService:
         result = ErasureResult(run_id=run_id, tenant_id=resolved_tenant, reason=reason)
         blocked = False
         authorization_log_id = ""
-        manifest: dict[str, Any] = {}
+        manifest: CleanupManifest | None = None
 
         # The legal-hold decision, plaintext harvest, database erasure, and
         # authorization evidence are one tenant-serialized database transaction.
@@ -165,12 +137,16 @@ class RetentionErasureService:
                     run_id,
                 )
                 payloads: list[Any] = []
+                join_keys: set[str] = {run_id}
                 for record in records:
                     if record.tenant_id != resolved_tenant:
                         raise ValueError(
                             f"run {run_id!r} does not belong to tenant {resolved_tenant!r}"
                         )
                     payloads.extend(_audit_cleanup_payloads(record))
+                    authoritative_join_key = record.execution_metadata.get("join_key")
+                    if isinstance(authoritative_join_key, str) and authoritative_join_key:
+                        join_keys.add(authoritative_join_key)
                 payloads.extend(
                     await self._runs.erasure_payloads_in_transaction(
                         transaction.connection,
@@ -178,13 +154,13 @@ class RetentionErasureService:
                     )
                 )
                 artifact_keys = sorted(
-                    set().union(*(_harvest_artifact_keys(payload) for payload in payloads))
+                    set().union(
+                        *(_harvest_artifact_keys(payload, run_id=run_id) for payload in payloads)
+                    )
                     if payloads
                     else set()
                 )
-                join_keys = sorted(
-                    {run_id}.union(*(_harvest_join_keys(payload) for payload in payloads))
-                )
+                sorted_join_keys = sorted(join_keys)
 
                 for record in records:
                     if (record.digest_version or 1) < 2:
@@ -213,15 +189,18 @@ class RetentionErasureService:
                     transaction.connection,
                     run_id,
                 )
-                manifest = self._new_cleanup_manifest(artifact_keys, join_keys)
-                manifest["database_result"] = self._result_detail(result)
+                manifest = self._new_cleanup_manifest(
+                    result,
+                    artifact_keys,
+                    sorted_join_keys,
+                )
                 authorization_log_id = await self._log.record_in_transaction(
                     transaction.connection,
                     tenant_id=resolved_tenant,
                     run_id=run_id,
                     action="erasure_authorized",
                     reason=reason,
-                    detail=manifest,
+                    detail=manifest.model_dump(mode="json"),
                 )
 
         if blocked:
@@ -229,53 +208,76 @@ class RetentionErasureService:
                 f"run {run_id!r} is under an active legal hold and cannot be erased"
             )
 
+        result = await self.retry_external_cleanup(authorization_log_id)
         await self._record_database_compatibility_steps(result)
-        return await self._perform_external_cleanup(
-            authorization_log_id=authorization_log_id,
-            manifest=manifest,
-            result=result,
-        )
+        return result
 
     async def retry_external_cleanup(self, log_id: str) -> ErasureResult:
         """Retry an authorization log's unfinished external cleanup operations."""
         row = await self._log.get(log_id)
         if row is None or row["action"] != "erasure_authorized":
             raise ValueError(f"retention authorization log {log_id!r} was not found")
-        detail = from_json_value(row["detail"])
-        if not isinstance(detail, dict):
-            raise ValueError(f"retention authorization log {log_id!r} has no manifest")
         run_id = str(row["run_id"])
         tenant_id = str(row["tenant_id"])
         reason = str(row["reason"])
-        manifest = deepcopy(detail)
-        entries = await self._log.list_for_run(run_id)
-        latest_terminal_action: str | None = None
-        for entry in entries:
-            if entry["action"] not in {
-                "external_cleanup_completed",
-                "external_cleanup_failed",
-            }:
-                continue
-            progress = from_json_value(entry["detail"])
-            if not isinstance(progress, dict) or progress.get("authorization_log_id") != log_id:
-                continue
-            manifest["cleanup_status"] = progress["cleanup_status"]
-            latest_terminal_action = str(entry["action"])
-        result_data = manifest.get("database_result", {})
-        result = ErasureResult(
-            run_id=run_id,
-            tenant_id=tenant_id,
-            reason=reason,
-            audits_erased=int(result_data.get("audits_erased", 0)),
-            checkpoints_deleted=int(result_data.get("checkpoints_deleted", 0)),
-            run_redacted=bool(result_data.get("run_redacted", False)),
-        )
-        if latest_terminal_action == "external_cleanup_completed":
-            return self._apply_external_counts(result, manifest["cleanup_status"])
-        return await self._perform_external_cleanup(
+        claim_id = uuid4().hex
+        claim_log_id: str | None = None
+        manifest: CleanupManifest
+        async with self._coordinator.transaction(tenant_id) as transaction:
+            locked_row = await self._log.get_in_transaction(transaction.connection, log_id)
+            if locked_row is None or locked_row["action"] != "erasure_authorized":
+                raise ValueError(f"retention authorization log {log_id!r} was not found")
+            entries = await self._log.list_for_run_in_transaction(
+                transaction.connection,
+                run_id,
+            )
+            manifest = self._manifest_from_log_entries(locked_row, entries)
+            active_claim_log_id = self._active_claim_log_id(entries, log_id)
+            if active_claim_log_id is not None:
+                return self._result_from_manifest(
+                    manifest,
+                    authorization_log_id=log_id,
+                    retry_log_id=active_claim_log_id,
+                    force_status="pending",
+                )
+            if self._manifest_complete(manifest):
+                return self._result_from_manifest(
+                    manifest,
+                    authorization_log_id=log_id,
+                    retry_log_id=None,
+                )
+            claim_log_id = await self._log.record_in_transaction(
+                transaction.connection,
+                tenant_id=tenant_id,
+                run_id=run_id,
+                action="external_cleanup_claimed",
+                reason=reason,
+                detail={
+                    "authorization_log_id": log_id,
+                    "claim_id": claim_id,
+                    "lease_expires_at": (datetime.now(UTC) + timedelta(seconds=30)).isoformat(),
+                },
+            )
+
+        try:
+            terminal_log_id = await self._execute_claimed_cleanup(
+                authorization_log_id=log_id,
+                claim_id=claim_id,
+                manifest=manifest,
+            )
+        except BaseException:
+            await self._release_cleanup_claim(
+                authorization_log_id=log_id,
+                claim_id=claim_id,
+                tenant_id=tenant_id,
+                run_id=run_id,
+                reason=reason,
+            )
+            raise
+        return self._result_from_manifest(
+            manifest,
             authorization_log_id=log_id,
-            manifest=manifest,
-            result=result,
+            retry_log_id=terminal_log_id or claim_log_id,
         )
 
     async def _after_lock_acquired(self) -> None:
@@ -331,104 +333,325 @@ class RetentionErasureService:
 
     def _new_cleanup_manifest(
         self,
+        result: ErasureResult,
         artifact_keys: list[str],
         join_keys: list[str],
-    ) -> dict[str, Any]:
+    ) -> CleanupManifest:
         artifact_status = "pending" if self._artifact_store is not None else "skipped"
         econ_status = "pending" if self._econ_eraser is not None else "skipped"
-        return {
-            "artifact_keys": artifact_keys,
-            "join_keys": join_keys,
-            "cleanup_status": {
-                "artifact_prefix": {
-                    "status": (
-                        artifact_status
-                        if getattr(self._artifact_store, "cleanup_run", None) is not None
-                        else "skipped"
-                    ),
-                    "deleted_count": 0,
-                },
-                "artifact_keys": {
-                    key: {"status": artifact_status, "deleted_count": 0} for key in artifact_keys
-                },
-                "econ": {"status": econ_status, "deleted_count": None},
-            },
-        }
+        operations = [
+            CleanupOperation(
+                operation_id=operation_id(
+                    result.tenant_id, result.run_id, "artifact_prefix", result.run_id
+                ),
+                kind="artifact_prefix",
+                tenant_id=result.tenant_id,
+                run_id=result.run_id,
+                status=(
+                    artifact_status
+                    if getattr(self._artifact_store, "cleanup_run", None) is not None
+                    else "skipped"
+                ),
+            )
+        ]
+        operations.extend(
+            CleanupOperation(
+                operation_id=operation_id(result.tenant_id, result.run_id, "artifact_key", key),
+                kind="artifact_key",
+                tenant_id=result.tenant_id,
+                run_id=result.run_id,
+                artifact_key=key,
+                status=artifact_status,
+            )
+            for key in artifact_keys
+        )
+        operations.append(
+            CleanupOperation(
+                operation_id=operation_id(
+                    result.tenant_id,
+                    result.run_id,
+                    "econ",
+                    "\0".join(join_keys),
+                ),
+                kind="econ",
+                tenant_id=result.tenant_id,
+                run_id=result.run_id,
+                join_keys=join_keys,
+                status=econ_status,
+                deleted_count=None,
+            )
+        )
+        return CleanupManifest(
+            tenant_id=result.tenant_id,
+            run_id=result.run_id,
+            reason=result.reason,
+            database_result=DatabaseErasureOutcome(
+                audits_erased=result.audits_erased,
+                checkpoints_deleted=result.checkpoints_deleted,
+                run_redacted=result.run_redacted,
+            ),
+            operations=operations,
+        )
 
-    async def _perform_external_cleanup(
+    def _manifest_from_log_entries(
+        self,
+        authorization: dict[str, Any],
+        entries: list[dict[str, Any]],
+    ) -> CleanupManifest:
+        log_id = str(authorization["log_id"])
+        tenant_id = str(authorization["tenant_id"])
+        run_id = str(authorization["run_id"])
+        reason = str(authorization["reason"])
+        authorization_detail = from_json_value(authorization["detail"])
+        manifest = parse_cleanup_manifest(
+            authorization_detail,
+            tenant_id=tenant_id,
+            run_id=run_id,
+            reason=reason,
+        )
+        for entry in entries:
+            if entry["action"] not in {
+                "external_cleanup_operation",
+                "external_cleanup_completed",
+                "external_cleanup_failed",
+            }:
+                continue
+            detail = from_json_value(entry["detail"])
+            if not isinstance(detail, dict) or detail.get("authorization_log_id") != log_id:
+                continue
+            if "manifest" in detail:
+                manifest = parse_cleanup_manifest(
+                    detail["manifest"],
+                    tenant_id=tenant_id,
+                    run_id=run_id,
+                    reason=reason,
+                )
+            elif (
+                isinstance(authorization_detail, dict)
+                and "cleanup_status" in detail
+                and "version" not in authorization_detail
+            ):
+                migrated_detail = dict(authorization_detail)
+                migrated_detail["cleanup_status"] = detail["cleanup_status"]
+                manifest = parse_cleanup_manifest(
+                    migrated_detail,
+                    tenant_id=tenant_id,
+                    run_id=run_id,
+                    reason=reason,
+                )
+        return manifest
+
+    @staticmethod
+    def _active_claim_log_id(
+        entries: list[dict[str, Any]],
+        log_id: str,
+    ) -> str | None:
+        active_claim: tuple[str, dict[str, Any]] | None = None
+        for entry in entries:
+            detail = from_json_value(entry["detail"])
+            if not isinstance(detail, dict) or detail.get("authorization_log_id") != log_id:
+                continue
+            if entry["action"] == "external_cleanup_claimed":
+                active_claim = (str(entry["log_id"]), detail)
+            elif entry["action"] in {
+                "external_cleanup_claim_released",
+                "external_cleanup_completed",
+                "external_cleanup_failed",
+            }:
+                active_claim = None
+        if active_claim is None:
+            return None
+        claim_log_id, claim_detail = active_claim
+        try:
+            expires = datetime.fromisoformat(str(claim_detail["lease_expires_at"]))
+        except (KeyError, ValueError) as exc:
+            raise ValueError("invalid external cleanup claim") from exc
+        return claim_log_id if expires > datetime.now(UTC) else None
+
+    @staticmethod
+    def _manifest_complete(manifest: CleanupManifest) -> bool:
+        return all(
+            operation.status in {"completed", "skipped"} for operation in manifest.operations
+        )
+
+    async def _execute_claimed_cleanup(
         self,
         *,
         authorization_log_id: str,
-        manifest: dict[str, Any],
-        result: ErasureResult,
-    ) -> ErasureResult:
-        status = deepcopy(manifest["cleanup_status"])
-        prefix = status["artifact_prefix"]
-        if prefix["status"] != "completed" and prefix["status"] != "skipped":
-            try:
-                prefix["deleted_count"] = int(
-                    await self._artifact_store.cleanup_run(result.run_id) or 0
-                )
-                prefix["status"] = "completed"
-                prefix.pop("error", None)
-            except Exception as exc:
-                logger.exception("artifact cleanup_run failed for run %s", result.run_id)
-                prefix.update(status="failed", error=str(exc))
-
-        for key in manifest["artifact_keys"]:
-            key_status = status["artifact_keys"][key]
-            if key_status["status"] in {"completed", "skipped"}:
+        claim_id: str,
+        manifest: CleanupManifest,
+    ) -> str:
+        terminal_log_id = ""
+        for index, operation in enumerate(manifest.operations):
+            if operation.status in {"completed", "skipped"}:
                 continue
+            manifest.operations[index] = operation.model_copy(
+                update={"status": "in_progress", "error": None}
+            )
+            await self._record_manifest_progress(
+                authorization_log_id,
+                claim_id,
+                manifest,
+            )
             try:
-                key_status["deleted_count"] = int(bool(await self._artifact_store.delete(key)))
-                key_status["status"] = "completed"
-                key_status.pop("error", None)
+                deleted = await self._execute_operation(manifest.operations[index])
             except Exception as exc:
-                logger.exception("artifact delete failed for key %s", key)
-                key_status.update(status="failed", error=str(exc))
-
-        econ = status["econ"]
-        if econ["status"] not in {"completed", "skipped"}:
-            try:
-                econ["deleted_count"] = int(
-                    await self._econ_eraser.delete_events_for_run(manifest["join_keys"])
+                logger.exception("external cleanup operation %s failed", operation.operation_id)
+                manifest.operations[index] = manifest.operations[index].model_copy(
+                    update={"status": "failed", "error": str(exc)}
                 )
-                econ["status"] = "completed"
-                econ.pop("error", None)
-            except Exception as exc:
-                logger.exception("econ event erasure failed for run %s", result.run_id)
-                econ.update(status="failed", error=str(exc))
-
-        manifest["cleanup_status"] = status
-        failed = (
-            prefix["status"] == "failed"
-            or econ["status"] == "failed"
-            or any(item["status"] == "failed" for item in status["artifact_keys"].values())
-        )
-        await self._log.record(
-            tenant_id=result.tenant_id,
-            run_id=result.run_id,
+            else:
+                manifest.operations[index] = manifest.operations[index].model_copy(
+                    update={"status": "completed", "deleted_count": deleted, "error": None}
+                )
+            await self._record_manifest_progress(
+                authorization_log_id,
+                claim_id,
+                manifest,
+            )
+        failed = any(operation.status == "failed" for operation in manifest.operations)
+        terminal_log_id = await self._log.record(
+            tenant_id=manifest.tenant_id,
+            run_id=manifest.run_id,
             action=("external_cleanup_failed" if failed else "external_cleanup_completed"),
-            reason=result.reason,
+            reason=manifest.reason,
             detail={
                 "authorization_log_id": authorization_log_id,
-                "cleanup_status": status,
+                "claim_id": claim_id,
+                "manifest": manifest.model_dump(mode="json"),
             },
         )
-        self._apply_external_counts(result, status)
+        result = self._result_from_manifest(
+            manifest,
+            authorization_log_id=authorization_log_id,
+            retry_log_id=terminal_log_id,
+        )
         await self._record_external_compatibility_steps(result, manifest, failed=failed)
-        return result
+        return terminal_log_id
+
+    async def _execute_operation(self, operation: CleanupOperation) -> int:
+        if operation.kind == "artifact_prefix":
+            return int(
+                await self._call_with_idempotency(
+                    self._artifact_store.cleanup_run,
+                    operation.run_id,
+                    idempotency_key=operation.operation_id,
+                )
+                or 0
+            )
+        if operation.kind == "artifact_key":
+            return int(
+                bool(
+                    await self._call_with_idempotency(
+                        self._artifact_store.delete,
+                        operation.artifact_key,
+                        idempotency_key=operation.operation_id,
+                    )
+                )
+            )
+        return int(
+            await self._econ_eraser.delete_events_for_run(
+                operation.tenant_id,
+                operation.join_keys,
+                idempotency_key=operation.operation_id,
+            )
+        )
 
     @staticmethod
-    def _apply_external_counts(result: ErasureResult, status: dict[str, Any]) -> ErasureResult:
-        result.artifacts_deleted = int(status["artifact_prefix"].get("deleted_count") or 0)
-        result.artifacts_deleted += sum(
-            int(item.get("deleted_count") or 0) for item in status["artifact_keys"].values()
+    async def _call_with_idempotency(
+        method: Any,
+        *args: Any,
+        idempotency_key: str,
+    ) -> Any:
+        if "idempotency_key" in inspect.signature(method).parameters:
+            return await method(*args, idempotency_key=idempotency_key)
+        return await method(*args)
+
+    async def _record_manifest_progress(
+        self,
+        authorization_log_id: str,
+        claim_id: str,
+        manifest: CleanupManifest,
+    ) -> str:
+        return await self._log.record(
+            tenant_id=manifest.tenant_id,
+            run_id=manifest.run_id,
+            action="external_cleanup_operation",
+            reason=manifest.reason,
+            detail={
+                "authorization_log_id": authorization_log_id,
+                "claim_id": claim_id,
+                "manifest": manifest.model_dump(mode="json"),
+            },
         )
-        result.econ_events_deleted = (
-            None if status["econ"]["status"] == "skipped" else status["econ"].get("deleted_count")
+
+    async def _release_cleanup_claim(
+        self,
+        *,
+        authorization_log_id: str,
+        claim_id: str,
+        tenant_id: str,
+        run_id: str,
+        reason: str,
+    ) -> None:
+        try:
+            async with self._coordinator.transaction(tenant_id) as transaction:
+                await self._log.record_in_transaction(
+                    transaction.connection,
+                    tenant_id=tenant_id,
+                    run_id=run_id,
+                    action="external_cleanup_claim_released",
+                    reason=reason,
+                    detail={
+                        "authorization_log_id": authorization_log_id,
+                        "claim_id": claim_id,
+                    },
+                )
+        except Exception:
+            logger.exception("failed to release external cleanup claim %s", claim_id)
+
+    @staticmethod
+    def _result_from_manifest(
+        manifest: CleanupManifest,
+        *,
+        authorization_log_id: str,
+        retry_log_id: str | None,
+        force_status: str | None = None,
+    ) -> ErasureResult:
+        statuses = {operation.status for operation in manifest.operations}
+        cleanup_status = force_status
+        if cleanup_status is None:
+            if "failed" in statuses:
+                cleanup_status = "failed"
+            elif statuses <= {"completed", "skipped"}:
+                cleanup_status = "complete"
+            else:
+                cleanup_status = "pending"
+        artifact_deleted = sum(
+            int(operation.deleted_count or 0)
+            for operation in manifest.operations
+            if operation.kind in {"artifact_prefix", "artifact_key"}
         )
-        return result
+        econ_operations = [
+            operation for operation in manifest.operations if operation.kind == "econ"
+        ]
+        econ_deleted = None
+        if econ_operations and econ_operations[0].status != "skipped":
+            econ_deleted = int(econ_operations[0].deleted_count or 0)
+        database = manifest.database_result
+        return ErasureResult(
+            run_id=manifest.run_id,
+            tenant_id=manifest.tenant_id,
+            reason=manifest.reason,
+            audits_erased=database.audits_erased,
+            checkpoints_deleted=database.checkpoints_deleted,
+            run_redacted=database.run_redacted,
+            artifacts_deleted=artifact_deleted,
+            econ_events_deleted=econ_deleted,
+            external_cleanup_status=cleanup_status,  # type: ignore[arg-type]
+            authorization_log_id=authorization_log_id,
+            retry_log_id=retry_log_id,
+        )
 
     async def _record_database_compatibility_steps(self, result: ErasureResult) -> None:
         for action, detail in (
@@ -436,6 +659,68 @@ class RetentionErasureService:
             ("erase_checkpoints", {"count": result.checkpoints_deleted}),
             ("redact_run", {"redacted": result.run_redacted}),
         ):
+            try:
+                await self._log.record(
+                    tenant_id=result.tenant_id,
+                    run_id=result.run_id,
+                    action=action,
+                    reason=result.reason,
+                    detail=detail,
+                )
+            except Exception:
+                logger.exception("best-effort compatibility log %s failed", action)
+
+    async def _record_external_compatibility_steps(
+        self,
+        result: ErasureResult,
+        manifest: CleanupManifest,
+        *,
+        failed: bool,
+    ) -> None:
+        await self._record_compatibility_log(
+            result,
+            "artifact_cleanup",
+            {"count": result.artifacts_deleted},
+        )
+        econ = next(
+            (operation for operation in manifest.operations if operation.kind == "econ"),
+            None,
+        )
+        if econ is None:
+            if not failed:
+                await self._record_compatibility_log(
+                    result,
+                    "erase_run_complete",
+                    self._result_detail(result),
+                )
+            return
+        econ_action = "econ_erase_skipped"
+        if econ.status == "completed":
+            econ_action = "econ_erase"
+        elif econ.status == "failed":
+            econ_action = "econ_erase_failed"
+        await self._record_compatibility_log(
+            result,
+            econ_action,
+            {
+                "count": result.econ_events_deleted,
+                "join_keys": econ.join_keys,
+            },
+        )
+        if not failed:
+            await self._record_compatibility_log(
+                result,
+                "erase_run_complete",
+                self._result_detail(result),
+            )
+
+    async def _record_compatibility_log(
+        self,
+        result: ErasureResult,
+        action: str,
+        detail: dict[str, Any],
+    ) -> None:
+        try:
             await self._log.record(
                 tenant_id=result.tenant_id,
                 run_id=result.run_id,
@@ -443,44 +728,8 @@ class RetentionErasureService:
                 reason=result.reason,
                 detail=detail,
             )
-
-    async def _record_external_compatibility_steps(
-        self,
-        result: ErasureResult,
-        manifest: dict[str, Any],
-        *,
-        failed: bool,
-    ) -> None:
-        await self._log.record(
-            tenant_id=result.tenant_id,
-            run_id=result.run_id,
-            action="artifact_cleanup",
-            reason=result.reason,
-            detail={"count": result.artifacts_deleted},
-        )
-        econ_action = "econ_erase_skipped"
-        if manifest["cleanup_status"]["econ"]["status"] == "completed":
-            econ_action = "econ_erase"
-        elif manifest["cleanup_status"]["econ"]["status"] == "failed":
-            econ_action = "econ_erase_failed"
-        await self._log.record(
-            tenant_id=result.tenant_id,
-            run_id=result.run_id,
-            action=econ_action,
-            reason=result.reason,
-            detail={
-                "count": result.econ_events_deleted,
-                "join_keys": manifest["join_keys"],
-            },
-        )
-        if not failed:
-            await self._log.record(
-                tenant_id=result.tenant_id,
-                run_id=result.run_id,
-                action="erase_run_complete",
-                reason=result.reason,
-                detail=self._result_detail(result),
-            )
+        except Exception:
+            logger.exception("best-effort compatibility log %s failed", action)
 
     @staticmethod
     def _result_detail(result: ErasureResult) -> dict[str, Any]:
@@ -490,4 +739,7 @@ class RetentionErasureService:
             "run_redacted": result.run_redacted,
             "artifacts_deleted": result.artifacts_deleted,
             "econ_events_deleted": result.econ_events_deleted,
+            "external_cleanup_status": result.external_cleanup_status,
+            "authorization_log_id": result.authorization_log_id,
+            "retry_log_id": result.retry_log_id,
         }

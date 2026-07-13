@@ -12,10 +12,10 @@ from zeroth.core.retention.econ_eraser import EconEventEraser
 class _RecordingEconEraser:
     def __init__(self, deleted: int = 4) -> None:
         self.deleted = deleted
-        self.called_with: list[list[str]] = []
+        self.called_with: list[tuple[str, list[str], str]] = []
 
-    async def delete_events_for_run(self, join_keys):
-        self.called_with.append(list(join_keys))
+    async def delete_events_for_run(self, tenant_id, join_keys, *, idempotency_key):
+        self.called_with.append((tenant_id, list(join_keys), idempotency_key))
         return self.deleted
 
 
@@ -48,7 +48,10 @@ async def test_erase_run_calls_econ_hook_with_run_and_metadata_join_keys(env) ->
     result = await service.erase_run("run-econ", "rte")
 
     assert eraser.called_with, "econ hook must be invoked"
-    passed = set(eraser.called_with[0])
+    tenant_id, keys, idempotency_key = eraser.called_with[0]
+    passed = set(keys)
+    assert tenant_id == "default"
+    assert idempotency_key
     assert "run-econ" in passed  # run_id is always a candidate key
     assert "case-42" in passed  # derived from execution_metadata
     assert result.econ_events_deleted == 4
@@ -59,5 +62,46 @@ async def test_erase_run_calls_econ_hook_with_run_and_metadata_join_keys(env) ->
 
 async def test_sqlalchemy_econ_eraser_noop_on_empty_keys() -> None:
     # No join keys -> nothing to delete, no econ_plane import/DB required.
-    assert await SqlAlchemyEconEventEraser().delete_events_for_run([]) == 0
-    assert await SqlAlchemyEconEventEraser().delete_events_for_run(["", None]) == 0  # type: ignore[list-item]
+    eraser = SqlAlchemyEconEventEraser()
+    assert await eraser.delete_events_for_run("tenant-a", [], idempotency_key="empty") == 0
+    assert (
+        await eraser.delete_events_for_run(
+            "tenant-a",
+            ["", None],
+            idempotency_key="empty-2",  # type: ignore[list-item]
+        )
+        == 0
+    )
+
+
+async def test_sqlalchemy_econ_eraser_predicates_tenant_and_join_key(monkeypatch) -> None:
+    from zeroth.econ_plane import database as econ_database
+
+    statements = []
+
+    class _Result:
+        rowcount = 0
+
+    class _Session:
+        def execute(self, statement):
+            statements.append(statement)
+            return _Result()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(econ_database, "SessionLocal", _Session)
+
+    deleted = SqlAlchemyEconEventEraser()._delete_sync("tenant-a", ["shared-key"])
+
+    assert deleted == 0
+    assert len(statements) == 2
+    for statement in statements:
+        compiled = statement.compile()
+        assert "tenant_id" in str(compiled)
+        assert "join_key" in str(compiled)
+        assert "tenant-a" in compiled.params.values()
+        assert ["shared-key"] in compiled.params.values()

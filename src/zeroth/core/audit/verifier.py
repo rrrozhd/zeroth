@@ -22,6 +22,7 @@ import json
 from typing import TYPE_CHECKING
 
 from zeroth.core.audit.coordination import AuditChainOrderingError, order_audit_records
+from zeroth.core.audit.erasure_schema import pii_commitment_fields
 from zeroth.core.audit.models import AuditContinuityReport, NodeAuditRecord
 from zeroth.core.signing import sign_digest, verify_digest
 from zeroth.core.storage.json import to_json_value
@@ -67,34 +68,11 @@ _DIGEST_EXCLUDED_FIELDS = frozenset(
     }
 )
 
+
 # PII payload fields substituted by per-field commitment hashes when
 # ``digest_version >= 2``. Nulling any of these during crypto-erasure leaves the
 # digest unchanged because the digest folds in ``pii_commitments`` (stamped once
 # at write time) rather than these raw values.
-_PII_COMMITMENT_FIELDS_V2: tuple[str, ...] = (
-    "input_snapshot",
-    "output_snapshot",
-    "validation_results",
-    "execution_metadata",
-    "stdout",
-    "stderr",
-    "error",
-    "tool_calls",
-    "memory_interactions",
-)
-
-_PII_COMMITMENT_FIELDS_V3: tuple[str, ...] = (
-    *_PII_COMMITMENT_FIELDS_V2,
-    "condition_results",
-    "approval_actions",
-)
-
-
-def _pii_commitment_fields(digest_version: int) -> tuple[str, ...]:
-    """Select the immutable commitment schema used by a digest version."""
-    return _PII_COMMITMENT_FIELDS_V3 if digest_version >= 3 else _PII_COMMITMENT_FIELDS_V2
-
-
 class AuditContinuityVerifier:
     """Verify digest continuity and (WS-D) signatures for audit history.
 
@@ -280,7 +258,7 @@ def _compute_pii_commitments(record: NodeAuditRecord) -> dict[str, str]:
     dumped = record.model_dump(mode="json")
     return {
         field: hashlib.sha256(_canonical(dumped[field]).encode("utf-8")).hexdigest()
-        for field in _pii_commitment_fields(record.digest_version or 1)
+        for field in pii_commitment_fields(record.digest_version or 1)
     }
 
 
@@ -309,7 +287,7 @@ def _compute_record_digest(record: NodeAuditRecord) -> str:
     # is non-erased and its live PII equals what produced the stored commitments,
     # so recomputed == stored — write and verify agree.
     if (record.digest_version or 1) >= 2:
-        for field in _pii_commitment_fields(record.digest_version or 1):
+        for field in pii_commitment_fields(record.digest_version or 1):
             payload.pop(field, None)
         if record.erased:
             payload["pii_commitments"] = record.pii_commitments or {}
