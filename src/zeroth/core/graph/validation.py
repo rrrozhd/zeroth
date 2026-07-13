@@ -419,6 +419,28 @@ class GraphValidator:
             message="invalid memory reference",
             path=("nodes", node.node_id, "agent", "memory_refs"),
         )
+        if node.agent.mcp_servers:
+            # MCP servers are spawned subprocesses that call out to external
+            # services; publishing a graph whose agent lacks either capability
+            # would only fail later, at dispatch on an enforced deployment.
+            granted = _capabilities_from_refs(node.capability_bindings)
+            required = {Capability.PROCESS_SPAWN, Capability.EXTERNAL_API_CALL}
+            missing = sorted(cap.value for cap in (required - granted))
+            if missing:
+                _append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.MISSING_MCP_CAPABILITY,
+                    message=(
+                        f"agent {node.node_id!r} declares mcp_servers but is missing "
+                        f"{', '.join(missing)}; add the missing capabilities to the "
+                        "agent's capability_bindings"
+                    ),
+                    graph_id=graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "agent", "mcp_servers"),
+                    details={"missing_capabilities": missing},
+                )
 
     def _validate_executable_unit_node(
         self,

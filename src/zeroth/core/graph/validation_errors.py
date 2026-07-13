@@ -55,6 +55,7 @@ class ValidationCode(StrEnum):
     INVALID_TOOL_EDGE = "invalid_tool_edge"
     INVALID_TOOL_BINDING = "invalid_tool_binding"
     CAPABILITY_GRANT_INSUFFICIENT = "capability_grant_insufficient"
+    MISSING_MCP_CAPABILITY = "missing_mcp_capability"
 
 
 class ValidationIssue(BaseModel):
