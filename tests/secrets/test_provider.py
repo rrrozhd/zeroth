@@ -52,3 +52,101 @@ def test_secret_redactor_masks_known_values_in_dicts_and_strings() -> None:
         "nested": {"token": "[REDACTED:TOKEN]"},
         "message": "[REDACTED:API_KEY] [REDACTED:TOKEN]",
     }
+
+
+# --- async compatibility helpers --------------------------------------------
+
+
+class _AsyncNativeProvider:
+    """Async-native provider: sync methods must never be called."""
+
+    def resolve(self, secret_ref, *, tenant_id=None):
+        raise AssertionError("sync resolve called on async-native provider")
+
+    def resolve_many(self, refs, *, tenant_id=None):
+        raise AssertionError("sync resolve_many called on async-native provider")
+
+    def resolve_secret(self, logical_name, *, tenant_id=None, deployment_ref=None):
+        raise AssertionError("sync resolve_secret called on async-native provider")
+
+    async def resolve_async(self, secret_ref, *, tenant_id=None):
+        return f"async:{secret_ref}"
+
+    async def resolve_many_async(self, refs, *, tenant_id=None):
+        return {ref: f"async:{ref}" for ref in refs}
+
+    async def resolve_secret_async(self, logical_name, *, tenant_id=None, deployment_ref=None):
+        return f"async:{logical_name}:{tenant_id}"
+
+
+class _BlockingSyncProvider:
+    """Sync-only provider that blocks; must run off the event loop."""
+
+    def __init__(self, delay: float) -> None:
+        self._delay = delay
+
+    def resolve(self, secret_ref, *, tenant_id=None):
+        import time
+
+        time.sleep(self._delay)
+        return f"sync:{secret_ref}"
+
+    def resolve_many(self, refs, *, tenant_id=None):
+        return {ref: self.resolve(ref) for ref in refs}
+
+    def resolve_secret(self, logical_name, *, tenant_id=None, deployment_ref=None):
+        import time
+
+        time.sleep(self._delay)
+        return f"sync:{logical_name}"
+
+
+@pytest.mark.asyncio
+async def test_async_helpers_await_native_async_provider() -> None:
+    from zeroth.core.secrets.provider import (
+        resolve_async,
+        resolve_many_async,
+        resolve_secret_async,
+    )
+
+    provider = _AsyncNativeProvider()
+    assert await resolve_async(provider, "KEY") == "async:KEY"
+    assert await resolve_many_async(provider, ["A", "B"]) == {"A": "async:A", "B": "async:B"}
+    assert await resolve_secret_async(provider, "llm.openai", tenant_id="t1") == (
+        "async:llm.openai:t1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_env_provider_resolves_natively_async() -> None:
+    from zeroth.core.secrets.provider import resolve_async, resolve_secret_async
+
+    provider = EnvSecretProvider({"OPENAI_API_KEY": "sk-1", "LLM_OPENAI": "sk-2"})
+    assert await provider.resolve_async("OPENAI_API_KEY") == "sk-1"
+    assert await provider.resolve_secret_async("llm.openai") == "sk-2"
+    assert await resolve_async(provider, "OPENAI_API_KEY") == "sk-1"
+    assert await resolve_secret_async(provider, "llm.openai") == "sk-2"
+
+
+@pytest.mark.asyncio
+async def test_sync_only_provider_does_not_block_event_loop() -> None:
+    import asyncio
+
+    from zeroth.core.secrets.provider import resolve_secret_async
+
+    heartbeats = 0
+
+    async def _heartbeat() -> None:
+        nonlocal heartbeats
+        while True:
+            heartbeats += 1
+            await asyncio.sleep(0.01)
+
+    task = asyncio.create_task(_heartbeat())
+    try:
+        value = await resolve_secret_async(_BlockingSyncProvider(0.2), "llm.openai")
+    finally:
+        task.cancel()
+    assert value == "sync:llm.openai"
+    # A blocked loop would have frozen the heartbeat for the full 200ms.
+    assert heartbeats >= 5
