@@ -13,10 +13,22 @@ def _to_bool(value: object) -> bool:
 
 
 class RetentionPolicyRepository:
-    """CRUD over ``retention_policies`` with system-default fallback."""
+    """CRUD over ``retention_policies`` with system-default fallback.
 
-    def __init__(self, database: AsyncDatabase) -> None:
+    ``default_policy`` carries the operator's configured defaults
+    (``settings.retention.default_*``). It participates only in
+    :meth:`resolve` fallback — it is never persisted, so environment
+    configuration cannot masquerade as an explicit tenant policy row.
+    """
+
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        *,
+        default_policy: RetentionPolicy | None = None,
+    ) -> None:
         self._database = database
+        self._default_policy = default_policy
 
     async def get(self, tenant_id: str) -> RetentionPolicy | None:
         """Return the explicit policy for a tenant, or None if it has none."""
@@ -28,15 +40,19 @@ class RetentionPolicyRepository:
         return None if row is None else self._row_to_policy(row)
 
     async def resolve(self, tenant_id: str) -> RetentionPolicy:
-        """Return the tenant's policy, falling back to the system default.
+        """Return the tenant's policy, falling back through the defaults chain.
 
-        When neither the tenant nor the ``'default'`` seed row exists (e.g. a DB
-        predating the 008 seed), an all-``None``/keep-forever default is
-        synthesized so callers never crash on a missing policy.
+        Order: explicit tenant row (a stored ``NULL`` TTL means keep forever,
+        even when a finite default is configured) → the constructor's
+        configured default (environment-derived; the migration-008 seed row is
+        all-``NULL``, so configuration must outrank it to ever take effect) →
+        the ``'default'`` system row → a synthesized keep-forever policy.
         """
         explicit = await self.get(tenant_id)
         if explicit is not None:
             return explicit
+        if self._default_policy is not None:
+            return self._default_policy.model_copy(update={"tenant_id": tenant_id})
         system = await self.get(SYSTEM_DEFAULT_TENANT)
         if system is not None:
             return system.model_copy(update={"tenant_id": tenant_id})
