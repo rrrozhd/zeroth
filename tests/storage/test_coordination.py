@@ -83,6 +83,51 @@ def test_sqlite_script_splitter_ignores_semicolons_inside_literals(
     assert len(calls) == 3
 
 
+def test_sqlite_script_splitter_checks_large_trigger_only_at_terminal_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    complete_statement = async_sqlite.sqlite3.complete_statement
+    calls: list[str] = []
+
+    def track_complete_statement(statement: str) -> bool:
+        calls.append(statement)
+        return complete_statement(statement)
+
+    monkeypatch.setattr(async_sqlite.sqlite3, "complete_statement", track_complete_statement)
+    body = "".join(f"INSERT INTO item_log (value) VALUES ({value});" for value in range(1_000))
+    trigger = f"CREATE TEMPORARY TRIGGER log_item AFTER INSERT ON items BEGIN {body} END;"
+
+    assert list(async_sqlite._split_sql_script(trigger)) == [trigger]
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_sqlite_execute_script_preserves_nested_case_end_in_trigger(tmp_path: Path) -> None:
+    database = AsyncSQLiteDatabase(str(tmp_path / "script-trigger-case.db"))
+    async with database.transaction() as connection:
+        await connection.execute_script(
+            """
+            CREATE TABLE items (value INTEGER);
+            CREATE TABLE item_log (value TEXT);
+            CREATE TRIGGER log_item AFTER INSERT ON items BEGIN
+                INSERT INTO item_log (value)
+                VALUES (
+                    CASE WHEN NEW.value >= 0 THEN
+                        CASE WHEN NEW.value % 2 = 0 THEN 'even' ELSE 'odd' END
+                    ELSE 'negative' END
+                );
+            END;
+            INSERT INTO items (value) VALUES (2);
+            INSERT INTO items (value) VALUES (3);
+            INSERT INTO items (value) VALUES (-1);
+            """
+        )
+
+    async with database.transaction() as connection:
+        rows = await connection.fetch_all("SELECT value FROM item_log ORDER BY rowid")
+    assert rows == [{"value": "even"}, {"value": "odd"}, {"value": "negative"}]
+
+
 @pytest.mark.asyncio
 async def test_sqlite_execute_script_preserves_triggers_and_rolls_back(tmp_path: Path) -> None:
     database = AsyncSQLiteDatabase(str(tmp_path / "script-trigger.db"))
