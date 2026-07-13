@@ -241,6 +241,7 @@ src/zeroth/core/
 ├── econ/               # Cost estimation, budget enforcement, econ integration
 ├── eval/               # Agent evaluation harness: datasets, scorers, CI gate
 ├── execution_units/    # Sandboxed code execution (Docker, Python, shell)
+├── governed/           # Vendored governed-runtime primitives (absorbed governai): memory types, tool contracts, run-state, audit emitters
 ├── graph/              # Workflow DAG structure and persistence
 ├── guardrails/         # Rate limiting, quotas, dead-letter queues
 ├── http/               # Resilient async HTTP client with retry and circuit breaking
