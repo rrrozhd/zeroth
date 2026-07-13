@@ -48,8 +48,7 @@ def model_from_json_schema(name: str, schema: dict[str, Any]) -> type[BaseModel]
             errors = sorted(checker.iter_errors(data), key=lambda e: list(e.absolute_path))
             if errors:
                 summary = "; ".join(
-                    f"{'/'.join(str(p) for p in error.absolute_path) or '<root>'}: "
-                    f"{error.message}"
+                    f"{'/'.join(str(p) for p in error.absolute_path) or '<root>'}: {error.message}"
                     for error in errors[:5]
                 )
                 raise ValueError(f"payload does not match contract schema: {summary}")

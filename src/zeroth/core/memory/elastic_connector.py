@@ -80,9 +80,7 @@ class ElasticsearchMemoryConnector:
         }
         await self._client.index(index=index, id=self._doc_id(key), document=doc)
 
-    async def delete(
-        self, key: str, scope: MemoryScope, *, target: str | None = None
-    ) -> None:
+    async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         """Remove a document. Raises KeyError if not found."""
         index = self._index_name(scope, target)
         try:

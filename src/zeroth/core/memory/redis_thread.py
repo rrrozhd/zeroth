@@ -85,9 +85,7 @@ class RedisThreadMemoryConnector:
         score = time.time()
         await self._redis.zadd(sorted_key, {entry.model_dump_json(): score})
 
-    async def delete(
-        self, key: str, scope: MemoryScope, *, target: str | None = None
-    ) -> None:
+    async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         """Remove the entire sorted set for *key*. Raises ``KeyError`` if absent."""
         sorted_key = self._key(key, scope, target)
         deleted = await self._redis.delete(sorted_key)

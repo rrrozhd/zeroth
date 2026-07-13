@@ -256,9 +256,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
                 run_id, "rte", tenant_id=tenant_id
             )
         except LegalHoldError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-            ) from exc
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return ErasureResponse(reason="rte", runs=[_run_result(result)])
 
     async def _erase_tenant(
@@ -306,9 +304,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
             return
         records = await bootstrap.audit_repository.list(AuditQuery(run_id=run_id))
         if not records:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="run not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         await require_resource_scope(
             request,
             tenant_id=records[0].tenant_id,

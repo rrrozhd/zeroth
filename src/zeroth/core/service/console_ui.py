@@ -73,8 +73,7 @@ def mount_console(app: FastAPI, *, directory: Path | None = None) -> bool:
     directory = directory if directory is not None else find_console_dir()
     if directory is None:
         logger.info(
-            "console UI not mounted: no build found "
-            "(set %s, or run `npm run build` in frontend/)",
+            "console UI not mounted: no build found (set %s, or run `npm run build` in frontend/)",
             _ENV_DIR,
         )
         return False

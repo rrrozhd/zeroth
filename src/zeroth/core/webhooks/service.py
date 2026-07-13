@@ -104,6 +104,4 @@ class WebhookService:
         limit: int = 50,
     ) -> list[WebhookDeadLetter]:
         """List dead-letter entries."""
-        return await self.repository.list_dead_letters(
-            subscription_id=subscription_id, limit=limit
-        )
+        return await self.repository.list_dead_letters(subscription_id=subscription_id, limit=limit)

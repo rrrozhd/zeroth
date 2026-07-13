@@ -37,9 +37,7 @@ def build_response_format(output_model: type[BaseModel]) -> dict[str, Any] | Non
 
 def _has_freeform_object(schema: dict[str, Any]) -> bool:
     """True if any object node lacks enumerated properties (dict[str, Any])."""
-    if (schema.get("type") == "object" or "properties" in schema) and not schema.get(
-        "properties"
-    ):
+    if (schema.get("type") == "object" or "properties" in schema) and not schema.get("properties"):
         return True
     for key in ("properties", "$defs"):
         sub = schema.get(key)

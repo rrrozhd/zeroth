@@ -657,9 +657,7 @@ class AgentRunner:
             )
         return current_response, current_messages, tool_audits
 
-    async def _start_mcp_servers(
-        self, effective_capabilities: set[Capability] | None
-    ) -> None:
+    async def _start_mcp_servers(self, effective_capabilities: set[Capability] | None) -> None:
         """Start MCP server connections and register discovered tools.
 
         Starting an MCP server spawns a subprocess that talks to external

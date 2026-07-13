@@ -83,9 +83,7 @@ class RedisKVMemoryConnector:
             )
         await self._redis.set(self._key(key, scope, target), entry.model_dump_json())
 
-    async def delete(
-        self, key: str, scope: MemoryScope, *, target: str | None = None
-    ) -> None:
+    async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         """Remove a key. Raises ``KeyError`` if it does not exist."""
         deleted = await self._redis.delete(self._key(key, scope, target))
         if not deleted:

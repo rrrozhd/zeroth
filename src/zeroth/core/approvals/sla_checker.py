@@ -40,9 +40,7 @@ class ApprovalSLAChecker:
                         escalated = await self.approval_service.escalate(record.approval_id)
                         await self._emit_escalation_event(escalated)
                     except Exception:
-                        logger.exception(
-                            "failed to escalate approval %s", record.approval_id
-                        )
+                        logger.exception("failed to escalate approval %s", record.approval_id)
             except asyncio.CancelledError:
                 raise
             except Exception:
