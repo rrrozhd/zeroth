@@ -196,6 +196,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         node_id: str | None = None,
         graph_version_ref: str | None = None,
     ) -> AuditRecordListResponse:
+        """List a deployment's audit records; requires ``Permission.AUDIT_READ``."""
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
         principal = await require_permission(request, Permission.AUDIT_READ)
         records = await bootstrap.audit_repository.list(
@@ -221,6 +222,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         run_id: str,
     ) -> AuditTimelineResponse:
+        """Return the ordered audit timeline for a run; requires ``Permission.AUDIT_READ``."""
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
         await require_permission(request, Permission.AUDIT_READ)
@@ -284,6 +286,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         *,
         expected_head_digest: str | None = None,
     ) -> AuditVerificationResponse:
+        """Shared chain verification behind the GET/POST run verification routes."""
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
         await require_permission(request, Permission.AUDIT_READ)
@@ -345,6 +348,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         deployment_ref: str,
     ) -> AuditTimelineResponse:
+        """Return a deployment's ordered audit timeline; requires ``Permission.AUDIT_READ``."""
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.AUDIT_READ)
         records = [
@@ -369,6 +373,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         run_id: str,
     ) -> RunEvidenceResponse:
+        """Return the evidence bundle for a run; requires ``Permission.AUDIT_READ``."""
         bootstrap = _bootstrap(request)
         deployment = bootstrap.deployment
         await require_permission(request, Permission.AUDIT_READ)
@@ -408,6 +413,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         deployment_ref: str,
     ) -> DeploymentEvidenceResponse:
+        """Return the evidence bundle for a deployment; requires ``Permission.AUDIT_READ``."""
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.AUDIT_READ)
         audits = [
@@ -440,6 +446,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         deployment_ref: str,
     ) -> DeploymentAttestationResponse:
+        """Return the persisted deployment attestation; requires ``Permission.DEPLOYMENT_READ``."""
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.DEPLOYMENT_READ)
         current = await _load_bound_deployment(bootstrap)
@@ -460,6 +467,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment_ref: str,
         attestation: DeploymentAttestationResponse,
     ) -> AttestationVerificationResponse:
+        """Verify a client-supplied attestation against the bound deployment."""
         bootstrap, _ = await _deployment_context(request, deployment_ref)
         await require_permission(request, Permission.DEPLOYMENT_READ)
         current = await _load_bound_deployment(bootstrap)
@@ -489,6 +497,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
 
 
 def _signer_key_id(signer: object | None) -> str | None:
+    """Return the active signer's key id, or None when there is no signer."""
     key_id = getattr(signer, "key_id", None)
     return key_id() if callable(key_id) else None
 
@@ -538,6 +547,7 @@ def _attestation_verification_response(
 
 
 def _bootstrap(request: Request) -> AuditApiBootstrapLike:
+    """Fetch the service bootstrap from app state."""
     bootstrap = getattr(request.app.state, "bootstrap", None)
     if bootstrap is None:
         raise RuntimeError("service bootstrap is not configured")
@@ -548,6 +558,7 @@ async def _deployment_context(
     request: Request,
     deployment_ref: str,
 ) -> tuple[AuditApiBootstrapLike, object]:
+    """Resolve and scope-check the bound deployment for a path deployment_ref."""
     bootstrap = _bootstrap(request)
     deployment = bootstrap.deployment
     await require_deployment_scope(request, deployment)
@@ -562,6 +573,7 @@ async def _visible_record(
     *,
     not_found_detail: str = "audit not found",
 ) -> NodeAuditRecord:
+    """Scope-check an audit record and return it with sensitive keys redacted."""
     await require_resource_scope(
         request,
         tenant_id=record.tenant_id,
@@ -578,6 +590,7 @@ async def _visible_record(
 
 
 def _sanitize_mapping(payload: dict[str, object]) -> dict[str, object]:
+    """Redact sensitive keys from an audit payload mapping."""
     return dict(_REDACTOR.sanitize(payload))
 
 
@@ -587,6 +600,7 @@ async def _visible_approvals(
     *,
     not_found_detail: str = "approval not found",
 ) -> list[ApprovalRecord]:
+    """Enforce resource scope on each approval and return the scoped list."""
     visible: list[ApprovalRecord] = []
     for approval in approvals:
         await require_resource_scope(
@@ -600,6 +614,7 @@ async def _visible_approvals(
 
 
 async def _load_bound_deployment(bootstrap: AuditApiBootstrapLike) -> object:
+    """Load the bound deployment snapshot from the deployment service (404 if missing)."""
     deployment = await bootstrap.deployment_service.get(
         bootstrap.deployment.deployment_ref,
         bootstrap.deployment.version,
