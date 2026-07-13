@@ -28,8 +28,10 @@ class RetentionPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tenant_id: str
-    audit_ttl_seconds: int | None = None
-    run_ttl_seconds: int | None = None
+    # TTLs are whole positive seconds; zero/negative would put the cutoff at
+    # "now" or in the future and erase everything, so they fail validation.
+    audit_ttl_seconds: int | None = Field(default=None, ge=1)
+    run_ttl_seconds: int | None = Field(default=None, ge=1)
     enabled: bool = True
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)

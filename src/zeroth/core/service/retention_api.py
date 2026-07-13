@@ -43,8 +43,8 @@ class RetentionPolicyBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    audit_ttl_seconds: int | None = None
-    run_ttl_seconds: int | None = None
+    audit_ttl_seconds: int | None = Field(default=None, ge=1)
+    run_ttl_seconds: int | None = Field(default=None, ge=1)
     enabled: bool = True
 
 
@@ -54,8 +54,8 @@ class RetentionPolicyResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tenant_id: str
-    audit_ttl_seconds: int | None = None
-    run_ttl_seconds: int | None = None
+    audit_ttl_seconds: int | None = Field(default=None, ge=1)
+    run_ttl_seconds: int | None = Field(default=None, ge=1)
     enabled: bool = True
 
 
