@@ -7,7 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-EXPECTED_VERSION = "0.9.1"
+EXPECTED_VERSION = "0.9.1.1"
 
 
 def test_project_version_matches_release() -> None:
@@ -23,7 +23,9 @@ def test_uv_lock_tracks_project_version() -> None:
 def test_changelog_documents_the_hardening_release() -> None:
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## [{EXPECTED_VERSION}]" in changelog
-    _, _, release_notes = changelog.partition(f"## [{EXPECTED_VERSION}]")
+    # The six hardening workstreams live in the 0.9.1 entry regardless of
+    # later hotfix versions.
+    _, _, release_notes = changelog.partition("## [0.9.1]")
     release_notes = release_notes.split("\n## [", 1)[0]
     # The six hardening workstreams must each be represented.
     for marker in (
