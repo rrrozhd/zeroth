@@ -21,6 +21,7 @@ import hashlib
 import json
 from typing import TYPE_CHECKING
 
+from zeroth.core.audit.coordination import AuditChainOrderingError, order_audit_records
 from zeroth.core.audit.models import AuditContinuityReport, NodeAuditRecord
 from zeroth.core.signing import sign_digest, verify_digest
 from zeroth.core.storage.json import to_json_value
@@ -97,7 +98,16 @@ class AuditContinuityVerifier:
 
     async def verify_run(self, run_id: str) -> AuditContinuityReport:
         records = await self._repository.list_by_run(run_id)
-        return self._verify_records(scope=f"run:{run_id}", records=records)
+        try:
+            ordered = order_audit_records(records, strict=True)
+        except AuditChainOrderingError as exc:
+            return AuditContinuityReport(
+                scope=f"run:{run_id}",
+                verified=False,
+                record_count=len(records),
+                error=str(exc),
+            )
+        return self._verify_records(scope=f"run:{run_id}", records=ordered)
 
     async def verify_deployment(self, deployment_ref: str) -> AuditContinuityReport:
         records = await self._repository.list_by_deployment(deployment_ref)
@@ -116,9 +126,19 @@ class AuditContinuityVerifier:
         total_unsigned = 0
         signature_states: list[bool | None] = []
         for run_id in sorted(by_run):
+            try:
+                ordered = order_audit_records(by_run[run_id], strict=True)
+            except AuditChainOrderingError as exc:
+                return AuditContinuityReport(
+                    scope=f"deployment:{deployment_ref}",
+                    verified=False,
+                    record_count=total + len(by_run[run_id]),
+                    error=str(exc),
+                    unsigned_record_count=total_unsigned,
+                )
             report = self._verify_records(
                 scope=f"run:{run_id}",
-                records=_order_run_records(by_run[run_id]),
+                records=ordered,
             )
             total += report.record_count
             total_unsigned += report.unsigned_record_count
@@ -189,18 +209,6 @@ class AuditContinuityVerifier:
             signature_verified=_resolve_signature_state(signed_count, signature_failed),
             unsigned_record_count=len(records) - signed_count,
         )
-
-
-def _order_run_records(records: list[NodeAuditRecord]) -> list[NodeAuditRecord]:
-    """Order sequenced records while retaining query order for legacy rows."""
-    indexed_records = list(enumerate(records))
-    indexed_records.sort(
-        key=lambda item: (
-            0 if item[1].chain_sequence is None else 1,
-            item[0] if item[1].chain_sequence is None else item[1].chain_sequence,
-        )
-    )
-    return [record for _, record in indexed_records]
 
 
 def compute_chained_record(
