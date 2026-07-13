@@ -41,3 +41,20 @@ Zeroth is a governance-focused runtime; a few defaults matter when deploying it:
   backend is unreachable, runs proceed rather than halt — but the fail-open is now
   logged at WARNING so you can alert on caps not being enforced. Monitor econ-plane
   availability if budget caps are a hard requirement for you.
+- **Audit-chain integrity is database-coordinated across workers.** Appends to
+  the per-tenant audit hash chain serialize through a database coordination row
+  (advisory locking on Postgres, reserved-row locking on SQLite), so multiple
+  workers cannot fork the chain by racing on the same head. Chain verification
+  detects and reports mixed/legacy segments rather than silently passing.
+- **Vault secret resolution is async, pooled, and single-flight.** Cache misses
+  resolve through one shared `httpx.AsyncClient` with per-key and AppRole-login
+  single-flight locks, so a slow Vault cannot block the event loop and N
+  concurrent misses collapse into one fetch. Sync resolution remains only for
+  synchronous callers; service paths use the async helpers.
+- **MCP servers require capabilities before any process is spawned.** Under
+  active enforcement an agent must hold BOTH `process_spawn` and
+  `external_api_call` before its configured MCP server subprocesses are started
+  — a missing grant denies at startup, not after the side effect. Graph
+  validation reports the same requirement at publish time
+  (`missing_mcp_capability`), so enforced deployments never learn about the gap
+  at dispatch.
