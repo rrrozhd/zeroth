@@ -30,12 +30,67 @@ def _split_sql_script(sql: str) -> Iterator[str]:
     """Yield complete SQLite statements without committing the transaction."""
     buffer: list[str] = []
     state = "normal"
+    token: list[str] = []
+    trigger_prefix: list[str] = []
+    trigger_detection_possible = True
+    is_trigger = False
+    trigger_body_depth = 0
+    trigger_case_depth = 0
+    trigger_terminal_end = False
+
+    def observe_token() -> None:
+        nonlocal is_trigger
+        nonlocal trigger_body_depth
+        nonlocal trigger_case_depth
+        nonlocal trigger_detection_possible
+        nonlocal trigger_terminal_end
+        if not token:
+            return
+        keyword = "".join(token).upper()
+        token.clear()
+
+        if trigger_detection_possible and not is_trigger:
+            if not trigger_prefix:
+                if keyword == "CREATE":
+                    trigger_prefix.append(keyword)
+                else:
+                    trigger_detection_possible = False
+            elif trigger_prefix == ["CREATE"]:
+                if keyword == "TRIGGER":
+                    is_trigger = True
+                elif keyword in {"TEMP", "TEMPORARY"}:
+                    trigger_prefix.append(keyword)
+                else:
+                    trigger_detection_possible = False
+            elif keyword == "TRIGGER":
+                is_trigger = True
+            else:
+                trigger_detection_possible = False
+            return
+
+        if not is_trigger:
+            return
+        if keyword == "CASE":
+            trigger_case_depth += 1
+        elif keyword == "END":
+            if trigger_case_depth:
+                trigger_case_depth -= 1
+            elif trigger_body_depth:
+                trigger_body_depth -= 1
+                trigger_terminal_end = trigger_body_depth == 0
+        elif keyword == "BEGIN" and not trigger_case_depth:
+            trigger_body_depth += 1
+
     index = 0
     while index < len(sql):
         character = sql[index]
         buffer.append(character)
 
         if state == "normal":
+            if character.isalnum() or character == "_":
+                token.append(character)
+            else:
+                observe_token()
             if character in {"'", '"', "`"}:
                 state = character
             elif character == "[":
@@ -49,12 +104,25 @@ def _split_sql_script(sql: str) -> Iterator[str]:
                 buffer.append(sql[index])
                 state = "block_comment"
             elif character == ";":
+                should_check_statement = (
+                    not is_trigger or trigger_terminal_end or trigger_body_depth == 0
+                )
+                if not should_check_statement:
+                    index += 1
+                    continue
                 statement = "".join(buffer)
                 if sqlite3.complete_statement(statement):
                     statement = statement.strip()
                     if statement:
                         yield statement
                     buffer.clear()
+                    token.clear()
+                    trigger_prefix.clear()
+                    trigger_detection_possible = True
+                    is_trigger = False
+                    trigger_body_depth = 0
+                    trigger_case_depth = 0
+                    trigger_terminal_end = False
         elif state in {"'", '"', "`"} and character == state:
             if index + 1 < len(sql) and sql[index + 1] == state:
                 index += 1
