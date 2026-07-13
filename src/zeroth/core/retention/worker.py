@@ -34,18 +34,29 @@ class RetentionPurgeWorker:
     poll_interval: float = 3600.0
 
     async def poll_loop(self) -> None:
-        """Continuously purge each tenant's aged runs until cancelled.
+        """Continuously sweep each tenant's TTL surfaces until cancelled.
 
-        A failure purging one tenant is logged and does not abort the sweep or
-        the loop — the next tenant, and the next tick, still run.
+        Run erasure (``purge_runs``) and audit tombstoning (``purge_audits``)
+        are independent sweeps: a failure in one is logged and does not abort
+        the other surface, the next tenant, or the next tick.
         """
         while True:
             try:
                 for policy in await self.policy_repository.list_all_enabled():
-                    try:
-                        await self.erasure_service.purge_tenant(policy.tenant_id)
-                    except Exception:
-                        logger.exception("retention purge failed for tenant %s", policy.tenant_id)
+                    for sweep in (
+                        self.erasure_service.purge_runs,
+                        self.erasure_service.purge_audits,
+                    ):
+                        try:
+                            await sweep(policy.tenant_id)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            logger.exception(
+                                "retention %s failed for tenant %s",
+                                sweep.__name__,
+                                policy.tenant_id,
+                            )
             except asyncio.CancelledError:
                 raise
             except Exception:
