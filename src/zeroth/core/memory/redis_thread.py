@@ -1,6 +1,6 @@
 """Redis-backed thread/conversation memory connector.
 
-Implements the GovernAI MemoryConnector protocol using Redis sorted sets
+Implements the governed MemoryConnector protocol using Redis sorted sets
 (ZADD/ZREVRANGE) to maintain ordered conversation history. Each write
 appends a new entry with a timestamp score, and reads return the most
 recent entry.
@@ -33,7 +33,7 @@ class RedisThreadMemoryConnector:
     timestamp, preserving the full conversation history. ``read`` returns
     the most recent entry.
 
-    Conforms to the GovernAI ``MemoryConnector`` runtime-checkable protocol.
+    Conforms to the governed ``MemoryConnector`` runtime-checkable protocol.
     """
 
     connector_type = "redis_thread"
