@@ -15,7 +15,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.core.governed import RunState
-from zeroth.core.governed import RunStatus as GovernAIRunStatus
+from zeroth.core.governed import RunStatus as RunStatus  # re-exported as zeroth.core.runs API
 from zeroth.core.identity import ActorIdentity
 
 
@@ -29,7 +29,6 @@ def _new_id() -> str:
     return uuid4().hex
 
 
-RunStatus = GovernAIRunStatus
 
 
 class ThreadStatus(StrEnum):
@@ -116,7 +115,7 @@ class ThreadMemoryBinding(BaseModel):
 class Run(RunState):
     """A single execution of a graph (workflow).
 
-    Extends GovernAI's RunState with Zeroth-specific fields like execution
+    Extends the vendored RunState with Zeroth-specific fields like execution
     history, node visit counts, and condition results.  Each run belongs
     to a thread and tracks its progress from start to finish.
     """
@@ -141,11 +140,11 @@ class Run(RunState):
     failure_state: RunFailureState | None = None
 
     @model_validator(mode="after")
-    def _fill_governai_defaults(self) -> Run:
-        """Fill in GovernAI base-class fields from Zeroth-specific fields.
+    def _fill_governed_defaults(self) -> Run:
+        """Fill in governed RunState base-class fields from Zeroth-specific fields.
 
         This keeps the two layers in sync automatically: for example, if you
-        set current_node_ids, the GovernAI current_step field gets updated too.
+        set current_node_ids, the base RunState current_step field gets updated too.
         """
         if not self.thread_id:
             self.thread_id = self.run_id
