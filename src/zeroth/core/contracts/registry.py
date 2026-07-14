@@ -6,7 +6,7 @@ Later, you can look up a contract by name (and optionally version) to get its
 schema, metadata, or even the original Python class back.
 
 It also provides helper data classes for referencing contracts and for binding
-contracts to GovernAI tools and workflow steps.
+contracts to governed tools and workflow steps.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ class ContractVersion(BaseModel):
 
 
 class ToolContractBinding(BaseModel):
-    """Describes how a GovernAI tool connects to its input and output contracts.
+    """Describes how a governed tool connects to its input and output contracts.
 
     When a tool is registered, this binding captures all the important details:
     which contracts define its input/output data shapes, how the tool should be
@@ -142,7 +142,7 @@ class ContractRegistry:
     Backed by an async database, this class lets you register Pydantic models as
     named contracts with automatic version numbering, look them up later, and even
     resolve them back to the original Python class. It also provides helpers
-    for registering GovernAI tools and binding workflow steps to contracts.
+    for registering governed tools and binding workflow steps to contracts.
     """
 
     def __init__(self, database: AsyncDatabase):
@@ -284,7 +284,7 @@ class ContractRegistry:
         output_name: str | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> ToolContractBinding:
-        """Register the typed contracts backing a GovernAI tool."""
+        """Register the typed contracts backing a governed tool."""
         payload = dict(metadata or {})
         input_contract = await self.register(
             tool.input_model,
@@ -337,7 +337,7 @@ class ContractRegistry:
         flow_name: str | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> StepContractBinding:
-        """Bind a GovernAI step spec to registered contracts."""
+        """Bind a governed step spec to registered contracts."""
         payload = dict(metadata or {})
         step_tool = getattr(step, "tool", None)
         step_agent = getattr(step, "agent", None)

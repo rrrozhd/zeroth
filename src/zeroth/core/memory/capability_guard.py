@@ -29,7 +29,7 @@ from zeroth.core.policy.models import Capability
 class CapabilityEnforcingMemoryConnector:
     """Gate a memory connector on the node's granted MEMORY_READ/WRITE capabilities.
 
-    Implements the governai ``MemoryConnector`` protocol
+    Implements the governed ``MemoryConnector`` protocol
     (``read`` / ``write`` / ``delete`` / ``search`` with a keyword-only
     ``target``). Instances are created per-resolve, binding the granted set and
     node id at construction — never on shared singletons.

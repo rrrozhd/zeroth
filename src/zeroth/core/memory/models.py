@@ -1,7 +1,7 @@
 """Data models for the memory connector system.
 
 These Pydantic models define the shapes of data used when setting up,
-resolving, and using memory connectors. Uses GovernAI MemoryScope
+resolving, and using memory connectors. Uses the governed MemoryScope
 instead of the old ConnectorScope.
 """
 
@@ -42,4 +42,4 @@ class ResolvedMemoryBinding(BaseModel):
 
     memory_ref: str
     manifest: ConnectorManifest
-    connector: Any  # GovernAI MemoryConnector (wrapped with Scoped+Auditing)
+    connector: Any  # governed MemoryConnector (wrapped with Scoped+Auditing)

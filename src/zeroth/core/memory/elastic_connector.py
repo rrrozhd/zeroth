@@ -1,6 +1,6 @@
 """ElasticsearchMemoryConnector: full-text search via Elasticsearch async client.
 
-Implements GovernAI MemoryConnector protocol using Elasticsearch for
+Implements governed MemoryConnector protocol using Elasticsearch for
 full-text search capabilities. Does not require embedding generation --
 relies on Elasticsearch's built-in text analysis.
 

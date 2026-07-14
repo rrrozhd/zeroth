@@ -1,7 +1,7 @@
 """Memory subsystem for Zeroth agents.
 
 This package provides the building blocks for giving agents persistent memory.
-It includes GovernAI-protocol connector implementations, models (data shapes),
+It includes governed-protocol connector implementations, models (data shapes),
 and a registry/resolver (looking up and wrapping connectors by name).
 """
 

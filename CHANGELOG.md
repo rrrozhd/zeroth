@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.0.1] - 2026-07-13
+
+### Changed
+
+- Docstrings and comments across the memory, agent-runtime, contracts,
+  execution-units, and runs modules reworded from "GovernAI" to "governed" now
+  that the framework slice is vendored in-tree (`zeroth.core.governed`). No
+  behavior change. The public `GovernAIRedisRuntimeStores` /
+  `build_governai_redis_runtime` identifiers and the `governai_kind` contract
+  keys are retained for compatibility.
+
 ## [0.10] - 2026-07-13
 
 ### Changed

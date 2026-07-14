@@ -1,7 +1,7 @@
-"""Redis configuration and GovernAI-backed runtime store factories.
+"""Redis configuration and governed-runtime store factories.
 
 This module lets you configure how Zeroth connects to Redis (locally, via
-Docker, or to a remote server) and builds the GovernAI runtime stores
+Docker, or to a remote server) and builds the governed runtime stores
 (for runs, interrupts, and audit events) from that configuration.
 """
 
@@ -169,7 +169,7 @@ class RedisConfig(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class GovernAIRedisRuntimeStores:
-    """A bundle of the three GovernAI Redis-backed stores you need at runtime.
+    """A bundle of the three governed-runtime Redis-backed stores you need at runtime.
 
     Contains a run store (tracks run state), an interrupt store (handles
     pauses and approvals), and an audit emitter (records what happened).
@@ -188,7 +188,7 @@ def build_governai_redis_runtime(
     require_docker_available: bool = False,
     container_inspector: Callable[[str], bool] | None = None,
 ) -> GovernAIRedisRuntimeStores:
-    """Create all three GovernAI Redis stores from a single RedisConfig.
+    """Create all three governed-runtime Redis stores from a single RedisConfig.
 
     This is the main entry point for setting up Redis-backed runtime.
     It resolves the Redis URL and wires up the run store, interrupt store,

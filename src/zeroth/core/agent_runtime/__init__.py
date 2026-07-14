@@ -1,4 +1,4 @@
-"""Agent runtime foundation layered on GovernAI.
+"""Agent runtime foundation layered on the governed runtime primitives.
 
 This package provides everything needed to run AI agents: configuration,
 prompt assembly, provider adapters, tool attachments, output validation,

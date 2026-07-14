@@ -1,8 +1,8 @@
-"""Runtime adapters that turn manifest descriptions into runnable GovernAI tools.
+"""Runtime adapters that turn manifest descriptions into runnable governed tools.
 
 Each adapter knows how to take a manifest (a description of what to run) and
-produce a GovernAI Tool object that can actually be executed. Think of adapters
-as translators between Zeroth's manifest format and GovernAI's tool system.
+produce a governed Tool object that can actually be executed. Think of adapters
+as translators between Zeroth's manifest format and the governed runtime's tool system.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class RuntimeAdapter(Protocol[InputT, OutputT]):
     """Interface that all runtime adapters must follow.
 
     Any class that implements this protocol can convert a manifest into a
-    runnable GovernAI Tool. The `supports` method checks compatibility, and
+    runnable governed Tool. The `supports` method checks compatibility, and
     `materialize` does the actual conversion.
     """
 
@@ -48,7 +48,7 @@ class RuntimeAdapter(Protocol[InputT, OutputT]):
         output_model: type[OutputT],
         handler: PythonHandler | None = None,
     ) -> Tool[InputT, OutputT]:
-        """Convert a manifest into a ready-to-run GovernAI Tool."""
+        """Convert a manifest into a ready-to-run governed Tool."""
         ...
 
 
@@ -78,7 +78,7 @@ class BaseRuntimeAdapter(ABC):
         output_model: type[OutputT],
         handler: PythonHandler | None = None,
     ) -> Tool[InputT, OutputT]:
-        """Build a GovernAI Tool from a validated manifest. Subclasses must implement this."""
+        """Build a governed Tool from a validated manifest. Subclasses must implement this."""
         raise NotImplementedError
 
     def materialize(
@@ -89,7 +89,7 @@ class BaseRuntimeAdapter(ABC):
         output_model: type[OutputT],
         handler: PythonHandler | None = None,
     ) -> Tool[InputT, OutputT]:
-        """Validate the manifest, then build and return a GovernAI Tool."""
+        """Validate the manifest, then build and return a governed Tool."""
         # Validate first so we fail fast before doing any real work
         self._validator.validate_or_raise(manifest)
         if not self.supports(manifest):
@@ -105,7 +105,7 @@ class BaseRuntimeAdapter(ABC):
 
 
 class PythonRuntimeAdapter(BaseRuntimeAdapter):
-    """Adapter for running Python functions directly as GovernAI tools.
+    """Adapter for running Python functions directly as governed tools.
 
     Use this when your executable unit is a native Python callable (a function
     or method) rather than a command-line program.
@@ -145,7 +145,7 @@ class PythonRuntimeAdapter(BaseRuntimeAdapter):
 
 
 class CommandRuntimeAdapter(BaseRuntimeAdapter):
-    """Adapter for running command-line programs as GovernAI tools.
+    """Adapter for running command-line programs as governed tools.
 
     Use this when your executable unit is a shell command or CLI program
     rather than a Python function.
@@ -175,7 +175,7 @@ class CommandRuntimeAdapter(BaseRuntimeAdapter):
         output_model: type[OutputT],
         handler: PythonHandler | None = None,
     ) -> Tool[InputT, OutputT]:
-        """Build a CLI-based GovernAI Tool that sends JSON via stdin and reads JSON from stdout."""
+        """Build a CLI-based governed Tool that sends JSON via stdin and reads JSON from stdout."""
         command = list(self._command_for(manifest))
         return Tool.from_cli(
             name=manifest.unit_id,

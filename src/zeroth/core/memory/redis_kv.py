@@ -1,6 +1,6 @@
 """Redis-backed key-value memory connector.
 
-Implements the GovernAI MemoryConnector protocol using Redis GET/SET/DEL
+Implements the governed MemoryConnector protocol using Redis GET/SET/DEL
 operations. Each key is stored as a JSON-serialised MemoryEntry under a
 namespaced Redis key: ``{prefix}:{scope}:{target}:{key}``.
 
@@ -27,7 +27,7 @@ def _utcnow() -> datetime:
 class RedisKVMemoryConnector:
     """Key-value memory backed by Redis GET/SET/DEL.
 
-    Conforms to the GovernAI ``MemoryConnector`` runtime-checkable protocol.
+    Conforms to the governed ``MemoryConnector`` runtime-checkable protocol.
     """
 
     connector_type = "redis_kv"

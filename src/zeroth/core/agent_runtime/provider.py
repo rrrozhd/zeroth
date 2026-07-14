@@ -145,7 +145,7 @@ class LiteLLMProviderAdapter:
 
     Routes to any LiteLLM-supported provider (OpenAI, Anthropic, 100+ others)
     based on the model string in ProviderRequest.model_name.
-    Uses LangChain interface per D-01 for GovernAI compatibility.
+    Uses LangChain interface per D-01 for governed-runtime compatibility.
 
     Model strings use LiteLLM format: ``openai/gpt-4o``,
     ``anthropic/claude-sonnet-4-5-20250514``, etc.

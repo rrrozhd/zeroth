@@ -1,6 +1,6 @@
 """PgvectorMemoryConnector: async vector similarity search via pgvector.
 
-Implements GovernAI MemoryConnector protocol with HNSW-indexed cosine
+Implements governed MemoryConnector protocol with HNSW-indexed cosine
 similarity search. Embeddings are generated internally via litellm.
 
 Per D-10, D-11, D-14 from Phase 14 planning.

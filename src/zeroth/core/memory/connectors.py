@@ -1,7 +1,7 @@
 """In-memory connector implementations for agent memory.
 
-Each connector stores key-value data using the GovernAI async MemoryConnector
-protocol. Storage layout mirrors GovernAI's DictMemoryConnector:
+Each connector stores key-value data using the governed async MemoryConnector
+protocol. Storage layout mirrors the governed runtime's DictMemoryConnector:
 _store[scope.value][target][key] = MemoryEntry
 """
 

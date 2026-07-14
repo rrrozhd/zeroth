@@ -1,6 +1,6 @@
 """ChromaDBMemoryConnector: vector similarity search via ChromaDB HTTP client.
 
-Implements GovernAI MemoryConnector protocol using an external ChromaDB
+Implements governed MemoryConnector protocol using an external ChromaDB
 server for vector storage and similarity search. Embeddings are generated
 internally via litellm.
 
