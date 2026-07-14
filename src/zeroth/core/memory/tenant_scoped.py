@@ -2,7 +2,7 @@
 
 Single-tenant-per-deployment is the product model, but deployments may share a
 physical backend (Redis / Postgres / Chroma / Elastic). Without this wrapper the
-``SHARED`` memory scope resolves — inside governai's ``ScopedMemoryConnector`` —
+``SHARED`` memory scope resolves — inside the governed ``ScopedMemoryConnector`` —
 to the constant literal ``"__shared__"`` with **no tenant**, so two tenant
 services pointed at one backend would read each other's shared memory.
 
@@ -81,7 +81,7 @@ def tenant_slug(tenant_id: str | None) -> str:
 class TenantScopedMemoryConnector:
     """Rewrites a resolved memory ``target`` into a tenant-namespaced target.
 
-    Implements the governai ``MemoryConnector`` protocol
+    Implements the governed ``MemoryConnector`` protocol
     (``read``/``write``/``delete``/``search`` with a keyword-only ``target``).
     Instances are created per-resolve (like ``ScopedMemoryConnector``), so the
     tenant is bound at construction here — never on the shared resolver/raw
