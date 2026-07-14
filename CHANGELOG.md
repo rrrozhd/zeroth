@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.0.2] - 2026-07-14
+
+### Fixed
+
+- Restored the `InterruptExpiredError` exception in
+  `zeroth.core.governed.runtime.interrupts`, which the v0.10 `governai`
+  absorption left dangling as an import from the never-vendored
+  `governed.workflows` package. `InterruptManager.resolve()` now raises a
+  locally-defined exception instead of `ModuleNotFoundError`.
+
 ## [0.10.0.0.1] - 2026-07-13
 
 ### Changed

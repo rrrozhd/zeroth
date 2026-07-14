@@ -8,6 +8,21 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+class InterruptExpiredError(RuntimeError):
+    """Raised when resolving an interrupt whose TTL has already elapsed.
+
+    Vendored surface: upstream ``governai`` defined this in the left-behind
+    ``workflows`` package; it is restored here so ``InterruptManager.resolve``
+    stays self-contained. Carries the expired ``request`` for callers that need
+    it (the constructor keyword the raise site relies on).
+    """
+
+    def __init__(self, message: str, *, request: InterruptRequest | None = None) -> None:
+        """Store the message and, when known, the expired interrupt request."""
+        super().__init__(message)
+        self.request = request
+
+
 @dataclass
 class InterruptRequest:
     interrupt_id: str
@@ -352,8 +367,6 @@ class InterruptManager:
         epoch: int | None = None,
     ) -> InterruptResolution:
         """Resolve."""
-        from zeroth.core.governed.workflows.exceptions import InterruptExpiredError
-
         req = await self.store.get_request(run_id, interrupt_id)
         if req is None:
             raise KeyError(f"Unknown interrupt_id: {interrupt_id}")
