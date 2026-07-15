@@ -4,15 +4,27 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   ApiErrorNote,
+  Button,
   Card,
   Empty,
   fmtTime,
+  Input,
   PageHeader,
   Skeleton,
   StatusBadge,
   useAsync,
 } from "@/app/components/ui";
-import { getHealth, listDeployments } from "@/app/lib/api";
+import {
+  type AttestationVerification,
+  deploymentRef,
+  type DeploymentAttestation,
+  errMsg,
+  getDeploymentAttestation,
+  getHealth,
+  listDeployments,
+  rollbackDeployment,
+  verifyDeploymentAttestation,
+} from "@/app/lib/api";
 import { isConfigured } from "@/app/lib/config";
 
 // Studio first — authoring is the center of the product.
@@ -127,6 +139,8 @@ export default function Overview() {
         )}
       </Card>
 
+      {connected && <AttestationCard />}
+
       {connected && <DeploymentsCard />}
 
       {/* Getting started — most useful before the first workflow exists, so it
@@ -193,12 +207,109 @@ export default function Overview() {
   );
 }
 
+// Signed, deploy-time attestation over the served graph + contracts + settings,
+// with a self-verify (digest recompute + signature) rendered as a three-state
+// badge. Renders nothing when unavailable (e.g. the key lacks deploy-read) —
+// absence of the feature shouldn't read as a broken attestation.
+function AttestationCard() {
+  const { data, error, loading } = useAsync(getDeploymentAttestation, []);
+  if (error?.startsWith("403") || error?.startsWith("404")) return null;
+  return (
+    <Card title="Attestation" actions={data ? <AttestationVerifyBadge /> : undefined}>
+      {error && <ApiErrorNote error={error} />}
+      {loading && !data && <Skeleton rows={2} />}
+      {data && (
+        <div className="space-y-3">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <Field label="Deployment" value={`${data.deployment_ref} v${data.deployment_version}`} />
+            <Field label="Graph version" value={`v${data.graph_version}`} />
+            <Field
+              label="Signed by"
+              value={
+                data.attestation_signing_key_id
+                  ? `${data.attestation_signing_key_id}${
+                      data.attestation_algorithm ? ` (${data.attestation_algorithm})` : ""
+                    }`
+                  : "unsigned"
+              }
+            />
+          </dl>
+          <div className="border-t border-border pt-3">
+            <div className="text-xs uppercase tracking-wide text-muted">Attestation digest</div>
+            <div className="mt-0.5 break-all font-mono text-xs text-muted">
+              {data.attestation_digest}
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// Server self-verifies the persisted attestation (digest recompute + signature),
+// mirroring the run-level three-state audit badge.
+function AttestationVerifyBadge() {
+  const [result, setResult] = useState<AttestationVerification | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    verifyDeploymentAttestation()
+      .then((r) => !cancelled && setResult(r))
+      .catch(() => !cancelled && setResult(null));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (result === null) return null;
+  // Digest-continuity axis first: a mismatch is the worst case (red).
+  if (!result.verified || !result.digest_verified) {
+    return (
+      <span
+        title={`Attestation digest mismatch${
+          result.mismatches?.length ? `: ${result.mismatches.join(", ")}` : ""
+        }`}
+        className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+      >
+        <span aria-hidden>✕</span> Attestation mismatch
+      </span>
+    );
+  }
+  // Digest intact — layer the keyed-signature axis (three-state).
+  if (result.signature_verified === true) {
+    return (
+      <span
+        title={`Signed & verified${result.signing_key_id ? ` under key ${result.signing_key_id}` : ""}`}
+        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400"
+      >
+        <span aria-hidden>✓</span> Signed &amp; verified
+      </span>
+    );
+  }
+  if (result.signature_verified === false) {
+    return (
+      <span
+        title="The attestation signature failed verification"
+        className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+      >
+        <span aria-hidden>✕</span> Signature invalid
+      </span>
+    );
+  }
+  return (
+    <span
+      title="Attestation digest verified; not cryptographically signed (unsigned-legacy)"
+      className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/12 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+    >
+      <span aria-hidden>◇</span> Verified (unsigned)
+    </span>
+  );
+}
+
 // Every persisted deployment version — including graphs written in code and
 // deployed via the medium-code path — with the one this service serves marked.
 function DeploymentsCard() {
-  const { data, error, loading } = useAsync(listDeployments, []);
+  const { data, error, loading, reload } = useAsync(listDeployments, []);
   return (
-    <Card title="Deployments">
+    <Card title="Deployments" actions={<RollbackControl onDone={() => reload()} />}>
       {error && <ApiErrorNote error={error} />}
       {loading && !data && <Skeleton rows={2} />}
       {data && data.length === 0 && (
@@ -232,6 +343,76 @@ function DeploymentsCard() {
         </ul>
       )}
     </Card>
+  );
+}
+
+// Roll the serving deployment back to an earlier graph version (DEPLOYMENT_ADMIN).
+// Creates a new pinned deployment version; a 403 surfaces inline for non-admins.
+function RollbackControl({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [version, setVersion] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  async function submit() {
+    const target = Number(version);
+    if (!Number.isInteger(target) || target < 1) {
+      setError("Enter a target graph version (positive integer).");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setOk(null);
+    try {
+      const ref = await deploymentRef();
+      const created = await rollbackDeployment(ref, target);
+      setOk(`Created v${created.version} pinned to graph v${target}. Restart with this ref to serve it.`);
+      setVersion("");
+      onDone();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+        Roll back…
+      </Button>
+    );
+  }
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          min={1}
+          placeholder="Graph version"
+          value={version}
+          onChange={(e) => setVersion(e.target.value)}
+          className="w-32"
+        />
+        <Button size="sm" variant="primary" onClick={submit} disabled={busy}>
+          {busy ? "Rolling back…" : "Roll back"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setOpen(false);
+            setError(null);
+            setOk(null);
+          }}
+        >
+          Cancel
+        </Button>
+      </div>
+      {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
+      {ok && <span className="text-xs text-emerald-600 dark:text-emerald-400">{ok}</span>}
+    </div>
   );
 }
 

@@ -37,6 +37,7 @@ export type StudioViewport = S["StudioViewport"];
 export type StudioContract = S["StudioContractResponse"];
 export type CreateContractRequest = S["CreateContractRequest"];
 export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
+export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
 export type AuditVerification = S["AuditVerificationResponse"];
 export type DeploymentAttestation = S["DeploymentAttestationResponse"];
 export type AttestationVerification = S["AttestationVerificationResponse"];
@@ -423,6 +424,19 @@ export function createDeployment(body: CreateDeploymentRequest): Promise<Deploym
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/** Roll a deployment back to an earlier graph version — creates a new deployment
+    version pinned to `targetGraphVersion` (DEPLOYMENT_ADMIN). Serving it still
+    requires a restart with ZEROTH_DEPLOYMENT_REF set. */
+export function rollbackDeployment(
+  ref: string,
+  targetGraphVersion: number,
+): Promise<DeploymentSummary> {
+  return apiFetch<DeploymentSummary>(
+    `/v1/deployments/${encodeURIComponent(ref)}/rollback`,
+    { method: "POST", body: JSON.stringify({ target_graph_version: targetGraphVersion }) },
+  );
 }
 
 /** Verify the audit digest chain + signatures for one run (WS-D three-state). */

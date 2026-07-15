@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.1] - 2026-07-15
+
+### Added
+
+- **Console: deployment attestation panel** (F12). The Overview page now surfaces
+  the signed deploy-time attestation (graph/contract/settings digests, signing
+  key) with a three-state self-verify badge, wiring the previously-orphaned
+  `getDeploymentAttestation` / `verifyDeploymentAttestation` client functions.
+- **Console: deployment rollback** (F6). The Deployments card exposes a
+  DEPLOYMENT_ADMIN-gated "Roll back…" control that pins a new deployment version
+  to an earlier graph version via `POST /v1/deployments/{ref}/rollback`.
+
 ## [0.10.0.0.4] - 2026-07-15
 
 ### Fixed
