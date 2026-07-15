@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.6] - 2026-07-15
+
+### Added
+
+- **Console: Integrations (webhooks) page** (F8), previously API-only. New
+  `/webhooks` page (+ nav entry) to create webhook subscriptions (signing secret
+  shown once on create), list and deactivate them, and view/replay dead-lettered
+  deliveries. Wires `GET/POST/DELETE /v1/webhooks/subscriptions` and
+  `GET /v1/webhooks/dead-letters`, `POST /v1/webhooks/dead-letters/{id}/replay`.
+
 ## [0.10.0.5] - 2026-07-15
 
 ### Added

@@ -569,6 +569,55 @@ export function listManifests(): Promise<ManifestSummary[]> {
   return apiFetch<ManifestSummary[]>("/v1/manifests");
 }
 
+// ---- Webhooks / integrations (WEBHOOK_ADMIN) ----
+
+export type WebhookSubscription = S["WebhookSubscriptionResponse"];
+export type WebhookSubscriptionList = S["WebhookSubscriptionListResponse"];
+export type WebhookDeadLetter = S["WebhookDeadLetterResponse"];
+export type WebhookDeadLetterList = S["WebhookDeadLetterListResponse"];
+
+/** Active webhook subscriptions for this deployment. */
+export function listWebhookSubscriptions(): Promise<WebhookSubscriptionList> {
+  return apiFetch<WebhookSubscriptionList>("/v1/webhooks/subscriptions");
+}
+
+/** Create a webhook subscription. The response `secret` is shown once — it signs
+    delivery payloads (HMAC) and can't be retrieved again. */
+export async function createWebhookSubscription(
+  targetUrl: string,
+  eventTypes: string[],
+): Promise<WebhookSubscription> {
+  const ref = await deploymentRef();
+  return apiFetch<WebhookSubscription>("/v1/webhooks/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      deployment_ref: ref,
+      target_url: targetUrl,
+      event_types: eventTypes,
+    }),
+  });
+}
+
+/** Deactivate (soft-delete) a webhook subscription. */
+export function deleteWebhookSubscription(id: string): Promise<void> {
+  return apiFetch<void>(`/v1/webhooks/subscriptions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Dead-lettered webhook deliveries (exhausted retries). */
+export function listWebhookDeadLetters(): Promise<WebhookDeadLetterList> {
+  return apiFetch<WebhookDeadLetterList>("/v1/webhooks/dead-letters");
+}
+
+/** Re-enqueue a dead-lettered delivery for another attempt. */
+export function replayWebhookDeadLetter(id: string): Promise<unknown> {
+  return apiFetch<unknown>(
+    `/v1/webhooks/dead-letters/${encodeURIComponent(id)}/replay`,
+    { method: "POST" },
+  );
+}
+
 // ---- Retention & compliance (RETENTION_ADMIN) ----
 
 export type RetentionPolicy = S["RetentionPolicyResponse"];

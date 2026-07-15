@@ -19,6 +19,7 @@ const LINKS = [
   { href: "/retention", label: "Retention" },
   { href: "/cost", label: "Cost" },
   { href: "/connectors", label: "Connectors" },
+  { href: "/webhooks", label: "Integrations" },
   { href: "/guide", label: "Guide" },
 ];
 
