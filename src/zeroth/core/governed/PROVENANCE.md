@@ -36,4 +36,9 @@ suite and `tests/memory/test_governai_shared_contract.py` (now an internal
 invariant: `ScopedMemoryConnector` must resolve `SHARED → "__shared__"`, which the
 tenant-isolation wrapper depends on).
 
+One exception: `runtime/interrupts.py`'s `InterruptManager.resolve()` imported
+`InterruptExpiredError` from the left-behind `workflows` package, so that single
+exception was reconstructed locally in `interrupts.py` (v0.10.0.0.2) rather than
+moved — same behavior, restored in-tree. Guarded by `tests/runtime/test_interrupts.py`.
+
 Upstream license retained in `LICENSE`.

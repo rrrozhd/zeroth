@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.0.3] - 2026-07-15
+
+### Added
+
+- Regression tests for `InterruptManager` (`tests/runtime/test_interrupts.py`)
+  covering the `resolve()` expiry path that raises `InterruptExpiredError`, so
+  the v0.10.0.0.2 dangling-import fix cannot silently re-break. The manager had
+  zero prior coverage.
+
+### Changed
+
+- `governed/PROVENANCE.md` notes `InterruptExpiredError` as the one symbol
+  reconstructed locally (rather than moved) during the `governai` absorption,
+  keeping the "move, not a rewrite" claim accurate.
+
 ## [0.10.0.0.2] - 2026-07-14
 
 ### Fixed
