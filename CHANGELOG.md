@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.5] - 2026-07-15
+
+### Added
+
+- **Console: Retention & Compliance page** (F1) — the flagship v0.9 GDPR / EU-AI-Act
+  surface, previously API-only. New `/retention` page (and nav entry) to view/edit
+  the tenant retention policy (purge toggle + run/audit TTLs), place and release
+  legal holds, and run right-to-erasure with a confirm step and the 409-on-hold
+  path surfaced. Wires `GET/PUT /v1/retention/policy`,
+  `POST/DELETE /v1/retention/legal-holds`, `POST /v1/retention/erasure-requests`.
+
 ## [0.10.0.4] - 2026-07-15
 
 ### Added

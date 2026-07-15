@@ -569,6 +569,52 @@ export function listManifests(): Promise<ManifestSummary[]> {
   return apiFetch<ManifestSummary[]>("/v1/manifests");
 }
 
+// ---- Retention & compliance (RETENTION_ADMIN) ----
+
+export type RetentionPolicy = S["RetentionPolicyResponse"];
+export type RetentionPolicyBody = S["RetentionPolicyBody"];
+export type LegalHold = S["LegalHoldResponse"];
+export type LegalHoldBody = S["LegalHoldBody"];
+export type ErasureRequestBody = S["ErasureRequestBody"];
+export type ErasureResult = S["ErasureResponse"];
+
+/** The tenant's retention policy — TTLs for runs/audits and whether purge is on. */
+export function getRetentionPolicy(): Promise<RetentionPolicy> {
+  return apiFetch<RetentionPolicy>("/v1/retention/policy");
+}
+
+/** Update the tenant's retention policy (enable purge, set run/audit TTLs). */
+export function updateRetentionPolicy(body: RetentionPolicyBody): Promise<RetentionPolicy> {
+  return apiFetch<RetentionPolicy>("/v1/retention/policy", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Place a legal hold (blocks erasure/purge) over a run or the whole tenant. */
+export function placeLegalHold(body: LegalHoldBody): Promise<LegalHold> {
+  return apiFetch<LegalHold>("/v1/retention/legal-holds", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Release a legal hold by id. */
+export function releaseLegalHold(holdId: string): Promise<LegalHold> {
+  return apiFetch<LegalHold>(`/v1/retention/legal-holds/${encodeURIComponent(holdId)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Right-to-erasure: redact a run (or all of a tenant's runs). 409 if a legal
+    hold blocks it. Returns per-run deletion counts. */
+export function requestErasure(body: ErasureRequestBody): Promise<ErasureResult> {
+  return apiFetch<ErasureResult>("/v1/retention/erasure-requests", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 // ---- Cost (deployment-scoped) ----
 
 export async function getCost(): Promise<DeploymentCost> {
