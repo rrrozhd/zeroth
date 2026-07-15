@@ -38,6 +38,9 @@ export type StudioContract = S["StudioContractResponse"];
 export type CreateContractRequest = S["CreateContractRequest"];
 export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
 export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
+export type QualityVerdictRequest = S["QualityVerdictRequest"];
+export type RunQualityVerdict = S["RunQualityVerdict"];
+export type ContractSchema = S["PublicContractSchemaResponse"];
 export type AuditVerification = S["AuditVerificationResponse"];
 export type DeploymentAttestation = S["DeploymentAttestationResponse"];
 export type AttestationVerification = S["AttestationVerificationResponse"];
@@ -371,6 +374,38 @@ export function getRunTimeline(runId: string): Promise<AuditTimeline> {
   return apiFetch<AuditTimeline>(`/v1/runs/${encodeURIComponent(runId)}/timeline`);
 }
 
+// ---- Run operator controls (RUN_ADMIN) ----
+
+/** Forcibly fail a run (operator_cancelled) and clear its lease. */
+export function cancelRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+  });
+}
+
+/** Reset a failed / dead-letter run to PENDING for replay. */
+export function replayRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/replay`, {
+    method: "POST",
+  });
+}
+
+/** Interrupt a RUNNING run (transition to WAITING_INTERRUPT). */
+export function interruptRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/interrupt`, {
+    method: "POST",
+  });
+}
+
+/** The deployment's pinned input contract (name + version + JSON Schema), used to
+    guide and validate run submission. Deployment-scoped (DEPLOYMENT_READ). */
+export async function getInputContract(): Promise<ContractSchema> {
+  const ref = await deploymentRef();
+  return apiFetch<ContractSchema>(
+    `/v1/deployments/${encodeURIComponent(ref)}/input-contract`,
+  );
+}
+
 // ---- Approvals (deployment-scoped) ----
 
 export async function listApprovals(): Promise<ApprovalRecord[]> {
@@ -549,6 +584,18 @@ export function getUnitEconomics(): Promise<UnitEconomicsReport> {
 /** Deployment-wide structural-waste rollup (paid-for-failed, loops, retries) over the last N runs. */
 export function getWaste(): Promise<WasteRollup> {
   return apiFetch<WasteRollup>("/v1/econ/waste");
+}
+
+/** Attach an external good/bad quality verdict to a terminal run (METRICS_ADMIN).
+    Feeds quality-aware unit economics — cost per *good* outcome. 409 if the run
+    isn't terminal yet. */
+export function attachQualityVerdict(
+  body: QualityVerdictRequest,
+): Promise<RunQualityVerdict> {
+  return apiFetch<RunQualityVerdict>("/v1/econ/quality-verdict", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 /** Measured right-sizing: replays the node's real inputs through cheaper models and

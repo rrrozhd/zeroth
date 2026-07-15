@@ -24,11 +24,17 @@ import {
 } from "@/app/components/ui";
 import { getApiKey } from "@/app/lib/config";
 import {
+  attachQualityVerdict,
+  cancelRun,
+  type ContractSchema,
   errMsg,
+  getInputContract,
   getRun,
   getRunAuditVerification,
   getRunTimeline,
+  interruptRun,
   listRuns,
+  replayRun,
   submitRun,
   type AuditVerification,
   type RunStatus,
@@ -133,11 +139,61 @@ const PAYLOAD_EXAMPLES: { label: string; payload: Record<string, unknown> }[] = 
   },
 ];
 
+// Build a skeleton object from a JSON Schema's top-level properties, so operators
+// start from the deployment's real input shape rather than a guessed example.
+function skeletonFromSchema(schema: unknown): Record<string, unknown> {
+  const s = schema as { properties?: Record<string, { type?: string; default?: unknown }> };
+  const props = s?.properties;
+  if (!props || typeof props !== "object") return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, spec] of Object.entries(props)) {
+    if (spec && "default" in spec) {
+      out[key] = spec.default;
+      continue;
+    }
+    switch (spec?.type) {
+      case "string": out[key] = ""; break;
+      case "number":
+      case "integer": out[key] = 0; break;
+      case "boolean": out[key] = false; break;
+      case "array": out[key] = []; break;
+      case "object": out[key] = {}; break;
+      default: out[key] = null;
+    }
+  }
+  return out;
+}
+
 function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
   const [payload, setPayload] = useState('{\n  "question": "What is Zeroth?"\n}');
   const [thread, setThread] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The deployment's pinned input contract, if it has one and the key may read it.
+  const [contract, setContract] = useState<ContractSchema | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getInputContract()
+      .then((c) => !cancelled && setContract(c))
+      .catch(() => !cancelled && setContract(null));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Names the contract requires but the current payload is missing — a soft,
+  // client-side hint; the backend validates authoritatively on submit.
+  const missingRequired = (() => {
+    const req = (contract?.json_schema as { required?: string[] } | undefined)?.required;
+    if (!req?.length) return [];
+    try {
+      const parsed = JSON.parse(payload) as Record<string, unknown>;
+      return req.filter((k) => !(k in parsed));
+    } catch {
+      return [];
+    }
+  })();
 
   async function submit() {
     setError(null);
@@ -174,6 +230,13 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
             className="font-mono text-xs"
           />
         </Field>
+        {missingRequired.length > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            Payload is missing contract-required field
+            {missingRequired.length === 1 ? "" : "s"}:{" "}
+            <span className="font-mono">{missingRequired.join(", ")}</span>
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <span>Examples:</span>
           {PAYLOAD_EXAMPLES.map((ex) => (
@@ -186,7 +249,28 @@ function SubmitRun({ onSubmitted }: { onSubmitted: (id: string) => void }) {
               {ex.label}
             </button>
           ))}
+          {contract && (
+            <button
+              type="button"
+              onClick={() =>
+                setPayload(JSON.stringify(skeletonFromSchema(contract.json_schema), null, 2))
+              }
+              className="rounded-full border border-accent/40 px-2.5 py-0.5 font-medium text-accent transition-colors hover:bg-accent/[0.06]"
+            >
+              Prefill from contract
+            </button>
+          )}
         </div>
+        {contract && (
+          <details>
+            <summary className="cursor-pointer text-xs font-medium text-muted transition-colors hover:text-foreground">
+              Input contract — {contract.name} v{contract.version}
+            </summary>
+            <div className="mt-2">
+              <Json value={contract.json_schema} />
+            </div>
+          </details>
+        )}
         <Field label="Thread ID" hint="optional">
           <Input
             value={thread}
@@ -243,9 +327,14 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
       <Card
         title={<Mono>{runId}</Mono>}
         actions={
-          <Button onClick={() => reload()} disabled={loading}>
-            {loading ? "Loading…" : "Refresh"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {data && (
+              <RunControls runId={runId} status={data.status} onChanged={() => reload()} />
+            )}
+            <Button onClick={() => reload()} disabled={loading}>
+              {loading ? "Loading…" : "Refresh"}
+            </Button>
+          </div>
         }
       >
         {error && <ApiErrorNote error={error} />}
@@ -294,11 +383,153 @@ function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
         )}
       </Card>
 
+      {data && TERMINAL.has(data.status.toLowerCase()) && <QualityVerdictCard runId={runId} />}
+
       <Card title="Timeline" actions={<Button onClick={loadTimeline}>Load timeline</Button>}>
         {tlError && <ErrorBox message={tlError} />}
         {timeline ? <Json value={timeline} /> : <Empty>Not loaded.</Empty>}
       </Card>
     </div>
+  );
+}
+
+// Runs the backend accepts a quality verdict for (COMPLETED / FAILED).
+const TERMINAL = new Set(["completed", "failed"]);
+
+// Operator controls (RUN_ADMIN): cancel a live run, interrupt a running one,
+// replay a failed/dead-letter one. Buttons render for the relevant states; a 403
+// (key lacks RUN_ADMIN) surfaces as an inline note rather than hiding silently.
+function RunControls({
+  runId,
+  status,
+  onChanged,
+}: {
+  runId: string;
+  status: string;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const s = status.toLowerCase();
+  const canCancel = ACTIVE.has(s);
+  const canInterrupt = s === "running" || s === "in_progress";
+  const canReplay = s === "failed" || s === "dead_letter";
+
+  async function act(label: string, fn: () => Promise<RunStatus>) {
+    setBusy(label);
+    setError(null);
+    try {
+      await fn();
+      onChanged();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!canCancel && !canInterrupt && !canReplay) return null;
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-2">
+        {canInterrupt && (
+          <Button
+            size="sm"
+            onClick={() => act("interrupt", () => interruptRun(runId))}
+            disabled={busy !== null}
+          >
+            {busy === "interrupt" ? "Interrupting…" : "Interrupt"}
+          </Button>
+        )}
+        {canCancel && (
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => act("cancel", () => cancelRun(runId))}
+            disabled={busy !== null}
+          >
+            {busy === "cancel" ? "Cancelling…" : "Cancel"}
+          </Button>
+        )}
+        {canReplay && (
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => act("replay", () => replayRun(runId))}
+            disabled={busy !== null}
+          >
+            {busy === "replay" ? "Replaying…" : "Replay"}
+          </Button>
+        )}
+      </div>
+      {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
+    </div>
+  );
+}
+
+// Attach a good/bad quality verdict to a terminal run (METRICS_ADMIN). This is
+// the signal that lights up quality-aware unit economics on the Cost page — the
+// runtime can't know if an answer was *good*, so a reviewer records it here.
+function QualityVerdictCard({ runId }: { runId: string }) {
+  const [detail, setDetail] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function submit(verdict: "good" | "bad") {
+    setBusy(verdict);
+    setError(null);
+    setDone(null);
+    try {
+      await attachQualityVerdict({
+        run_id: runId,
+        verdict,
+        source: "console",
+        detail: detail.trim(),
+      });
+      setDone(`Recorded “${verdict}”. Quality economics on the Cost page will include this run.`);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card title="Quality verdict">
+      <div className="space-y-3">
+        <p className="text-sm text-muted">
+          Was this run&apos;s outcome good? Recording a verdict feeds{" "}
+          <Link href="/cost" className="font-medium text-accent hover:underline">
+            quality-aware unit economics
+          </Link>{" "}
+          — cost per <em>good</em> outcome, not just per completed run.
+        </p>
+        <Field label="Detail" hint="optional — why good/bad">
+          <Input value={detail} onChange={(e) => setDetail(e.target.value)} />
+        </Field>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="primary"
+            onClick={() => submit("good")}
+            disabled={busy !== null}
+          >
+            {busy === "good" ? "Recording…" : "👍 Good"}
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => submit("bad")}
+            disabled={busy !== null}
+          >
+            {busy === "bad" ? "Recording…" : "👎 Bad"}
+          </Button>
+        </div>
+        {error && <ErrorBox message={error} />}
+        {done && (
+          <p className="text-sm text-emerald-600 dark:text-emerald-400">{done}</p>
+        )}
+      </div>
+    </Card>
   );
 }
 

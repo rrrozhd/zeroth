@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.2] - 2026-07-15
+
+### Added
+
+- **Console: run operator controls** (F3). The run-detail view gains RUN_ADMIN
+  cancel / interrupt / replay buttons (shown per run state), wiring
+  `POST /v1/admin/runs/{id}/cancel|interrupt|replay`.
+- **Console: quality-verdict attachment** (F5). Terminal runs now show a good/bad
+  verdict control (`POST /v1/econ/quality-verdict`) — the signal that activates
+  the previously-dormant quality-aware unit economics card on the Cost page.
+- **Console: contract-driven run submission** (F11). The submit form fetches the
+  deployment's pinned input contract, shows its JSON Schema, offers "Prefill from
+  contract", and warns when the payload is missing contract-required fields.
+
 ## [0.10.0.1.1] - 2026-07-15
 
 ### Removed
