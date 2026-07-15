@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.0.4] - 2026-07-15
+
+### Fixed
+
+- Regenerated the console's committed OpenAPI artifacts (`frontend/openapi.json`
+  and `frontend/app/lib/api-types.ts`), which were stale at v0.7 (50 paths) and
+  internally inconsistent — `api-types.ts` had been hand-patched with attestation
+  signature fields the spec never got. The fresh dump is 62 paths / 98 schemas
+  and now includes the econ, retention, and attestation-verify routes. Closes the
+  spec-drift findings (F15/F16) from the integration audit. Console app code
+  typechecks clean against the regenerated types.
+
 ## [0.10.0.0.3] - 2026-07-15
 
 ### Added
