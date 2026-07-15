@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.3] - 2026-07-15
+
+### Added
+
+- **Console: tenant budget card** (F4). The Cost page now shows a tenant's
+  month-to-date spend vs its enforced budget cap and lets an operator set the cap
+  (`GET /v1/tenants/{id}/cost`, `PUT /v1/tenants/{id}/budget`), with an over-cap
+  warning. Previously the console only surfaced deployment-scoped cost.
+
 ## [0.10.0.2] - 2026-07-15
 
 ### Added

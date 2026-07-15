@@ -1,24 +1,31 @@
 "use client";
 
+import { useState } from "react";
 import {
   ApiErrorNote,
   Button,
   Card,
+  Field,
+  Input,
   NotConnected,
   PageHeader,
   useAsync,
   useConnected,
 } from "@/app/components/ui";
 import {
+  errMsg,
   getCost,
   getRightsizingOpportunities,
+  getTenantCost,
   getUnitEconomics,
   getWaste,
+  setTenantBudget,
 } from "@/app/lib/api";
 import type {
   NodeSpend,
   QualityEconomics,
   SpendReport,
+  TenantCost,
   TenantEconomics,
   UnitEconomicsReport,
   WasteRollup,
@@ -73,11 +80,130 @@ export default function CostPage() {
         </Card>
       )}
 
+      {connected && <TenantBudgetCard />}
+
       {/* Older backends without the endpoint report an error here — stay quiet. */}
       {connected && econ.data && !econ.error && <UnitEconomics report={econ.data} />}
       {connected && waste.data && !waste.error && <EconomicWaste report={waste.data} />}
       {connected && opp.data && !opp.error && <RightsizingOpportunities report={opp.data} />}
     </div>
+  );
+}
+
+// Tenant month-to-date spend vs the enforced budget cap, with an editable cap
+// (METRICS_ADMIN). Proxies to the Regulus budget backend; a 503 (backend not
+// configured) surfaces as an informational note via ApiErrorNote.
+function TenantBudgetCard() {
+  const [tenantId, setTenantId] = useState("default");
+  const [data, setData] = useState<TenantCost | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [capInput, setCapInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const res = await getTenantCost(tenantId.trim() || "default");
+      setData(res);
+      setCapInput(res.budget_cap_usd != null ? String(res.budget_cap_usd) : "");
+    } catch (e) {
+      setData(null);
+      setError(errMsg(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function save() {
+    const cap = Number(capInput);
+    if (!Number.isFinite(cap) || cap < 0) {
+      setError("Enter a non-negative budget cap in USD.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const res = await setTenantBudget(tenantId.trim() || "default", cap);
+      setData(res);
+      setCapInput(res.budget_cap_usd != null ? String(res.budget_cap_usd) : "");
+      setSaved(true);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const spent = data?.total_cost_usd ?? 0;
+  const cap = data?.budget_cap_usd ?? null;
+  const overCap = cap != null && cap > 0 && spent >= cap;
+
+  return (
+    <Card
+      title="Tenant budget"
+      actions={
+        <div className="flex items-center gap-2">
+          <Input
+            value={tenantId}
+            onChange={(e) => setTenantId(e.target.value)}
+            placeholder="tenant id"
+            className="w-40 font-mono"
+          />
+          <Button size="sm" onClick={load} disabled={loading}>
+            {loading ? "Loading…" : "Load"}
+          </Button>
+        </div>
+      }
+    >
+      {error && <ApiErrorNote error={error} />}
+      {!data && !error && (
+        <p className="text-sm text-muted">
+          Enter a tenant id and load its month-to-date spend and cap.
+        </p>
+      )}
+      {data && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2">
+            <Stat label="MTD spend" value={fmtUsd(spent)} emphasis />
+            <Stat
+              label="Budget cap"
+              value={cap != null ? fmtUsd(cap) : "no cap set"}
+              tone={overCap ? "warn" : undefined}
+            />
+            {overCap && (
+              <span className="rounded-full bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400">
+                Over cap — new runs blocked
+              </span>
+            )}
+          </div>
+          <div className="flex items-end gap-2 border-t border-border pt-3">
+            <Field label="Set cap (USD)" hint="enforced before LLM calls & fan-out">
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={capInput}
+                onChange={(e) => setCapInput(e.target.value)}
+                className="w-40 font-mono"
+              />
+            </Field>
+            <Button variant="primary" onClick={save} disabled={saving}>
+              {saving ? "Saving…" : "Save cap"}
+            </Button>
+            {saved && (
+              <span className="pb-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                Saved ✓
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 

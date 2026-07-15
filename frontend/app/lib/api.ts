@@ -552,6 +552,22 @@ export async function getCost(): Promise<DeploymentCost> {
   return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
 }
 
+export type TenantCost = S["TenantCostResponse"];
+
+/** Month-to-date spend and budget cap for a tenant (METRICS_READ). Proxies to
+    the Regulus budget backend; 503 when it isn't configured. */
+export function getTenantCost(tenantId: string): Promise<TenantCost> {
+  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/cost`);
+}
+
+/** Set the tenant spend cap enforced before LLM calls and fan-out (METRICS_ADMIN). */
+export function setTenantBudget(tenantId: string, budgetCapUsd: number): Promise<TenantCost> {
+  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/budget`, {
+    method: "PUT",
+    body: JSON.stringify({ budget_cap_usd: budgetCapUsd }),
+  });
+}
+
 // ---- Model right-sizing (authoring-time nudge) ----
 
 /** Cheaper, capability-compatible alternatives to a node's model. Candidates to
