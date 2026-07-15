@@ -445,6 +445,30 @@ export async function listNodeAudits(
   return (res.records ?? []).slice(-limit).reverse();
 }
 
+export type RunEvidence = S["RunEvidenceResponse"];
+export type DeploymentEvidence = S["DeploymentEvidenceResponse"];
+
+/** Verify the audit digest chain + signatures across every run of the
+    deployment (WS-D three-state), for a deployment-wide tamper-evidence badge. */
+export async function getDeploymentAuditVerification(): Promise<AuditVerification> {
+  const ref = await deploymentRef();
+  return apiFetch<AuditVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/audit-verification`,
+  );
+}
+
+/** Full compliance evidence bundle for the deployment (runs + audits + approvals
+    + summary + policy events), for export. */
+export async function getDeploymentEvidence(): Promise<DeploymentEvidence> {
+  const ref = await deploymentRef();
+  return apiFetch<DeploymentEvidence>(`/v1/deployments/${encodeURIComponent(ref)}/evidence`);
+}
+
+/** Compliance evidence bundle for a single run, for export. */
+export function getRunEvidence(runId: string): Promise<RunEvidence> {
+  return apiFetch<RunEvidence>(`/v1/runs/${encodeURIComponent(runId)}/evidence`);
+}
+
 // ---- Deployments ----
 
 /** All persisted deployment versions; `serving` marks this service's own. */

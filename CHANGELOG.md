@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.4] - 2026-07-15
+
+### Added
+
+- **Console: compliance evidence + deployment-wide chain verification** (F2). The
+  Audit page now shows a deployment-wide tamper-evidence badge
+  (`GET /v1/deployments/{ref}/audit-verification`, three-state) and exports the
+  full compliance evidence bundle (`GET /v1/deployments/{ref}/evidence`); each
+  audit row exports its run's bundle (`GET /v1/runs/{id}/evidence`).
+
 ## [0.10.0.3] - 2026-07-15
 
 ### Added
