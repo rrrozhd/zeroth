@@ -569,6 +569,34 @@ export function listManifests(): Promise<ManifestSummary[]> {
   return apiFetch<ManifestSummary[]>("/v1/manifests");
 }
 
+// ---- Prompt templates ----
+
+export type PromptTemplate = S["TemplateResponse"];
+export type PromptTemplateList = S["TemplateListResponse"];
+export type CreateTemplateRequest = S["CreateTemplateRequest"];
+
+/** Registered prompt templates (name + version + body + variables). */
+export function listTemplates(): Promise<PromptTemplateList> {
+  return apiFetch<PromptTemplateList>("/v1/templates");
+}
+
+/** Register a prompt template; re-posting a name creates the next version
+    (TEMPLATE_ADMIN). */
+export function createTemplate(body: CreateTemplateRequest): Promise<PromptTemplate> {
+  return apiFetch<PromptTemplate>("/v1/templates", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Delete one version of a prompt template (TEMPLATE_ADMIN). */
+export function deleteTemplate(name: string, version: number): Promise<void> {
+  return apiFetch<void>(
+    `/v1/templates/${encodeURIComponent(name)}/${version}`,
+    { method: "DELETE" },
+  );
+}
+
 // ---- Webhooks / integrations (WEBHOOK_ADMIN) ----
 
 export type WebhookSubscription = S["WebhookSubscriptionResponse"];

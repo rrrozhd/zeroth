@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.7] - 2026-07-15
+
+### Added
+
+- **Console: Prompt templates page** (F9), previously API-only. New `/templates`
+  page (+ nav entry) to list, register (with version + variables), preview, and
+  delete prompt templates. Wires `GET/POST /v1/templates` and
+  `DELETE /v1/templates/{name}/{version}`.
+
 ## [0.10.0.6] - 2026-07-15
 
 ### Added
