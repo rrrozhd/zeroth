@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.1.1] - 2026-07-15
+
+### Removed
+
+- Deleted the dead econ_plane `statistics` router (`statistics/api.py`), an empty
+  `APIRouter` with zero routes that `main.py` still mounted (F14). The statistics
+  *package* stays — its `schemas` and `service` are used by reconciliation,
+  costing, and counterfactual. No route-table or behavior change. (F13's blocked
+  `/auth/token` issuer is left in place: it is already neutralized by the
+  `app.py` gate and its handler is exercised by econ_plane's own tests.)
+
 ## [0.10.0.1] - 2026-07-15
 
 ### Added
