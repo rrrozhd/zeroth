@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-15
+
+### Added
+
+- **Econ portfolio dashboard, console-reachable** (F7). New core service module
+  `econ_dashboard_api` proxies the bundled Regulus dashboard suite (kpis,
+  top-creators, capital-destroyers, capability-ranking, and the trend/quality
+  views) under `/v1/econ/dashboard/*`, behind `METRICS_READ`, using the same
+  server-side self-auth bridge as `cost_api`. The console previously could not
+  reach these at all (the `/regulus` JWT issuer is gated off). The Cost page gains
+  a Portfolio economics card (spend/value/net-margin/confidence/efficiency plus
+  top value creators and capital destroyers), and the OpenAPI spec was
+  regenerated to include the new routes.
+
 ## [0.10.0.7] - 2026-07-15
 
 ### Added

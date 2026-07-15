@@ -15,6 +15,9 @@ import {
 import {
   errMsg,
   getCost,
+  getEconCapitalDestroyers,
+  getEconKpis,
+  getEconTopCreators,
   getRightsizingOpportunities,
   getTenantCost,
   getUnitEconomics,
@@ -22,6 +25,8 @@ import {
   setTenantBudget,
 } from "@/app/lib/api";
 import type {
+  EconCapabilityValue,
+  EconKpis,
   NodeSpend,
   QualityEconomics,
   SpendReport,
@@ -39,6 +44,7 @@ export default function CostPage() {
   const econ = useAsync(getUnitEconomics, []);
   const waste = useAsync(getWaste, []);
   const opp = useAsync(getRightsizingOpportunities, []);
+  const kpis = useAsync(getEconKpis, []);
 
   return (
     <div className="space-y-6">
@@ -52,6 +58,7 @@ export default function CostPage() {
               econ.reload();
               waste.reload();
               opp.reload();
+              kpis.reload();
             }}
             disabled={loading}
           >
@@ -81,6 +88,10 @@ export default function CostPage() {
       )}
 
       {connected && <TenantBudgetCard />}
+
+      {/* Portfolio economics from the bundled Regulus control plane; quiet when
+          Regulus isn't configured (503) or has no data yet. */}
+      {connected && kpis.data && !kpis.error && <PortfolioEconomics kpis={kpis.data} />}
 
       {/* Older backends without the endpoint report an error here — stay quiet. */}
       {connected && econ.data && !econ.error && <UnitEconomics report={econ.data} />}
@@ -204,6 +215,76 @@ function TenantBudgetCard() {
         </div>
       )}
     </Card>
+  );
+}
+
+// Portfolio-level AI economics from the bundled Regulus control plane — surfaced
+// via the /v1/econ/dashboard/* proxy (F7). The console can't call /regulus
+// directly, so these come through the server-side self-auth bridge.
+function PortfolioEconomics({ kpis }: { kpis: EconKpis }) {
+  const creators = useAsync(getEconTopCreators, []);
+  const destroyers = useAsync(getEconCapitalDestroyers, []);
+  const margin = kpis.net_ai_margin_usd;
+  return (
+    <Card title="Portfolio economics">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <Stat label="AI spend" value={fmtUsd(kpis.total_ai_spend_usd)} />
+          <Stat label="AI value" value={fmtUsd(kpis.total_ai_value_usd)} />
+          <Stat
+            label="Net margin"
+            value={fmtUsd(margin)}
+            emphasis
+            tone={margin < 0 ? "warn" : undefined}
+          />
+          <Stat label="Confidence" value={pct(kpis.portfolio_confidence_score)} />
+          <Stat label="Efficiency index" value={kpis.efficiency_index.toFixed(2)} />
+        </div>
+        <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+          <CapabilityList title="Top value creators" rows={creators.data ?? []} sign="pos" />
+          <CapabilityList title="Capital destroyers" rows={destroyers.data ?? []} sign="neg" />
+        </div>
+        <p className="text-xs text-muted">
+          Sourced from the bundled Regulus control plane via the console&apos;s econ proxy.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+function CapabilityList({
+  title,
+  rows,
+  sign,
+}: {
+  title: string;
+  rows: EconCapabilityValue[];
+  sign: "pos" | "neg";
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{title}</div>
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted">No data.</p>
+      ) : (
+        <ul className="space-y-1 text-sm">
+          {rows.slice(0, 5).map((r) => (
+            <li key={r.capability_id} className="flex items-center justify-between gap-3">
+              <span className="truncate font-mono text-xs">{r.capability_id}</span>
+              <span
+                className={`tabular-nums ${
+                  sign === "neg"
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-emerald-600 dark:text-emerald-400"
+                }`}
+              >
+                {fmtUsd(r.net_margin_usd)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

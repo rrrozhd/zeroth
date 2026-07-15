@@ -30,6 +30,7 @@ from zeroth.core.service.console_ui import console_cors_origins, mount_console
 from zeroth.core.service.contracts_api import register_contract_routes
 from zeroth.core.service.cost_api import register_cost_routes
 from zeroth.core.service.econ_analytics_api import register_econ_analytics_routes
+from zeroth.core.service.econ_dashboard_api import register_econ_dashboard_routes
 from zeroth.core.service.retention_api import register_retention_routes
 from zeroth.core.service.rightsizing_api import register_rightsizing_routes
 from zeroth.core.service.run_api import register_run_routes
@@ -401,6 +402,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_cost_routes(v1_router)
     register_rightsizing_routes(v1_router)
     register_econ_analytics_routes(v1_router)
+    register_econ_dashboard_routes(v1_router)
     register_webhook_routes(v1_router)
     register_artifact_routes(v1_router)
     register_template_routes(v1_router)
@@ -427,6 +429,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_cost_routes(compat_router)
     register_rightsizing_routes(compat_router)
     register_econ_analytics_routes(compat_router)
+    register_econ_dashboard_routes(compat_router)
     register_webhook_routes(compat_router)
     register_artifact_routes(compat_router)
     register_template_routes(compat_router)

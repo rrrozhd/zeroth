@@ -749,6 +749,41 @@ export function getWaste(): Promise<WasteRollup> {
   return apiFetch<WasteRollup>("/v1/econ/waste");
 }
 
+// ---- Econ portfolio dashboard (bundled Regulus, via /v1/econ/dashboard/* proxy) ----
+// These come from the bundled control plane, whose shapes aren't in the core
+// OpenAPI (the proxy forwards raw JSON), so they're hand-declared here — the
+// econ_plane-owned contract, mirrored like PublishIssue / GraphDiff above.
+
+export type EconKpis = {
+  total_ai_spend_usd: number;
+  total_ai_value_usd: number;
+  net_ai_margin_usd: number;
+  portfolio_confidence_score: number;
+  efficiency_index: number;
+};
+
+export type EconCapabilityValue = {
+  capability_id: string;
+  net_margin_usd: number;
+  confidence: number;
+};
+
+/** Portfolio KPIs (spend, value, net margin, confidence, efficiency) from the
+    bundled Regulus control plane. 503 when Regulus isn't configured. */
+export function getEconKpis(): Promise<EconKpis> {
+  return apiFetch<EconKpis>("/v1/econ/dashboard/kpis");
+}
+
+/** Capabilities creating the most net value. */
+export function getEconTopCreators(): Promise<EconCapabilityValue[]> {
+  return apiFetch<EconCapabilityValue[]>("/v1/econ/dashboard/top-creators");
+}
+
+/** Capabilities destroying the most value (negative net margin). */
+export function getEconCapitalDestroyers(): Promise<EconCapabilityValue[]> {
+  return apiFetch<EconCapabilityValue[]>("/v1/econ/dashboard/capital-destroyers");
+}
+
 /** Attach an external good/bad quality verdict to a terminal run (METRICS_ADMIN).
     Feeds quality-aware unit economics — cost per *good* outcome. 409 if the run
     isn't terminal yet. */

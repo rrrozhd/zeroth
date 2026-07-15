@@ -6451,6 +6451,195 @@
         ]
       }
     },
+    "/v1/econ/dashboard/action-suppression": {
+      "get": {
+        "operationId": "econ_dashboard_action_suppression_v1_econ_dashboard_action_suppression_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Action Suppression V1 Econ Dashboard Action Suppression Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Action Suppression",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/calibration-trend": {
+      "get": {
+        "operationId": "econ_dashboard_calibration_trend_v1_econ_dashboard_calibration_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Calibration Trend V1 Econ Dashboard Calibration Trend Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Calibration Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/capability-ranking": {
+      "get": {
+        "operationId": "econ_dashboard_capability_ranking_v1_econ_dashboard_capability_ranking_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Capability Ranking V1 Econ Dashboard Capability Ranking Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Capability Ranking",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/capital-destroyers": {
+      "get": {
+        "operationId": "econ_dashboard_capital_destroyers_v1_econ_dashboard_capital_destroyers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Capital Destroyers V1 Econ Dashboard Capital Destroyers Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Capital Destroyers",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/confidence-trend": {
+      "get": {
+        "operationId": "econ_dashboard_confidence_trend_v1_econ_dashboard_confidence_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Confidence Trend V1 Econ Dashboard Confidence Trend Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Confidence Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/data-quality-mix": {
+      "get": {
+        "operationId": "econ_dashboard_data_quality_mix_v1_econ_dashboard_data_quality_mix_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Data Quality Mix V1 Econ Dashboard Data Quality Mix Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Data Quality Mix",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/efficiency-trend": {
+      "get": {
+        "operationId": "econ_dashboard_efficiency_trend_v1_econ_dashboard_efficiency_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Efficiency Trend V1 Econ Dashboard Efficiency Trend Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Efficiency Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/kpis": {
+      "get": {
+        "operationId": "econ_dashboard_kpis_v1_econ_dashboard_kpis_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Kpis V1 Econ Dashboard Kpis Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Kpis",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/top-creators": {
+      "get": {
+        "operationId": "econ_dashboard_top_creators_v1_econ_dashboard_top_creators_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Top Creators V1 Econ Dashboard Top Creators Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Top Creators",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/econ/quality-verdict": {
       "post": {
         "description": "Attach an external good/bad verdict to a terminal run for quality-aware economics.\n\nThe runtime can't know whether an answer was *good*, so this is the honest way to\nfeed that signal in: a human reviewer or downstream check records a verdict, and\nunit economics then reports cost per good outcome over the labeled subset.\n\nAnnotation, not evidence \u2014 it merges under ``run.metadata['quality_verdict']`` and is\ndeliberately off the audit hash-chain. Admin-only (``METRICS_ADMIN``). 404 for an\nunknown or out-of-deployment run; 409 for a non-terminal run (no outcome to judge yet).",
