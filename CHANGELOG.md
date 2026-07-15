@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.1] - 2026-07-15
+
+### Added
+
+- Tests for the econ dashboard proxy (F7): asserts the `/v1/econ/dashboard/*`
+  routes are registered, require auth (401), enforce `METRICS_READ`, and reach the
+  handler's Regulus guard (503, not 404) — plus the no-`/v1` compat alias.
+
 ## [0.10.1] - 2026-07-15
 
 ### Added
