@@ -891,8 +891,12 @@ class RunRepository:
         if existing is None:
             return False
         await connection.execute(
+            # execution_history holds every node's plaintext input/output snapshot
+            # (runtime._record_history) and must be cleared too — leaving it made
+            # right-to-erasure a false claim (audit F1). Column is TEXT NOT NULL
+            # DEFAULT '[]', so reset to an empty list rather than NULL.
             "UPDATE runs SET final_output = NULL, artifacts = '{}', "
-            "metadata = '{}', error = NULL WHERE run_id = ?",
+            "metadata = '{}', error = NULL, execution_history = '[]' WHERE run_id = ?",
             (run_id,),
         )
         return True
@@ -919,7 +923,14 @@ class RunRepository:
             "SELECT state_json FROM run_checkpoints WHERE run_id = ?",
             (run_id,),
         )
-        payloads.extend(from_json_value(row["state_json"]) for row in checkpoints)
+        # Decrypt before parsing — state_json is Fernet-encrypted at rest when an
+        # encryption key is configured (mirrors get_checkpoint). Without this the
+        # harvest raised JSONDecodeError and rolled the whole erasure back to a
+        # no-op on every encrypted-at-rest deployment (audit F1).
+        payloads.extend(
+            from_json_value(self._store._decrypt_state_json(row["state_json"]))
+            for row in checkpoints
+        )
         return payloads
 
     async def tenant_id_for_run_in_transaction(

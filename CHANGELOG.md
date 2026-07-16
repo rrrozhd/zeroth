@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.5] - 2026-07-16
+
+### Security
+
+- **Fixed right-to-erasure leaving plaintext and crashing on encrypted
+  deployments** (audit F1, verified P0). (a) `redact_run_in_transaction` never
+  cleared `runs.execution_history`, so every node's plaintext prompt/response
+  survived an erasure the API reported as complete — it is now reset to `[]`.
+  (b) `erasure_payloads_in_transaction` read `run_checkpoints.state_json` without
+  decrypting, so on any at-rest-encrypted deployment erasure (and the TTL purge
+  worker) raised `JSONDecodeError` and rolled back to a no-op — it now decrypts
+  first, mirroring `get_checkpoint`. Added regression coverage: the full-surface
+  erasure test now seeds and scans `execution_history`, plus a new
+  erase-on-encrypted-deployment test.
+
 ## [0.10.1.4] - 2026-07-16
 
 ### Security
