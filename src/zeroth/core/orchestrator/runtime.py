@@ -283,6 +283,31 @@ class RuntimeOrchestrator:
         except Exception:
             logger.exception("artifact TTL refresh failed (non-fatal)")
 
+    async def _external_stop(self, run: Run) -> Run | None:
+        """Detect an operator's out-of-band cancel/interrupt (audit F3).
+
+        An operator can cancel a run (``FAILED``, via the admin API) or interrupt
+        it (``WAITING_INTERRUPT``), which writes the persisted status directly. The
+        drive loop holds an in-memory ``Run`` and blind-writes ``RUNNING`` on every
+        node hop, so it must re-read the persisted status and stop — otherwise the
+        next ``RUNNING`` write clobbers the operator's decision and the run drives
+        to completion. Call this before every ``RUNNING`` write (and before marking
+        the run ``COMPLETED``): returns the persisted run to stop on, or ``None`` to
+        proceed. Neither status is ever produced by this loop (``WAITING_INTERRUPT``
+        is admin-only; ``FAILED`` is terminal-and-return), so it can't false-positive.
+        """
+        fresh = await self.run_repository.get(run.run_id)
+        if fresh is not None and fresh.status in (
+            RunStatus.FAILED,
+            RunStatus.WAITING_INTERRUPT,
+        ):
+            # Reconcile the caller's shared in-memory Run so no later stale write
+            # off this object can revert the operator's decision.
+            run.status = fresh.status
+            run.failure_state = fresh.failure_state
+            return fresh
+        return None
+
     async def _drive(
         self,
         graph: Graph,
@@ -298,6 +323,12 @@ class RuntimeOrchestrator:
         """
         started_at = perf_counter()
         while True:
+            # Cooperative cancellation (audit F3): observe an operator's out-of-band
+            # cancel/interrupt before completing the run or dispatching the next node.
+            stopped = await self._external_stop(run)
+            if stopped is not None:
+                return stopped
+
             failed_run = await self._enforce_loop_guards(graph, run, started_at)
             if failed_run is not None:
                 return failed_run
@@ -682,6 +713,11 @@ class RuntimeOrchestrator:
             next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
             self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
             run.metadata["last_output"] = output_data
+            # An operator may have cancelled/interrupted while this node was
+            # dispatching; don't clobber that with our RUNNING write (audit F3).
+            stopped = await self._external_stop(run)
+            if stopped is not None:
+                return stopped
             run.status = RunStatus.RUNNING
             run.current_node_ids = []
             run.touch()

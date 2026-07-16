@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.6] - 2026-07-16
+
+### Fixed
+
+- **Operator cancel/interrupt now actually stop an in-flight run** (audit F3,
+  verified P0). The orchestrator drive loop blind-wrote `RUNNING` on every node
+  hop, clobbering an admin `POST /admin/runs/{id}/cancel` (→ FAILED) or
+  `/interrupt` (→ WAITING_INTERRUPT) written mid-dispatch, so the run ignored the
+  operator and drove to completion. The loop now re-reads the persisted status
+  (`_external_stop`) at the top of each iteration and again before its end-of-hop
+  RUNNING write, adopting and returning the operator's terminal/paused state
+  instead of overwriting it. Added driving tests that flip the status mid-dispatch
+  and assert the next node never runs.
+  - Scope note: fully covers the common sequential-agent path (the confirmed
+    defect). Parallel/subgraph fan-out branches keep their own RUNNING writes;
+    the top-of-loop check gives them best-effort (between-hop) cancellation, and
+    guarding each fan-out write is a follow-up.
+
 ## [0.10.1.5] - 2026-07-16
 
 ### Security
