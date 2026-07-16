@@ -546,3 +546,40 @@ async def test_cap_trips_by_default_no_env_flags(monkeypatch) -> None:
         await runner.run({"query": "hi"}, enforcement_context={"tenant_id": tenant})
     assert exc_info.value.cap == 0.01
     assert exc_info.value.spend >= 0.02
+
+
+def test_costing_writes_require_econ_role() -> None:
+    """Audit F7: the costing router must carry the econ RBAC gate every sibling
+    router has. Passing only Zeroth's X-API-Key (through the mount gate) but no
+    econ Bearer now yields 403 at the costing route; before the fix the router
+    had no auth dependency at all, so the pricing catalog was writable by any
+    caller that reached it. The Admin self-auth token is accepted."""
+    app = create_app(_GatedBootstrap())
+    pricing = {
+        "provider": "openai",
+        "model": "gpt-x",
+        "region": "us",
+        "effective_from": datetime.now(UTC).isoformat(),
+        "input_per_million_usd": 1.0,
+        "output_per_million_usd": 2.0,
+        "gpu_hour_usd": 0.0,
+        "cpu_hour_usd": 0.0,
+        "memory_gb_hour_usd": 0.0,
+        "energy_kwh_usd": 0.0,
+    }
+    with TestClient(app) as client:
+        # Passes the Zeroth gate (X-API-Key) but carries no econ Bearer -> 403.
+        unauthorized = client.post(
+            "/regulus/v1/costing/pricing-catalog",
+            headers={"X-API-Key": _ZEROTH_KEY},
+            json=pricing,
+        )
+        assert unauthorized.status_code in (401, 403)
+
+        # Full self-auth (X-API-Key + Admin Bearer) reaches the handler.
+        authorized = client.post(
+            "/regulus/v1/costing/pricing-catalog",
+            headers=app.state.regulus_self_auth_headers(),
+            json=pricing,
+        )
+        assert authorized.status_code not in (401, 403)

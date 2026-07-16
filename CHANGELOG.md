@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.4] - 2026-07-16
+
+### Security
+
+- **Added the missing RBAC gate to the econ_plane costing router** (audit F7,
+  verified — downgraded from the audit's P0 "anonymous" claim). Unlike every
+  sibling econ router, `costing/api.py` carried no auth dependency, so the
+  pricing catalog + cost profiles that back every cost estimate were writable by
+  any caller that reached the router (anonymous in a standalone deploy; any
+  authenticated principal through the mount). Writes now require the `Admin` econ
+  role, reads require any valid role. Added a mount regression test. The mounted
+  topology was never anonymously writable (the `/regulus` Zeroth API-key gate),
+  and the console econ dashboards (read-only proxy) were unaffected.
+
 ## [0.10.1.3] - 2026-07-16
 
 ### Security
