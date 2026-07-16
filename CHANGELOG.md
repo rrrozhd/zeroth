@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.18] - 2026-07-16
+
+### Fixed
+
+- **Rate limiter and quota enforcer serialize their check-and-update** (audit
+  S3/S4). Both `TokenBucketRateLimiter.check_and_consume` and
+  `QuotaEnforcer.check_and_increment` did an unserialized read-modify-write, so
+  concurrent requests interleaved between the SELECT and the UPDATE — 50
+  concurrent calls drained a capacity-5 bucket to a negative count, and a daily
+  quota overshot its ceiling. Both now open the transaction with
+  `write_lock=True` (BEGIN IMMEDIATE on SQLite) and add `SELECT … FOR UPDATE` on
+  PostgreSQL, and cold-start inserts use `ON CONFLICT DO NOTHING` so concurrent
+  first-requests no longer 500 on the UNIQUE key.
+
 ## [0.10.1.17] - 2026-07-16
 
 ### Fixed

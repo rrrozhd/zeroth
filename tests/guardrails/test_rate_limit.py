@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
@@ -82,3 +83,32 @@ async def test_quota_enforcer_resets_after_window(sqlite_db) -> None:
     # Should be allowed again.
     allowed = await enforcer.check_and_increment(key, limit=2, window_seconds=1)
     assert allowed is True
+
+
+async def test_token_bucket_concurrent_consume_never_exceeds_capacity(sqlite_db) -> None:
+    # S4 TOCTOU: 50 concurrent consumes on a fresh capacity-5, no-refill bucket
+    # must let AT MOST 5 through. Before the write_lock + FOR UPDATE fix the
+    # unserialized read-modify-write let all 50 pass (final token_count went
+    # negative). refill_rate=0 keeps the ceiling exact regardless of timing.
+    limiter = TokenBucketRateLimiter(sqlite_db)
+    results = await asyncio.gather(
+        *(
+            limiter.check_and_consume("tenant:conc", capacity=5.0, refill_rate=0.0)
+            for _ in range(50)
+        )
+    )
+    assert sum(1 for r in results if r) == 5
+
+
+async def test_quota_concurrent_increment_never_exceeds_limit(sqlite_db) -> None:
+    # S3 TOCTOU: 50 concurrent increments against a limit of 5 must admit exactly
+    # 5. Before the write_lock + FOR UPDATE fix the stale-read check let the
+    # counter overshoot the ceiling.
+    enforcer = QuotaEnforcer(sqlite_db)
+    results = await asyncio.gather(
+        *(
+            enforcer.check_and_increment("tenant:conc:daily", limit=5, window_seconds=86400)
+            for _ in range(50)
+        )
+    )
+    assert sum(1 for r in results if r) == 5
