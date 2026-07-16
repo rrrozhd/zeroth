@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.16] - 2026-07-16
+
+### Fixed
+
+- **Right-to-erasure clears `pending_approval`** (audit F1 re-audit). An
+  outstanding approval gate persisted its requester reason + metadata (both
+  free-form PII) in the `runs.pending_approval` column, which the erasure redact
+  SQL did not null. `redact_run_in_transaction` now sets `pending_approval =
+  NULL` alongside the other free-form columns, and the full-surface erasure test
+  seeds and scans that column.
+
 ## [0.10.1.15] - 2026-07-16
 
 ### Security

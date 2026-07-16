@@ -14,6 +14,7 @@ from zeroth.core.retention import (
     RetentionErasureService,
     RetentionPolicyRepository,
 )
+from zeroth.core.governed.models.approval import ApprovalRequest
 from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository
 from zeroth.core.signing import EnvHmacSigner
 
@@ -150,6 +151,17 @@ class RetentionEnv:
             # failure_state holds the failure message/details; erasure must clear
             # it too (else `error` re-derives from it on read — audit F1 re-audit).
             failure_state=RunFailureState(reason="failed", message="err-" + ssn),
+            # pending_approval carries the requester's free-form reason + metadata
+            # for an outstanding gate; erasure must clear it (audit F1 re-audit^2).
+            pending_approval=ApprovalRequest(
+                request_id="req-" + run_id,
+                run_id=run_id,
+                workflow_name="wf",
+                step_name="gate",
+                executor_name="exec",
+                reason="approve for " + ssn,
+                metadata={"requester_note": ssn},
+            ),
             # Per-node input/output snapshots persist in runs.execution_history;
             # seed PII here so erasure coverage catches residue (audit F1).
             execution_history=[

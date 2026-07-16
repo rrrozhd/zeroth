@@ -20,7 +20,7 @@ async def _pii_present(database, ssn: str) -> dict[str, bool]:
         checkpoints = await connection.fetch_all("SELECT state_json FROM run_checkpoints", ())
         runs = await connection.fetch_all(
             "SELECT final_output, artifacts, metadata, error, execution_history, "
-            "failure_state, condition_results, channels FROM runs",
+            "failure_state, condition_results, channels, pending_approval FROM runs",
             (),
         )
     return {
@@ -80,6 +80,8 @@ async def test_full_surface_erasure(env) -> None:
     assert reloaded is not None
     assert reloaded.error is None
     assert reloaded.failure_state is None
+    # pending_approval (free-form reason + metadata) is cleared too (F1 re-audit^2).
+    assert reloaded.pending_approval is None
     # Checkpoints deleted, run row kept (redacted), artifact gone.
     async with env.database.transaction() as connection:
         cp = await connection.fetch_all(

@@ -896,11 +896,13 @@ class RunRepository:
             # failure_state holds the failure message/details (and `error` re-derives
             # FROM failure_state.message on read, so nulling error alone was not
             # enough — the plaintext resurfaced); condition_results.details and
-            # channels are free-form dicts. NOT NULL columns reset to their empty
-            # default ('[]' / '{}'); nullable ones to NULL.
+            # channels are free-form dicts; pending_approval carries the requester's
+            # free-form reason + metadata for an outstanding gate. NOT NULL columns
+            # reset to their empty default ('[]' / '{}'); nullable ones to NULL.
             "UPDATE runs SET final_output = NULL, artifacts = '{}', "
             "metadata = '{}', error = NULL, execution_history = '[]', "
-            "failure_state = NULL, condition_results = '[]', channels = '{}' "
+            "failure_state = NULL, condition_results = '[]', channels = '{}', "
+            "pending_approval = NULL "
             "WHERE run_id = ?",
             (run_id,),
         )
