@@ -35,7 +35,7 @@ from zeroth.core.graph import (
 )
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.parallel.models import ParallelConfig
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.core.runs import Run, RunFailureState, RunRepository, RunStatus
 
 
 # ---------------------------------------------------------------------------
@@ -470,3 +470,75 @@ async def test_fan_out_audit_refs_merged(sqlite_db) -> None:
     assert run.status is RunStatus.COMPLETED
     # Source audit + 2 branch audits = at least 3 audit refs
     assert len(run.audit_refs) >= 3
+
+
+@pytest.mark.asyncio
+async def test_operator_cancel_during_fan_out_stops_before_downstream(sqlite_db) -> None:
+    """Audit F3 (fan-out guard): an operator cancel that lands while parallel
+    branches are running is observed at the fan-in, so the downstream node after
+    the fan-in never dispatches and the run ends FAILED."""
+    repo = RunRepository(sqlite_db)
+    run_id_box: dict[str, str] = {}
+
+    source_runner = _make_agent_runner(
+        output_model=ItemsOutput,
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}]}),
+    )
+
+    async def _cancel_branch(req):
+        # Operator cancels the parent run mid-fan-out (as the admin API would).
+        await repo.transition(
+            run_id_box["id"],
+            RunStatus.FAILED,
+            failure_state=RunFailureState(reason="operator_cancelled", message="cancelled"),
+        )
+        return ProviderResponse(content={"result": 1})
+
+    branch_runner = _make_agent_runner(
+        input_model=BranchItemInput,
+        output_model=ProcessedOutput,
+        handler=_cancel_branch,
+    )
+
+    final_calls = {"n": 0}
+
+    def _final_handler(req):
+        final_calls["n"] += 1
+        return ProviderResponse(content={"result": 0})
+
+    final_runner = _make_agent_runner(output_model=ProcessedOutput, handler=_final_handler)
+
+    source_node = _make_agent_node("source", parallel_config=ParallelConfig(split_path="items"))
+    branch_node = _make_agent_node("branch")
+    final_node = _make_agent_node("final")
+    graph = _make_graph(
+        [source_node, branch_node, final_node],
+        [
+            Edge(edge_id="e1", source_node_id="source", target_node_id="branch"),
+            Edge(edge_id="e2", source_node_id="branch", target_node_id="final"),
+        ],
+    )
+    orchestrator = _make_orchestrator(
+        {"source": source_runner, "branch": branch_runner, "final": final_runner},
+        sqlite_db,
+    )
+
+    run = Run(
+        graph_version_ref="test-parallel@1",
+        deployment_ref="dep",
+        thread_id="",
+        current_node_ids=[],
+        pending_node_ids=["source"],
+        metadata=orchestrator._initial_metadata(graph, {"value": 1}),
+    )
+    persisted = await repo.create(run)
+    run_id_box["id"] = persisted.run_id
+    persisted.status = RunStatus.RUNNING
+    persisted.touch()
+    persisted = await repo.put(persisted)
+    await repo.write_checkpoint(persisted)
+
+    result = await orchestrator._drive(graph, persisted)
+
+    assert result.status is RunStatus.FAILED
+    assert final_calls["n"] == 0  # fan-in guard stopped before 'final'

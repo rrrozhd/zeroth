@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.8] - 2026-07-16
+
+### Fixed
+
+- **Cooperative cancellation now covers parallel/subgraph fan-out** (audit F3
+  follow-up, completing v0.10.1.6). The four fan-out end-of-hop RUNNING writes
+  (parallel fan-in, resumed fan-in, synchronous subgraph, resumed subgraph) now
+  call `_external_stop` before persisting, so an operator cancel/interrupt that
+  lands while a fan-out node's branches run is observed at the fan-in instead of
+  being clobbered. Added a parallel fan-in cancel test (branch cancels mid-fan-out
+  -> the node after the fan-in never dispatches); all 309 execution-path tests
+  still pass.
+
 ## [0.10.1.7] - 2026-07-16
 
 ### Security

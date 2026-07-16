@@ -391,6 +391,10 @@ class RuntimeOrchestrator:
                     post_fan_in_ids = self._plan_next_nodes(graph, run, ds_id, merged_output)
                     self._queue_next_nodes(graph, run, ds_id, merged_output, post_fan_in_ids)
                 run.metadata["last_output"] = merged_output
+                # Cooperative cancel across a resumed fan-in (audit F3 follow-up).
+                stopped = await self._external_stop(run)
+                if stopped is not None:
+                    return stopped
                 run.touch()
                 run = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(run)
@@ -531,6 +535,10 @@ class RuntimeOrchestrator:
                     next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
                     self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
                     run.metadata["last_output"] = output_data
+                    # Cooperative cancel across a resumed subgraph node (audit F3).
+                    stopped = await self._external_stop(run)
+                    if stopped is not None:
+                        return stopped
                     run.touch()
                     persisted = await self.run_repository.put(run)
                     await self.run_repository.write_checkpoint(persisted)
@@ -611,6 +619,10 @@ class RuntimeOrchestrator:
                 next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
                 self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
                 run.metadata["last_output"] = output_data
+                # Cooperative cancel across a synchronous subgraph node (audit F3).
+                stopped = await self._external_stop(run)
+                if stopped is not None:
+                    return stopped
                 run.touch()
                 persisted = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(persisted)
@@ -692,6 +704,10 @@ class RuntimeOrchestrator:
                     post_fan_in_ids = self._plan_next_nodes(graph, run, ds_id, merged_output)
                     self._queue_next_nodes(graph, run, ds_id, merged_output, post_fan_in_ids)
                 run.metadata["last_output"] = merged_output
+                # Cooperative cancel across a parallel fan-in (audit F3 follow-up).
+                stopped = await self._external_stop(run)
+                if stopped is not None:
+                    return stopped
                 run.status = RunStatus.RUNNING
                 run.current_node_ids = []
                 run.touch()
