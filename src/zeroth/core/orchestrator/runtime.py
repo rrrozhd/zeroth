@@ -312,6 +312,23 @@ class RuntimeOrchestrator:
             run.status = fresh.status
             run.failure_state = fresh.failure_state
             run.touch()
+            # Concurrency guard (F3 re-audit follow-up): an operator replay/resume
+            # (FAILED->PENDING, WAITING_INTERRUPT->RUNNING) can land between the
+            # read above and this write; the drive loop shares the event loop with
+            # the API handlers (modular monolith). Re-read immediately before the
+            # write and yield to the operator if they already moved the run out of
+            # a stop state, rather than blind-writing the stale status back and
+            # silently reverting their transition. This shrinks the race window to
+            # these two adjacent DB round-trips (a residual micro-race remains, but
+            # it self-heals: pending_node_ids is persisted correctly, so re-issuing
+            # the replay resumes — the cost is a wasted replay cycle, not data
+            # corruption).
+            latest = await self.run_repository.get(run.run_id)
+            if latest is not None and latest.status not in (
+                RunStatus.FAILED,
+                RunStatus.WAITING_INTERRUPT,
+            ):
+                return latest
             persisted = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(persisted)
             return persisted

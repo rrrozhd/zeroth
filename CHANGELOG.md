@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.25] - 2026-07-16
+
+### Fixed
+
+- **Cooperative-stop no longer reverts a concurrent operator replay** (audit F3
+  re-audit). `_external_stop` read the persisted stop status, then blind-wrote it
+  back on the in-memory run; an operator replay/resume (FAILED→PENDING,
+  WAITING_INTERRUPT→RUNNING) that landed between the read and the write was
+  silently reverted. It now re-reads immediately before the write and yields to
+  the operator if they already moved the run out of a stop state. (A residual
+  micro-race between the two adjacent DB round-trips remains but self-heals — the
+  queue state is persisted, so re-issuing the replay resumes; the cost is a
+  wasted replay cycle, not data corruption.)
+
 ## [0.10.1.24] - 2026-07-16
 
 ### Fixed

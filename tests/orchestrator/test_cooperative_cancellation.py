@@ -217,3 +217,70 @@ async def test_cancel_then_replay_resumes_remaining_nodes(sqlite_db) -> None:
 
     assert result2.status is RunStatus.COMPLETED
     assert n2.call_count == 1 and n3.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_external_stop_yields_to_concurrent_operator_transition(sqlite_db) -> None:
+    """F3 re-audit follow-up: if an operator replay (FAILED->PENDING) lands
+    between _external_stop's read and its write, the loop must NOT blind-write the
+    stale FAILED back and silently revert the operator — it yields to them.
+    """
+    from unittest.mock import AsyncMock
+
+    repo = RunRepository(sqlite_db)
+    persisted = await _seed_running(repo, ["n1", "n2"])
+    await repo.transition(
+        persisted.run_id,
+        RunStatus.FAILED,
+        failure_state=RunFailureState(reason="op_cancel", message="x"),
+    )
+    orchestrator = _orchestrator(sqlite_db, {"n1": _PlainRunner()})
+
+    failed = await repo.get(persisted.run_id)
+    assert failed is not None and failed.status is RunStatus.FAILED
+    replayed = failed.model_copy(update={"status": RunStatus.PENDING})
+
+    # get() returns FAILED (fresh) then PENDING (operator replay has landed).
+    orchestrator.run_repository.get = AsyncMock(side_effect=[failed, replayed])
+    put_spy = AsyncMock(side_effect=lambda r: r)
+    orchestrator.run_repository.put = put_spy
+
+    in_memory = failed.model_copy(update={"status": RunStatus.RUNNING})
+    result = await orchestrator._external_stop(in_memory)
+
+    assert result is not None
+    assert result.status is RunStatus.PENDING  # yielded to the operator's replay
+    put_spy.assert_not_called()  # did NOT clobber back to FAILED
+
+
+@pytest.mark.asyncio
+async def test_external_stop_persists_when_no_concurrent_transition(sqlite_db) -> None:
+    """No operator raced in: _external_stop persists the adopted stop status and
+    checkpoints the queue state (unchanged happy path)."""
+    from unittest.mock import AsyncMock
+
+    repo = RunRepository(sqlite_db)
+    persisted = await _seed_running(repo, ["n1", "n2"])
+    await repo.transition(
+        persisted.run_id,
+        RunStatus.FAILED,
+        failure_state=RunFailureState(reason="op_cancel", message="x"),
+    )
+    orchestrator = _orchestrator(sqlite_db, {"n1": _PlainRunner()})
+
+    failed = await repo.get(persisted.run_id)
+    assert failed is not None
+
+    orchestrator.run_repository.get = AsyncMock(side_effect=[failed, failed])
+    put_spy = AsyncMock(side_effect=lambda r: r)
+    orchestrator.run_repository.put = put_spy
+    wc_spy = AsyncMock()
+    orchestrator.run_repository.write_checkpoint = wc_spy
+
+    in_memory = failed.model_copy(update={"status": RunStatus.RUNNING})
+    result = await orchestrator._external_stop(in_memory)
+
+    assert result is not None
+    assert result.status is RunStatus.FAILED
+    put_spy.assert_called_once()
+    wc_spy.assert_called_once()
