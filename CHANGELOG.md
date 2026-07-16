@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.14] - 2026-07-16
+
+### Security
+
+- **Audit verifier rejects forged erasures** (audit S1). `erased` is a
+  digest-excluded field and an erased v2+ record's digest folds in the *stored*
+  commitments instead of recomputing from live PII, so a database-only attacker
+  (no signing key) could flip `erased=True`, rewrite the PII payload, and still
+  pass both digest and signature verification. The verifier now refuses any
+  record that claims erasure while still carrying populated PII — every
+  commitment field must equal its erased sentinel. Legitimate crypto-erasure
+  (which nulls all PII) continues to verify.
+
 ## [0.10.1.13] - 2026-07-16
 
 ### Fixed
