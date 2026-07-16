@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.23] - 2026-07-16
+
+### Fixed
+
+- **Nested approval on a resumed fan-out branch is persisted** (audit B8). When
+  a parallel-subgraph branch hit a *second* approval gate during resume, the
+  runtime re-queued the fan-out node in memory and returned without
+  `put()`/`write_checkpoint()`. The worker discards the returned run, so the
+  reloaded row (whose fan-out node had already been popped and persisted) drove
+  the next `_drive` to mark the run COMPLETED — a false `run.completed` webhook
+  with the paused/sibling branch outputs dropped. The nested-pause branch now
+  routes through the same durable `_handle_parallel_subgraph_pause` as the first
+  pause, so the run stays WAITING_APPROVAL with the fan-out node re-queued.
+
 ## [0.10.1.22] - 2026-07-16
 
 ### Security
