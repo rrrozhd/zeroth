@@ -17,12 +17,14 @@ def _make_app(
     regulus_base_url: str | None = "http://regulus:8000/v1",
     timeout: float = 5.0,
     roles: list[ServiceRole] | None = None,
+    tenant_id: str = "default",
 ) -> FastAPI:
     """Create a minimal FastAPI app with cost routes registered.
 
     Injects an authenticated principal the way the production auth middleware
     would, so route-level RBAC (METRICS_READ) is exercised. Defaults to ADMIN;
-    pass ``roles`` to assert authorization boundaries.
+    pass ``roles`` to assert authorization boundaries and ``tenant_id`` to
+    assert tenant-scope isolation (the principal may only touch its own tenant).
     """
     app = FastAPI()
     if regulus_base_url is not None:
@@ -36,6 +38,7 @@ def _make_app(
         subject="test",
         auth_method=AuthMethod.API_KEY,
         roles=roles if roles is not None else [ServiceRole.ADMIN],
+        tenant_id=tenant_id,
     )
 
     @app.middleware("http")
@@ -68,7 +71,7 @@ class TestTenantCostEndpoint:
     """GET /v1/tenants/{tenant_id}/cost."""
 
     def test_returns_tenant_cost_from_regulus(self) -> None:
-        app = _make_app()
+        app = _make_app(tenant_id="t1")
         mock_client = _mock_httpx_client(
             response_json={"total_cost_usd": 50.0, "budget_cap_usd": 100.0}
         )
@@ -85,7 +88,7 @@ class TestTenantCostEndpoint:
         assert data["currency"] == "USD"
 
     def test_returns_503_when_regulus_unreachable(self) -> None:
-        app = _make_app()
+        app = _make_app(tenant_id="t1")
         mock_client = _mock_httpx_client(error=httpx.ConnectError("connection refused"))
 
         with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
@@ -96,11 +99,20 @@ class TestTenantCostEndpoint:
         assert "Regulus backend error" in resp.json()["detail"]
 
     def test_returns_503_when_regulus_not_configured(self) -> None:
-        app = _make_app(regulus_base_url=None)
+        app = _make_app(regulus_base_url=None, tenant_id="t1")
         client = TestClient(app)
         resp = client.get("/v1/tenants/t1/cost")
         assert resp.status_code == 503
         assert "not configured" in resp.json()["detail"]
+
+    def test_cross_tenant_read_forbidden(self) -> None:
+        # F4 regression: an admin of tenant "acme" must not read tenant "globex"'s
+        # spend. Scope is enforced before any Regulus call, so this is a 404 even
+        # though the backend is reachable.
+        app = _make_app(roles=[ServiceRole.ADMIN], tenant_id="acme")
+        client = TestClient(app)
+        resp = client.get("/v1/tenants/globex/cost")
+        assert resp.status_code == 404
 
 
 class TestDeploymentCostEndpoint:
@@ -161,8 +173,8 @@ class TestCostAuthorization:
         resp = client.get("/v1/tenants/t1/cost")
         assert resp.status_code == 403
 
-    def test_admin_allowed_on_tenant_cost(self) -> None:
-        app = _make_app(roles=[ServiceRole.ADMIN])
+    def test_admin_allowed_on_own_tenant_cost(self) -> None:
+        app = _make_app(roles=[ServiceRole.ADMIN], tenant_id="t1")
         mock_client = _mock_httpx_client(response_json={"total_cost_usd": 1.0})
         with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
@@ -174,7 +186,7 @@ class TestTenantBudgetEndpoint:
     """PUT /v1/tenants/{tenant_id}/budget."""
 
     def test_admin_sets_cap_and_gets_status_back(self) -> None:
-        app = _make_app()
+        app = _make_app(tenant_id="t1")
         mock_client = _mock_httpx_client(
             response_json={"tenant_id": "t1", "total_cost_usd": 2.5, "budget_cap_usd": 10.0}
         )
@@ -189,6 +201,14 @@ class TestTenantBudgetEndpoint:
         assert data["budget_cap_usd"] == 10.0
         assert data["total_cost_usd"] == 2.5
 
+    def test_cross_tenant_set_cap_forbidden(self) -> None:
+        # F4 regression: an admin of tenant "acme" must not overwrite tenant
+        # "globex"'s budget cap (a cross-tenant DoS / guardrail-removal primitive).
+        app = _make_app(tenant_id="acme")
+        client = TestClient(app)
+        resp = client.put("/v1/tenants/globex/budget", json={"budget_cap_usd": 0.0})
+        assert resp.status_code == 404
+
     def test_operator_cannot_set_cap(self) -> None:
         app = _make_app(roles=[ServiceRole.OPERATOR])
 
@@ -198,7 +218,7 @@ class TestTenantBudgetEndpoint:
         assert resp.status_code == 403
 
     def test_returns_503_when_regulus_not_configured(self) -> None:
-        app = _make_app(regulus_base_url=None)
+        app = _make_app(regulus_base_url=None, tenant_id="t1")
 
         client = TestClient(app)
         resp = client.put("/v1/tenants/t1/budget", json={"budget_cap_usd": 10.0})

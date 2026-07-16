@@ -10,7 +10,11 @@ import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.core.service.authorization import Permission, require_permission
+from zeroth.core.service.authorization import (
+    Permission,
+    require_permission,
+    require_resource_scope,
+)
 
 
 class TenantCostResponse(BaseModel):
@@ -58,7 +62,16 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
     @app.get("/tenants/{tenant_id}/cost", response_model=TenantCostResponse)
     async def get_tenant_cost(request: Request, tenant_id: str) -> TenantCostResponse:
         """Return month-to-date spend and cap for a tenant (per D-14, D-16)."""
-        await require_permission(request, Permission.METRICS_READ)
+        principal = await require_permission(request, Permission.METRICS_READ)
+        # Tenant isolation: a principal may only read its own tenant's spend.
+        # Without this, any tenant admin can read any other tenant's cost by
+        # putting their id in the path (audit F4 / cross-tenant IDOR).
+        await require_resource_scope(
+            request,
+            tenant_id=tenant_id,
+            workspace_id=principal.workspace_id,
+            not_found_detail="tenant not found",
+        )
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:
@@ -85,7 +98,16 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
         request: Request, tenant_id: str, body: TenantBudgetRequest
     ) -> TenantCostResponse:
         """Set the tenant spend cap enforced before LLM calls and fan-out."""
-        await require_permission(request, Permission.METRICS_ADMIN)
+        principal = await require_permission(request, Permission.METRICS_ADMIN)
+        # Tenant isolation: a principal may only set its own tenant's cap.
+        # Without this, any tenant admin can zero-out (DoS) or lift another
+        # tenant's budget cap via the path id (audit F4 / cross-tenant IDOR).
+        await require_resource_scope(
+            request,
+            tenant_id=tenant_id,
+            workspace_id=principal.workspace_id,
+            not_found_detail="tenant not found",
+        )
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:

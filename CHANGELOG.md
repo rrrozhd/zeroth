@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.2] - 2026-07-16
+
+### Security
+
+- **Fixed a cross-tenant IDOR in the tenant cost/budget API** (audit F4, verified
+  P0). `GET /v1/tenants/{id}/cost` and `PUT /v1/tenants/{id}/budget` took the
+  tenant id from the URL path and never checked it against the caller's tenant,
+  so any tenant admin could read another tenant's month-to-date spend and
+  overwrite (zero-out / lift) their budget cap. Both handlers now call
+  `require_resource_scope` before doing any work. Added cross-tenant 404
+  regression tests and corrected the existing tests that had encoded the bug by
+  asserting cross-tenant success. `get_deployment_cost` is unscoped the same way
+  and is flagged as a follow-up (lesser: single served-deployment aggregate).
+
 ## [0.10.1.1] - 2026-07-15
 
 ### Added
