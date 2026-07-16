@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.21] - 2026-07-16
+
+### Fixed
+
+- **Strict sandbox refuses the local backend unconditionally** (audit S2). The
+  strict-mode refusal was gated on `resource_constraints`, so a bare inline unit
+  (which reaches the sandbox with `resource_constraints=None`) under a strict
+  policy silently ran as an unisolated host subprocess — the strict knob was a
+  no-op exactly when it should guard. STRICT + LOCAL now always raises
+  `SandboxPolicyViolationError`; STANDARD is unchanged.
+- **Worker never leaks a concurrency slot on a failed lease renewal** (audit
+  B4). The `_execute_leased_run` finally suppressed only `CancelledError` when
+  awaiting the renewal task, so if `_renewal_loop` had already finished by
+  *raising* (e.g. its DB transaction hit "database is locked"), the re-raised
+  exception escaped the finally before `release_lease` and `semaphore.release()`
+  ran — permanently leaking the slot. It now suppresses both `Exception` and
+  `CancelledError` (the latter is a `BaseException`, so it must be listed
+  explicitly) so cleanup always runs.
+
 ## [0.10.1.20.1] - 2026-07-16
 
 ### Fixed
