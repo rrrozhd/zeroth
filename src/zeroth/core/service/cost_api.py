@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from zeroth.core.service.authorization import (
     Permission,
+    require_deployment_scope,
     require_permission,
     require_resource_scope,
 )
@@ -136,6 +137,14 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
     async def get_deployment_cost(request: Request, deployment_ref: str) -> DeploymentCostResponse:
         """Return cumulative spend for a deployment (per D-15, D-16)."""
         await require_permission(request, Permission.METRICS_READ)
+        # Scope isolation (audit F4 follow-up): this service serves exactly one
+        # deployment; only its owner may read its cost, and only for that ref.
+        # Otherwise any admin could read an arbitrary deployment's spend by ref.
+        bootstrap = getattr(request.app.state, "bootstrap", None)
+        deployment = getattr(bootstrap, "deployment", None)
+        if deployment is None or deployment_ref != getattr(deployment, "deployment_ref", None):
+            raise HTTPException(status_code=404, detail="deployment not found")
+        await require_deployment_scope(request, deployment)
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:

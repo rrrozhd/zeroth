@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -18,6 +19,7 @@ def _make_app(
     timeout: float = 5.0,
     roles: list[ServiceRole] | None = None,
     tenant_id: str = "default",
+    deployment_ref: str = "d1",
 ) -> FastAPI:
     """Create a minimal FastAPI app with cost routes registered.
 
@@ -32,6 +34,10 @@ def _make_app(
         app.state.regulus_timeout = timeout
     bootstrap = MagicMock()
     bootstrap.audit_repository = None
+    # The single served deployment, used by get_deployment_cost's scope guard.
+    bootstrap.deployment = SimpleNamespace(
+        deployment_ref=deployment_ref, tenant_id=tenant_id, workspace_id=None
+    )
     app.state.bootstrap = bootstrap
 
     principal = AuthenticatedPrincipal(
@@ -142,6 +148,24 @@ class TestDeploymentCostEndpoint:
 
         assert resp.status_code == 503
         assert "Regulus backend error" in resp.json()["detail"]
+
+    def test_foreign_deployment_ref_is_404(self) -> None:
+        # F4 follow-up: the service serves deployment "d1"; a different ref must
+        # not proxy another deployment's spend. Scoped before any Regulus call.
+        app = _make_app(deployment_ref="d1")
+        client = TestClient(app)
+        resp = client.get("/v1/deployments/other-deployment/cost")
+        assert resp.status_code == 404
+
+    def test_cross_tenant_deployment_cost_is_404(self) -> None:
+        # An admin whose tenant differs from the served deployment's owner is denied.
+        app = _make_app(deployment_ref="d1", tenant_id="default")
+        app.state.bootstrap.deployment = SimpleNamespace(
+            deployment_ref="d1", tenant_id="globex", workspace_id=None
+        )
+        client = TestClient(app)
+        resp = client.get("/v1/deployments/d1/cost")
+        assert resp.status_code == 404
 
     def test_returns_503_when_regulus_not_configured(self) -> None:
         app = _make_app(regulus_base_url=None)

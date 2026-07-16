@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.7] - 2026-07-16
+
+### Security
+
+- **Scoped `get_deployment_cost` to the served deployment** (audit F4 follow-up).
+  `GET /v1/deployments/{ref}/cost` took the deployment ref from the path and
+  proxied it to Regulus unscoped, so any admin could read an arbitrary
+  deployment's spend by ref. It now 404s unless the ref is this service's own
+  served deployment and the caller owns it (`require_deployment_scope`). Added
+  foreign-ref and cross-tenant 404 regression tests.
+
 ## [0.10.1.6] - 2026-07-16
 
 ### Fixed
