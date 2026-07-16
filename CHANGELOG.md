@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.12] - 2026-07-16
+
+### Fixed
+
+- **Condition evaluator refuses underscore-prefixed attribute access on
+  non-Mapping objects** (audit S5 hardening). `payload.user.__class__`-style
+  expressions on a real Python object (str, list, etc.) would open the
+  introspection/gadget path; the `ast.Attribute` case now raises
+  `ConditionEvaluationError` for any `_`-prefixed attr on a non-Mapping value.
+  Dict/JSON key access is unaffected — it goes through the Mapping branch.
+
 ## [0.10.1.11] - 2026-07-16
 
 ### Fixed
