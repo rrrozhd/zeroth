@@ -110,12 +110,14 @@ class TestListSubscriptions:
         assert data["total"] == 1
         assert len(data["subscriptions"]) == 1
 
-    def test_filters_by_deployment_ref(self, client, mock_webhook_service):
+    def test_list_is_scoped_to_served_deployment_tenant(self, client, mock_webhook_service):
+        # F8: client-supplied filters are ignored; the list is forced to the
+        # served deployment's ref + tenant so one tenant can't enumerate another's.
         mock_webhook_service.list_subscriptions.return_value = []
-        resp = client.get("/webhooks/subscriptions?deployment_ref=deploy-1")
+        resp = client.get("/webhooks/subscriptions?deployment_ref=other&tenant_id=other")
         assert resp.status_code == 200
         mock_webhook_service.list_subscriptions.assert_called_once_with(
-            deployment_ref="deploy-1", tenant_id=None
+            deployment_ref="deploy-1", tenant_id="default"
         )
 
 
@@ -145,6 +147,14 @@ class TestDeactivateSubscription:
     """DELETE /webhooks/subscriptions/{subscription_id}."""
 
     def test_deactivates_subscription(self, client, mock_webhook_service):
+        # Deactivate first resolves the sub to enforce the tenant guard (F8).
+        mock_webhook_service.get_subscription.return_value = WebhookSubscription(
+            subscription_id="sub-1",
+            deployment_ref="deploy-1",
+            tenant_id="default",
+            target_url="https://example.com/hook",
+            event_types=[WebhookEventType.RUN_COMPLETED],
+        )
         mock_webhook_service.deactivate_subscription.return_value = None
         resp = client.delete("/webhooks/subscriptions/sub-1")
         assert resp.status_code == 204
@@ -235,3 +245,67 @@ class TestPermissionEnforcement:
         client = TestClient(app)
         resp = client.get("/webhooks/subscriptions")
         assert resp.status_code == 403
+
+
+class TestTenantIsolation:
+    """F8 regression: webhook routes are scoped to the served deployment's tenant."""
+
+    @staticmethod
+    def _app_with_principal_tenant(tenant: str, service: WebhookService) -> FastAPI:
+        from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+
+        app = FastAPI()
+
+        @app.middleware("http")
+        async def fake_auth(request, call_next):
+            request.state.principal = AuthenticatedPrincipal(
+                subject="admin-x",
+                roles=[ServiceRole.ADMIN],
+                tenant_id=tenant,
+                workspace_id=None,
+                auth_method=AuthMethod.API_KEY,
+            )
+            return await call_next(request)
+
+        # The service serves a deployment owned by tenant "default".
+        app.state.bootstrap = SimpleNamespace(
+            webhook_service=service,
+            audit_repository=None,
+            deployment=SimpleNamespace(
+                deployment_ref="deploy-1", tenant_id="default", workspace_id=None
+            ),
+        )
+        register_webhook_routes(app)
+        return app
+
+    def test_foreign_tenant_admin_cannot_create(self):
+        svc = AsyncMock(spec=WebhookService)
+        app = self._app_with_principal_tenant("acme", svc)
+        client = TestClient(app)
+        resp = client.post(
+            "/webhooks/subscriptions",
+            json={
+                "deployment_ref": "deploy-1",
+                "target_url": "https://evil.example/hook",
+                "event_types": ["run.completed"],
+            },
+        )
+        # Caller's tenant != served deployment's tenant -> 404 (scope mismatch),
+        # and the subscription is never created.
+        assert resp.status_code == 404
+        svc.create_subscription.assert_not_called()
+
+    def test_foreign_tenant_subscription_reads_as_404(self):
+        svc = AsyncMock(spec=WebhookService)
+        # Same-tenant caller, but the fetched subscription belongs to another tenant.
+        svc.get_subscription.return_value = WebhookSubscription(
+            subscription_id="sub-x",
+            deployment_ref="deploy-1",
+            tenant_id="globex",
+            target_url="https://example.com/hook",
+            event_types=[WebhookEventType.RUN_COMPLETED],
+        )
+        app = self._app_with_principal_tenant("default", svc)
+        client = TestClient(app)
+        resp = client.get("/webhooks/subscriptions/sub-x")
+        assert resp.status_code == 404

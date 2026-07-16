@@ -16,7 +16,11 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.core.service.authorization import Permission, require_permission
+from zeroth.core.service.authorization import (
+    Permission,
+    require_deployment_scope,
+    require_permission,
+)
 from zeroth.core.webhooks.models import WebhookEventType, WebhookSubscription
 
 
@@ -123,10 +127,16 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         payload: CreateSubscriptionRequest,
     ) -> WebhookSubscriptionResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        # Tenant isolation (audit F8): only the served deployment's owner may
+        # subscribe, and the subscription is BOUND to that deployment + tenant.
+        # The body's deployment_ref/tenant_id are NOT trusted — accepting them
+        # let any tenant admin subscribe to another tenant's run events.
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
         sub = WebhookSubscription(
-            deployment_ref=payload.deployment_ref,
-            tenant_id=payload.tenant_id,
+            deployment_ref=deployment.deployment_ref,
+            tenant_id=deployment.tenant_id,
             target_url=payload.target_url,
             event_types=[WebhookEventType(e) for e in payload.event_types],
         )
@@ -143,10 +153,14 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         tenant_id: str | None = None,
     ) -> WebhookSubscriptionListResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
+        # Scope to the served deployment's tenant; client-supplied filters are
+        # ignored so one tenant cannot enumerate another's subscriptions (F8).
         subs = await webhook_service.list_subscriptions(
-            deployment_ref=deployment_ref,
-            tenant_id=tenant_id,
+            deployment_ref=deployment.deployment_ref,
+            tenant_id=deployment.tenant_id,
         )
         return WebhookSubscriptionListResponse(
             subscriptions=[_serialize_subscription(s) for s in subs],
@@ -162,9 +176,12 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         subscription_id: str,
     ) -> WebhookSubscriptionResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
         sub = await webhook_service.get_subscription(subscription_id)
-        if sub is None:
+        # Cross-tenant read guard (F8): a foreign subscription_id reads as absent.
+        if sub is None or sub.tenant_id != deployment.tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="subscription not found",
@@ -180,7 +197,16 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         subscription_id: str,
     ) -> None:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
+        # Cross-tenant delete guard (F8): can't deactivate another tenant's sub.
+        sub = await webhook_service.get_subscription(subscription_id)
+        if sub is None or sub.tenant_id != deployment.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="subscription not found",
+            )
         await webhook_service.deactivate_subscription(subscription_id)
 
     @app.get(
@@ -193,6 +219,7 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         limit: int = 50,
     ) -> WebhookDeadLetterListResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        await require_deployment_scope(request, _served_deployment(request))
         webhook_service = _webhook_service(request)
         dead_letters = await webhook_service.list_dead_letters(
             subscription_id=subscription_id, limit=limit
@@ -226,6 +253,7 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         dead_letter_id: str,
     ) -> dict[str, Any]:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        await require_deployment_scope(request, _served_deployment(request))
         webhook_service = _webhook_service(request)
         try:
             delivery = await webhook_service.replay_dead_letter(dead_letter_id)
@@ -252,3 +280,15 @@ def _webhook_service(request: Request) -> Any:
             detail="webhook service not available",
         )
     return webhook_service
+
+
+def _served_deployment(request: Request) -> Any:
+    """Return this service's own (single) served deployment for tenant scoping."""
+    bootstrap = getattr(request.app.state, "bootstrap", None)
+    deployment = getattr(bootstrap, "deployment", None) if bootstrap is not None else None
+    if deployment is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="service bootstrap is not configured",
+        )
+    return deployment

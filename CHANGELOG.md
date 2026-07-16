@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.3] - 2026-07-16
+
+### Security
+
+- **Fixed a cross-tenant IDOR in the webhook API** (audit F8, verified P0).
+  `create_subscription` trusted the request body's `deployment_ref`/`tenant_id`,
+  letting any tenant admin subscribe to another tenant's run/approval/lifecycle
+  events. Subscriptions are now bound to the served deployment + tenant (body
+  values ignored), and every webhook route (create/list/get/deactivate +
+  dead-letter list/replay) requires the caller to own the served deployment via
+  `require_deployment_scope`; list is forced to the served tenant and
+  get/deactivate reject a foreign subscription_id as 404. Added tenant-isolation
+  regression tests.
+
 ## [0.10.1.2] - 2026-07-16
 
 ### Security
