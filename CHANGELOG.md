@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.13] - 2026-07-16
+
+### Fixed
+
+- **Webhook dead-letter listing scopes by subscription set inside the query**
+  (self-re-audit of the F8 fix). The dead-letters route filtered another
+  tenant's rows out in Python *after* applying a global `LIMIT`, so a busy
+  foreign tenant's newer dead-letters could push the served deployment's own
+  rows past the limit and hide them. `list_dead_letters` now accepts
+  `subscription_ids` and filters with `WHERE subscription_id IN (…)` so the
+  `LIMIT` is applied after the tenant scope. An empty set returns nothing.
+
 ## [0.10.1.12] - 2026-07-16
 
 ### Fixed

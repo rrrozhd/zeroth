@@ -199,18 +199,18 @@ class TestListDeadLetters:
         assert data["total"] == 1
         assert data["dead_letters"][0]["dead_letter_id"] == "dl-1"
 
-    def test_foreign_dead_letters_are_filtered_out(self, client, mock_webhook_service):
-        # F8 re-audit: dead-letters of subscriptions outside the served deployment
-        # must not appear, even though require_deployment_scope passes the caller.
+    def test_list_delegates_scoping_to_query(self, client, mock_webhook_service):
+        # F8 re-audit^2: scoping is delegated to the query via subscription_ids so
+        # the LIMIT applies AFTER the tenant filter (a Python post-filter after a
+        # global LIMIT would hide the deployment's own rows behind newer foreign ones).
         mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
-        mock_webhook_service.list_dead_letters.return_value = [
-            _dead_letter("dl-own", "sub-1"),
-            _dead_letter("dl-foreign", "sub-globex"),
-        ]
+        mock_webhook_service.list_dead_letters.return_value = [_dead_letter("dl-own", "sub-1")]
         resp = client.get("/webhooks/dead-letters")
         assert resp.status_code == 200
-        ids = [d["dead_letter_id"] for d in resp.json()["dead_letters"]]
-        assert ids == ["dl-own"]
+        mock_webhook_service.list_dead_letters.assert_called_once_with(
+            subscription_ids=["sub-1"], limit=50
+        )
+        assert [d["dead_letter_id"] for d in resp.json()["dead_letters"]] == ["dl-own"]
 
     def test_foreign_subscription_id_filter_is_404(self, client, mock_webhook_service):
         mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
@@ -371,3 +371,38 @@ class TestTenantIsolation:
         client = TestClient(app)
         assert client.get("/webhooks/subscriptions/sub-y").status_code == 404
         assert client.delete("/webhooks/subscriptions/sub-y").status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_repo_list_dead_letters_scoped_by_subscription_ids(sqlite_db) -> None:
+    """F8 re-audit^2 (real DB): the subscription_ids filter is applied in the
+    query, so only the given subscriptions' dead-letters are returned and the
+    LIMIT is applied after the filter."""
+    from zeroth.core.webhooks.models import WebhookDelivery
+    from zeroth.core.webhooks.repository import WebhookRepository
+
+    repo = WebhookRepository(sqlite_db)
+    for sub_id, dep, tenant in [("own", "d1", "default"), ("foreign", "d2", "globex")]:
+        await repo.create_subscription(
+            WebhookSubscription(
+                subscription_id=sub_id,
+                deployment_ref=dep,
+                tenant_id=tenant,
+                target_url="https://example.com/hook",
+                event_types=[WebhookEventType.RUN_COMPLETED],
+            )
+        )
+        delivery = await repo.enqueue_delivery(
+            WebhookDelivery(
+                subscription_id=sub_id,
+                event_type=WebhookEventType.RUN_COMPLETED,
+                event_id="evt",
+                payload_json="{}",
+            )
+        )
+        await repo.dead_letter(delivery.delivery_id)
+
+    scoped = await repo.list_dead_letters(subscription_ids=["own"], limit=50)
+    assert [dl.subscription_id for dl in scoped] == ["own"]
+    # Empty set returns nothing (not "all").
+    assert await repo.list_dead_letters(subscription_ids=[], limit=50) == []

@@ -7,6 +7,7 @@ JSON columns, async with self._database.transaction() as connection.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -327,14 +328,30 @@ class WebhookRepository:
         self,
         subscription_id: str | None = None,
         limit: int = 50,
+        subscription_ids: Sequence[str] | None = None,
     ) -> list[WebhookDeadLetter]:
-        """Return dead-letter entries, optionally filtered by subscription."""
+        """Return dead-letter entries, optionally filtered by subscription.
+
+        ``subscription_ids`` restricts the query to a set of subscriptions so the
+        LIMIT is applied AFTER the tenant scope (audit F8 re-audit) — filtering in
+        Python after a global LIMIT would silently hide a deployment's own rows
+        behind newer foreign ones.
+        """
         if subscription_id is not None:
             sql = (
                 "SELECT * FROM webhook_dead_letters "
                 "WHERE subscription_id = ? ORDER BY dead_lettered_at DESC LIMIT ?"
             )
             params: tuple = (subscription_id, limit)
+        elif subscription_ids is not None:
+            if not subscription_ids:
+                return []
+            placeholders = ",".join("?" for _ in subscription_ids)
+            sql = (
+                f"SELECT * FROM webhook_dead_letters WHERE subscription_id IN ({placeholders}) "
+                "ORDER BY dead_lettered_at DESC LIMIT ?"
+            )
+            params = (*subscription_ids, limit)
         else:
             sql = "SELECT * FROM webhook_dead_letters ORDER BY dead_lettered_at DESC LIMIT ?"
             params = (limit,)

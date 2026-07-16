@@ -7,6 +7,7 @@ Responsible for matching events to subscriptions and enqueuing deliveries.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from zeroth.core.webhooks.models import (
@@ -106,6 +107,9 @@ class WebhookService:
         self,
         subscription_id: str | None = None,
         limit: int = 50,
+        subscription_ids: Sequence[str] | None = None,
     ) -> list[WebhookDeadLetter]:
         """List dead-letter entries."""
-        return await self.repository.list_dead_letters(subscription_id=subscription_id, limit=limit)
+        return await self.repository.list_dead_letters(
+            subscription_id=subscription_id, limit=limit, subscription_ids=subscription_ids
+        )

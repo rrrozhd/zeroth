@@ -225,20 +225,23 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
         # Scope to the served deployment's own subscriptions (F8 re-audit): the
-        # dead-letters table has no tenant column, so filter by subscription set.
+        # dead-letters table has no tenant column, so filter by subscription set
+        # IN THE QUERY — a Python post-filter after a global LIMIT would silently
+        # hide the deployment's own rows behind newer foreign ones.
         allowed = await _served_subscription_ids(request, deployment)
-        if subscription_id is not None and subscription_id not in allowed:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="subscription not found",
-            )
-        dead_letters = [
-            dl
-            for dl in await webhook_service.list_dead_letters(
+        if subscription_id is not None:
+            if subscription_id not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="subscription not found",
+                )
+            dead_letters = await webhook_service.list_dead_letters(
                 subscription_id=subscription_id, limit=limit
             )
-            if dl.subscription_id in allowed
-        ]
+        else:
+            dead_letters = await webhook_service.list_dead_letters(
+                subscription_ids=sorted(allowed), limit=limit
+            )
         items = [
             WebhookDeadLetterResponse(
                 dead_letter_id=dl.dead_letter_id,
