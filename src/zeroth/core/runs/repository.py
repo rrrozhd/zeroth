@@ -891,12 +891,17 @@ class RunRepository:
         if existing is None:
             return False
         await connection.execute(
-            # execution_history holds every node's plaintext input/output snapshot
-            # (runtime._record_history) and must be cleared too — leaving it made
-            # right-to-erasure a false claim (audit F1). Column is TEXT NOT NULL
-            # DEFAULT '[]', so reset to an empty list rather than NULL.
+            # Clear every free-form column that can hold plaintext PII (audit F1 +
+            # re-audit). execution_history holds each node's input/output snapshot;
+            # failure_state holds the failure message/details (and `error` re-derives
+            # FROM failure_state.message on read, so nulling error alone was not
+            # enough — the plaintext resurfaced); condition_results.details and
+            # channels are free-form dicts. NOT NULL columns reset to their empty
+            # default ('[]' / '{}'); nullable ones to NULL.
             "UPDATE runs SET final_output = NULL, artifacts = '{}', "
-            "metadata = '{}', error = NULL, execution_history = '[]' WHERE run_id = ?",
+            "metadata = '{}', error = NULL, execution_history = '[]', "
+            "failure_state = NULL, condition_results = '[]', channels = '{}' "
+            "WHERE run_id = ?",
             (run_id,),
         )
         return True

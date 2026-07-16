@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.10] - 2026-07-16
+
+### Security
+
+- **Erasure now clears `failure_state` (and `condition_results`/`channels`)**
+  (self-re-audit of the F1 fix). `redact_run_in_transaction` nulled `error` but
+  not `failure_state` — and `error` re-derives FROM `failure_state.message` on
+  read (`_fill_governed_defaults`), so for FAILED runs the plaintext resurfaced
+  and right-to-erasure was still a false claim. The redact UPDATE now also nulls
+  `failure_state` and resets the free-form `condition_results`/`channels` dicts.
+  The retention PII scan + seed cover these columns, plus an assertion that a
+  reloaded erased run keeps `error is None`.
+
 ## [0.10.1.9] - 2026-07-16
 
 ### Security

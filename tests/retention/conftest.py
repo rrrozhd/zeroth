@@ -14,7 +14,7 @@ from zeroth.core.retention import (
     RetentionErasureService,
     RetentionPolicyRepository,
 )
-from zeroth.core.runs import Run, RunHistoryEntry, RunRepository
+from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository
 from zeroth.core.signing import EnvHmacSigner
 
 
@@ -147,6 +147,9 @@ class RetentionEnv:
             error="run-error-" + ssn,
             artifacts={"blob": ssn},
             metadata={"pii": ssn},
+            # failure_state holds the failure message/details; erasure must clear
+            # it too (else `error` re-derives from it on read — audit F1 re-audit).
+            failure_state=RunFailureState(reason="failed", message="err-" + ssn),
             # Per-node input/output snapshots persist in runs.execution_history;
             # seed PII here so erasure coverage catches residue (audit F1).
             execution_history=[

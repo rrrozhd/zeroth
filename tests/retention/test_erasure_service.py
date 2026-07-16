@@ -19,7 +19,9 @@ async def _pii_present(database, ssn: str) -> dict[str, bool]:
         audits = await connection.fetch_all("SELECT record_json FROM node_audits", ())
         checkpoints = await connection.fetch_all("SELECT state_json FROM run_checkpoints", ())
         runs = await connection.fetch_all(
-            "SELECT final_output, artifacts, metadata, error, execution_history FROM runs", ()
+            "SELECT final_output, artifacts, metadata, error, execution_history, "
+            "failure_state, condition_results, channels FROM runs",
+            (),
         )
     return {
         "node_audits": any(ssn in (row["record_json"] or "") for row in audits),
@@ -71,6 +73,13 @@ async def test_full_surface_erasure(env) -> None:
     # No seeded PII string remains on ANY surface.
     after = await _pii_present(env.database, ssn)
     assert after == {"node_audits": False, "run_checkpoints": False, "runs": False}
+
+    # And on read, `error` does not re-derive from a (now-cleared) failure_state
+    # (audit F1 re-audit: nulling error alone let the plaintext resurface).
+    reloaded = await env.run_repo.get("run-full")
+    assert reloaded is not None
+    assert reloaded.error is None
+    assert reloaded.failure_state is None
     # Checkpoints deleted, run row kept (redacted), artifact gone.
     async with env.database.transaction() as connection:
         cp = await connection.fetch_all(
