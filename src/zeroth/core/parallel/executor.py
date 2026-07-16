@@ -16,6 +16,7 @@ from zeroth.core.mappings.executor import _get_path, _set_path
 from zeroth.core.parallel.errors import (
     BranchApprovalPauseSignal,
     FanOutValidationError,
+    MultipleBranchPauseError,
     ParallelExecutionError,
 )
 from zeroth.core.parallel.models import (
@@ -139,11 +140,15 @@ class ParallelExecutor:
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # D-11: detect pause signal and hand control to the caller.
-        pause_signal: BranchApprovalPauseSignal | None = None
+        # best_effort runs every branch to completion, so MORE THAN ONE branch can
+        # pause (audit B10). Collect them all instead of overwriting a scalar —
+        # keeping only the last would orphan the earlier paused branches' child
+        # runs and drop them from the fan-in.
+        pause_signals: list[BranchApprovalPauseSignal] = []
         completed_results: list[BranchResult] = []
         for ctx, result in zip(branch_contexts, raw_results, strict=True):
             if isinstance(result, BranchApprovalPauseSignal):
-                pause_signal = result
+                pause_signals.append(result)
             elif isinstance(result, BaseException):
                 # In best-effort semantics a regular Exception becomes a
                 # BranchResult with error; in-flight pauses mean this
@@ -164,6 +169,20 @@ class ParallelExecutor:
                     )
                 )
 
+        if len(pause_signals) > 1:
+            # More than one branch reached an approval gate. The resume contract
+            # (pending_parallel_subgraph) carries a SINGLE paused branch, so
+            # persisting just one would orphan the others (audit B10). Fail loudly
+            # rather than silently corrupt state — list-based multi-pause resume is
+            # the real fix and is out of scope for this hardening pass.
+            raise MultipleBranchPauseError(
+                f"{len(pause_signals)} branches paused for approval in a best_effort "
+                "fan-out; concurrent multi-branch approval pauses are not yet "
+                "supported (would orphan child runs). Use fail_fast, or move the "
+                "approval gate outside the fan-out."
+            )
+
+        pause_signal = pause_signals[0] if pause_signals else None
         if pause_signal is not None:
             # Any sibling that didn't complete before pause went into
             # `completed_results` as an error BranchResult (via

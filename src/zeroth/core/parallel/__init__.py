@@ -19,6 +19,7 @@ Executor:
 from zeroth.core.parallel.errors import (
     BranchError,
     FanOutValidationError,
+    MultipleBranchPauseError,
     ParallelExecutionError,
     ParallelStepLimitError,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "FanInResult",
     "FanOutValidationError",
     "GlobalStepTracker",
+    "MultipleBranchPauseError",
     "ParallelConfig",
     "ParallelExecutionError",
     "ParallelExecutor",

@@ -37,6 +37,17 @@ class FanOutValidationError(ParallelExecutionError):
     """
 
 
+class MultipleBranchPauseError(ParallelExecutionError):
+    """More than one branch paused for approval in a best_effort fan-out.
+
+    best_effort runs every branch to completion, so two branches can each hit an
+    approval gate. The resume path can only carry a single paused branch, so
+    persisting just one would orphan the others' child runs and drop them from
+    the fan-in (audit B10). Until list-based multi-pause resume lands, this is
+    raised loudly so the state is never silently corrupted.
+    """
+
+
 class ParallelStepLimitError(ParallelExecutionError):
     """Global step limit exceeded across all parallel branches.
 

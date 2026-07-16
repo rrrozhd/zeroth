@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.24] - 2026-07-16
+
+### Fixed
+
+- **best_effort fan-out fails loudly on concurrent multi-branch pauses** (audit
+  B10). `best_effort` runs every branch to completion, so two branches can each
+  hit an approval gate — but `_execute_best_effort` kept only the *last* pause
+  signal (a scalar overwrite), silently orphaning the earlier paused branch's
+  WAITING_APPROVAL child run and dropping it from the fan-in. It now collects all
+  pause signals and raises `MultipleBranchPauseError` when more than one branch
+  pauses, so state is never silently corrupted. (List-based multi-pause resume —
+  the full fix — remains future work; single-pause behavior is unchanged.)
+
 ## [0.10.1.23] - 2026-07-16
 
 ### Fixed

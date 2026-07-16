@@ -7,7 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-EXPECTED_VERSION = "0.10.1.23"
+EXPECTED_VERSION = "0.10.1.24"
 
 
 def test_project_version_matches_release() -> None:
