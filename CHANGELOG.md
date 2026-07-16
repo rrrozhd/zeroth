@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.20] - 2026-07-16
+
+### Fixed
+
+- **Prompt assembler stops re-rendering internal bookkeeping** (audit B1). The
+  per-turn `audit` record embeds the prior turn's full rendered prompt, and the
+  assembler rendered the whole thread-state dict — including `audit` — back into
+  the next prompt, so each turn nested the last (geometric ~5×/turn growth,
+  context-window blowout within a few turns). `audit`, `compacted_messages`, and
+  `archived_messages` are now stripped from the copy used for the thread-state
+  block and the audit metadata; the runner still reads the real thread state
+  from checkpoint data, so continuity is unaffected.
+- **Context tracker counts tool-call messages** (audit B3). Assistant messages
+  carrying tool calls in the `{name, args, id}` form (what the agent runner
+  emits) made `litellm.token_counter` raise "must contain a function key",
+  hard-failing every tool-using node at `maybe_compact`'s unconditional
+  `count_tokens`. `_normalize_messages` now reshapes tool calls to the OpenAI
+  `{id, type, function{name, arguments}}` form and maps LangChain roles.
+
 ## [0.10.1.19] - 2026-07-16
 
 ### Fixed

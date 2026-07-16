@@ -3455,7 +3455,7 @@ source = { directory = "packaging/console" }
 
 [[package]]
 name = "zeroth-core"
-version = "0.10.1.19"
+version = "0.10.1.20"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

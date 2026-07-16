@@ -91,3 +91,37 @@ def test_without_messages_key_payload_stays_in_input_block() -> None:
     assert [message.role for message in assembly.messages] == ["system", "user"]
     assert "What is my balance?" in assembly.messages[1].content
     assert "conversation_messages" not in assembly.metadata
+
+
+def test_internal_bookkeeping_keys_are_not_rendered_back() -> None:
+    # B1: the persisted "audit"/"compacted_messages"/"archived_messages" keys must
+    # NOT be rendered into the prompt. The audit record embeds the prior turn's
+    # full rendered_prompt, so re-injecting it made each turn nest the last.
+    marker = "SENTINEL_AUDIT_BLOB_" + "x" * 500
+    thread_state = {
+        "last_output": {"answer": "CONTINUITY_KEEP_ME"},  # real continuity data
+        "audit": {"rendered_prompt": marker},
+        "compacted_messages": [marker],
+        "archived_messages": [marker],
+    }
+    assembly = PromptAssembler().assemble(_config(), _PAYLOAD, thread_state=thread_state)
+
+    assert marker not in assembly.rendered_prompt
+    persisted = assembly.metadata["thread_state"]
+    assert "audit" not in persisted
+    assert "compacted_messages" not in persisted
+    assert "archived_messages" not in persisted
+    # Continuity data still reaches the model.
+    assert "last_output" in persisted
+    assert "CONTINUITY_KEEP_ME" in assembly.rendered_prompt
+
+
+def test_thread_state_audit_does_not_cause_prompt_growth() -> None:
+    # B1 (the geometric-growth repro): feeding the prior turn's rendered_prompt
+    # back as thread_state["audit"] must not balloon the next turn's prompt.
+    assembler = PromptAssembler()
+    turn1 = assembler.assemble(_config(), _PAYLOAD, thread_state={})
+    turn2 = assembler.assemble(
+        _config(), _PAYLOAD, thread_state={"audit": {"rendered_prompt": turn1.rendered_prompt}}
+    )
+    assert len(turn2.rendered_prompt) <= len(turn1.rendered_prompt) + 50

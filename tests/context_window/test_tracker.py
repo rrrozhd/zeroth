@@ -79,6 +79,42 @@ class TestCountTokens:
             with pytest.raises(TokenCountError, match="token counting failed"):
                 tracker.count_tokens(msgs, "gpt-4o")
 
+    def test_counts_raw_tool_call_messages_without_raising(self) -> None:
+        # B3: assistant messages carrying tool_calls in the {name,args,id} form
+        # (what the agent runner emits) previously made the real
+        # litellm.token_counter raise "must contain a function key", hard-failing
+        # every tool-using node at maybe_compact's unconditional count_tokens.
+        settings = ContextWindowSettings()
+        tracker = ContextWindowTracker(settings=settings, strategy=_FakeStrategy())
+        msgs = [
+            {"role": "user", "content": "search for cats"},
+            {
+                "role": "assistant",
+                "tool_calls": [{"name": "search", "args": {"q": "cats"}, "id": "call_1"}],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "found 3"},
+        ]
+        # Real litellm (no mock): must not raise.
+        assert tracker.count_tokens(msgs, "gpt-4o") > 0
+
+    def test_normalize_reshapes_tool_calls_to_openai_form(self) -> None:
+        normalized = ContextWindowTracker._normalize_messages(
+            [{"role": "assistant", "tool_calls": [{"name": "search", "args": {"q": "x"}, "id": "c1"}]}]
+        )
+        assert normalized[0]["role"] == "assistant"
+        assert normalized[0]["tool_calls"][0] == {
+            "id": "c1",
+            "type": "function",
+            "function": {"name": "search", "arguments": '{"q": "x"}'},
+        }
+
+    def test_normalize_leaves_openai_tool_calls_untouched(self) -> None:
+        openai_tc = {"id": "c1", "type": "function", "function": {"name": "f", "arguments": "{}"}}
+        normalized = ContextWindowTracker._normalize_messages(
+            [{"role": "assistant", "tool_calls": [openai_tc]}]
+        )
+        assert normalized[0]["tool_calls"][0] == openai_tc
+
 
 # ---------------------------------------------------------------------------
 # needs_compaction
