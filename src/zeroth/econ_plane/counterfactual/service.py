@@ -96,14 +96,30 @@ def _join_rate(executions: list[ExecutionEvent], outcomes: list[OutcomeEvent]) -
 def _pick_interval(values: list[float], outcomes: list[OutcomeEvent], confidence: float, mode: str) -> tuple[str, float, float, float]:
     binary_types = {"conversion", "fraud_flag"}
     if outcomes and all(o.outcome_type in binary_types for o in outcomes):
-        positives = 0
-        for o in outcomes:
+        pos_values: list[float] = []
+        neg_values: list[float] = []
+        for value, o in zip(values, outcomes, strict=False):
             v = _parse_outcome_value(o)
             truthy = bool(v) if isinstance(v, bool) else str(v).lower() in {"true", "1"}
-            positives += 1 if truthy else 0
-        p_mean, low_p, high_p = wilson_interval(positives, len(outcomes), confidence=confidence)
-        total = max(len(outcomes), 1)
-        return "wilson_binomial", p_mean * total, low_p * total, high_p * total
+            (pos_values if truthy else neg_values).append(value)
+        positives = len(pos_values)
+        _p_mean, low_p, high_p = wilson_interval(positives, len(outcomes), confidence=confidence)
+        # Re-denominate the proportion CI into DOLLARS (audit B6). This branch used
+        # to return a success COUNT (p * total) as the headline value — a ~120x
+        # understatement for conversion ($120/positive) and a sign flip for fraud
+        # (positive count vs a net-negative dollar proxy). Each outcome is worth its
+        # own proxy dollars, so the point estimate is the proxy dollar sum, and the
+        # Wilson band on the positive rate is mapped through the per-group mean
+        # dollar values (sorted, since a mixed-sign proxy inverts the mapping).
+        total = len(outcomes)
+        v_pos = (sum(pos_values) / len(pos_values)) if pos_values else 0.0
+        v_neg = (sum(neg_values) / len(neg_values)) if neg_values else 0.0
+
+        def _dollars(p: float) -> float:
+            return total * (p * v_pos + (1.0 - p) * v_neg)
+
+        ci_low, ci_high = sorted((_dollars(low_p), _dollars(high_p)))
+        return "wilson_binomial", sum(values), ci_low, ci_high
 
     if mode == "PROXY" or len(values) >= 30:
         mu, low, high = bootstrap_interval(values, confidence=confidence)

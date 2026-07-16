@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.17] - 2026-07-16
+
+### Fixed
+
+- **econ_plane performance + capabilities reads no longer 500 on repeat rows**
+  (audit B5/B7). `calculate_snapshots` and `active_experiment` selected the
+  latest row with `order_by(id.desc())` but called `scalar_one_or_none()`, which
+  raises `MultipleResultsFound` the moment a capability has ≥2 value estimates or
+  ≥2 ACTIVE experiments — the common case — permanently 500ing the performance
+  dashboard and every execution ingest. Both now use `.limit(1).scalars().first()`.
+- **Counterfactual binary-outcome estimate is dollar-denominated** (audit B6).
+  The `_pick_interval` binary branch returned a success *count* (`p × total`) as
+  the headline `estimated_value_usd`, understating conversion value ~120×
+  ($120/conversion) and sign-flipping fraud (positive count vs a net-negative
+  dollar proxy). It now returns the proxy dollar sum as the point estimate and
+  maps the Wilson proportion CI through the per-group mean dollar values.
+
 ## [0.10.1.16] - 2026-07-16
 
 ### Fixed
