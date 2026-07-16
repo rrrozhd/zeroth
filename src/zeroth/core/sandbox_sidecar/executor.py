@@ -38,12 +38,19 @@ class SidecarExecutor:
         network_name = f"zeroth-sandbox-{request.execution_id}"
         started_at = time.perf_counter()
 
-        # Build resource constraints from request fields
+        # Build resource constraints for the CPU/memory/pids flags ONLY. The
+        # network dimension is deliberately left None (audit B11): this executor
+        # owns network attachment via the per-execution --internal network below
+        # plus the explicit `--network={network_name}` on `docker run`. Passing
+        # request.network_access here would make build_docker_resource_flags emit
+        # a SECOND `--network` token, and docker aborts with exit 125
+        # ("conflicting options: cannot attach both user-defined and
+        # non-user-defined network-modes") — every sidecar execution failing.
         constraints = ResourceConstraints(
             cpu_cores=request.cpu_cores,
             memory_mb=request.memory_mb,
             max_processes=request.max_processes,
-            network_access=request.network_access,
+            network_access=None,
         )
 
         try:

@@ -8,7 +8,6 @@ import inspect
 import logging
 import os
 import secrets
-import signal
 from contextlib import asynccontextmanager
 from typing import Protocol
 
@@ -171,39 +170,17 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             except ImportError:
                 pass
 
-        # Phase 16: SIGTERM / SIGINT graceful shutdown signal handler.
-        shutdown_event = asyncio.Event()
-
-        def _handle_shutdown_signal() -> None:
-            shutdown_event.set()
-
-        loop = asyncio.get_running_loop()
-        try:
-            loop.add_signal_handler(signal.SIGTERM, _handle_shutdown_signal)
-            loop.add_signal_handler(signal.SIGINT, _handle_shutdown_signal)
-        except (NotImplementedError, RuntimeError):
-            pass  # Signal handlers not supported on this platform (e.g., Windows)
-
-        async def _shutdown_watcher() -> None:
-            await shutdown_event.wait()
-            if worker is not None:
-                await worker.graceful_shutdown()
-
-        shutdown_watcher_task: asyncio.Task | None = None
-        if worker is not None:
-            shutdown_watcher_task = asyncio.create_task(
-                _shutdown_watcher(), name="shutdown-watcher"
-            )
-
+        # Signal handling is left to uvicorn (audit B13). uvicorn installs its own
+        # SIGTERM/SIGINT handlers via signal.signal() in capture_signals() BEFORE
+        # the lifespan runs; a loop.add_signal_handler() here would OVERRIDE them,
+        # so uvicorn's should_exit is never set, main_loop() spins forever, and
+        # this post-yield teardown never runs (process hangs until SIGKILL). On
+        # SIGTERM uvicorn sets should_exit -> main_loop exits -> Server.shutdown()
+        # drives the lifespan past this yield, where worker.graceful_shutdown()
+        # below (and all other teardown) runs.
         yield
 
-        # Cancel shutdown watcher.
-        if shutdown_watcher_task is not None:
-            shutdown_watcher_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await shutdown_watcher_task
-
-        # Phase 16: Graceful shutdown -- wait for in-flight runs then release leases.
+        # Graceful shutdown -- wait for in-flight runs then release leases.
         if worker is not None:
             await worker.graceful_shutdown()
 

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.19] - 2026-07-16
+
+### Fixed
+
+- **Sandbox sidecar builds exactly one `--network` flag** (audit B11). The
+  executor attaches the container to its own per-execution `--internal` network
+  via `--network={name}`, but it also passed `network_access` to the resource-
+  flag builder, which emitted a *second* `--network` token — docker aborted every
+  sidecar execution with exit 125 ("conflicting options"). The flag builder is
+  now given `network_access=None`.
+- **Vault re-authenticates on token expiry** (audit B12). A cached AppRole token
+  that Vault rejected (401/403) was reused forever and every secret resolved to a
+  cached `None` until process restart. The provider now invalidates the rejected
+  token, re-logs in, and retries the GET once (AppRole only — a static injected
+  token is left intact), and no longer caches the `None` from an auth failure so
+  a later request can recover.
+- **Service lifespan no longer overrides uvicorn's signal handlers** (audit
+  B13). The lifespan installed its own `loop.add_signal_handler` for
+  SIGTERM/SIGINT, shadowing uvicorn's `handle_exit`, so `should_exit` was never
+  set on SIGTERM — `main_loop()` spun forever and post-yield teardown never ran
+  (process hung until SIGKILL). Signal handling is left to uvicorn; graceful
+  worker shutdown still runs in the post-yield teardown uvicorn drives.
+
 ## [0.10.1.18] - 2026-07-16
 
 ### Fixed

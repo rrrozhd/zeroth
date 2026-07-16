@@ -48,6 +48,16 @@ class _CacheEntry:
     expires_at: float
 
 
+class _VaultAuthError(Exception):
+    """Internal signal: Vault rejected the token (401/403) on a secret GET.
+
+    Distinct from a genuine miss (404 -> ``None``) so the resolve layer can (a)
+    re-authenticate + retry once with fresh AppRole creds and (b) refuse to cache
+    the resulting ``None`` — caching it would mask a subsequent successful
+    re-auth for a whole cache_ttl window (audit B12).
+    """
+
+
 class VaultSecretProvider:
     """Resolve secrets from a Vault KV v2 mount with an in-memory TTL cache.
 
@@ -133,7 +143,19 @@ class VaultSecretProvider:
         if cached is not None and cached.expires_at > now:
             return cached.value
 
-        value = self._fetch_sync(tenant, logical_name)
+        try:
+            value = self._fetch_sync(tenant, logical_name)
+        except _VaultAuthError as exc:
+            # Auth failure that survived a re-auth retry (or a static token was
+            # rejected): return None WITHOUT caching, so a later call can succeed
+            # once creds/token recover instead of being masked for cache_ttl (B12).
+            logger.warning(
+                "vault auth failure for %s/%s; not caching: %s",
+                tenant,
+                logical_name,
+                self._redactor.redact(str(exc)),
+            )
+            return None
         self._cache[key] = _CacheEntry(value=value, expires_at=now + self._cache_ttl)
         if value is not None:
             # Keep the redactor aware of live values so error paths stay masked.
@@ -185,6 +207,15 @@ class VaultSecretProvider:
                 value = await self._fetch_async(client, token, tenant, logical_name)
             except SecretResolutionError:
                 raise
+            except _VaultAuthError as exc:
+                # Persistent auth failure: return None WITHOUT caching (audit B12).
+                logger.warning(
+                    "vault auth failure for %s/%s; not caching: %s",
+                    tenant,
+                    logical_name,
+                    self._redactor.redact(str(exc)),
+                )
+                return None
             except Exception as exc:
                 logger.warning(
                     "vault fetch failed for %s/%s: %s",
@@ -264,17 +295,46 @@ class VaultSecretProvider:
         """Create the pooled async client (honors the injected test transport)."""
         return httpx.AsyncClient(transport=self._async_transport, timeout=self._timeout)
 
+    def _get_sync(self, token: str, tenant: str, logical_name: str) -> httpx.Response:
+        """One blocking Vault GET with the given token."""
+        with self._make_client() as client:
+            return client.get(
+                self._secret_path(tenant, logical_name),
+                headers={"X-Vault-Token": token},
+            )
+
+    def _reauth_sync(self, *, stale: str) -> str:
+        """Drop the rejected token and force a fresh AppRole login (audit B12).
+
+        Only refreshable tokens (AppRole role_id + secret_id) are cleared — a
+        static injected ``token=`` has nothing to refresh, so its rejection
+        propagates. The compare-and-clear avoids clobbering a token a concurrent
+        caller already refreshed.
+        """
+        if not (self._role_id and self._secret_id):
+            raise _VaultAuthError("vault token rejected and no AppRole creds to refresh")
+        if self._token == stale:
+            self._token = None
+        return self._ensure_token_sync()
+
     def _fetch_sync(self, tenant: str, logical_name: str) -> str | None:
-        """Perform one blocking Vault GET; non-auth failures log (redacted) and yield ``None``."""
+        """Perform one blocking Vault GET; non-auth failures log (redacted) and yield ``None``.
+
+        On an auth rejection (401/403) with AppRole creds, the token is
+        invalidated and the GET is retried once with a fresh login. A persistent
+        auth failure raises :class:`_VaultAuthError` so the caller does not
+        cache the ``None`` (audit B12).
+        """
         try:
             token = self._ensure_token_sync()
-            with self._make_client() as client:
-                resp = client.get(
-                    self._secret_path(tenant, logical_name),
-                    headers={"X-Vault-Token": token},
-                )
-            return self._extract_value(resp, tenant, logical_name)
-        except SecretResolutionError:
+            resp = self._get_sync(token, tenant, logical_name)
+            try:
+                return self._extract_value(resp, tenant, logical_name)
+            except _VaultAuthError:
+                token = self._reauth_sync(stale=token)
+                resp = self._get_sync(token, tenant, logical_name)
+                return self._extract_value(resp, tenant, logical_name)
+        except (SecretResolutionError, _VaultAuthError):
             raise
         except Exception as exc:
             logger.warning(
@@ -285,20 +345,50 @@ class VaultSecretProvider:
             )
             return None
 
+    async def _reauth_async(self, *, stale: str) -> str:
+        """Async counterpart of :meth:`_reauth_sync` (audit B12)."""
+        if not (self._role_id and self._secret_id):
+            raise _VaultAuthError("vault token rejected and no AppRole creds to refresh")
+        if self._token == stale:
+            self._token = None
+        return await self._ensure_token_async()
+
     async def _fetch_async(
         self, client: httpx.AsyncClient, token: str, tenant: str, logical_name: str
     ) -> str | None:
-        """Perform one Vault GET on the pooled client; response parsing matches the sync path."""
+        """Perform one Vault GET on the pooled client; response parsing matches the sync path.
+
+        On an auth rejection (401/403) with AppRole creds, invalidates the token
+        and retries the GET once with a fresh login (audit B12).
+        """
         resp = await client.get(
             self._secret_path(tenant, logical_name),
             headers={"X-Vault-Token": token},
         )
-        return self._extract_value(resp, tenant, logical_name)
+        try:
+            return self._extract_value(resp, tenant, logical_name)
+        except _VaultAuthError:
+            token = await self._reauth_async(stale=token)
+            resp = await client.get(
+                self._secret_path(tenant, logical_name),
+                headers={"X-Vault-Token": token},
+            )
+            return self._extract_value(resp, tenant, logical_name)
 
     def _extract_value(self, resp: httpx.Response, tenant: str, logical_name: str) -> str | None:
         """Extract the ``value`` field from a KV v2 response; 404/errors/bad bodies -> ``None``."""
         if resp.status_code == 404:
             return None
+        if resp.status_code in (401, 403):
+            # Token rejected/expired — signal so the caller can re-auth + retry
+            # (and NOT cache the None). Never echo the body (audit B12).
+            logger.warning(
+                "vault returned %s (auth) for %s/%s",
+                resp.status_code,
+                tenant,
+                logical_name,
+            )
+            raise _VaultAuthError(f"vault auth rejected with status {resp.status_code}")
         if resp.status_code != 200:
             # Never echo the body — it can contain sensitive material.
             logger.warning(
