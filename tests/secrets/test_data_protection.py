@@ -125,3 +125,68 @@ async def test_audit_records_do_not_contain_raw_secret_values_at_rest(tmp_path: 
     assert row is not None
     assert "super-secret" not in row["record_json"]
     await database.close()
+
+
+async def test_failure_error_and_message_are_redacted(tmp_path: Path) -> None:
+    # S6: a node exception whose text echoes a resolved secret must be redacted in
+    # BOTH the persisted audit record's `error` column and the run's
+    # failure_state.message (which the public run API returns verbatim).
+    db_path = str(tmp_path / "audit_fail.db")
+    encryption_key = EncryptedField.generate_key()
+    run_migrations(f"sqlite:///{db_path}")
+    database = AsyncSQLiteDatabase(path=db_path, encryption_key=encryption_key)
+
+    audit_repository = AuditRepository(database)
+    run_repository = RunRepository(database)
+    secret_resolver = SecretResolver(EnvSecretProvider({"API_KEY": "super-secret"}))
+    secret_resolver.resolve_environment_variables(
+        [EnvironmentVariable(name="API_KEY", secret_ref="API_KEY")]
+    )
+
+    class SecretLeakingRunner:
+        async def run(self, input_payload, **kwargs):  # noqa: ANN001, ANN201
+            del input_payload, kwargs
+            # httpx/provider errors routinely interpolate the request URL/headers.
+            raise RuntimeError("upstream 401: token=super-secret rejected")
+
+    graph = Graph(
+        graph_id="graph-secret-fail",
+        name="secret-fail",
+        entry_step="agent",
+        execution_settings=ExecutionSettings(max_total_steps=3),
+        nodes=[
+            AgentNode(
+                node_id="agent",
+                graph_version_ref="graph-secret-fail:v1",
+                input_contract_ref="contract://input",
+                output_contract_ref="contract://output",
+                agent=AgentNodeData(instruction="echo", model_provider="provider://demo"),
+            )
+        ],
+        edges=[],
+    )
+    orchestrator = RuntimeOrchestrator(
+        audit_repository=audit_repository,
+        run_repository=run_repository,
+        agent_runners={"agent": SecretLeakingRunner()},  # type: ignore[arg-type]
+        executable_unit_runner=SimpleNamespace(),  # type: ignore[arg-type]
+        secret_resolver=secret_resolver,
+    )
+
+    run = await orchestrator.run_graph(graph, {"value": "hello"})
+
+    assert run.status is RunStatus.FAILED
+    assert run.failure_state is not None
+    # failure_state.message is redacted (this is what GET /runs/{id} returns).
+    assert "super-secret" not in (run.failure_state.message or "")
+    assert "[REDACTED:API_KEY]" in (run.failure_state.message or "")
+    # The persisted audit record's `error` is redacted too.
+    audits = await audit_repository.list_by_run(run.run_id)
+    errored = [a for a in audits if a.error]
+    assert errored
+    assert all("super-secret" not in (a.error or "") for a in errored)
+    async with database.transaction() as connection:
+        row = await connection.fetch_one("SELECT record_json FROM node_audits", ())
+    assert row is not None
+    assert "super-secret" not in (row["record_json"] or "")
+    await database.close()

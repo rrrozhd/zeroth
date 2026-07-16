@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.22] - 2026-07-16
+
+### Security
+
+- **Failure error and message are secret-redacted** (audit S6). A node
+  exception whose text echoed a Vault-resolved secret (httpx errors include the
+  request URL/headers) was written raw to both the audit record's `error` column
+  (`_record_failed_execution_audit` / `_record_failed_branch_execution_audit`)
+  and `RunFailureState.message` (returned verbatim by `GET /runs/{id}`), while
+  every sibling audit field was already routed through the redactor. Both sinks
+  now pass through `_redact_for_audit`; it is a no-op when no secret resolver is
+  configured, so there is no behavior change without secrets.
+
 ## [0.10.1.21] - 2026-07-16
 
 ### Fixed

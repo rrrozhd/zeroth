@@ -2053,7 +2053,7 @@ class RuntimeOrchestrator:
                 token_usage=token_usage,
                 cost_usd=redacted_audit_record.get("cost_usd"),
                 cost_event_id=redacted_audit_record.get("cost_event_id"),
-                error=str(error),
+                error=self._redact_for_audit(str(error)),
                 tool_calls=tool_calls,
                 memory_interactions=memory_interactions,
             )
@@ -2114,7 +2114,7 @@ class RuntimeOrchestrator:
                 token_usage=token_usage,
                 cost_usd=redacted_audit_record.get("cost_usd"),
                 cost_event_id=redacted_audit_record.get("cost_event_id"),
-                error=str(error),
+                error=self._redact_for_audit(str(error)),
                 tool_calls=tool_calls,
                 memory_interactions=memory_interactions,
             )
@@ -2552,9 +2552,16 @@ class RuntimeOrchestrator:
         return run
 
     async def _fail_run(self, run: Run, reason: str, message: str) -> Run:
-        """Mark a run as failed with the given reason and save it."""
+        """Mark a run as failed with the given reason and save it.
+
+        The ``message`` is routed through the secret redactor (audit S6): call
+        sites pass ``str(exc)`` from node dispatch, whose exception text can echo
+        a Vault-resolved token (httpx errors include the request URL/headers), and
+        ``RunFailureState.message`` is returned verbatim by the public run API.
+        ``_redact_for_audit`` is a no-op when no secret resolver is configured.
+        """
         run.status = RunStatus.FAILED
-        run.failure_state = RunFailureState(reason=reason, message=message)
+        run.failure_state = RunFailureState(reason=reason, message=self._redact_for_audit(message))
         run.metadata["termination_reason"] = reason
         run.touch()
         persisted = await self.run_repository.put(run)
