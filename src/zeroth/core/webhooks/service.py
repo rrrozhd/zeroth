@@ -84,6 +84,10 @@ class WebhookService:
         """Hard-delete a subscription."""
         await self.repository.delete_subscription(subscription_id)
 
+    async def get_dead_letter(self, dead_letter_id: str) -> WebhookDeadLetter | None:
+        """Look up a single dead-letter entry by ID (for ownership scoping)."""
+        return await self.repository.get_dead_letter(dead_letter_id)
+
     async def replay_dead_letter(self, dead_letter_id: str) -> WebhookDelivery:
         """Re-enqueue a dead-letter entry as a new pending delivery."""
         dl = await self.repository.get_dead_letter(dead_letter_id)

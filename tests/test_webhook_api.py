@@ -161,22 +161,37 @@ class TestDeactivateSubscription:
         mock_webhook_service.deactivate_subscription.assert_called_once_with("sub-1")
 
 
+def _served_sub(subscription_id: str = "sub-1") -> WebhookSubscription:
+    """A subscription owned by the served deployment (deploy-1 / default)."""
+    return WebhookSubscription(
+        subscription_id=subscription_id,
+        deployment_ref="deploy-1",
+        tenant_id="default",
+        target_url="https://example.com/hook",
+        event_types=[WebhookEventType.RUN_COMPLETED],
+    )
+
+
+def _dead_letter(dead_letter_id: str, subscription_id: str) -> WebhookDeadLetter:
+    return WebhookDeadLetter(
+        dead_letter_id=dead_letter_id,
+        delivery_id="del-1",
+        subscription_id=subscription_id,
+        event_type=WebhookEventType.RUN_COMPLETED,
+        event_id="evt-1",
+        payload_json="{}",
+        attempt_count=5,
+        last_error="HTTP 500",
+        last_status_code=500,
+    )
+
+
 class TestListDeadLetters:
     """GET /webhooks/dead-letters."""
 
     def test_lists_dead_letters(self, client, mock_webhook_service):
-        dl = WebhookDeadLetter(
-            dead_letter_id="dl-1",
-            delivery_id="del-1",
-            subscription_id="sub-1",
-            event_type=WebhookEventType.RUN_COMPLETED,
-            event_id="evt-1",
-            payload_json="{}",
-            attempt_count=5,
-            last_error="HTTP 500",
-            last_status_code=500,
-        )
-        mock_webhook_service.list_dead_letters.return_value = [dl]
+        mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
+        mock_webhook_service.list_dead_letters.return_value = [_dead_letter("dl-1", "sub-1")]
 
         resp = client.get("/webhooks/dead-letters")
         assert resp.status_code == 200
@@ -184,19 +199,38 @@ class TestListDeadLetters:
         assert data["total"] == 1
         assert data["dead_letters"][0]["dead_letter_id"] == "dl-1"
 
+    def test_foreign_dead_letters_are_filtered_out(self, client, mock_webhook_service):
+        # F8 re-audit: dead-letters of subscriptions outside the served deployment
+        # must not appear, even though require_deployment_scope passes the caller.
+        mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
+        mock_webhook_service.list_dead_letters.return_value = [
+            _dead_letter("dl-own", "sub-1"),
+            _dead_letter("dl-foreign", "sub-globex"),
+        ]
+        resp = client.get("/webhooks/dead-letters")
+        assert resp.status_code == 200
+        ids = [d["dead_letter_id"] for d in resp.json()["dead_letters"]]
+        assert ids == ["dl-own"]
+
+    def test_foreign_subscription_id_filter_is_404(self, client, mock_webhook_service):
+        mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
+        resp = client.get("/webhooks/dead-letters?subscription_id=sub-globex")
+        assert resp.status_code == 404
+
 
 class TestReplayDeadLetter:
     """POST /webhooks/dead-letters/{dead_letter_id}/replay."""
 
     def test_replays_dead_letter(self, client, mock_webhook_service):
-        delivery = WebhookDelivery(
+        mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
+        mock_webhook_service.get_dead_letter.return_value = _dead_letter("dl-1", "sub-1")
+        mock_webhook_service.replay_dead_letter.return_value = WebhookDelivery(
             delivery_id="del-new",
             subscription_id="sub-1",
             event_type=WebhookEventType.RUN_COMPLETED,
             event_id="evt-1",
             payload_json="{}",
         )
-        mock_webhook_service.replay_dead_letter.return_value = delivery
 
         resp = client.post("/webhooks/dead-letters/dl-1/replay")
         assert resp.status_code == 201
@@ -204,7 +238,18 @@ class TestReplayDeadLetter:
         assert data["delivery_id"] == "del-new"
         assert data["status"] == "pending"
 
+    def test_foreign_dead_letter_replay_is_404(self, client, mock_webhook_service):
+        # F8 re-audit: replaying another tenant's dead-letter must 404, not force
+        # a cross-tenant redelivery (and must not reach replay_dead_letter).
+        mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
+        mock_webhook_service.get_dead_letter.return_value = _dead_letter("dl-x", "sub-globex")
+        resp = client.post("/webhooks/dead-letters/dl-x/replay")
+        assert resp.status_code == 404
+        mock_webhook_service.replay_dead_letter.assert_not_called()
+
     def test_404_when_not_found(self, client, mock_webhook_service):
+        mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
+        mock_webhook_service.get_dead_letter.return_value = None
         mock_webhook_service.replay_dead_letter.side_effect = KeyError("dl-x")
         resp = client.post("/webhooks/dead-letters/dl-x/replay")
         assert resp.status_code == 404
@@ -309,3 +354,20 @@ class TestTenantIsolation:
         client = TestClient(app)
         resp = client.get("/webhooks/subscriptions/sub-x")
         assert resp.status_code == 404
+
+    def test_foreign_deployment_subscription_reads_as_404(self):
+        # F8 re-audit: same tenant, but a subscription bound to a DIFFERENT
+        # deployment_ref than the served one must read as absent (the list route
+        # already scopes by deployment_ref; the by-id routes must match).
+        svc = AsyncMock(spec=WebhookService)
+        svc.get_subscription.return_value = WebhookSubscription(
+            subscription_id="sub-y",
+            deployment_ref="deploy-2",
+            tenant_id="default",
+            target_url="https://example.com/hook",
+            event_types=[WebhookEventType.RUN_COMPLETED],
+        )
+        app = self._app_with_principal_tenant("default", svc)  # serves deploy-1
+        client = TestClient(app)
+        assert client.get("/webhooks/subscriptions/sub-y").status_code == 404
+        assert client.delete("/webhooks/subscriptions/sub-y").status_code == 404

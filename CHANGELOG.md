@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.9] - 2026-07-16
+
+### Security
+
+- **Closed the webhook dead-letter cross-tenant IDOR left open by v0.10.1.3**
+  (self-re-audit of the F8 fix). `require_deployment_scope` gates *who* calls a
+  route, not *which* rows return, and the `webhook_dead_letters` table has no
+  tenant column — so `GET /webhooks/dead-letters` and
+  `POST /webhooks/dead-letters/{id}/replay` still leaked/replayed other tenants'
+  dead-letters. Both are now scoped to the served deployment's own subscription
+  set (list filters, replay 404s a foreign dead-letter before re-enqueuing). Also
+  tightened the `get`/`deactivate` subscription guard to compare `deployment_ref`
+  (not just `tenant_id`), matching the list route, so a same-tenant admin of one
+  deployment can't read/deactivate another deployment's subscription. Added
+  cross-tenant dead-letter + cross-deployment regression tests.
+
 ## [0.10.1.8] - 2026-07-16
 
 ### Fixed
