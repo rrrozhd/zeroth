@@ -301,11 +301,20 @@ class RuntimeOrchestrator:
             RunStatus.FAILED,
             RunStatus.WAITING_INTERRUPT,
         ):
-            # Reconcile the caller's shared in-memory Run so no later stale write
-            # off this object can revert the operator's decision.
+            # Adopt the operator's terminal/paused status onto the in-memory run —
+            # which already holds this hop's execution_history and the successors
+            # queued for the next hop — and PERSIST it, rather than returning the
+            # freshly-read row (whose pending_node_ids is the stale pre-dispatch
+            # []). Otherwise a later FAILED->PENDING replay (or interrupt resume)
+            # would start from an empty queue and be marked COMPLETED with the
+            # remaining nodes silently skipped (F3 re-audit). save_run does not
+            # touch lease columns, so cancel_run's cleared lease is preserved.
             run.status = fresh.status
             run.failure_state = fresh.failure_state
-            return fresh
+            run.touch()
+            persisted = await self.run_repository.put(run)
+            await self.run_repository.write_checkpoint(persisted)
+            return persisted
         return None
 
     async def _drive(

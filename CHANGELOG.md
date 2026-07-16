@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.11] - 2026-07-16
+
+### Fixed
+
+- **Cancelled-then-replayed runs resume from where they stopped** (self-re-audit
+  of the F3 fix). `_external_stop` returned the freshly-read run row (whose
+  `pending_node_ids` is the stale pre-dispatch `[]`) instead of persisting the
+  in-memory run, which already holds this hop's history and the successors queued
+  for the next hop. A `FAILED->PENDING` replay (or interrupt resume) therefore
+  started from an empty queue and was marked COMPLETED with the remaining nodes
+  silently skipped. It now persists the in-memory run under the operator's status
+  (save_run leaves lease columns untouched, so the cleared lease is preserved).
+  Added a cancel->replay resume test.
+
 ## [0.10.1.10] - 2026-07-16
 
 ### Security

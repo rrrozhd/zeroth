@@ -183,3 +183,37 @@ async def test_precancelled_run_never_dispatches(sqlite_db) -> None:
 
     assert result.status is RunStatus.FAILED
     assert n1.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_cancel_then_replay_resumes_remaining_nodes(sqlite_db) -> None:
+    """F3 re-audit: a cancelled run's queued successors are persisted, so a
+    FAILED->PENDING replay resumes from where it stopped instead of being marked
+    COMPLETED with the remaining nodes silently skipped."""
+    repo = RunRepository(sqlite_db)
+    # Seed only the entry node; successors are queued dynamically per hop (as real
+    # runs do), so the checkpoint after the cancelled hop must include n2.
+    persisted = await _seed_running(repo, ["n1"])
+    n1 = _CancelDuringDispatchRunner(repo, persisted.run_id, transition_to=RunStatus.FAILED)
+    n2 = _PlainRunner()
+    n3 = _PlainRunner()
+    orchestrator = _orchestrator(sqlite_db, {"n1": n1, "n2": n2, "n3": n3})
+    graph = _linear_graph(["n1", "n2", "n3"])
+
+    result = await orchestrator._drive(graph, persisted)
+    assert result.status is RunStatus.FAILED
+    assert n2.call_count == 0 and n3.call_count == 0
+
+    # The successor queued while n1 ran was persisted, not lost to a stale pending=[].
+    reloaded = await repo.get(persisted.run_id)
+    assert reloaded is not None
+    assert reloaded.pending_node_ids == ["n2"]
+
+    # Replay: FAILED -> PENDING (admin), worker claims (-> RUNNING), drive resumes.
+    await repo.transition(persisted.run_id, RunStatus.PENDING)
+    await repo.transition(persisted.run_id, RunStatus.RUNNING)
+    resumed = await repo.get(persisted.run_id)
+    result2 = await orchestrator._drive(graph, resumed)
+
+    assert result2.status is RunStatus.COMPLETED
+    assert n2.call_count == 1 and n3.call_count == 1
