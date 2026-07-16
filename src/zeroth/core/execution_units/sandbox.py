@@ -454,8 +454,18 @@ class SandboxManager:
                 raise SandboxBackendUnavailableError("sidecar client not configured")
             return SandboxBackendMode.SIDECAR
         if configured is SandboxBackendMode.LOCAL:
+            # STRICT refuses LOCAL unconditionally (audit S2): a local subprocess
+            # can never provide hardened isolation, so gating the refusal on
+            # resource_constraints made STRICT a silent no-op for a bare inline
+            # unit (constraints=None) — the strict knob's whole purpose is to be
+            # the guardrail when the backend isn't hardened.
+            if strictness is SandboxStrictnessMode.STRICT:
+                raise SandboxPolicyViolationError(
+                    "strict sandbox strictness cannot run on the local backend "
+                    "(no hardened isolation)"
+                )
             if (
-                strictness is not SandboxStrictnessMode.PERMISSIVE
+                strictness is not SandboxStrictnessMode.PERMISSIVE  # STANDARD
                 and resource_constraints is not None
                 and resource_constraints.requires_hard_isolation()
             ):

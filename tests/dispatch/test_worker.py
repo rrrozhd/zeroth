@@ -101,6 +101,41 @@ async def _worker_tick(worker: RunWorker) -> None:
         await task
 
 
+async def test_renewal_task_failure_does_not_leak_semaphore(sqlite_db) -> None:
+    # B4: if the lease-renewal task finishes by RAISING a non-CancelledError
+    # (e.g. its renew_lease DB transaction hit "database is locked"), the finally
+    # block must still release the lease and the concurrency slot. Before the fix
+    # the re-raised exception escaped the finally, permanently leaking the slot.
+    run_repo = RunRepository(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _FakeOrchestrator(run_repo)
+    graph = _FakeGraph()
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=graph,
+        lease_manager=lease_manager,
+        max_concurrency=1,
+    )
+
+    async def _raising_renewal(run_id: str) -> None:
+        raise RuntimeError("database is locked")
+
+    worker._renewal_loop = _raising_renewal  # renewal dies by raising, not cancel
+
+    run = await _make_run(run_repo)
+    # Must complete WITHOUT the RuntimeError escaping _execute_leased_run.
+    await worker._execute_leased_run(run.run_id, is_recovery=False)
+
+    # The one concurrency slot was released (not leaked).
+    assert worker._semaphore._value == 1
+    final = await run_repo.get(run.run_id)
+    assert final is not None
+    assert final.status is RunStatus.COMPLETED
+
+
 async def test_worker_drives_pending_run_to_completed(sqlite_db) -> None:
     run_repo = RunRepository(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)

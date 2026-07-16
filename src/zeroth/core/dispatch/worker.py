@@ -170,7 +170,16 @@ class RunWorker:
                 await self._mark_failed(run_id, reason="worker_exception")
         finally:
             renewal_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            # Suppress ANY outcome of the renewal task (audit B4). The normal path
+            # raises CancelledError (a BaseException, so it is listed explicitly —
+            # `suppress(Exception)` alone would let it through). But if
+            # _renewal_loop already finished by RAISING (e.g. its lease-renewal DB
+            # transaction hit "database is locked"), cancel() is a no-op on the
+            # done task and `await` re-raises that non-CancelledError — which would
+            # escape this finally BEFORE release_lease + semaphore.release() run,
+            # permanently leaking the concurrency slot. We cancelled it and don't
+            # care about its result either way.
+            with contextlib.suppress(Exception, asyncio.CancelledError):
                 await renewal_task
             await self.lease_manager.release_lease(run_id, self.worker_id)
             if slot_reserved or acquired_here:

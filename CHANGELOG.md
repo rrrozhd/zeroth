@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.20.1] - 2026-07-16
+
+### Fixed
+
+- **Rate-limit concurrency tests are stable under load** (test-only follow-up to
+  v0.10.1.18). The S3/S4 regression tests fired 50 concurrent `write_lock`
+  transactions; on SQLite a caller that can't take the BEGIN IMMEDIATE lock
+  within `busy_timeout` raises `CoordinationTimeoutError`, which `asyncio.gather`
+  propagated under full-suite CPU load. The tests now assert the actual security
+  invariant — admitted count never exceeds the ceiling — with
+  `return_exceptions=True`, since a timed-out caller neither consumed nor was
+  admitted.
+
 ## [0.10.1.20] - 2026-07-16
 
 ### Fixed
