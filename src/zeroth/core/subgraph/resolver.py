@@ -27,7 +27,14 @@ class SubgraphResolver:
 
     deployment_service: DeploymentService
 
-    async def resolve(self, graph_ref: str, version: int | None = None) -> tuple[Graph, Deployment]:
+    async def resolve(
+        self,
+        graph_ref: str,
+        version: int | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> tuple[Graph, Deployment]:
         """Look up a deployment and return its deserialized graph.
 
         Parameters
@@ -36,6 +43,14 @@ class SubgraphResolver:
             The deployment reference name to look up.
         version:
             Optional specific deployment version.  ``None`` means latest.
+        tenant_id:
+            Owning tenant of the run performing the resolution. ``deployment_ref``
+            is a GLOBAL namespace, so without this scope a subgraph node could
+            reference another tenant's ref and execute their graph (audit S7).
+            Callers MUST pass the parent run's tenant so a foreign-owned ref
+            resolves to ``None`` and fails closed instead of leaking.
+        workspace_id:
+            Owning workspace of the run, forwarded alongside ``tenant_id``.
 
         Returns:
         -------
@@ -45,10 +60,12 @@ class SubgraphResolver:
         Raises:
         ------
         SubgraphResolutionError:
-            If the deployment is not found or the stored graph cannot
-            be deserialized.
+            If the deployment is not found (including when a foreign tenant owns
+            the ref) or the stored graph cannot be deserialized.
         """
-        deployment = await self.deployment_service.get(graph_ref, version)
+        deployment = await self.deployment_service.get(
+            graph_ref, version, tenant_id=tenant_id, workspace_id=workspace_id
+        )
         if deployment is None:
             version_part = f"version {version} " if version else ""
             msg = f"subgraph reference '{graph_ref}' {version_part}not found"

@@ -137,8 +137,15 @@ class SubgraphExecutor:
         if graph_ref in visited_refs:
             raise SubgraphCycleError(f"circular subgraph reference detected: {graph_ref}")
 
-        # --- Resolve child graph ---
-        subgraph, deployment = await self.resolver.resolve(graph_ref, subgraph_data.version)
+        # --- Resolve child graph (scoped to the parent run's tenant, audit S7) ---
+        # graph_ref is a GLOBAL namespace, so resolve MUST be tenant-scoped or a
+        # subgraph node could name another tenant's ref and execute their graph.
+        subgraph, deployment = await self.resolver.resolve(
+            graph_ref,
+            subgraph_data.version,
+            tenant_id=parent_run.tenant_id,
+            workspace_id=parent_run.workspace_id,
+        )
 
         # --- Namespace node IDs (T-39-09 + D-10) ---
         namespaced = namespace_subgraph(
@@ -240,7 +247,14 @@ class SubgraphExecutor:
         graph_ref = child_run.deployment_ref
         depth = child_run.metadata.get("subgraph_depth", 1)
 
-        subgraph, _ = await self.resolver.resolve(graph_ref, None)
+        # Scoped to the parent run's tenant (audit S7) — same guard as the
+        # initial resolve so a resume can't cross tenants either.
+        subgraph, _ = await self.resolver.resolve(
+            graph_ref,
+            None,
+            tenant_id=parent_run.tenant_id,
+            workspace_id=parent_run.workspace_id,
+        )
         namespaced = namespace_subgraph(subgraph, graph_ref, depth, branch_index=branch_index)
         merged = merge_governance(parent_graph, namespaced)
 

@@ -462,8 +462,11 @@ class TestApprovalPropagationResume:
 
         await orch._drive(parent_graph, parent_run)
 
-        # Verify resolver was called with correct graph_ref and version
-        mock_resolver.resolve.assert_called_once_with("child-g", 2)
+        # Verify resolver was called with correct graph_ref, version, and the
+        # parent run's tenant scope (audit S7 — resume path is tenant-scoped too).
+        mock_resolver.resolve.assert_called_once_with(
+            "child-g", 2, tenant_id=parent_run.tenant_id, workspace_id=parent_run.workspace_id
+        )
 
     @pytest.mark.asyncio
     async def test_resume_governance_merge_reapplied(self) -> None:

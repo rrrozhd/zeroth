@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.15] - 2026-07-16
+
+### Security
+
+- **Subgraph resolution is tenant-scoped** (audit S7). `deployment_ref` is a
+  global namespace, but `SubgraphResolver.resolve` looked up the deployment with
+  no tenant filter, so a subgraph node could reference another tenant's ref and
+  execute their graph inside the caller's run. `resolve` now takes
+  `tenant_id`/`workspace_id` and forwards them to `DeploymentService.get`; all
+  four call sites (subgraph executor initial + resume, orchestrator resume +
+  parallel fan-out resume) pass the parent run's owner, so a foreign-owned ref
+  resolves to `None` and fails closed with `SubgraphResolutionError`. Unscoped
+  (internal deploy) resolution is unchanged.
+
 ## [0.10.1.14] - 2026-07-16
 
 ### Security
