@@ -68,9 +68,12 @@
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* LEGACY COMPAT — old token utilities used by not-yet-rebuilt screens
-     (studio/edit + its components). Keeps `next build` green during the
-     phased rebuild; DELETE when the last legacy screen is replaced (end of P2). */
+  /* LEGACY COMPAT — old token utilities retained SOLELY for the Studio-canvas
+     kit (studio/edit + StudioNodeView + NodeInspector + ConnectorInline +
+     ModelRightsizing + CodeEditor), which still use the legacy `ui.tsx`. The
+     canvas was visually re-skinned to the handoff in P2; ui.tsx now only powers
+     its inner form controls, functional and on-theme via these aliases. Full
+     ui.tsx retirement (~4k LOC) is deferred future work — see PLAN-INDEX. */
   --color-app: var(--bg-page);
   --color-surface: var(--bg-card);
   --color-foreground: var(--text-primary);

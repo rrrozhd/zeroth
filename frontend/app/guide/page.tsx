@@ -1,281 +1,310 @@
-"use client";
+// The Guide screen — an in-console primer: the three ideas behind a Zeroth
+// deployment (Graphs / Contracts / Governance), a reference for the node types
+// you'll see on the canvas and in timelines, and a copy-paste API quickstart so
+// an operator can go from reading to a real run without leaving the console.
+//
+// Built on the P0 primitives in the P1/P2 house style (inline styles + CSS-var
+// tokens, dark-only). This screen is fully static — no data loading, no hooks —
+// so it stays a server component; only CodeBlock (a client primitive, for its
+// copy button) crosses into the client tree.
+//
+// Node-type colors come from the shared NODE_TYPE_COLOR map (the same `--nt-*`
+// tokens the canvas, palette, and node editor draw), so the swatches here match
+// what the rest of the console shows. The quickstart never hardcodes a real key —
+// it exports a $ZEROTH_API_KEY placeholder and references it in the curl header.
 
-import Link from "next/link";
-import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
-import { Card, Mono, PageHeader } from "@/app/components/ui";
+import {
+  Card,
+  CodeBlock,
+  MonoLabel,
+  NODE_TYPE_COLOR,
+  Pill,
+  StatusDot,
+  type Tone,
+} from "@/app/components/primitives";
 
-// In-console guide: enough concept + how-to context that a new operator can go
-// from an empty deployment to a governed run without leaving the console.
+// --------------------------------------------------------------------------
+// Content — plain data, rendered below. Kept verbatim-close to the platform
+// README's Key Concepts and node-type descriptions.
+// --------------------------------------------------------------------------
 
-const CONCEPTS: { term: string; def: React.ReactNode }[] = [
+const CONCEPTS: { title: string; body: string }[] = [
   {
-    term: "Workflow",
-    def: (
-      <>
-        A graph of nodes (agents, tools, approval gates…) authored in{" "}
-        <Link href="/studio" className="text-accent hover:underline">
-          Studio
-        </Link>
-        . Drafts are editable; published versions are immutable.
-      </>
-    ),
+    title: "Graphs",
+    body: "Your application is an explicit graph of nodes wired by edges — agents, executable units, retrieval, and approval gates. It can branch, run in parallel, and cycle; every step is inspectable rather than hidden inside a prompt chain.",
   },
   {
-    term: "Deployment",
-    def: "A published graph served by this API as a standalone service. The console always operates on the deployment you're connected to.",
+    title: "Contracts",
+    body: "Each node's inputs and outputs are typed contracts, validated at the boundary between nodes. A type error surfaces at the edge where it happens — caught at the node boundary, not buried deep inside a run.",
   },
   {
-    term: "Run",
-    def: (
-      <>
-        One execution of the deployed graph for an input payload — submitted from the{" "}
-        <Link href="/runs" className="text-accent hover:underline">
-          Runs
-        </Link>{" "}
-        page or via <Mono>POST /v1/runs</Mono>.
-      </>
-    ),
-  },
-  {
-    term: "Governance",
-    def: (
-      <>
-        Human-approval gates pause runs in{" "}
-        <Link href="/approvals" className="text-accent hover:underline">
-          Approvals
-        </Link>
-        , every node execution is recorded in{" "}
-        <Link href="/audit" className="text-accent hover:underline">
-          Audit
-        </Link>
-        , and provider spend is attributed in{" "}
-        <Link href="/cost" className="text-accent hover:underline">
-          Cost
-        </Link>
-        .
-      </>
-    ),
+    title: "Governance",
+    body: "Approvals pause runs for human sign-off, every node execution is recorded to a tamper-evident audit chain, spend is capped per tenant and per run, and capability policy is enforced fail-closed.",
   },
 ];
 
-const STEPS: { title: string; body: React.ReactNode }[] = [
+// Keyed by the shared node-type color token (NODE_TYPE_COLOR). `exec` is the
+// token the exec-unit node draws.
+const NODE_TYPES: { type: string; name: string; desc: string }[] = [
   {
-    title: "Connect",
-    body: (
-      <>
-        Use <span className="font-medium text-foreground">Connect</span> in the top right to set
-        the API base URL and your operator key (sent as <Mono>X-API-Key</Mono>). The Overview page
-        shows the deployment you&apos;re connected to.
-      </>
-    ),
+    type: "entrypoint",
+    name: "entrypoint",
+    desc: "Where a run starts — its contract is the workflow's public input shape, validated before anything executes.",
   },
   {
-    title: "Create a workflow",
-    body: (
-      <>
-        In{" "}
-        <Link href="/studio" className="text-accent hover:underline">
-          Studio
-        </Link>
-        , start from a template — each one is a small working graph you can reshape — or create a
-        blank workflow and add nodes from the palette.
-      </>
-    ),
+    type: "agent",
+    name: "agent",
+    desc: "An LLM reasoning step, with optional memory connectors and other units attached as callable tools.",
   },
   {
-    title: "Configure the nodes",
-    body: (
-      <>
-        Click a node to open its editor. Fields marked{" "}
-        <span className="font-semibold text-red-600 dark:text-red-400">*</span> are required for
-        the graph to publish; each field shows a hint with an example value.
-      </>
-    ),
+    type: "exec",
+    name: "exec unit",
+    desc: "Sandboxed deterministic work — Python, scripts, commands, or a whole project, run under the sandbox backend.",
   },
   {
-    title: "Save, publish, deploy",
-    body: (
-      <>
-        Saving keeps everything in the draft. Publishing and running additionally need contracts,
-        a registered runner, and a deployment — the medium-code path done from your project code,
-        where the graph is wired to real tools and models.
-      </>
-    ),
+    type: "approval",
+    name: "approval",
+    desc: "A human-in-the-loop pause; the run holds until someone approves or rejects it in Approvals.",
   },
   {
-    title: "Submit a run",
-    body: (
-      <>
-        From the{" "}
-        <Link href="/runs" className="text-accent hover:underline">
-          Runs
-        </Link>{" "}
-        page (it has example payloads) or from your application via the API — see the snippet
-        below. The payload shape is defined by your graph&apos;s input contract.
-      </>
-    ),
+    type: "retrieval",
+    name: "retrieval",
+    desc: "Queries a memory connector and passes the top matches downstream — the grounding step in a RAG flow.",
   },
   {
-    title: "Operate",
-    body: (
-      <>
-        Watch the run&apos;s status and timeline, resolve any{" "}
-        <Link href="/approvals" className="text-accent hover:underline">
-          Approvals
-        </Link>{" "}
-        it pauses on, and inspect the per-node trail in{" "}
-        <Link href="/audit" className="text-accent hover:underline">
-          Audit
-        </Link>{" "}
-        — including tool calls, memory reads, tokens, and cost.
-      </>
-    ),
+    type: "subgraph",
+    name: "subgraph",
+    desc: "Invokes another published graph as a single step, keeping workflows small and composable.",
   },
 ];
 
-// Example config per node type, mirroring the NodeInspector fields.
-const NODE_EXAMPLES: Record<string, string> = {
-  agent: '{ "instruction": "Summarize the input…", "model_provider": "openai/gpt-4o" }',
-  executable_unit: '{ "manifest_ref": "tools/my_tool", "execution_mode": "native" }',
-  human_approval: '{ "sla_timeout_seconds": 86400 }',
-  retrieval: '{ "connector_ref": "key_value", "top_k": 5 }',
-  subgraph: '{ "graph_ref": "my-subflow", "version": 2 }',
-};
+// The quickstart never embeds a real credential: $ZEROTH_API_KEY is exported as
+// a placeholder and only referenced by name in the X-API-Key header.
+const QUICKSTART = `# Set your operator key — a placeholder; never commit a real one.
+export ZEROTH_API_KEY="your-operator-key"
 
-const CURL_EXAMPLE = `curl -X POST "$API_BASE/v1/runs" \\
-  -H "Content-Type: application/json" \\
+# Submit a run against the deployed graph. The payload shape is defined
+# by your graph's entrypoint (input) contract.
+curl -X POST "http://127.0.0.1:8000/v1/runs" \\
   -H "X-API-Key: $ZEROTH_API_KEY" \\
+  -H "Content-Type: application/json" \\
   -d '{"input_payload": {"question": "What is Zeroth?"}}'`;
+
+const DOCS_LINKS: { label: string; href: string; kind: string; tone: Tone }[] = [
+  {
+    label: "Getting Started tutorial",
+    href: "https://rrrozhd.github.io/zeroth-core/tutorials/getting-started/",
+    kind: "tutorial",
+    tone: "accent",
+  },
+  {
+    label: "Governance Walkthrough",
+    href: "https://rrrozhd.github.io/zeroth-core/tutorials/governance-walkthrough/",
+    kind: "tutorial",
+    tone: "agent",
+  },
+  {
+    label: "Full documentation",
+    href: "https://rrrozhd.github.io/zeroth-core/",
+    kind: "docs",
+    tone: "info",
+  },
+  {
+    label: "Source on GitHub",
+    href: "https://github.com/rrrozhd/zeroth-core",
+    kind: "repo",
+    tone: "neutral",
+  },
+];
+
+// --------------------------------------------------------------------------
+// Page
+// --------------------------------------------------------------------------
 
 export default function GuidePage() {
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Guide"
-        subtitle="From an empty deployment to a governed run, without leaving the console."
-      />
+    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+      <header style={{ marginBottom: 18 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Guide</h1>
+        <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
+          The core ideas behind a Zeroth deployment, the node types you&rsquo;ll build with, and how
+          to call the API.
+        </p>
+      </header>
 
-      <Card title="The big picture">
-        <dl className="grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
-          {CONCEPTS.map((c) => (
-            <div key={c.term}>
-              <dt className="font-medium">{c.term}</dt>
-              <dd className="mt-1 leading-relaxed text-muted">{c.def}</dd>
+      <NoteCallout>
+        A Zeroth app is an explicit <strong>graph</strong> whose node boundaries are guarded by
+        typed <strong>contracts</strong> and run under <strong>governance</strong> — approvals,
+        audit, and cost caps. Author it in Studio, then drive it over the same API the console uses.
+      </NoteCallout>
+
+      {/* Concepts */}
+      <div style={{ height: 24 }} />
+      <MonoLabel style={{ display: "block", marginBottom: 10 }}>Concepts</MonoLabel>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+        {CONCEPTS.map((c) => (
+          <Card key={c.title}>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12.5,
+                fontWeight: 600,
+                letterSpacing: "0.02em",
+                color: "var(--accent)",
+              }}
+            >
+              {c.title}
             </div>
-          ))}
-        </dl>
-      </Card>
+            <p
+              style={{
+                margin: "8px 0 0",
+                fontSize: 12.5,
+                lineHeight: 1.6,
+                color: "var(--text-muted)",
+              }}
+            >
+              {c.body}
+            </p>
+          </Card>
+        ))}
+      </div>
 
-      <Card title="From zero to a running workflow">
-        <ol className="space-y-4">
-          {STEPS.map((s, i) => (
-            <li key={s.title} className="flex gap-3 text-sm">
-              <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
-                {i + 1}
+      {/* Node types */}
+      <div style={{ height: 26 }} />
+      <MonoLabel style={{ display: "block", marginBottom: 10 }}>Node types</MonoLabel>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+        {NODE_TYPES.map((n) => (
+          <Card key={n.type} pad={14}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                aria-hidden
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: 2,
+                  background: NODE_TYPE_COLOR[n.type],
+                  flexShrink: 0,
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                }}
+              >
+                {n.name}
               </span>
-              <div>
-                <div className="font-medium">{s.title}</div>
-                <p className="mt-0.5 leading-relaxed text-muted">{s.body}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
+            </div>
+            <p
+              style={{
+                margin: "8px 0 0",
+                fontSize: 12,
+                lineHeight: 1.55,
+                color: "var(--text-muted)",
+              }}
+            >
+              {n.desc}
+            </p>
+          </Card>
+        ))}
+      </div>
+
+      {/* API quickstart */}
+      <div style={{ height: 26 }} />
+      <MonoLabel style={{ display: "block", marginBottom: 10 }}>API quickstart</MonoLabel>
+      <Card>
+        <p style={{ margin: "0 0 12px", fontSize: 12.5, lineHeight: 1.6, color: "var(--text-muted)" }}>
+          Anything the console does, your application can do — it&rsquo;s a client of the same API.
+          Submit a run with the operator key you connected with; the response includes a{" "}
+          <code style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>
+            run_id
+          </code>{" "}
+          you can poll at{" "}
+          <code style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>
+            GET /v1/runs/&#123;run_id&#125;
+          </code>
+          .
+        </p>
+        <CodeBlock label="Shell" code={QUICKSTART} />
       </Card>
 
-      <Card title="Node types">
-        <ul className="divide-y divide-border">
-          {Object.entries(NODE_META).map(([type, meta]) => (
-            <li key={type} className="flex gap-3 py-3 first:pt-0 last:pb-0">
-              <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
-                <NodeGlyph type={type} className="h-4 w-4" />
-              </span>
-              <div className="min-w-0 text-sm">
-                <div className="font-medium">
-                  {meta.blurb}{" "}
-                  <span className="font-mono text-xs font-normal text-muted">{type}</span>
-                </div>
-                <p className="mt-0.5 leading-relaxed text-muted">{meta.help}</p>
-                {NODE_EXAMPLES[type] && (
-                  <code className="mt-1.5 block overflow-x-auto whitespace-nowrap rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-muted dark:bg-zinc-800">
-                    {NODE_EXAMPLES[type]}
-                  </code>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+      {/* Docs links */}
+      <div style={{ height: 26 }} />
+      <MonoLabel style={{ display: "block", marginBottom: 10 }}>Documentation</MonoLabel>
+      <Card pad={0} style={{ overflow: "hidden" }}>
+        {DOCS_LINKS.map((l, i) => (
+          <a
+            key={l.href}
+            href={l.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "12px 16px",
+              borderTop: i === 0 ? "none" : "1px solid var(--hair)",
+              textDecoration: "none",
+              color: "inherit",
+            }}
+          >
+            <Pill tone={l.tone} style={{ flexShrink: 0 }}>
+              {l.kind}
+            </Pill>
+            <span
+              style={{
+                minWidth: 0,
+                flex: 1,
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: "var(--text-secondary)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {l.label}
+            </span>
+            <span
+              aria-hidden
+              style={{
+                flexShrink: 0,
+                fontFamily: "var(--font-mono)",
+                fontSize: 13,
+                color: "var(--accent)",
+              }}
+            >
+              ↗
+            </span>
+          </a>
+        ))}
       </Card>
+    </div>
+  );
+}
 
-      <Card title="Retrieval connectors">
-        <p className="text-sm leading-relaxed text-muted">
-          A retrieval node queries a{" "}
-          <span className="font-medium text-foreground">memory connector</span> registered on
-          the deployment — its Connector dropdown lists exactly what this deployment can
-          resolve. Three in-memory connectors (<Mono>ephemeral</Mono>, <Mono>key_value</Mono>,{" "}
-          <Mono>thread</Mono>) are always available for dev; production backends are enabled
-          per deployment via settings and their install extra:
-        </p>
-        <ul className="mt-3 space-y-1.5 text-sm text-muted">
-          <li>
-            <Mono>pgvector</Mono> — Postgres vector search: <Mono>zeroth-core[memory-pg]</Mono>{" "}
-            + <Mono>ZEROTH_PGVECTOR__ENABLED=true</Mono>
-          </li>
-          <li>
-            <Mono>chroma</Mono> — ChromaDB: <Mono>zeroth-core[memory-chroma]</Mono> +{" "}
-            <Mono>ZEROTH_CHROMA__ENABLED=true</Mono>
-          </li>
-          <li>
-            <Mono>elasticsearch</Mono> — Elasticsearch: <Mono>zeroth-core[memory-es]</Mono> +{" "}
-            <Mono>ZEROTH_ELASTICSEARCH__ENABLED=true</Mono>
-          </li>
-          <li>
-            <Mono>redis_kv</Mono> / <Mono>redis_thread</Mono> — Redis-backed stores when Redis
-            is configured
-          </li>
-        </ul>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          Backends can also be added at runtime — no env changes or restart — on the{" "}
-          <Link href="/connectors" className="text-accent hover:underline">
-            Connectors
-          </Link>{" "}
-          page. The API lists them at <Mono>GET /v1/connectors</Mono>.
-        </p>
-      </Card>
+// --------------------------------------------------------------------------
+// Local bits (mirrors the reconciliation screen's teal-tinted callout).
+// --------------------------------------------------------------------------
 
-      <Card title="Executable units & where code lives">
-        <p className="text-sm leading-relaxed text-muted">
-          An executable-unit node runs code that was{" "}
-          <span className="font-medium text-foreground">registered in Python</span> at
-          bootstrap — the medium-code path. You register a manifest (a{" "}
-          <Mono>NativeUnitManifest</Mono>, <Mono>WrappedCommandUnitManifest</Mono>, or{" "}
-          <Mono>ProjectUnitManifest</Mono>) together with its handler on the{" "}
-          <Mono>ExecutableUnitRegistry</Mono>, then reference it by ref on the canvas:
-        </p>
-        <code className="mt-3 block overflow-x-auto whitespace-nowrap rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-muted dark:bg-zinc-800">
-          registry.register(&quot;tools/summarize&quot;, manifest, input_model=In,
-          output_model=Out, handler=summarize)
-        </code>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          Code is never authored in the console — the canvas only wires registered units into
-          the graph. The Manifest ref dropdown in the node editor and{" "}
-          <Mono>GET /v1/manifests</Mono> list exactly what this deployment has registered.
-        </p>
-      </Card>
-
-      <Card title="Call the deployment from your app">
-        <p className="text-sm leading-relaxed text-muted">
-          Anything the console does, your application can do — the console is a client of the same
-          API. Submit a run with the key you connected with:
-        </p>
-        <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-700 ring-1 ring-border dark:bg-zinc-900/60 dark:text-zinc-300">
-          {CURL_EXAMPLE}
-        </pre>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          The response includes a <Mono>run_id</Mono> — poll <Mono>GET /v1/runs/{"{run_id}"}</Mono>{" "}
-          for status and output. Pass a <Mono>thread_id</Mono> to group multi-turn runs into one
-          conversation.
-        </p>
-      </Card>
+function NoteCallout({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        background: "color-mix(in srgb, var(--accent) 7%, transparent)",
+        border: "1px solid color-mix(in srgb, var(--accent) 24%, transparent)",
+        borderRadius: 8,
+        padding: "11px 13px",
+      }}
+    >
+      <StatusDot tone="accent" />
+      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "var(--text-secondary)" }}>
+        {children}
+      </p>
     </div>
   );
 }
