@@ -27,7 +27,8 @@ export type ImplementationOut = RS["ImplementationOut"];
 export type EnforcementActionOut = RS["EnforcementActionOut"];
 export type PolicyActionOut = RS["PolicyActionOut"];
 export type CostProfileOut = RS["CostProfileOut"];
-export type EstimateOut = RS["ValueEstimateOut"];
+// `/costing/estimates/{id}/latest` returns a COST estimate, not a value estimate.
+export type CostEstimate = RS["CostEstimateOut"];
 export type CalibrationSummary = RS["CalibrationSummary"];
 
 // --- Dashboard ---
@@ -72,22 +73,22 @@ export const rgPolicyActions = () => apiFetch<PolicyActionOut[]>(`${P}/enforceme
 export const rgApproveAction = (actionId: number, reason?: string) =>
   apiFetch<EnforcementActionOut>(`${P}/enforcement/actions/${actionId}/approve`, {
     method: "POST",
-    body: JSON.stringify({ reason: reason ?? null }),
+    body: JSON.stringify({ reason: reason ?? "" }),
   });
 export const rgRejectAction = (actionId: number, reason?: string) =>
   apiFetch<EnforcementActionOut>(`${P}/enforcement/actions/${actionId}/reject`, {
     method: "POST",
-    body: JSON.stringify({ reason: reason ?? null }),
+    body: JSON.stringify({ reason: reason ?? "" }),
   });
 
 // --- Costing / Performance ---
 export const rgCostProfile = (profileId: string) =>
   apiFetch<CostProfileOut>(`${P}/costing/profiles/${encodeURIComponent(profileId)}`);
 export const rgEstimateLatest = (capabilityId: string) =>
-  apiFetch<EstimateOut>(`${P}/costing/estimates/${encodeURIComponent(capabilityId)}/latest`);
+  apiFetch<CostEstimate>(`${P}/costing/estimates/${encodeURIComponent(capabilityId)}/latest`);
 export const rgPerformanceSummary = () => apiFetch<unknown>(`${P}/performance/summary`);
 export const rgPerformanceCapabilities = () => apiFetch<unknown>(`${P}/performance/capabilities`);
 
 // --- Reconciliation ---
 export const rgCalibrationSummary = () =>
-  apiFetch<CalibrationSummary>(`${P}/reconciliation/calibration-summary`);
+  apiFetch<CalibrationSummary[]>(`${P}/reconciliation/calibration-summary`);
