@@ -1,16 +1,32 @@
-import { getApiBase } from "./config";
+import { getApiBase, getApiKey } from "./config";
 
 export type RegulusStatus = "enabled" | "absent" | "unknown";
 
+/** Classify an *authenticated* probe of a Regulus route.
+ *
+ * The whole Zeroth service sits behind API-key auth middleware, so an
+ * unauthenticated request to any path — mounted or not — returns 401. The probe
+ * therefore MUST carry the key; only then does the status distinguish routing:
+ *   - 2xx  → the /regulus sub-app is mounted and served it → enabled
+ *   - 404  → auth passed but nothing is mounted at /regulus → absent (no extra)
+ *   - else → 401/403 (missing/invalid key/role) → can't tell → unknown (hide) */
 export function regulusStatusFrom(httpStatus: number): RegulusStatus {
-  if (httpStatus === 404) return "absent"; // mount guarded off (no regulus extra)
-  return "enabled"; // 200/401/403 => sub-app is mounted
+  if (httpStatus >= 200 && httpStatus < 300) return "enabled";
+  if (httpStatus === 404) return "absent";
+  return "unknown";
 }
 
-/** Probe the mounted Regulus openapi once. Cheap, unauthenticated GET. */
+/** Probe the mounted Regulus openapi once, WITH the API key. Returns "unknown"
+ *  when the key is absent or the network fails — the nav group only shows on a
+ *  definite "enabled", so an ambiguous result safely hides it. */
 export async function detectRegulus(): Promise<RegulusStatus> {
+  const key = getApiKey();
+  if (!key) return "unknown";
   try {
-    const res = await fetch(`${getApiBase()}/regulus/openapi.json`, { method: "GET" });
+    const res = await fetch(`${getApiBase()}/regulus/openapi.json`, {
+      method: "GET",
+      headers: { "X-API-Key": key },
+    });
     return regulusStatusFrom(res.status);
   } catch {
     return "unknown";
