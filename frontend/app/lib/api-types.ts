@@ -487,8 +487,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Attestation */
+        /**
+         * Get Attestation
+         * @description Return the persisted deployment attestation; requires ``Permission.DEPLOYMENT_READ``.
+         */
         get: operations["get_attestation_v1_deployments__deployment_ref__attestation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/deployments/{deployment_ref}/attestation/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Attestation Verify
+         * @description Server self-verifies its persisted attestation (digest + signature).
+         */
+        get: operations["get_attestation_verify_v1_deployments__deployment_ref__attestation_verify_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -506,7 +529,7 @@ export interface paths {
         };
         /**
          * Verify Deployment Audit Chain
-         * @description Verify digest-chain continuity across every run of a deployment.
+         * @description Verify digest continuity + signatures across every run of a deployment.
          */
         get: operations["verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get"];
         put?: never;
@@ -524,7 +547,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Audits */
+        /**
+         * List Audits
+         * @description List a deployment's audit records; requires ``Permission.AUDIT_READ``.
+         */
         get: operations["list_audits_v1_deployments__deployment_ref__audits_get"];
         put?: never;
         post?: never;
@@ -561,7 +587,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Deployment Evidence */
+        /**
+         * Get Deployment Evidence
+         * @description Return the evidence bundle for a deployment; requires ``Permission.AUDIT_READ``.
+         */
         get: operations["get_deployment_evidence_v1_deployments__deployment_ref__evidence_get"];
         put?: never;
         post?: never;
@@ -666,7 +695,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Deployment Timeline */
+        /**
+         * Get Deployment Timeline
+         * @description Return a deployment's ordered audit timeline; requires ``Permission.AUDIT_READ``.
+         */
         get: operations["get_deployment_timeline_v1_deployments__deployment_ref__timeline_get"];
         put?: never;
         post?: never;
@@ -685,8 +717,160 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Post Verify Attestation */
+        /**
+         * Post Verify Attestation
+         * @description Verify a client-supplied attestation against the bound deployment.
+         */
         post: operations["post_verify_attestation_v1_deployments__deployment_ref__verify_attestation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/quality-verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach Quality Verdict
+         * @description Attach an external good/bad verdict to a terminal run for quality-aware economics.
+         *
+         *     The runtime can't know whether an answer was *good*, so this is the honest way to
+         *     feed that signal in: a human reviewer or downstream check records a verdict, and
+         *     unit economics then reports cost per good outcome over the labeled subset.
+         *
+         *     Annotation, not evidence — it merges under ``run.metadata['quality_verdict']`` and is
+         *     deliberately off the audit hash-chain. Admin-only (``METRICS_ADMIN``). 404 for an
+         *     unknown or out-of-deployment run; 409 for a non-terminal run (no outcome to judge yet).
+         */
+        post: operations["attach_quality_verdict_v1_econ_quality_verdict_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/rightsizing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suggest Rightsizing
+         * @description Return cheaper, capability-compatible alternatives to ``body.incumbent``.
+         *
+         *     Candidates to A/B test, not a verdict — the endpoint gates on capability and
+         *     price only. An unknown incumbent returns ``incumbent_known=False`` (a 200 with an
+         *     explanation), never an error.
+         */
+        post: operations["suggest_rightsizing_v1_econ_rightsizing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/rightsizing/experiment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Rightsizing Experiment
+         * @description Replay this node's real inputs through cheaper models and measure equivalence.
+         *
+         *     Every branch returns a 200 with an explanatory ``note`` rather than an error: an
+         *     unpriced incumbent, no cheaper candidates, no run history, or a missing provider key
+         *     are all *results* of the measurement, not failures of the endpoint.
+         */
+        post: operations["run_rightsizing_experiment_v1_econ_rightsizing_experiment_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/rightsizing/opportunities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rightsizing Opportunities
+         * @description Rank this deployment's agent nodes by right-sizing opportunity (spend × savings).
+         *
+         *     Read-only aggregation over the audit trail — no LLM calls. Surfaces which nodes are
+         *     worth a measured experiment. Returns an empty report (200) when no spend is on record.
+         */
+        get: operations["rightsizing_opportunities_v1_econ_rightsizing_opportunities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/unit-economics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Unit Economics
+         * @description Cost per successful outcome and the failure tax over the last ``window`` runs.
+         *
+         *     Read-only aggregation over the run + audit trail — no LLM calls, no Regulus. Every
+         *     state is a 200: no runs, no attributed cost, or no successes yet are all *results*
+         *     carried in the report's ``note``, never errors. Returns 503 only when the
+         *     repositories themselves are unavailable.
+         */
+        get: operations["get_unit_economics_v1_econ_unit_economics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/waste": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Waste
+         * @description Deployment-wide structural-waste rollup over the last ``window`` runs.
+         *
+         *     Runs ``analyze_run`` per top-level run and sums confirmed (paid-for-failed) vs
+         *     flagged (loops/retries) waste — which never share a dollar. Read-only, no LLM, no
+         *     Regulus. Every data state is a 200 carried in ``note``; ``limit`` caps the returned
+         *     top findings. Returns 503 only when the repositories are unavailable.
+         */
+        get: operations["get_waste_v1_econ_waste_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -733,6 +917,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/retention/erasure-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request Erasure
+         * @description Erase one run or every non-held run of the caller's tenant (409 on hold).
+         */
+        post: operations["request_erasure_v1_retention_erasure_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/retention/legal-holds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Place Legal Hold
+         * @description Place a run-scoped or tenant-wide legal hold for the caller's tenant.
+         */
+        post: operations["place_legal_hold_v1_retention_legal_holds_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/retention/legal-holds/{hold_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Release Legal Hold
+         * @description Release a legal hold owned by the caller's tenant (404 otherwise).
+         */
+        delete: operations["release_legal_hold_v1_retention_legal_holds__hold_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/retention/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Retention Policy
+         * @description Return the caller tenant's resolved retention policy (admin-tier).
+         */
+        get: operations["get_retention_policy_v1_retention_policy_get"];
+        /**
+         * Put Retention Policy
+         * @description Create or replace the caller tenant's retention policy (admin-tier).
+         */
+        put: operations["put_retention_policy_v1_retention_policy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runs": {
         parameters: {
             query?: never;
@@ -742,7 +1010,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Run */
+        /**
+         * Create Run
+         * @description Validate, guard-check, and queue a new run; requires ``Permission.RUN_CREATE``.
+         */
         post: operations["create_run_v1_runs_post"];
         delete?: never;
         options?: never;
@@ -757,7 +1028,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run */
+        /**
+         * Get Run
+         * @description Return the public status of a run; requires ``Permission.RUN_READ``.
+         */
         get: operations["get_run_v1_runs__run_id__get"];
         put?: never;
         post?: never;
@@ -776,7 +1050,7 @@ export interface paths {
         };
         /**
          * Verify Run Audit Chain
-         * @description Verify the tamper-evident digest chain over a run's audit records.
+         * @description Verify the digest chain + signatures over a run's audit records.
          */
         get: operations["verify_run_audit_chain_v1_runs__run_id__audit_verification_get"];
         put?: never;
@@ -794,7 +1068,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run Evidence */
+        /**
+         * Get Run Evidence
+         * @description Return the evidence bundle for a run; requires ``Permission.AUDIT_READ``.
+         */
         get: operations["get_run_evidence_v1_runs__run_id__evidence_get"];
         put?: never;
         post?: never;
@@ -811,10 +1088,33 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run Timeline */
+        /**
+         * Get Run Timeline
+         * @description Return the ordered audit timeline for a run; requires ``Permission.AUDIT_READ``.
+         */
         get: operations["get_run_timeline_v1_runs__run_id__timeline_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/verify-chain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Verify Run Chain
+         * @description POST alias of the run audit-verification with an optional head pin.
+         */
+        post: operations["post_verify_run_chain_v1_runs__run_id__verify_chain_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1183,22 +1483,26 @@ export interface components {
         ApprovalStatus: "pending" | "resolved" | "escalated";
         /**
          * AttestationVerificationResponse
-         * @description Verification result for a supplied deployment attestation.
+         * @description Dual-check verification result for a deployment attestation.
+         *
+         *     ``verified`` stays the overall pass/fail. ``digest_verified`` is the digest
+         *     recompute axis; ``signature_verified`` is the keyed axis (three-state, null =
+         *     unsigned-legacy). Neither masks the other.
          */
         AttestationVerificationResponse: {
-            /** Mismatches */
-            mismatches?: string[];
-            /** Verified */
-            verified: boolean;
             /**
              * Digest Verified
              * @default false
              */
             digest_verified: boolean;
+            /** Mismatches */
+            mismatches?: string[];
             /** Signature Verified */
             signature_verified?: boolean | null;
             /** Signing Key Id */
             signing_key_id?: string | null;
+            /** Verified */
+            verified: boolean;
         };
         /**
          * AuditRecordListResponse
@@ -1224,7 +1528,12 @@ export interface components {
         };
         /**
          * AuditVerificationResponse
-         * @description Result of verifying the tamper-evident digest chain for a scope.
+         * @description Result of verifying the audit chain for a scope.
+         *
+         *     ``verified`` is the unkeyed digest-continuity axis. ``signature_verified`` is
+         *     the independent WS-D keyed axis, three-state: True (all signed records
+         *     valid), False (a signed record failed), null (unsigned-legacy — render
+         *     neutral, never green or red).
          */
         AuditVerificationResponse: {
             /** Error */
@@ -1238,8 +1547,6 @@ export interface components {
             record_count: number;
             /** Scope */
             scope: string;
-            /** Verified */
-            verified: boolean;
             /** Signature Verified */
             signature_verified?: boolean | null;
             /** Signing Key Id */
@@ -1249,6 +1556,8 @@ export interface components {
              * @default 0
              */
             unsigned_record_count: number;
+            /** Verified */
+            verified: boolean;
         };
         /**
          * AuthMethod
@@ -1256,6 +1565,55 @@ export interface components {
          * @enum {string}
          */
         AuthMethod: "api_key" | "bearer";
+        /**
+         * CandidateOutcome
+         * @description One model's measured result in a right-sizing experiment.
+         */
+        CandidateOutcome: {
+            /**
+             * Capability Ok
+             * @default true
+             */
+            capability_ok: boolean;
+            /**
+             * Cases Errored
+             * @default 0
+             */
+            cases_errored: number;
+            /**
+             * Cases Evaluated
+             * @default 0
+             */
+            cases_evaluated: number;
+            /**
+             * Equivalence Rate
+             * @default 0
+             */
+            equivalence_rate: number;
+            /**
+             * Error Rate
+             * @default 0
+             */
+            error_rate: number;
+            /** Est Cost Per 1K Calls Usd */
+            est_cost_per_1k_calls_usd?: number | null;
+            /**
+             * Is Incumbent
+             * @default false
+             */
+            is_incumbent: boolean;
+            /**
+             * Meets Bar
+             * @default false
+             */
+            meets_bar: boolean;
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+            /** Savings Pct */
+            savings_pct?: number | null;
+        };
         /**
          * ConnectorCreateRequest
          * @description Payload for creating a runtime-managed connector.
@@ -1414,8 +1772,14 @@ export interface components {
          * @description Stable attestation payload for a deployment snapshot.
          */
         DeploymentAttestationResponse: {
+            /** Attestation Algorithm */
+            attestation_algorithm?: string | null;
             /** Attestation Digest */
             attestation_digest: string;
+            /** Attestation Signature */
+            attestation_signature?: string | null;
+            /** Attestation Signing Key Id */
+            attestation_signing_key_id?: string | null;
             /** Contract Snapshot Digest */
             contract_snapshot_digest: string;
             /** Created At */
@@ -1442,12 +1806,6 @@ export interface components {
             graph_version_ref: string;
             /** Settings Snapshot Digest */
             settings_snapshot_digest: string;
-            /** Attestation Signature */
-            attestation_signature?: string | null;
-            /** Attestation Signing Key Id */
-            attestation_signing_key_id?: string | null;
-            /** Attestation Algorithm */
-            attestation_algorithm?: string | null;
         };
         /**
          * DeploymentCostResponse
@@ -1573,6 +1931,59 @@ export interface components {
             updated_at: string;
         };
         /**
+         * ErasureRequestBody
+         * @description Request body for POST /retention/erasure-requests.
+         *
+         *     Exactly one of ``run_id`` (erase one run) or ``tenant_id`` (erase every
+         *     non-held run for the tenant) must be supplied.
+         */
+        ErasureRequestBody: {
+            /** Run Id */
+            run_id?: string | null;
+            /** Tenant Id */
+            tenant_id?: string | null;
+        };
+        /**
+         * ErasureResponse
+         * @description Result of an erasure request (one or many runs).
+         */
+        ErasureResponse: {
+            /** Reason */
+            reason: string;
+            /** Runs */
+            runs?: components["schemas"]["ErasureRunResult"][];
+        };
+        /**
+         * ErasureRunResult
+         * @description Per-run erasure counts.
+         */
+        ErasureRunResult: {
+            /**
+             * Artifacts Deleted
+             * @default 0
+             */
+            artifacts_deleted: number;
+            /**
+             * Audits Erased
+             * @default 0
+             */
+            audits_erased: number;
+            /**
+             * Checkpoints Deleted
+             * @default 0
+             */
+            checkpoints_deleted: number;
+            /** Econ Events Deleted */
+            econ_events_deleted?: number | null;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Run Redacted
+             * @default false
+             */
+            run_redacted: boolean;
+        };
+        /**
          * EvidenceSummaryResponse
          * @description Aggregated governance counts for an evidence bundle.
          */
@@ -1598,10 +2009,181 @@ export interface components {
              */
             tool_call_count: number;
         };
+        /**
+         * ExperimentReport
+         * @description Result of a measured right-sizing experiment for one node.
+         */
+        ExperimentReport: {
+            /**
+             * Cases
+             * @default 0
+             */
+            cases: number;
+            harvest?: components["schemas"]["HarvestStats"] | null;
+            /** Incumbent */
+            incumbent: string;
+            /**
+             * Incumbent Self Equivalence
+             * @default 0
+             */
+            incumbent_self_equivalence: number;
+            /**
+             * Mean Input Tokens
+             * @default 0
+             */
+            mean_input_tokens: number;
+            /**
+             * Mean Output Tokens
+             * @default 0
+             */
+            mean_output_tokens: number;
+            /**
+             * Min Cases
+             * @default 5
+             */
+            min_cases: number;
+            /**
+             * Mode
+             * @default equivalence
+             */
+            mode: string;
+            /** Node Id */
+            node_id?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Outcomes */
+            outcomes?: components["schemas"]["CandidateOutcome"][];
+            /** Recommended Model */
+            recommended_model?: string | null;
+            /**
+             * Token Profile Measured
+             * @default false
+             */
+            token_profile_measured: boolean;
+            /**
+             * Tolerance Pct
+             * @default 5
+             */
+            tolerance_pct: number;
+            /**
+             * Verdict
+             * @default none
+             */
+            verdict: string;
+        };
+        /**
+         * ExperimentRequest
+         * @description Request body for POST /v1/econ/rightsizing/experiment (measured right-sizing).
+         *
+         *     Replays this node's real audit-trail inputs through cheaper candidate models and scores
+         *     equivalence to the incumbent. Runs real LLM calls, so the sample is capped small — the
+         *     result is a *flagged* lead below ``min_cases``, not a *confirmed* switch.
+         */
+        ExperimentRequest: {
+            /**
+             * Incumbent
+             * @description Current model, e.g. openai/gpt-4o
+             */
+            incumbent: string;
+            /**
+             * Instruction
+             * @description The agent's system instruction
+             */
+            instruction: string;
+            /** Judge Model */
+            judge_model?: string | null;
+            /**
+             * Max Candidates
+             * @default 2
+             */
+            max_candidates: number;
+            /**
+             * Max Cases
+             * @default 5
+             */
+            max_cases: number;
+            /**
+             * Min Cases
+             * @default 5
+             */
+            min_cases: number;
+            /**
+             * Mode
+             * @default equivalence
+             * @enum {string}
+             */
+            mode: "equivalence" | "correctness";
+            /**
+             * Needs Tools
+             * @default false
+             */
+            needs_tools: boolean;
+            /**
+             * Needs Vision
+             * @default false
+             */
+            needs_vision: boolean;
+            /** Node Id */
+            node_id: string;
+            /**
+             * Tolerance Pct
+             * @default 5
+             */
+            tolerance_pct: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HarvestStats
+         * @description What the audit-trail harvest yielded and dropped.
+         */
+        HarvestStats: {
+            /**
+             * Cases
+             * @default 0
+             */
+            cases: number;
+            /**
+             * Mean Input Tokens
+             * @default 1000
+             */
+            mean_input_tokens: number;
+            /**
+             * Mean Output Tokens
+             * @default 300
+             */
+            mean_output_tokens: number;
+            /**
+             * Skipped Empty Output
+             * @default 0
+             */
+            skipped_empty_output: number;
+            /**
+             * Skipped Not Success
+             * @default 0
+             */
+            skipped_not_success: number;
+            /**
+             * Skipped Other Model
+             * @default 0
+             */
+            skipped_other_model: number;
+            /**
+             * Skipped Used Tools
+             * @default 0
+             */
+            skipped_used_tools: number;
+            /**
+             * Token Profile Measured
+             * @default false
+             */
+            token_profile_measured: boolean;
         };
         /**
          * HealthResponse
@@ -1629,6 +2211,39 @@ export interface components {
          * @enum {string}
          */
         HumanInteractionType: "approval" | "clarification" | "request_input" | "notification";
+        /**
+         * LegalHoldBody
+         * @description Request body for POST /retention/legal-holds.
+         *
+         *     ``run_id`` omitted places a tenant-wide hold (freezes every run).
+         */
+        LegalHoldBody: {
+            /** Reason */
+            reason?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+        };
+        /**
+         * LegalHoldResponse
+         * @description A placed or listed legal hold.
+         */
+        LegalHoldResponse: {
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Hold Id */
+            hold_id: string;
+            /** Placed By */
+            placed_by?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Tenant Id */
+            tenant_id: string;
+        };
         /**
          * LivenessResponse
          * @description Response payload for the liveness probe.
@@ -1676,6 +2291,41 @@ export interface components {
             value?: unknown | null;
         };
         /**
+         * ModelOption
+         * @description One cheaper, capability-compatible alternative to the incumbent model.
+         */
+        ModelOption: {
+            /** Blended Per Mtok Usd */
+            blended_per_mtok_usd: number;
+            /** Input Per Mtok Usd */
+            input_per_mtok_usd: number;
+            /** Max Input Tokens */
+            max_input_tokens?: number | null;
+            /** Model */
+            model: string;
+            /** Output Per Mtok Usd */
+            output_per_mtok_usd: number;
+            /** Provider */
+            provider: string;
+            /**
+             * Same Provider
+             * @default false
+             */
+            same_provider: boolean;
+            /** Savings Pct */
+            savings_pct: number;
+            /**
+             * Supports Tools
+             * @default false
+             */
+            supports_tools: boolean;
+            /**
+             * Supports Vision
+             * @default false
+             */
+            supports_vision: boolean;
+        };
+        /**
          * NodeAuditRecord
          * @description The main audit record for a single node execution.
          *
@@ -1694,6 +2344,8 @@ export interface components {
             attempt: number;
             /** Audit Id */
             audit_id: string;
+            /** Chain Sequence */
+            chain_sequence?: number | null;
             /** Completed At */
             completed_at?: string | null;
             /** Condition Results */
@@ -1706,6 +2358,20 @@ export interface components {
             cost_usd?: number | null;
             /** Deployment Ref */
             deployment_ref: string;
+            /**
+             * Digest Version
+             * @default 1
+             */
+            digest_version: number;
+            /**
+             * Erased
+             * @default false
+             */
+            erased: boolean;
+            /** Erased At */
+            erased_at?: string | null;
+            /** Erasure Reason */
+            erasure_reason?: string | null;
             /** Error */
             error?: string | null;
             /** Execution Metadata */
@@ -1731,12 +2397,22 @@ export interface components {
             output_snapshot?: {
                 [key: string]: unknown;
             };
+            /** Pii Commitments */
+            pii_commitments?: {
+                [key: string]: string;
+            } | null;
             /** Previous Record Digest */
             previous_record_digest?: string | null;
             /** Record Digest */
             record_digest?: string | null;
+            /** Record Signature */
+            record_signature?: string | null;
             /** Run Id */
             run_id: string;
+            /** Signing Algorithm */
+            signing_algorithm?: string | null;
+            /** Signing Key Id */
+            signing_key_id?: string | null;
             /**
              * Started At
              * Format: date-time
@@ -1766,6 +2442,55 @@ export interface components {
             };
             /** Workspace Id */
             workspace_id?: string | null;
+        };
+        /**
+         * NodeSpend
+         * @description Attributed spend and right-sizing potential for one node.
+         */
+        NodeSpend: {
+            /** Best Savings Pct */
+            best_savings_pct?: number | null;
+            /**
+             * Cheaper Alternatives
+             * @default 0
+             */
+            cheaper_alternatives: number;
+            /**
+             * Experiment Ready
+             * @default false
+             */
+            experiment_ready: boolean;
+            /** Incumbent Model */
+            incumbent_model?: string | null;
+            /**
+             * Mean Cost Per Call Usd
+             * @default 0
+             */
+            mean_cost_per_call_usd: number;
+            /** Node Id */
+            node_id: string;
+            /** Projected Savings Usd */
+            projected_savings_usd?: number | null;
+            /**
+             * Runs
+             * @default 0
+             */
+            runs: number;
+            /**
+             * Tool Free Runs
+             * @default 0
+             */
+            tool_free_runs: number;
+            /**
+             * Total Cost Usd
+             * @default 0
+             */
+            total_cost_usd: number;
+            /**
+             * Uses Tools
+             * @default false
+             */
+            uses_tools: boolean;
         };
         /**
          * NodeTypeResponse
@@ -1810,6 +2535,88 @@ export interface components {
             version: number;
         };
         /**
+         * QualityEconomicsReport
+         * @description Cost per *quality* success over the labeled subset of the window.
+         *
+         *     Every headline travels with its coverage so the number can never be read alone.
+         */
+        QualityEconomicsReport: {
+            /**
+             * Cost On Quality Failures Usd
+             * @default 0
+             */
+            cost_on_quality_failures_usd: number;
+            /** Cost Per Quality Success Usd */
+            cost_per_quality_success_usd?: number | null;
+            /**
+             * Coverage
+             * @default 0
+             */
+            coverage: number;
+            /**
+             * Labeled Terminal Runs
+             * @default 0
+             */
+            labeled_terminal_runs: number;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Quality Success Rate Over Labeled
+             * @default 0
+             */
+            quality_success_rate_over_labeled: number;
+            /**
+             * Quality Successes
+             * @default 0
+             */
+            quality_successes: number;
+            /** Sources */
+            sources?: string[];
+            /**
+             * State
+             * @default not_configured
+             * @enum {string}
+             */
+            state: "ok" | "not_configured" | "below_coverage_floor";
+            /**
+             * Terminal Runs
+             * @default 0
+             */
+            terminal_runs: number;
+        };
+        /**
+         * QualityVerdictRequest
+         * @description Request body for POST /econ/quality-verdict.
+         */
+        QualityVerdictRequest: {
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Expected Output */
+            expected_output?: string | null;
+            /** Rubric Id */
+            rubric_id?: string | null;
+            /** Run Id */
+            run_id: string;
+            /** Score */
+            score?: number | null;
+            /**
+             * Source
+             * @description Who/what judged it, e.g. 'human:alice'
+             */
+            source: string;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "good" | "bad" | "unknown";
+        };
+        /**
          * ReadinessResponse
          * @description Response payload for the readiness probe.
          */
@@ -1820,6 +2627,112 @@ export interface components {
             };
             /** Status */
             status: string;
+        };
+        /**
+         * RetentionPolicyBody
+         * @description Request body for PUT /retention/policy.
+         */
+        RetentionPolicyBody: {
+            /** Audit Ttl Seconds */
+            audit_ttl_seconds?: number | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Run Ttl Seconds */
+            run_ttl_seconds?: number | null;
+        };
+        /**
+         * RetentionPolicyResponse
+         * @description A tenant's resolved retention policy.
+         */
+        RetentionPolicyResponse: {
+            /** Audit Ttl Seconds */
+            audit_ttl_seconds?: number | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Run Ttl Seconds */
+            run_ttl_seconds?: number | null;
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
+         * RightsizingRequest
+         * @description Request body for POST /v1/econ/rightsizing.
+         *
+         *     Task-shape flags are *capability gates*, derived from how the node is wired: an agent
+         *     with tools attached needs ``needs_tools``; one handed images needs ``needs_vision``.
+         */
+        RightsizingRequest: {
+            /**
+             * Incumbent
+             * @description Current model, e.g. openai/gpt-4o
+             */
+            incumbent: string;
+            /**
+             * Limit
+             * @default 6
+             */
+            limit: number;
+            /**
+             * Min Savings Pct
+             * @default 20
+             */
+            min_savings_pct: number;
+            /**
+             * Needs Tools
+             * @default false
+             */
+            needs_tools: boolean;
+            /**
+             * Needs Vision
+             * @default false
+             */
+            needs_vision: boolean;
+        };
+        /**
+         * RightsizingResult
+         * @description Cheaper capability-compatible candidates for an incumbent model, or why there are none.
+         *
+         *     ``incumbent_known`` is ``False`` when litellm has no pricing for the incumbent (e.g. a
+         *     model newer than the installed litellm) — the honest signal that this is a *pricing gap*,
+         *     not "nothing is cheaper". Never let an unknown incumbent read as "no savings available".
+         */
+        RightsizingResult: {
+            /**
+             * Assumption
+             * @default blended price assumes a 3:1 input:output token ratio
+             */
+            assumption: string;
+            /** Candidates */
+            candidates?: components["schemas"]["ModelOption"][];
+            /** Incumbent */
+            incumbent: string;
+            /** Incumbent Blended Per Mtok Usd */
+            incumbent_blended_per_mtok_usd?: number | null;
+            /** Incumbent Known */
+            incumbent_known: boolean;
+            /** Incumbent Provider */
+            incumbent_provider?: string | null;
+            /**
+             * Needs Tools
+             * @default false
+             */
+            needs_tools: boolean;
+            /**
+             * Needs Vision
+             * @default false
+             */
+            needs_vision: boolean;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
         };
         /**
          * RollbackDeploymentRequest
@@ -1914,6 +2827,32 @@ export interface components {
          */
         RunPublicStatus: "queued" | "running" | "paused_for_approval" | "waiting_interrupt" | "succeeded" | "failed" | "terminated_by_policy" | "terminated_by_loop_guard" | "dead_letter";
         /**
+         * RunQualityVerdict
+         * @description An externally-attached judgement of whether a run's output was good.
+         */
+        RunQualityVerdict: {
+            /** Attached At */
+            attached_at?: string | null;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Expected Output */
+            expected_output?: string | null;
+            /** Rubric Id */
+            rubric_id?: string | null;
+            /** Score */
+            score?: number | null;
+            /** Source */
+            source: string;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "good" | "bad" | "unknown";
+        };
+        /**
          * RunStatusResponse
          * @description Public serialization of run state.
          */
@@ -1954,6 +2893,24 @@ export interface components {
          * @enum {string}
          */
         ServiceRole: "operator" | "reviewer" | "admin";
+        /**
+         * SpendReport
+         * @description Deployment-wide spend attribution, ranked by right-sizing opportunity.
+         */
+        SpendReport: {
+            /** Nodes */
+            nodes?: components["schemas"]["NodeSpend"][];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Total Cost Usd
+             * @default 0
+             */
+            total_cost_usd: number;
+        };
         /**
          * StudioContractResponse
          * @description A registered contract, for canvas contract-ref pickers.
@@ -2098,6 +3055,49 @@ export interface components {
             total_cost_usd: number;
         };
         /**
+         * TenantEconomics
+         * @description Unit economics for one tenant (customer) within a deployment.
+         *
+         *     The 'which customer is unprofitable' view: same shape as WorkflowEconomics, keyed
+         *     by tenant_id instead of workflow_name.
+         */
+        TenantEconomics: {
+            /** Cost Per Successful Run Usd */
+            cost_per_successful_run_usd?: number | null;
+            /**
+             * Failed Runs
+             * @default 0
+             */
+            failed_runs: number;
+            /**
+             * Failure Tax Usd
+             * @default 0
+             */
+            failure_tax_usd: number;
+            /**
+             * Runs
+             * @default 0
+             */
+            runs: number;
+            /**
+             * Success Rate
+             * @default 0
+             */
+            success_rate: number;
+            /**
+             * Successful Runs
+             * @default 0
+             */
+            successful_runs: number;
+            /** Tenant Id */
+            tenant_id: string;
+            /**
+             * Terminal Cost Usd
+             * @default 0
+             */
+            terminal_cost_usd: number;
+        };
+        /**
          * TokenUsage
          * @description Token consumption metrics from a single LLM provider call.
          *
@@ -2151,6 +3151,94 @@ export interface components {
             tool_ref: string;
         };
         /**
+         * UnitEconomicsReport
+         * @description Deployment-wide unit economics: what a successful outcome costs, and the failure tax.
+         *
+         *     Computed over a bounded, most-recent window of top-level runs (``window_runs``); the
+         *     dollar figures are for that window, not all time.
+         */
+        UnitEconomicsReport: {
+            /** By Tenant */
+            by_tenant?: components["schemas"]["TenantEconomics"][];
+            /** By Workflow */
+            by_workflow?: components["schemas"]["WorkflowEconomics"][];
+            /**
+             * Cost On Failed Usd
+             * @default 0
+             */
+            cost_on_failed_usd: number;
+            /**
+             * Cost On In Flight Usd
+             * @default 0
+             */
+            cost_on_in_flight_usd: number;
+            /**
+             * Cost On Successful Usd
+             * @default 0
+             */
+            cost_on_successful_usd: number;
+            /** Cost Per Successful Run Usd */
+            cost_per_successful_run_usd?: number | null;
+            /**
+             * Failed Runs
+             * @default 0
+             */
+            failed_runs: number;
+            /**
+             * Failure Tax Ratio
+             * @default 0
+             */
+            failure_tax_ratio: number;
+            /**
+             * Failure Tax Usd
+             * @default 0
+             */
+            failure_tax_usd: number;
+            /**
+             * In Flight Runs
+             * @default 0
+             */
+            in_flight_runs: number;
+            /** Mean Cost Per Successful Run Usd */
+            mean_cost_per_successful_run_usd?: number | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            quality?: components["schemas"]["QualityEconomicsReport"] | null;
+            /**
+             * Runs With Cost
+             * @default 0
+             */
+            runs_with_cost: number;
+            /**
+             * Success Rate
+             * @default 0
+             */
+            success_rate: number;
+            /**
+             * Successful Runs
+             * @default 0
+             */
+            successful_runs: number;
+            /**
+             * Terminal Cost Usd
+             * @default 0
+             */
+            terminal_cost_usd: number;
+            /**
+             * Total Cost Usd
+             * @default 0
+             */
+            total_cost_usd: number;
+            /**
+             * Window Runs
+             * @default 0
+             */
+            window_runs: number;
+        };
+        /**
          * UpdateWorkflowRequest
          * @description Request body for updating an existing workflow.
          */
@@ -2177,6 +3265,140 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * VerifyChainRequest
+         * @description Optional body for POST /runs/{run_id}/verify-chain.
+         *
+         *     A client that recorded the chain head out-of-band can pin it: verification
+         *     additionally fails if the persisted head digest does not match.
+         */
+        VerifyChainRequest: {
+            /** Expected Head Digest */
+            expected_head_digest?: string | null;
+        };
+        /**
+         * WasteKind
+         * @description The category of an economic-waste finding.
+         * @enum {string}
+         */
+        WasteKind: "paid_for_failed_run" | "loop_reexecution" | "retry_overhead" | "cache_inefficiency";
+        /**
+         * WasteKindTotal
+         * @description Per-kind waste totals across the window.
+         */
+        WasteKindTotal: {
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            kind: components["schemas"]["WasteKind"];
+            /**
+             * Wasted Usd
+             * @default 0
+             */
+            wasted_usd: number;
+        };
+        /**
+         * WasteRollup
+         * @description Deployment-wide economic-waste rollup over a window of runs.
+         */
+        WasteRollup: {
+            /** By Kind */
+            by_kind?: components["schemas"]["WasteKindTotal"][];
+            /**
+             * Confirmed Findings
+             * @default 0
+             */
+            confirmed_findings: number;
+            /**
+             * Findings
+             * @default 0
+             */
+            findings: number;
+            /**
+             * Flagged Findings
+             * @default 0
+             */
+            flagged_findings: number;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Runs With Cost
+             * @default 0
+             */
+            runs_with_cost: number;
+            /**
+             * Runs With Waste
+             * @default 0
+             */
+            runs_with_waste: number;
+            /** Top Findings */
+            top_findings?: components["schemas"]["WasteRollupFinding"][];
+            /**
+             * Total Confirmed Waste Usd
+             * @default 0
+             */
+            total_confirmed_waste_usd: number;
+            /**
+             * Total Cost Usd
+             * @default 0
+             */
+            total_cost_usd: number;
+            /**
+             * Total Flagged Waste Usd
+             * @default 0
+             */
+            total_flagged_waste_usd: number;
+            /**
+             * Waste Ratio
+             * @default 0
+             */
+            waste_ratio: number;
+            /**
+             * Window Runs
+             * @default 0
+             */
+            window_runs: number;
+        };
+        /**
+         * WasteRollupFinding
+         * @description A waste finding tagged with the run it came from, so it stays actionable.
+         */
+        WasteRollupFinding: {
+            /**
+             * Confirmed
+             * @default false
+             */
+            confirmed: boolean;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            kind: components["schemas"]["WasteKind"];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Node Id */
+            node_id?: string | null;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Severity
+             * @default info
+             */
+            severity: string;
+            /**
+             * Wasted Usd
+             * @default 0
+             */
+            wasted_usd: number;
         };
         /**
          * WebhookDeadLetterListResponse
@@ -2270,6 +3492,46 @@ export interface components {
             /** Version */
             version: number;
             viewport: components["schemas"]["StudioViewport"];
+        };
+        /**
+         * WorkflowEconomics
+         * @description Unit economics for one workflow within a deployment.
+         */
+        WorkflowEconomics: {
+            /** Cost Per Successful Run Usd */
+            cost_per_successful_run_usd?: number | null;
+            /**
+             * Failed Runs
+             * @default 0
+             */
+            failed_runs: number;
+            /**
+             * Failure Tax Usd
+             * @default 0
+             */
+            failure_tax_usd: number;
+            /**
+             * Runs
+             * @default 0
+             */
+            runs: number;
+            /**
+             * Success Rate
+             * @default 0
+             */
+            success_rate: number;
+            /**
+             * Successful Runs
+             * @default 0
+             */
+            successful_runs: number;
+            /**
+             * Terminal Cost Usd
+             * @default 0
+             */
+            terminal_cost_usd: number;
+            /** Workflow Name */
+            workflow_name: string;
         };
         /**
          * WorkflowSummaryResponse
@@ -3167,6 +4429,37 @@ export interface operations {
             };
         };
     };
+    get_attestation_verify_v1_deployments__deployment_ref__attestation_verify_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttestationVerificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get: {
         parameters: {
             query?: never;
@@ -3521,6 +4814,188 @@ export interface operations {
             };
         };
     };
+    attach_quality_verdict_v1_econ_quality_verdict_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QualityVerdictRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunQualityVerdict"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_rightsizing_v1_econ_rightsizing_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RightsizingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RightsizingResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_rightsizing_experiment_v1_econ_rightsizing_experiment_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperimentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rightsizing_opportunities_v1_econ_rightsizing_opportunities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpendReport"];
+                };
+            };
+        };
+    };
+    get_unit_economics_v1_econ_unit_economics_get: {
+        parameters: {
+            query?: {
+                window?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitEconomicsReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_waste_v1_econ_waste_get: {
+        parameters: {
+            query?: {
+                window?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WasteRollup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_manifests_v1_manifests_get: {
         parameters: {
             query?: never;
@@ -3557,6 +5032,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    request_erasure_v1_retention_erasure_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ErasureRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErasureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    place_legal_hold_v1_retention_legal_holds_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LegalHoldBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegalHoldResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    release_legal_hold_v1_retention_legal_holds__hold_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hold_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegalHoldResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_retention_policy_v1_retention_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicyResponse"];
+                };
+            };
+        };
+    };
+    put_retention_policy_v1_retention_policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetentionPolicyBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3705,6 +5330,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditTimelineResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_verify_run_chain_v1_runs__run_id__verify_chain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["VerifyChainRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditVerificationResponse"];
                 };
             };
             /** @description Validation Error */
