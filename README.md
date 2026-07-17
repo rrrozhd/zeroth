@@ -33,11 +33,14 @@ curl -fsSL https://raw.githubusercontent.com/rrrozhd/zeroth-core/main/scripts/qu
 `bash quickstart.sh`. From an existing checkout just run `./scripts/quickstart.sh`.)
 
 The script installs [uv](https://docs.astral.sh/uv/) if missing, provisions
-Python 3.12, builds the web console when Node 20+ is available, prompts for an
-`OPENAI_API_KEY` (optional — without one you can still explore the console and
-Studio), and starts the service. Open **<http://127.0.0.1:8000/console/>** and
-connect with the demo key `demo-operator-key` — the console's Guide page and
-workflow templates take it from there.
+Python 3.12, builds the web console when Node 20+ is available, and starts the
+service. Run from a checkout it prompts for an `OPENAI_API_KEY`; piped through
+`bash` (the one-liner above) there is no TTY to prompt on, so it starts without
+one — export `OPENAI_API_KEY` beforehand for live answers. Either way the key is
+optional: without one you can still explore the console and Studio. Open
+**<http://127.0.0.1:8000/console/>** and connect with the demo key
+`demo-operator-key` — the console's Guide page and workflow templates take it
+from there.
 
 No clone needed — the pip install alone can serve a runnable demo:
 
@@ -48,7 +51,15 @@ zeroth-core seed-demo   # creates schema + a deployed single-agent graph;
 zeroth-core serve
 ```
 
-Or containerized: `docker build -t zeroth-core . && docker run -p 8000:8000 zeroth-core`
+Or containerized — seed once, then serve (the image's default command is
+`serve` only, so an unseeded container has no demo deployment):
+
+```bash
+docker build -t zeroth-core .
+docker run -v zeroth-data:/data zeroth-core zeroth-core seed-demo   # seed once
+docker run -p 8000:8000 -v zeroth-data:/data zeroth-core            # serve
+```
+
 (see `Dockerfile` and `docker-compose.yml`).
 
 ---
@@ -94,7 +105,7 @@ Most agent frameworks prioritize getting something working quickly. Zeroth prior
 
 ### Graphs
 
-A **graph** is your application. It defines how agents, executable units, and approval steps connect and interact. Graphs can be cyclic, support branching conditions, and are executed asynchronously.
+A **graph** is your application. It defines how agents, executable units, and approval steps connect and interact. Graphs can be cyclic, support branching conditions, and are executed asynchronously. A cyclic path must declare a loop safeguard — either set `max_visits_per_edge` in the graph's execution settings, or mark the looping edge's condition `allow_cycle_traversal` — otherwise validation rejects the graph rather than letting it spin.
 
 ### Node Types
 
@@ -113,7 +124,7 @@ Node inputs and outputs are defined by **contracts** — Pydantic-based schemas 
 
 ### Memory
 
-Agents can optionally attach **memory connectors** for persistent state. Multiple agents can share the same connector instance (and therefore share memory), or each agent can have its own. Memory types include key-value, thread-scoped, and run-ephemeral stores.
+Agents can optionally attach **memory connectors** for persistent state. Multiple agents can share the same connector instance (and therefore share memory), or each agent can have its own. Memory types include key-value, thread-scoped, and run-ephemeral stores, plus vector/knowledge backends (pgvector, Chroma, Elasticsearch) — the vector backends are what a Retrieval node queries to ground a RAG flow.
 
 ### Threads and Runs
 
@@ -123,10 +134,10 @@ A **run** is a single execution of a graph. A **thread** groups related runs tog
 
 Zeroth enforces governance at multiple layers:
 
-- **Policy** — capability-based rules controlling what agents can do (network access, file writes, memory access, secret usage). Enforcement is **on by default and fail-closed**: a served node that invokes a tool or touches memory without declaring the matching capability is *denied* (agent tool calls and memory reads/writes are behaviorally gated, not merely audited); an agent-invoked executable unit runs under the calling agent's enforcement envelope, so the sandbox network/secret gate applies to it too. Behavioral **network and filesystem** isolation for executable units requires the Docker or sidecar backend — the local backend refuses network-bearing nodes under the strict/standard sandbox posture rather than running them unconstrained. Turn enforcement off (capabilities become advisory) with `ZEROTH_POLICY__ENFORCE_CAPABILITIES=false`.
-- **Guardrails** — rate limiting, quota enforcement, and dead-letter queues for failed operations
-- **Budgets** — per-tenant spend caps enforced through the bundled economic control plane. Enforcement requires the `regulus` extra (included in `[all]`): with it installed, the plane is mounted in-process at `/regulus` with no env flags required, so a default deploy reaches it over the app's own ASGI transport, not a separate host, and per-tenant caps trip with per-node cost attribution from the first run. A fresh deploy auto-generates a strong **ephemeral per-process signing secret** for the mount, so it boots with no configuration; set `ECP_JWT_SECRET` to a persistent value for **multi-worker or persistent deployments**. Prefer an external Regulus instead? Point at it with `ZEROTH_REGULUS__BASE_URL` (and skip the in-process mount). Turn the plane off entirely with `ZEROTH_REGULUS__ENABLED=false`. The pre-LLM tenant check **fails open by default** — a control-plane outage never blocks a run, it is logged at `WARNING` and the cap simply isn't enforced for that call; flip to **fail-closed** (deny on backend error) with `ZEROTH_REGULUS__FAIL_CLOSED=true`. The tenant check is eventually consistent: it sees spend recorded *before* the current call (spend-to-date), so a single run can overshoot within one cycle. For a tighter, control-plane-independent guard, set a per-run cumulative ceiling with `ZEROTH_REGULUS__PER_RUN_CAP_USD` (USD) — enforced locally from the run's own audit cost, so it works even with the control plane disabled, halting a run on the next node once its accumulated cost crosses the cap. On a bare install (`pip install zeroth-core`, no extra) there is no enforcement backend at all — the pre-LLM tenant check fails open and caps are **not** enforced until you install the extra or point at an external plane.
-- **Audit** — per-node event tracking with secret redaction, timeline assembly, and evidence summaries
+- **Policy** — capability-based rules controlling what agents can do (network access, file writes, memory access, secret usage). Enforcement is **on by default and fail-closed**: a served node that invokes a tool or touches memory without declaring the matching capability is *denied* (agent tool calls and memory reads/writes are behaviorally gated, not merely audited); an agent-invoked executable unit runs under the calling agent's enforcement envelope, so the sandbox network/secret gate applies to it too. Behavioral **network and filesystem** isolation for executable units requires the Docker or sidecar backend. Under the **strict** posture the local backend is refused outright — a host subprocess can never provide hardened isolation; under the **standard** posture it is refused for any unit that requires hard isolation (network access or a resource limit), rather than running it unconstrained. Turn enforcement off (capabilities become advisory) with `ZEROTH_POLICY__ENFORCE_CAPABILITIES=false`.
+- **Guardrails** — rate limiting, quota enforcement, and dead-letter queues for failed operations, plus opt-in content safety on agent responses (blocklist and PII filters with a configurable enforcement mode)
+- **Budgets** — per-tenant spend caps enforced through the bundled economic control plane. Enforcement requires the `regulus` extra (included in `[all]`): with it installed, the plane is mounted in-process at `/regulus` with no env flags required, so a default deploy reaches it over the app's own ASGI transport, not a separate host, and per-tenant caps trip with per-node cost attribution from the first run. A fresh deploy auto-generates a strong **ephemeral per-process signing secret** for the mount, so it boots with no configuration; set `ECP_JWT_SECRET` to a persistent value for **multi-worker or persistent deployments**. Prefer an external Regulus instead? Point at it with `ZEROTH_REGULUS__BASE_URL`. Note the split: cost/event tracking always follows `BASE_URL`, but cap *enforcement* only follows it on a bare install — with the `regulus` extra installed the in-process mount takes precedence for enforcement, so disable the plane (`ZEROTH_REGULUS__ENABLED=false`) if you want enforcement to go to an external host. Turn the plane off entirely with `ZEROTH_REGULUS__ENABLED=false`. The pre-LLM tenant check **fails open by default** — a control-plane outage never blocks a run, it is logged at `WARNING` and the cap simply isn't enforced for that call; flip to **fail-closed** (deny on backend error) with `ZEROTH_REGULUS__FAIL_CLOSED=true`. The tenant check is eventually consistent: it sees spend recorded *before* the current call (spend-to-date), so a single run can overshoot within one cycle. For a tighter, control-plane-independent guard, set a per-run cumulative ceiling with `ZEROTH_REGULUS__PER_RUN_CAP_USD` (USD) — enforced locally from the run's own audit cost, so it works even with the control plane disabled, halting a run on the next node once its accumulated cost crosses the cap. On a bare install (`pip install zeroth-core`, no extra) there is no enforcement backend at all — the pre-LLM tenant check fails open and caps are **not** enforced until you install the extra or point at an external plane.
+- **Audit** — per-node event tracking with secret redaction, timeline assembly, and evidence summaries, recorded on an append-only **tamper-evident hash chain** (each record pins its predecessor's SHA-256 digest) with optional **keyed signing** over each digest, so history can be verified — and tampering detected — after the fact. Right-to-erasure is supported without breaking the chain: PII is crypto-erased behind per-field commitments, and a record that claims erasure while still carrying PII fails verification
 - **Approvals** — human-in-the-loop gates with decision tracking
 - **Secrets** — resolved from secure providers and automatically redacted from logs
 
@@ -141,7 +152,7 @@ Six further subsystems support production agentic workflows:
 - **Subgraph Composition** — Reference published graphs as nested nodes with inherited governance, configurable thread sharing, and approval propagation
 - **Artifact Store** — Externalize large binary outputs from nodes; retrieve via `GET /v1/artifacts/{id}`
 
-REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template management (`GET/POST/DELETE /v1/templates`) are available under `/v1/`.
+REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template management (`GET/POST /v1/templates`, `GET /v1/templates/{name}`, `DELETE /v1/templates/{name}/{version}`) are available under `/v1/`; prompt templates are also manageable from the console's Templates page.
 
 ---
 
@@ -166,10 +177,12 @@ REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template ma
 │  Context Window Mgmt    │  Resilient HTTP Client     │
 ├──────────────────────────────────────────────────────┤
 │  Audit  │  Guardrails  │  Secrets  │  Observability │
-├──────────────────────────────────────────────────────┤
+├────────────────────────┬─────────────────────────────┤
+│  Retention & Erasure   │  Provenance Signing         │
+├────────────────────────┴─────────────────────────────┤
 │  Econ Plane (cost attribution, tenant budget caps)   │
 ├──────────────────────────────────────────────────────┤
-│  Storage (SQLite + Redis)  │  Identity & Auth        │
+│  Storage (SQLite / Postgres + Redis) │ Identity & Auth│
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -236,10 +249,12 @@ src/zeroth/core/
 ├── config/             # Runtime settings and configuration reference
 ├── context_window/     # Token tracking and context compaction
 ├── contracts/          # Pydantic-based schema registration and versioning
+├── demos/              # Demo graph fixtures backing the seed-demo CLI command
 ├── deployments/        # Immutable graph snapshots and version management
 ├── dispatch/           # Durable run dispatch and worker supervision
 ├── econ/               # Cost estimation, budget enforcement, econ integration
 ├── eval/               # Agent evaluation harness: datasets, scorers, CI gate
+├── examples/           # Runnable quickstart and demo service
 ├── execution_units/    # Sandboxed code execution (Docker, Python, shell)
 ├── governed/           # Vendored governed-runtime primitives (absorbed governai): memory types, tool contracts, run-state, audit emitters
 ├── graph/              # Workflow DAG structure and persistence
@@ -254,18 +269,26 @@ src/zeroth/core/
 ├── parallel/           # Fan-out/fan-in concurrent branch execution
 ├── policy/             # Capability-based access control
 ├── rag/                # Document ingestion for retrieval (chunk + embed)
+├── retention/          # Per-tenant retention TTLs, legal holds, right-to-erasure
 ├── runs/               # Run and thread state persistence
 ├── sandbox_sidecar/    # Sidecar sandbox backend
 ├── secrets/            # Secret resolution and redaction
 ├── service/            # FastAPI HTTP API, console mount, bootstrap
-├── storage/            # SQLite, Redis, migrations, encryption
+├── signing/            # Keyed provenance signing over audit digests
+├── storage/            # SQLite, Postgres, Redis, migrations, encryption
 ├── subgraph/           # Nested graph composition and resolution
 ├── templates/          # Versioned prompt template registry
 └── webhooks/           # Webhook subscriptions, signed delivery, dead-letter
+```
 
-    econ_plane/         # Economic control plane backend (absorbed Regulus)
-    core/econ/instrumentation/  # Cost-instrumentation SDK used by core/econ/
-frontend/               # Next.js web console (static export, see below)
+The rest of the repo, relative to the root:
+
+```
+src/zeroth/
+├── core/                          # the tree above
+│   └── econ/instrumentation/      # Cost-instrumentation SDK used by core/econ/
+└── econ_plane/                    # Economic control plane backend (absorbed Regulus)
+frontend/                          # Next.js web console (static export, see below)
 ```
 
 ---
@@ -327,12 +350,17 @@ The console is built once and runs in **two modes from the same bundle**:
 The console reads its API base URL and `X-API-Key` from the browser at runtime
 (localStorage), so the same artifact works in both modes.
 
-**What it covers:** an overview/health dashboard with deployments and a
-getting-started checklist; runs (submit with example payloads, a live-polling
-detail view, and ready-made cURL for the deployed API); approvals
-(approve/reject); per-node audit; deployment cost; connector administration;
-a Studio with workflow templates, CRUD, publish/deploy, and a full-screen
-React Flow canvas; and an in-console Guide.
+**What it covers:** an overview/health dashboard with deployments (including
+rollback) and a getting-started checklist; runs (submit with example payloads, a
+live-polling detail view, `RUN_ADMIN` cancel/interrupt/replay controls, and
+ready-made cURL for the deployed API); approvals (approve/reject); per-node
+audit; a Cost page covering deployment cost, tenant month-to-date spend against
+the budget cap (settable in-console), and portfolio economics; a Retention &
+Compliance page for the tenant retention policy, legal holds, and
+right-to-erasure requests; prompt templates (register, preview, delete);
+integrations (webhook subscriptions and dead-letter replay); connector
+administration; a Studio with workflow templates, CRUD, publish/deploy, and a
+full-screen React Flow canvas; and an in-console Guide.
 
 > **Studio authoring closes the canvas→run loop.** On a *draft* you can add
 > any of the node types above — plus inline Python **code** nodes that execute
