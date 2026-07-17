@@ -10,7 +10,7 @@ we learn (ponytail: don't pre-write plans for work earlier phases will re-inform
 | Phase | Plan file | Status | Ships |
 |---|---|---|---|
 | **P0** Foundation | [P0-foundation.md](P0-foundation.md) | ✅ done (v0.10.1) | OpenAPI regen, design tokens, primitives, toast, polling, Connect bar, app shell, **Overview** |
-| **P1** Operate | [P1-operate.md](P1-operate.md) | ready | Runs, Approvals, Audit, Deployments |
+| **P1** Operate | [P1-operate.md](P1-operate.md) | ✅ done (v0.10.2) | Runs, Approvals, Audit, Deployments |
 | **P2** Build | _(write after P1)_ | pending | Studio (canvas re-skin), Templates, Connectors + webhooks |
 | **P3** Govern | _(write after P2)_ | pending | Cost, Retention, Rightsizing & Efficiency, Metrics |
 | **P4** Regulus | _(write after P3)_ | pending | Econ Dashboard, Capabilities, Enforcement, Costing, Reconciliation (graceful-degrade) |
