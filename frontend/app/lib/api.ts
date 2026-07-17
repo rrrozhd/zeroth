@@ -755,3 +755,41 @@ export function verifyDeploymentAuditChain(ref: string): Promise<AuditVerificati
     `/v1/deployments/${encodeURIComponent(ref)}/audit-verification`,
   );
 }
+
+// Attestation + cost — ref-parameterized. The older getDeploymentAttestation /
+// verifyDeploymentAttestation / getCost helpers target the *serving* deployment
+// (they resolve `deploymentRef()`); the Deployments screen selects an arbitrary
+// deployment, so it needs variants that take the ref explicitly.
+
+/** The persisted attestation for a specific deployment `ref` (WS-D). */
+export function getAttestationOf(ref: string): Promise<DeploymentAttestation> {
+  return apiFetch<DeploymentAttestation>(
+    `/v1/deployments/${encodeURIComponent(ref)}/attestation`,
+  );
+}
+
+/** GET self-verify: the server recomputes the digest + checks the signature of
+    its own persisted attestation for `ref`. */
+export function getAttestationVerifyOf(ref: string): Promise<AttestationVerification> {
+  return apiFetch<AttestationVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/attestation/verify`,
+  );
+}
+
+/** POST verify: submit an attestation body back to the server for verification.
+    The endpoint requires the attestation payload, so the persisted attestation is
+    fetched first and then round-tripped — proving the on-screen copy re-verifies. */
+export async function postVerifyAttestationOf(
+  ref: string,
+): Promise<AttestationVerification> {
+  const attestation = await getAttestationOf(ref);
+  return apiFetch<AttestationVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/verify-attestation`,
+    { method: "POST", body: JSON.stringify(attestation) },
+  );
+}
+
+/** Cumulative spend for a specific deployment `ref` (ref-taking sibling of getCost). */
+export function getCostOf(ref: string): Promise<DeploymentCost> {
+  return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
+}
