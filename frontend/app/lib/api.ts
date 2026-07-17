@@ -676,3 +676,82 @@ export function listNodeTypes(): Promise<NodeType[]> {
 export function errMsg(e: unknown): string {
   return e instanceof ApiError ? `${e.status || ""} ${e.message}`.trim() : String(e);
 }
+
+// ---------------------------------------------------------------------------
+// P1 Operate — admin run actions, run evidence/chain, deployment detail.
+// ---------------------------------------------------------------------------
+
+export type RunEvidence = S["RunEvidenceResponse"];
+export type DeploymentMetadata = S["DeploymentVersionMetadataResponse"];
+export type PublicContractSchema = S["PublicContractSchemaResponse"];
+export type DeploymentResultErrorStateSchema = S["DeploymentResultErrorStateSchemaResponse"];
+export type DeploymentEvidence = S["DeploymentEvidenceResponse"];
+
+export function cancelRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function interruptRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/interrupt`, {
+    method: "POST",
+  });
+}
+
+export function replayRun(runId: string): Promise<RunInvocationResponse> {
+  return apiFetch<RunInvocationResponse>(`/v1/admin/runs/${encodeURIComponent(runId)}/replay`, {
+    method: "POST",
+  });
+}
+
+export function getRunEvidence(runId: string): Promise<RunEvidence> {
+  return apiFetch<RunEvidence>(`/v1/runs/${encodeURIComponent(runId)}/evidence`);
+}
+
+export function verifyRunChain(runId: string): Promise<AuditVerification> {
+  return apiFetch<AuditVerification>(`/v1/runs/${encodeURIComponent(runId)}/verify-chain`, {
+    method: "POST",
+  });
+}
+
+// Deployment detail — ref-parameterized (the older attestation/cost/audit
+// helpers default to `deploymentRef()`; the Deployments screen targets a
+// selected ref explicitly).
+export function getDeploymentMetadata(ref: string): Promise<DeploymentMetadata> {
+  return apiFetch<DeploymentMetadata>(`/v1/deployments/${encodeURIComponent(ref)}/metadata`);
+}
+
+export function getDeploymentTimeline(ref: string): Promise<AuditTimeline> {
+  return apiFetch<AuditTimeline>(`/v1/deployments/${encodeURIComponent(ref)}/timeline`);
+}
+
+export function getDeploymentEvidence(ref: string): Promise<DeploymentEvidence> {
+  return apiFetch<DeploymentEvidence>(`/v1/deployments/${encodeURIComponent(ref)}/evidence`);
+}
+
+export function getInputContract(ref: string): Promise<PublicContractSchema> {
+  return apiFetch<PublicContractSchema>(
+    `/v1/deployments/${encodeURIComponent(ref)}/input-contract`,
+  );
+}
+
+export function getOutputContract(ref: string): Promise<PublicContractSchema> {
+  return apiFetch<PublicContractSchema>(
+    `/v1/deployments/${encodeURIComponent(ref)}/output-contract`,
+  );
+}
+
+export function getResultErrorStateSchema(
+  ref: string,
+): Promise<DeploymentResultErrorStateSchema> {
+  return apiFetch<DeploymentResultErrorStateSchema>(
+    `/v1/deployments/${encodeURIComponent(ref)}/result-error-state-schema`,
+  );
+}
+
+export function verifyDeploymentAuditChain(ref: string): Promise<AuditVerification> {
+  return apiFetch<AuditVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/audit-verification`,
+  );
+}

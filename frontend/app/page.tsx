@@ -8,12 +8,14 @@
 // key lives only in localStorage (via lib/config) — it is never logged and
 // never placed in a URL.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Card, Pill, Skeleton, StatusDot } from "@/app/components/primitives";
 import { useToast } from "@/app/components/Toast";
 import { useRegulus } from "@/app/components/regulusContext";
+import { RUN_TONE } from "@/app/components/runTone";
+import { useLoad, type Loadable } from "@/app/hooks/useLoad";
 import {
   errMsg,
   getHealth,
@@ -25,61 +27,6 @@ import {
   type HealthResponse,
 } from "@/app/lib/api";
 import { isConfigured } from "@/app/lib/config";
-
-// Run lifecycle -> dot/pill tone. Terminal-bad states read danger; the live
-// "running" state pulses.
-const RUN_TONE: Record<string, string> = {
-  queued: "warning",
-  running: "info",
-  paused_for_approval: "warning",
-  waiting_interrupt: "warning",
-  succeeded: "success",
-  failed: "danger",
-  terminated_by_policy: "danger",
-  terminated_by_loop_guard: "danger",
-  dead_letter: "danger",
-};
-
-type Loadable<T> = {
-  data: T | null;
-  error: string | null;
-  loading: boolean;
-  reload: () => void;
-};
-
-/** Fetch `fn` once on mount; `reload()` refetches. Keeps the last good data
- *  visible across a reload so only the first paint shows skeletons. */
-function useLoad<T>(fn: () => Promise<T>): Loadable<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [nonce, setNonce] = useState(0);
-  const fnRef = useRef(fn);
-  fnRef.current = fn;
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fnRef
-      .current()
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(errMsg(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [nonce]);
-
-  const reload = useCallback(() => setNonce((n) => n + 1), []);
-  return { data, error, loading, reload };
-}
 
 export default function Overview() {
   const router = useRouter();
