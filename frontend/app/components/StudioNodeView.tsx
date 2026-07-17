@@ -1,7 +1,7 @@
 "use client";
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { NodeGlyph } from "@/app/components/nodeMeta";
+import { nodeMetaColor, NODE_META } from "@/app/components/nodeMeta";
 import { useNodeIssue, useNodeRunState, type NodeRunState } from "@/app/components/runState";
 import { fmtUsd } from "@/app/components/ui";
 
@@ -18,12 +18,16 @@ const PORT_TONE: Record<string, string> = {
   tool: "!bg-violet-500",
 };
 
-// Run-overlay ring per execution phase; no entry = the default look below.
+// Handoff card drop shadow (0 4px 16px rgba(0,0,0,0.35)); a 2px ring is stacked
+// on top of it via box-shadow for selection / run / publish-issue overlays.
+const BASE_SHADOW = "0 4px 16px rgba(0,0,0,0.35)";
+
+// Ring color per execution phase; no entry = no run overlay.
 const RUN_RING: Record<NodeRunState["phase"], string> = {
-  running: "ring-2 ring-accent/60 animate-pulse",
-  succeeded: "ring-2 ring-emerald-500/50",
-  failed: "ring-2 ring-red-500/50",
-  waiting: "border-dashed ring-2 ring-zinc-400/40",
+  running: "rgba(94,234,212,0.6)", // --accent
+  succeeded: "rgba(134,239,172,0.55)", // --success
+  failed: "rgba(248,113,113,0.55)", // --danger
+  waiting: "rgba(163,173,194,0.45)", // --neutral
 };
 
 /** A graph node rendered with its typed ports as connectable handles:
@@ -39,25 +43,84 @@ export function StudioNodeView({ id, data, selected }: NodeProps) {
   const toolInputs = d.ports.filter((p) => p.direction === "input" && p.type === "tool");
   const toolOutputs = d.ports.filter((p) => p.direction === "output" && p.type === "tool");
 
-  // The run ring replaces the selection ring while an overlay is painted;
-  // selection keeps its accent border either way. Publish issues paint their
-  // own ring, but a live run overlay outranks them.
-  const issueRing =
-    issue === "error" ? "ring-2 ring-red-500/60" : issue ? "ring-2 ring-amber-500/60" : "";
-  const border = selected ? "border-accent" : "border-border hover:shadow-md";
-  const ring = run ? RUN_RING[run.phase] : issueRing || (selected ? "ring-2 ring-accent/30" : "");
+  const typeColor = nodeMetaColor(d.studioType);
+  const sub = NODE_META[d.studioType]?.blurb;
+
+  // Ring precedence: a live run overlay outranks a publish issue, which
+  // outranks the selection ring. The base drop shadow is always painted.
+  const issueRing = issue === "error" ? "rgba(248,113,113,0.6)" : issue ? "rgba(252,211,77,0.6)" : "";
+  const ringColor = run
+    ? RUN_RING[run.phase]
+    : issueRing || (selected ? "rgba(94,234,212,0.35)" : "");
+  const borderColor = selected ? "rgba(94,234,212,0.6)" : "rgba(255,255,255,0.1)";
+  const boxShadow = ringColor ? `${BASE_SHADOW}, 0 0 0 2px ${ringColor}` : BASE_SHADOW;
 
   return (
     <div
-      className={`relative flex min-w-[180px] items-center gap-2.5 rounded-lg border bg-surface px-3 py-2.5 shadow-sm transition-shadow ${border} ${ring}`}
+      className={`relative ${run?.phase === "running" ? "z-pulse" : ""}`}
+      style={{
+        width: 178,
+        background: "var(--bg-raised)",
+        border: `1px solid ${borderColor}`,
+        borderStyle: run?.phase === "waiting" ? "dashed" : "solid",
+        borderRadius: 8,
+        boxShadow,
+        cursor: "grab",
+        padding: "10px 12px",
+      }}
     >
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
-        <NodeGlyph type={d.studioType} className="h-4 w-4" />
-      </span>
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold leading-tight">{d.label}</div>
-        <div className="text-[10px] uppercase tracking-wide text-muted">{d.studioType}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+        <span
+          aria-hidden
+          style={{
+            width: 7,
+            height: 7,
+            flexShrink: 0,
+            borderRadius: 2,
+            background: typeColor,
+          }}
+        />
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 9,
+            fontWeight: 600,
+            letterSpacing: "0.09em",
+            textTransform: "uppercase",
+            color: "var(--text-muted)",
+          }}
+        >
+          {d.studioType}
+        </span>
       </div>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 12.5,
+          fontWeight: 600,
+          lineHeight: 1.25,
+          color: "var(--text-primary)",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {d.label}
+      </div>
+      {sub && (
+        <div
+          style={{
+            marginTop: 2,
+            fontSize: 10.5,
+            color: "var(--text-faint)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {sub}
+        </div>
+      )}
 
       {!run && issue && (
         <span
@@ -82,7 +145,12 @@ export function StudioNodeView({ id, data, selected }: NodeProps) {
       {run?.costUsd != null && (
         <span
           title="Cost for this run"
-          className="absolute -bottom-2 right-2 rounded-full border border-border bg-surface px-1.5 text-[9px] leading-4 text-muted shadow-sm"
+          className="absolute -bottom-2 right-2 rounded-full px-1.5 text-[9px] leading-4 shadow-sm"
+          style={{
+            background: "var(--bg-raised-2)",
+            border: "1px solid var(--hair-strong)",
+            color: "var(--text-muted)",
+          }}
         >
           {fmtUsd(run.costUsd)}
         </span>

@@ -16,6 +16,7 @@ import {
 import {
   addEdge,
   Background,
+  BackgroundVariant,
   Controls,
   MarkerType,
   MiniMap,
@@ -31,7 +32,7 @@ import {
   type Viewport,
 } from "@xyflow/react";
 import { DEFAULT_CONFIG, NodeInspector } from "@/app/components/NodeInspector";
-import { NODE_META, NodeGlyph } from "@/app/components/nodeMeta";
+import { NODE_META, NodeGlyph, nodeMetaColor } from "@/app/components/nodeMeta";
 import {
   deriveNodeStates,
   entryPhase,
@@ -94,6 +95,10 @@ import {
 import { getApiKey } from "@/app/lib/config";
 import { setLastWorkflowId } from "@/app/lib/lastWorkflow";
 import { WORKFLOW_TEMPLATES } from "@/app/lib/templates";
+// P0 design-system primitives. Aliased so the toolbar can use the console's
+// tinted-teal Button/Pill without colliding with the legacy ui.tsx `Button`
+// (which is still used, with its size/ghost variants, by the modals + run panel).
+import { Button as PButton, Pill } from "@/app/components/primitives";
 
 import { canDeployWorkflow, canRunWorkflow, servedGraphId } from "./runEligibility";
 
@@ -118,7 +123,16 @@ function portsFor(type: string, types: NodeType[]): Port[] {
 // the graph. The handle ids are the ground truth for which set an edge is in.
 type EdgeKind = "data" | "tool";
 
-const TOOL_EDGE_STYLE = { stroke: "#8b5cf6", strokeDasharray: "6 3" };
+// Handoff edge styling: data flow is a solid slate hairline; agent->tool edges
+// are a dashed violet hairline at reduced opacity so the two edge sets read as
+// distinct planes on the canvas.
+const DATA_EDGE_STYLE = { stroke: "#3f4757", strokeWidth: 1.5 };
+const TOOL_EDGE_STYLE = {
+  stroke: "#c4b5fd",
+  strokeDasharray: "4 4",
+  strokeWidth: 1.5,
+  opacity: 0.75,
+};
 
 function edgeKindOf(e: {
   sourceHandle?: string | null;
@@ -130,7 +144,9 @@ function edgeKindOf(e: {
 
 /** Canvas props (styling + kind marker) for an edge of the given kind. */
 function edgeKindProps(kind: EdgeKind): Partial<Edge> {
-  return kind === "tool" ? { data: { kind }, style: TOOL_EDGE_STYLE } : { data: { kind } };
+  return kind === "tool"
+    ? { data: { kind }, style: TOOL_EDGE_STYLE }
+    : { data: { kind }, style: DATA_EDGE_STYLE };
 }
 
 // Structural signature for autosave + undo history. Selection lives on the
@@ -996,22 +1012,40 @@ function Editor({ id }: { id: string }) {
           defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
           proOptions={{ hideAttribution: true }}
         >
-          <Background />
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={22}
+            size={1}
+            color="rgba(255,255,255,0.06)"
+          />
           {/* Horizontal so the control row sits in a short strip at the very
               bottom edge instead of stacking up into the left palette. */}
           <Controls orientation="horizontal" />
           <MiniMap pannable zoomable />
 
-          {/* Floating title + palette */}
+          {/* Floating toolbar (graph name + state + version) + node palette */}
           <Panel position="top-left">
             <div className="w-72 space-y-2">
-              <div className="rounded-xl border border-border bg-surface p-3 shadow-md shadow-black/[0.06]">
+              <div
+                style={{
+                  background: "var(--bg-raised)",
+                  border: "1px solid var(--hair-strong)",
+                  borderRadius: 8,
+                  padding: 12,
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+                }}
+              >
                 {/* Clearing the remembered id here keeps the list reachable:
                     the nav's Studio link otherwise points back at this editor. */}
                 <Link
                   href="/studio"
                   onClick={() => setLastWorkflowId(null)}
-                  className="text-xs text-muted hover:underline"
+                  className="hover:underline"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--text-faint)",
+                  }}
                 >
                   ← Studio
                 </Link>
@@ -1020,16 +1054,49 @@ function Editor({ id }: { id: string }) {
                   onChange={(e) => setName(e.target.value)}
                   disabled={readOnly}
                   aria-label="Workflow name"
-                  className="-ml-1.5 mt-0.5 w-full rounded-lg border border-transparent bg-transparent px-1.5 py-0.5 text-lg font-semibold tracking-tight hover:border-border focus-visible:border-accent disabled:opacity-70"
+                  className="-ml-1.5 mt-1 w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 hover:border-[var(--hair-strong)] focus-visible:border-[var(--accent)] disabled:opacity-70"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                  }}
                 />
-                {/* Amber is reserved for the read-only warning; routine draft
-                    editing gets a neutral note so it means something when it matters. */}
+                {/* State pill + version — the graph's lifecycle at a glance. */}
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Pill tone={status === "published" ? "success" : "muted"}>
+                    {status || "draft"}
+                  </Pill>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11,
+                      color: "var(--text-faint)",
+                    }}
+                  >
+                    v{version}
+                  </span>
+                </div>
+                {/* Read-only banner (amber tint) for published/immutable graphs;
+                    routine draft editing gets a neutral note. */}
                 {readOnly ? (
-                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                    <strong>Published</strong> &amp; read-only — clone to a draft to edit.
-                  </p>
+                  <div
+                    className="mt-2"
+                    style={{
+                      background: "rgba(252,211,77,0.10)",
+                      border: "1px solid rgba(252,211,77,0.30)",
+                      borderRadius: 6,
+                      padding: "6px 8px",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11.5,
+                      lineHeight: 1.45,
+                      color: "var(--warning)",
+                    }}
+                  >
+                    read-only — published graphs are immutable; clone to a draft to edit
+                  </div>
                 ) : (
-                  <p className="mt-1 text-xs text-muted">
+                  <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
                     Draft — nodes, edges, config &amp; layout save here. Fields marked{" "}
                     <span className="font-semibold">*</span> are required to publish.
                   </p>
@@ -1040,16 +1107,21 @@ function Editor({ id }: { id: string }) {
                       <span className="font-medium">
                         Entry step
                         {!readOnly && (
-                          <span className="text-red-600 dark:text-red-400"> *</span>
+                          <span style={{ color: "var(--danger)" }}> *</span>
                         )}
                       </span>
-                      <span className="font-normal text-muted">where a run starts</span>
+                      <span style={{ color: "var(--text-faint)" }}>where a run starts</span>
                     </span>
                     <select
                       value={entryStep}
                       disabled={readOnly}
                       onChange={(e) => setEntryStep(e.target.value)}
-                      className="w-full rounded-lg border border-border bg-surface px-2 py-1 text-xs focus-visible:border-accent disabled:opacity-60"
+                      className="w-full rounded-md px-2 py-1 text-xs focus-visible:border-[var(--accent)] disabled:opacity-60"
+                      style={{
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--hair-strong)",
+                        color: "var(--text-secondary)",
+                      }}
                     >
                       <option value="">Select…</option>
                       {/* A stale entrypoint (node deleted/renamed) stays selectable
@@ -1070,8 +1142,26 @@ function Editor({ id }: { id: string }) {
                 )}
               </div>
 
-              <div className="rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]">
-                <div className="border-b border-border px-3 py-2 text-sm font-semibold">
+              <div
+                style={{
+                  background: "var(--bg-raised)",
+                  border: "1px solid var(--hair-strong)",
+                  borderRadius: 8,
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+                }}
+              >
+                <div
+                  className="px-3 py-2"
+                  style={{
+                    borderBottom: "1px solid var(--hair)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10.5,
+                    fontWeight: 500,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    color: "var(--text-muted)",
+                  }}
+                >
                   Add node
                 </div>
                 {/* Bounded to leave room for the bottom-left canvas controls
@@ -1079,37 +1169,66 @@ function Editor({ id }: { id: string }) {
                     18rem of chrome), so the list scrolls instead of growing
                     down over the controls. */}
                 <div className="max-h-[calc(100vh-18rem)] space-y-1 overflow-y-auto p-2">
-                  {palette.map((t) => (
-                    <button
-                      key={t.type}
-                      onClick={() => addNode(t)}
-                      disabled={readOnly}
-                      title={readOnly ? "Clone to a draft to edit" : `Add ${t.label}`}
-                      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-border hover:bg-accent/[0.04] disabled:opacity-50 disabled:hover:border-transparent disabled:hover:bg-transparent"
-                    >
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
-                        <NodeGlyph type={t.type} className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium">{t.label}</span>
-                        <span className="line-clamp-2 block text-xs text-muted">
-                          {NODE_META[t.type]?.blurb ?? t.category}
+                  {palette.map((t) => {
+                    const c = nodeMetaColor(t.type);
+                    return (
+                      <button
+                        key={t.type}
+                        onClick={() => addNode(t)}
+                        disabled={readOnly}
+                        title={readOnly ? "Clone to a draft to edit" : `Add ${t.label}`}
+                        className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-[var(--hair-strong)] hover:bg-[rgba(255,255,255,0.03)] disabled:opacity-50 disabled:hover:border-transparent disabled:hover:bg-transparent"
+                      >
+                        <span
+                          className="grid h-8 w-8 shrink-0 place-items-center rounded-md"
+                          style={{
+                            background: `color-mix(in srgb, ${c} 14%, transparent)`,
+                            color: c,
+                          }}
+                        >
+                          <NodeGlyph type={t.type} className="h-4 w-4" />
                         </span>
-                      </span>
-                    </button>
-                  ))}
+                        <span className="min-w-0">
+                          <span
+                            className="block"
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 12.5,
+                              fontWeight: 600,
+                              color: "var(--text-primary)",
+                            }}
+                          >
+                            {t.label}
+                          </span>
+                          <span
+                            className="line-clamp-2 block"
+                            style={{ fontSize: 10.5, color: "var(--text-faint)" }}
+                          >
+                            {NODE_META[t.type]?.blurb ?? t.category}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
             </div>
           </Panel>
 
-          {/* Floating actions */}
+          {/* Floating lifecycle actions (P0 Button/Pill primitives) */}
           <Panel position="top-right">
             <div className="flex flex-col items-end gap-2">
               <div className="flex items-center gap-2">
                 {!readOnly && (
-                  <span aria-live="polite" className="text-xs text-muted">
+                  <span
+                    aria-live="polite"
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11,
+                      color: "var(--text-faint)",
+                    }}
+                  >
                     {saveState === "saving"
                       ? "Saving…"
                       : saveState === "dirty"
@@ -1121,76 +1240,102 @@ function Editor({ id }: { id: string }) {
                 )}
                 {!readOnly && (
                   <>
-                    <Button
-                      size="sm"
+                    <PButton
+                      variant="neutral"
                       onClick={undo}
                       disabled={!histState.canUndo}
                       aria-label="Undo"
                       title="Undo (Ctrl/⌘+Z)"
+                      style={{ padding: "6px 9px", fontSize: 13 }}
                     >
                       ↶
-                    </Button>
-                    <Button
-                      size="sm"
+                    </PButton>
+                    <PButton
+                      variant="neutral"
                       onClick={redo}
                       disabled={!histState.canRedo}
                       aria-label="Redo"
                       title="Redo (Ctrl/⌘+Shift+Z)"
+                      style={{ padding: "6px 9px", fontSize: 13 }}
                     >
                       ↷
-                    </Button>
+                    </PButton>
                   </>
                 )}
                 {!readOnly && nodes.length > 1 && (
-                  <Button size="sm" onClick={tidyLayout} title="Auto-arrange and center the graph">
+                  <PButton
+                    variant="neutral"
+                    onClick={tidyLayout}
+                    title="Auto-arrange and center the graph"
+                  >
                     Tidy layout
-                  </Button>
+                  </PButton>
                 )}
                 {version > 1 && (
-                  <Button
-                    size="sm"
+                  <PButton
+                    variant="neutral"
                     onClick={() => setHistoryOpen(true)}
                     title="Compare versions of this workflow"
                   >
                     History
-                  </Button>
+                  </PButton>
                 )}
                 {canDeployWorkflow(status) ? (
                   <>
-                    <Button onClick={clone} disabled={cloning}>
+                    <PButton variant="neutral" onClick={clone} disabled={cloning}>
                       {cloning ? "Cloning…" : "Clone to draft"}
-                    </Button>
-                    <Button
+                    </PButton>
+                    <PButton
                       variant="primary"
                       onClick={() => setDeployOpen(true)}
                       title="Create a deployment version from this published graph"
                     >
                       Deploy
-                    </Button>
+                    </PButton>
                   </>
                 ) : (
                   <>
-                    <Button onClick={saveNow} disabled={saveState === "saving"}>
+                    <PButton
+                      variant="neutral"
+                      onClick={saveNow}
+                      disabled={saveState === "saving"}
+                    >
                       Save
-                    </Button>
-                    <Button
+                    </PButton>
+                    <PButton
                       variant="primary"
                       onClick={publish}
                       disabled={publishing || nodes.length === 0}
                       title="Validate and publish this draft, making it immutable and deployable"
                     >
                       {publishing ? "Publishing…" : "Publish"}
-                    </Button>
+                    </PButton>
                   </>
                 )}
               </div>
               {copied !== null && (
-                <span className="text-xs text-muted">
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--text-faint)",
+                  }}
+                >
                   Copied {copied} node{copied === 1 ? "" : "s"}
                 </span>
               )}
               {justPublished && readOnly && (
-                <p className="max-w-sm rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                <p
+                  className="max-w-sm"
+                  style={{
+                    background: "color-mix(in srgb, var(--success) 10%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--success) 30%, transparent)",
+                    borderRadius: 8,
+                    padding: "8px 12px",
+                    fontSize: 11.5,
+                    color: "var(--success)",
+                  }}
+                >
                   Published v{version} — use <strong>Deploy</strong> to create a deployment
                   version from it.
                 </p>
@@ -1209,8 +1354,14 @@ function Editor({ id }: { id: string }) {
               )}
               {others.length > 0 && (
                 <div
-                  className="nopan w-72 rounded-xl border border-border bg-surface shadow-md shadow-black/[0.06]"
-                  style={{ transform: `translate(${wfOffset.x}px, ${wfOffset.y}px)` }}
+                  className="nopan w-72"
+                  style={{
+                    background: "var(--bg-raised)",
+                    border: "1px solid var(--hair-strong)",
+                    borderRadius: 8,
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+                    transform: `translate(${wfOffset.x}px, ${wfOffset.y}px)`,
+                  }}
                 >
                   <div className="flex items-center">
                     {/* Grip: drag the widget anywhere on the canvas. */}
@@ -1220,31 +1371,42 @@ function Editor({ id }: { id: string }) {
                       onPointerUp={onWfPointerUp}
                       title="Drag to move"
                       aria-hidden
-                      className="touch-none cursor-grab select-none py-2 pl-3 pr-1 text-muted active:cursor-grabbing"
+                      className="touch-none cursor-grab select-none py-2 pl-3 pr-1 active:cursor-grabbing"
+                      style={{ color: "var(--text-faint)" }}
                     >
                       ⠿
                     </span>
                     <button
                       onClick={() => setSwitcherOpen((o) => !o)}
                       aria-expanded={switcherOpen}
-                      className="flex flex-1 items-center justify-between py-2 pl-1 pr-3 text-sm font-semibold"
+                      className="flex flex-1 items-center justify-between py-2 pl-1 pr-3"
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: "var(--text-secondary)",
+                      }}
                     >
                       Workflows ({others.length})
                       <span
                         aria-hidden
-                        className={`text-xs text-muted transition-transform ${switcherOpen ? "rotate-180" : ""}`}
+                        className={`transition-transform ${switcherOpen ? "rotate-180" : ""}`}
+                        style={{ fontSize: 11, color: "var(--text-faint)" }}
                       >
                         ▾
                       </span>
                     </button>
                   </div>
                   {switcherOpen && (
-                    <div className="max-h-[45vh] space-y-0.5 overflow-y-auto border-t border-border p-1.5">
+                    <div
+                      className="max-h-[45vh] space-y-0.5 overflow-y-auto p-1.5"
+                      style={{ borderTop: "1px solid var(--hair)" }}
+                    >
                       {others.map((w) => (
                         <Link
                           key={w.id}
                           href={`/studio/edit?id=${encodeURIComponent(w.id)}`}
-                          className="flex items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-sm transition-colors hover:border-border hover:bg-accent/[0.04]"
+                          className="flex items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-sm transition-colors hover:border-[var(--hair-strong)] hover:bg-[rgba(255,255,255,0.03)]"
                         >
                           <span className="min-w-0 truncate">{w.name}</span>
                           <span className="shrink-0">
@@ -1261,7 +1423,14 @@ function Editor({ id }: { id: string }) {
 
           {nodes.length === 0 && (
             <Panel position="top-center">
-              <div className="mt-12 rounded-lg border border-dashed border-border bg-surface/80 px-4 py-3 text-center text-sm text-muted">
+              <div
+                className="mt-12 rounded-lg px-4 py-3 text-center text-sm"
+                style={{
+                  background: "color-mix(in srgb, var(--bg-raised) 85%, transparent)",
+                  border: "1px dashed var(--hair-strong)",
+                  color: "var(--text-muted)",
+                }}
+              >
                 Add a node from the palette to start building.
                 {!readOnly && (
                   <div className="mt-2">
@@ -1386,12 +1555,30 @@ function NodeEditorDialog({
       >
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
+            <span
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-md"
+              style={{
+                background: `color-mix(in srgb, ${nodeMetaColor(d.studioType)} 14%, transparent)`,
+                color: nodeMetaColor(d.studioType),
+              }}
+            >
               <NodeGlyph type={d.studioType} className="h-4 w-4" />
             </span>
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{d.label || d.studioType}</div>
-              <div className="text-[11px] uppercase tracking-wide text-muted">{d.studioType}</div>
+              <div
+                className="truncate"
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 9,
+                  fontWeight: 600,
+                  letterSpacing: "0.09em",
+                  textTransform: "uppercase",
+                  color: "var(--text-muted)",
+                }}
+              >
+                {d.studioType}
+              </div>
             </div>
           </div>
           <Button ref={closeRef} variant="ghost" size="sm" onClick={onClose} aria-label="Close">
