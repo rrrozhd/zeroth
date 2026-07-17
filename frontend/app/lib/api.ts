@@ -5,7 +5,7 @@
 // shapes cannot drift from the backend. The thin apiFetch wrapper adds the
 // runtime API base + X-API-Key from lib/config.ts.
 
-import type { components } from "./api-types";
+import type { components, operations } from "./api-types";
 import { getApiBase, getApiKey } from "./config";
 
 type S = components["schemas"];
@@ -40,6 +40,13 @@ export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
 export type AuditVerification = S["AuditVerificationResponse"];
 export type DeploymentAttestation = S["DeploymentAttestationResponse"];
 export type AttestationVerification = S["AttestationVerificationResponse"];
+export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
+
+// GET /v1/metrics has no fixed schema — the OpenAPI spec types its 200 body as
+// an open object, so the generated operation's response type (`unknown`) flows
+// through unchanged rather than being hand-narrowed to a fabricated shape.
+export type MetricsResponse =
+  operations["get_metrics_v1_metrics_get"]["responses"][200]["content"]["application/json"];
 
 // The publish 422 payload — FastAPI types it as a generic validation error in
 // the spec, but the studio API fills `detail` with this structured issue list
@@ -425,6 +432,22 @@ export function createDeployment(body: CreateDeploymentRequest): Promise<Deploym
   });
 }
 
+/** Roll a deployment back to an earlier graph version: creates a new deployment
+    version pinned to `targetGraphVersion` (DEPLOYMENT_ADMIN). Like createDeployment,
+    actually serving the new version still requires a restart. The endpoint
+    requires the target graph version in the body — the Overview derives it from a
+    deployment row's `graph_version_ref` (`{graph_id}@{version}`). */
+export function rollbackDeployment(
+  ref: string,
+  targetGraphVersion: number,
+): Promise<DeploymentSummary> {
+  const body: RollbackDeploymentRequest = { target_graph_version: targetGraphVersion };
+  return apiFetch<DeploymentSummary>(
+    `/v1/deployments/${encodeURIComponent(ref)}/rollback`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
 /** Verify the audit digest chain + signatures for one run (WS-D three-state). */
 export function getRunAuditVerification(runId: string): Promise<AuditVerification> {
   return apiFetch<AuditVerification>(
@@ -446,6 +469,15 @@ export async function verifyDeploymentAttestation(): Promise<AttestationVerifica
   return apiFetch<AttestationVerification>(
     `/v1/deployments/${encodeURIComponent(ref)}/attestation/verify`,
   );
+}
+
+// ---- Metrics ----
+
+/** Runtime metrics snapshot for the connected service. The spec leaves the
+    response body open (no fixed schema), so the type is `unknown` — callers that
+    consume specific keys must narrow at the use site. */
+export function getMetrics(): Promise<MetricsResponse> {
+  return apiFetch<MetricsResponse>("/v1/metrics");
 }
 
 // ---- Memory connectors ----
