@@ -13,7 +13,7 @@ we learn (ponytail: don't pre-write plans for work earlier phases will re-inform
 | **P1** Operate | [P1-operate.md](P1-operate.md) | ✅ done (v0.10.2) | Runs, Approvals, Audit, Deployments |
 | **P2** Build | [P2-build.md](P2-build.md) | ✅ done (v0.10.3) | Studio (canvas re-skin), Templates, Connectors + webhooks |
 | **P3** Govern | [P3-govern.md](P3-govern.md) | ✅ done (v0.10.4) | Cost, Retention, Rightsizing & Efficiency, Metrics |
-| **P4** Regulus | _(write after P3)_ | pending | Econ Dashboard, Capabilities, Enforcement, Costing, Reconciliation (graceful-degrade) |
+| **P4** Regulus | [../REGULUS-FINDINGS.md](../REGULUS-FINDINGS.md) | ✅ done (v0.10.5) | Econ Dashboard, Capabilities, Enforcement, Costing, Reconciliation — via a new admin-gated backend proxy (`/v1/econ/regulus/*`) |
 | **P5** Guide & polish | _(write after P4)_ | pending | Guide, states polish, a11y basics, final sweep |
 
 ## Global rules (all phases)
