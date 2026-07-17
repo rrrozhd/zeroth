@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import create_engine
@@ -16,7 +16,7 @@ from zeroth.econ_plane.database import Base
 from zeroth.econ_plane.instrumentation.models import OutcomeEvent
 from zeroth.econ_plane.performance.service import calculate_snapshots
 
-_NOW = datetime(2026, 7, 1, tzinfo=timezone.utc)
+_NOW = datetime(2026, 7, 1, tzinfo=UTC)
 
 
 @pytest.fixture

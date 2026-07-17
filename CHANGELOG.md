@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1.25.1] - 2026-07-17
+
+### Fixed
+
+- **CI lint (ruff UP017)**: the econ_plane B5/B6/B7 regression test used
+  `timezone.utc` instead of the `datetime.UTC` alias, which the repo-wide
+  `ruff check src tests` in CI rejects (the local pre-commit ruff did not flag
+  it). Zero behavior change. Restores a green `verify` job.
+
 ## [0.10.1.25] - 2026-07-16
 
 ### Fixed
