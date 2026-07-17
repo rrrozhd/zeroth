@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-07-18
+
+### Added
+
+- Full rebuild of the web console (`frontend/`) as a pixel-close implementation
+  of the design handoff, wired to the live API: ~19 screens across Operate
+  (Overview, Runs, Approvals, Audit, Deployments), Build (Studio, Templates,
+  Connectors), Govern (Cost, Retention, Rightsizing, Metrics), Regulus (Econ
+  Dashboard, Capabilities, Enforcement, Costing, Reconciliation), and Learn
+  (Guide). Dark/teal design tokens, shared primitives, `useLoad`/`usePolling`
+  hooks, toast, and a Connect bar; every screen handles loading/empty/error and
+  every mutation is optimistic.
+- Admin-gated Regulus console proxy (`/v1/econ/regulus/*`,
+  `zeroth.core.service.regulus_proxy_api`): a new admin-only `Permission.ECON_ADMIN`
+  gates a read-only GET allowlist plus enforcement approve/reject, minting the
+  econ token in-process so the console can surface econ-plane data without the
+  HTTP token issuer (which stays blocked). Security tests cover the admin-only
+  gate and the traversal/auth-path rejection.
+
+### Changed
+
+- The Studio graph editor was visually re-skinned to the handoff while
+  preserving all React Flow wiring and workflow logic.
+- Fixed `ZEROTH_REGULUS__BASE_URL` handling to point at the in-process
+  `/regulus/v1` mount, which also repairs the tenant cost (month-to-date) path.
+
 ## [0.10.0.0.3] - 2026-07-15
 
 ### Added
