@@ -793,3 +793,58 @@ export async function postVerifyAttestationOf(
 export function getCostOf(ref: string): Promise<DeploymentCost> {
   return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
 }
+
+// ---------------------------------------------------------------------------
+// P2 Build — templates + webhooks. List endpoints return envelopes.
+// ---------------------------------------------------------------------------
+
+export type TemplateList = S["TemplateListResponse"];
+export type Template = S["TemplateResponse"];
+export type CreateTemplateRequest = S["CreateTemplateRequest"];
+
+export function listTemplates(): Promise<TemplateList> {
+  return apiFetch<TemplateList>("/v1/templates");
+}
+export function getTemplate(name: string): Promise<Template> {
+  return apiFetch<Template>(`/v1/templates/${encodeURIComponent(name)}`);
+}
+export function createTemplate(body: CreateTemplateRequest): Promise<Template> {
+  return apiFetch<Template>("/v1/templates", { method: "POST", body: JSON.stringify(body) });
+}
+export function deleteTemplateVersion(name: string, version: string): Promise<void> {
+  return apiFetch<void>(
+    `/v1/templates/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
+    { method: "DELETE" },
+  );
+}
+
+export type WebhookSubscription = S["WebhookSubscriptionResponse"];
+export type WebhookSubscriptionList = S["WebhookSubscriptionListResponse"];
+export type CreateSubscriptionRequest = S["CreateSubscriptionRequest"];
+export type DeadLetter = S["WebhookDeadLetterResponse"];
+export type WebhookDeadLetterList = S["WebhookDeadLetterListResponse"];
+
+export function listWebhookSubscriptions(): Promise<WebhookSubscriptionList> {
+  return apiFetch<WebhookSubscriptionList>("/v1/webhooks/subscriptions");
+}
+export function createWebhookSubscription(
+  body: CreateSubscriptionRequest,
+): Promise<WebhookSubscription> {
+  return apiFetch<WebhookSubscription>("/v1/webhooks/subscriptions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+export function deleteWebhookSubscription(id: string): Promise<void> {
+  return apiFetch<void>(`/v1/webhooks/subscriptions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+export function listDeadLetters(): Promise<WebhookDeadLetterList> {
+  return apiFetch<WebhookDeadLetterList>("/v1/webhooks/dead-letters");
+}
+export function replayDeadLetter(id: string): Promise<void> {
+  return apiFetch<void>(`/v1/webhooks/dead-letters/${encodeURIComponent(id)}/replay`, {
+    method: "POST",
+  });
+}
