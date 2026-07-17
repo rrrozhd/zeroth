@@ -12,6 +12,7 @@ import contextlib
 import inspect
 import logging
 import re
+from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -24,10 +25,11 @@ from zeroth.core.approvals import ApprovalDecision, ApprovalRecord, ApprovalServ
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
 from zeroth.core.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRecord
 from zeroth.core.conditions import NextStepPlanner
-from zeroth.core.conditions.models import ConditionContext, TraversalState
+from zeroth.core.conditions.models import ConditionContext, NextStepPlan, TraversalState
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.graph import (
     AgentNode,
+    Edge,
     EntrypointNode,
     ExecutableUnitNode,
     Graph,
@@ -51,6 +53,7 @@ from zeroth.core.parallel.models import (
     FanInResult,
     GlobalStepTracker,
 )
+from zeroth.core.parallel.reducers import dispatch_strategy
 from zeroth.core.policy import Capability, PolicyDecision, PolicyGuard
 from zeroth.core.policy.errors import parse_effective_capabilities
 from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
@@ -359,6 +362,24 @@ class RuntimeOrchestrator:
             if failed_run is not None:
                 return failed_run
             if not run.pending_node_ids:
+                # B9 deadlock guard: a non-empty join_state here means a convergent
+                # node is still waiting for an inbound edge that will never resolve
+                # (e.g. an inbound edge from an unreachable source). Fail loud
+                # rather than silently mark COMPLETED — which would drop the node
+                # and everything downstream and fire a false run.completed webhook.
+                # Legitimate joins clear their entry on dispatch/skip, so anything
+                # left is genuinely stuck. (Flag-gated: join_state is only ever
+                # populated when sequential_join_enabled is on.)
+                stuck_joins = run.metadata.get("join_state") or {}
+                if stuck_joins:
+                    waiting = ", ".join(sorted(stuck_joins))
+                    return await self._fail_run(
+                        run,
+                        "join_deadlock",
+                        f"sequential join barrier could not complete: node(s) [{waiting}] "
+                        "never received all inbound edges (unreachable source or "
+                        "unresolvable convergence)",
+                    )
                 # No more work is queued, so the run can be closed out as successful.
                 run.status = RunStatus.COMPLETED
                 run.current_node_ids = []
@@ -574,8 +595,7 @@ class RuntimeOrchestrator:
                         started_at=node_started_at,
                     )
                     self._increment_node_visit(run, node_id)
-                    next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
-                    self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
+                    self._advance_downstream(graph, run, node_id, output_data)
                     run.metadata["last_output"] = output_data
                     # Cooperative cancel across a resumed subgraph node (audit F3).
                     stopped = await self._external_stop(run)
@@ -658,8 +678,7 @@ class RuntimeOrchestrator:
                     started_at=node_started_at,
                 )
                 self._increment_node_visit(run, node_id)
-                next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
-                self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
+                self._advance_downstream(graph, run, node_id, output_data)
                 run.metadata["last_output"] = output_data
                 # Cooperative cancel across a synchronous subgraph node (audit F3).
                 stopped = await self._external_stop(run)
@@ -768,8 +787,7 @@ class RuntimeOrchestrator:
                 started_at=node_started_at,
             )
             self._increment_node_visit(run, node_id)
-            next_node_ids = self._plan_next_nodes(graph, run, node_id, output_data)
-            self._queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
+            self._advance_downstream(graph, run, node_id, output_data)
             run.metadata["last_output"] = output_data
             # An operator may have cancelled/interrupted while this node was
             # dispatching; don't clobber that with our RUNNING write (audit F3).
@@ -1866,18 +1884,22 @@ class RuntimeOrchestrator:
 
         return memory_ns, audit_records
 
-    def _plan_next_nodes(
+    def _run_branch_planner(
         self,
         graph: Graph,
         run: Run,
         node_id: str,
         output_data: Mapping[str, Any],
-    ) -> list[str]:
-        """Decide which nodes to run next based on the current node's output.
+    ) -> NextStepPlan:
+        """Evaluate the source node's outgoing edges and record traversal bookkeeping.
 
-        Uses the branch planner to evaluate edge conditions and figure out
-        which outgoing edges are active. Updates the run's condition results
-        and edge visit counts.
+        Returns the full :class:`NextStepPlan` (active + suppressed edge ids) so
+        the caller can either take the legacy direct-queue path or the B9 join
+        barrier. Mutates ``run`` exactly as the old ``_plan_next_nodes`` did:
+        extends ``condition_results``, bumps ``edge_visit_counts`` for active
+        edges, updates ``path`` and ``terminal_reason``. This is the single
+        source of truth for those side effects — ``_plan_next_nodes`` and the
+        join path both go through it, so behaviour cannot diverge.
         """
         traversal_state = TraversalState(
             node_visit_counts=dict(run.node_visit_counts),
@@ -1905,7 +1927,22 @@ class RuntimeOrchestrator:
         run.metadata["path"] = list(traversal_state.path)
         if plan.terminal_reason is not None:
             run.metadata["terminal_reason"] = plan.terminal_reason
-        return list(plan.next_node_ids)
+        return plan
+
+    def _plan_next_nodes(
+        self,
+        graph: Graph,
+        run: Run,
+        node_id: str,
+        output_data: Mapping[str, Any],
+    ) -> list[str]:
+        """Decide which nodes to run next based on the current node's output.
+
+        Thin wrapper over :meth:`_run_branch_planner` that returns only the
+        active target ids — the historical contract used by the parallel
+        fan-out/fan-in paths, which never take the join barrier.
+        """
+        return list(self._run_branch_planner(graph, run, node_id, output_data).next_node_ids)
 
     def _queue_next_nodes(
         self,
@@ -1923,25 +1960,279 @@ class RuntimeOrchestrator:
         """
         payloads = dict(run.metadata.get("node_payloads", {}))
         for target_node_id in next_node_ids:
-            edge = self._edge_for(graph, source_node_id, target_node_id)
-            payload = dict(output_data)
-            if edge is not None and edge.mapping is not None:
-                # Edge mappings reshape one node's output into the next node's expected input.
-                context_ns = {
-                    "payload": dict(output_data),
-                    "state": dict(run.metadata.get("state", {})),
-                    "variables": dict(run.metadata.get("variables", {})),
-                    "node_visit_counts": dict(run.node_visit_counts),
-                    "edge_visit_counts": dict(run.metadata.get("edge_visit_counts", {})),
-                    "path": list(run.metadata.get("path", [])),
-                    "metadata": {"run_id": run.run_id},
-                }
-                payload = self.mapping_executor.execute(
-                    output_data, edge.mapping, context=context_ns
-                )
-            payloads[target_node_id] = payload
+            payloads[target_node_id] = self._edge_payload(
+                graph, run, source_node_id, target_node_id, output_data
+            )
             run.pending_node_ids.append(target_node_id)
         run.metadata["node_payloads"] = payloads
+
+    def _edge_payload(
+        self,
+        graph: Graph,
+        run: Run,
+        source_node_id: str,
+        target_node_id: str,
+        output_data: Mapping[str, Any],
+        edge: Edge | None = None,
+    ) -> dict[str, Any]:
+        """Compute the input payload delivered across one edge (applying its mapping).
+
+        Extracted from ``_queue_next_nodes`` so the legacy direct-queue path and
+        the B9 join barrier compute delivered payloads identically. ``edge`` may
+        be passed to avoid a re-lookup when the caller already holds it.
+        """
+        if edge is None:
+            edge = self._edge_for(graph, source_node_id, target_node_id)
+        payload: dict[str, Any] = dict(output_data)
+        if edge is not None and edge.mapping is not None:
+            # Edge mappings reshape one node's output into the next node's expected input.
+            context_ns = {
+                "payload": dict(output_data),
+                "state": dict(run.metadata.get("state", {})),
+                "variables": dict(run.metadata.get("variables", {})),
+                "node_visit_counts": dict(run.node_visit_counts),
+                "edge_visit_counts": dict(run.metadata.get("edge_visit_counts", {})),
+                "path": list(run.metadata.get("path", [])),
+                "metadata": {"run_id": run.run_id},
+            }
+            payload = self.mapping_executor.execute(output_data, edge.mapping, context=context_ns)
+        return payload
+
+    # ------------------------------------------------------------------
+    # B9 sequential join barrier
+    # ------------------------------------------------------------------
+
+    def _advance_downstream(
+        self,
+        graph: Graph,
+        run: Run,
+        source_node_id: str,
+        output_data: Mapping[str, Any],
+    ) -> None:
+        """Plan and enqueue the next nodes after ``source_node_id`` completes.
+
+        Single entry point for the sequential (non-parallel) post-node flow.
+        With ``sequential_join_enabled`` off (default) this is byte-identical to
+        the historical ``_plan_next_nodes`` + ``_queue_next_nodes`` pairing. With
+        the flag on it routes through the token/skip-propagation join barrier so a
+        convergent node dispatches once per iteration after all its inbound edges
+        resolve.
+        """
+        plan = self._run_branch_planner(graph, run, source_node_id, output_data)
+        if not graph.execution_settings.sequential_join_enabled:
+            self._queue_next_nodes(
+                graph, run, source_node_id, output_data, list(plan.next_node_ids)
+            )
+            return
+        self._resolve_join_edges(graph, run, source_node_id, output_data, plan)
+
+    def _resolve_join_edges(
+        self,
+        graph: Graph,
+        run: Run,
+        source_node_id: str,
+        output_data: Mapping[str, Any],
+        plan: NextStepPlan,
+    ) -> None:
+        """Seed the resolution worklist from one source node's outgoing edges (B9).
+
+        Every non-tool outgoing edge is resolved as either DELIVERED (active,
+        carries the mapped payload) or SUPPRESSED (condition false / disabled /
+        visit-limited). Draining the worklist dispatches any now-fully-resolved
+        convergent target and propagates the skip cascade.
+        """
+        resolution = plan.branch_resolution
+        edge_map = {edge.edge_id: edge for edge in graph.edges}
+        worklist: deque[tuple[Edge, bool, dict[str, Any] | None]] = deque()
+        for edge_id in resolution.active_edge_ids:
+            edge = edge_map.get(edge_id)
+            if edge is None or edge.kind == "tool":
+                continue
+            payload = self._edge_payload(
+                graph, run, source_node_id, edge.target_node_id, output_data, edge
+            )
+            worklist.append((edge, True, payload))
+        for edge_id in resolution.suppressed_edge_ids:
+            edge = edge_map.get(edge_id)
+            if edge is None or edge.kind == "tool":
+                continue
+            worklist.append((edge, False, None))
+        self._drain_join_worklist(graph, run, worklist)
+
+    def _drain_join_worklist(
+        self,
+        graph: Graph,
+        run: Run,
+        worklist: deque[tuple[Edge, bool, dict[str, Any] | None]],
+    ) -> None:
+        """Resolve edges until the worklist drains, enqueuing ready join targets.
+
+        A ``parallel_config`` target owns its own fan-in, so it bypasses the
+        barrier (queued directly on delivery, exactly like the legacy path). Any
+        edge resolved twice in a single drain signals a cyclic convergent node —
+        those are rejected at publish validation under the flag, so this is
+        defense-in-depth for unvalidated (code-authored) graphs: fail loud rather
+        than spin.
+        """
+        visited_edges: set[str] = set()
+        while worklist:
+            edge, delivered, payload = worklist.popleft()
+            if edge.edge_id in visited_edges:
+                raise OrchestratorError(
+                    f"join edge {edge.edge_id!r} resolved twice in one step — a cyclic "
+                    "convergent node is unsupported under sequential_join_enabled"
+                )
+            visited_edges.add(edge.edge_id)
+            target = edge.target_node_id
+            node = self._node_by_id(graph, target)
+            if getattr(node, "parallel_config", None) is not None:
+                # Parallel fan-in nodes handle their own collect/reduce; the
+                # sequential join barrier defers to them entirely.
+                if delivered and payload is not None:
+                    self._stash_join_payload(run, target, payload)
+                    run.pending_node_ids.append(target)
+                continue
+            self._record_edge_resolution(run, target, edge.edge_id, delivered, payload)
+            self._check_join_target(graph, run, target, worklist)
+
+    def _check_join_target(
+        self,
+        graph: Graph,
+        run: Run,
+        target: str,
+        worklist: deque[tuple[Edge, bool, dict[str, Any] | None]],
+    ) -> None:
+        """Dispatch or skip a target once all its inbound edges for this iteration resolve.
+
+        - If every inbound edge is resolved and >=1 delivered: merge the
+          delivered payloads via the node's ``JoinConfig`` and enqueue the node
+          once. A single delivered edge (the common single-inbound case, and
+          conditional reconvergence) skips the merge entirely — byte-identical to
+          the legacy single-payload enqueue.
+        - If every inbound edge is resolved and none delivered: the node is
+          SKIPPED; its outbound edges cascade as SUPPRESSED so a downstream join
+          learns the branch is resolved-not-pending.
+        - Otherwise the node keeps waiting.
+        """
+        inbound = self._inbound_control_edges(graph, target)
+        iteration = self._join_iteration(run, target)
+        entry = self._join_entry(run, target, iteration)
+        resolved = entry["resolved"]
+        if not all(edge.edge_id in resolved for edge in inbound):
+            return
+        delivered_edges = [edge for edge in inbound if resolved.get(edge.edge_id) == "delivered"]
+        self._clear_join_entry(run, target, iteration)
+        if delivered_edges:
+            payloads = [entry["payloads"][edge.edge_id] for edge in delivered_edges]
+            merged = self._merge_join_payloads(graph, target, payloads)
+            self._stash_join_payload(run, target, merged)
+            run.pending_node_ids.append(target)
+        else:
+            for out_edge in self._outbound_control_edges(graph, target):
+                worklist.append((out_edge, False, None))
+
+    def _merge_join_payloads(
+        self,
+        graph: Graph,
+        node_id: str,
+        payloads: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Combine delivered inbound payloads for a convergent node (B9).
+
+        Reuses the parallel subsystem's ``dispatch_strategy`` reducer registry —
+        the join barrier does not reinvent merge semantics. A single delivered
+        payload is returned as-is (no merge invoked). Non-dict merge results
+        (e.g. ``collect`` returns a list) are wrapped ``{"result": ...}`` to keep
+        the downstream node payload a dict, matching the subgraph convention.
+        """
+        if len(payloads) == 1:
+            return dict(payloads[0])
+        node = self._node_by_id(graph, node_id)
+        join_config = getattr(node, "join_config", None)
+        if join_config is None:
+            # Validation requires a JoinConfig for genuine concurrent delivery;
+            # default to shallow merge as a safe fallback for unvalidated graphs.
+            strategy, reducer_ref = "merge", None
+        else:
+            strategy, reducer_ref = join_config.merge_strategy, join_config.reducer_ref
+        merged = dispatch_strategy(strategy, list(payloads), reducer_ref=reducer_ref)
+        if not isinstance(merged, dict):
+            return {"result": merged}
+        return dict(merged)
+
+    def _join_iteration(self, run: Run, node_id: str) -> str:
+        """Iteration key for a node's join scope (stringified for JSON round-trip).
+
+        DAG scope: a node is visited at most once, so this is always ``"0"``.
+        Convergent-on-cycle nodes are rejected at publish validation under the
+        flag, so per-iteration loop re-scoping (design §4.4) is deferred; this
+        key intentionally stays ``"0"`` for every supported graph.
+        """
+        return str(run.node_visit_counts.get(node_id, 0))
+
+    def _join_entry(self, run: Run, node_id: str, iteration: str) -> dict[str, Any]:
+        """Get (creating if needed) the join-tracking entry for (node, iteration).
+
+        Lives under ``run.metadata['join_state']`` which round-trips through the
+        RunRepository checkpoint exactly like ``node_payloads`` — so a run paused
+        mid-join resumes with its partial resolution intact.
+        """
+        join_state: dict[str, Any] = run.metadata.setdefault("join_state", {})
+        node_state: dict[str, Any] = join_state.setdefault(node_id, {})
+        entry: dict[str, Any] = node_state.setdefault(iteration, {"resolved": {}, "payloads": {}})
+        return entry
+
+    def _record_edge_resolution(
+        self,
+        run: Run,
+        target: str,
+        edge_id: str,
+        delivered: bool,
+        payload: dict[str, Any] | None,
+    ) -> None:
+        """Record one inbound edge of ``target`` as delivered (with payload) or suppressed."""
+        iteration = self._join_iteration(run, target)
+        entry = self._join_entry(run, target, iteration)
+        entry["resolved"][edge_id] = "delivered" if delivered else "suppressed"
+        if delivered and payload is not None:
+            entry["payloads"][edge_id] = dict(payload)
+
+    def _clear_join_entry(self, run: Run, node_id: str, iteration: str) -> None:
+        """Drop a resolved join entry so a later loop iteration starts clean."""
+        join_state = run.metadata.get("join_state", {})
+        node_state = join_state.get(node_id)
+        if node_state is None:
+            return
+        node_state.pop(iteration, None)
+        if not node_state:
+            join_state.pop(node_id, None)
+
+    def _stash_join_payload(self, run: Run, node_id: str, payload: dict[str, Any]) -> None:
+        """Store the input payload for a node about to be enqueued (mirrors _queue_next_nodes)."""
+        payloads = dict(run.metadata.get("node_payloads", {}))
+        payloads[node_id] = dict(payload)
+        run.metadata["node_payloads"] = payloads
+
+    def _inbound_control_edges(self, graph: Graph, node_id: str) -> list[Edge]:
+        """Non-tool inbound edges of a node, in graph-declaration order.
+
+        Includes disabled edges: the branch planner resolves a disabled edge as
+        SUPPRESSED, so the inbound set must count it or the join would wait for an
+        edge that already resolved.
+        """
+        return [
+            edge
+            for edge in graph.edges
+            if edge.target_node_id == node_id and edge.kind != "tool"
+        ]
+
+    def _outbound_control_edges(self, graph: Graph, node_id: str) -> list[Edge]:
+        """Non-tool outbound edges of a node, in graph-declaration order."""
+        return [
+            edge
+            for edge in graph.edges
+            if edge.source_node_id == node_id and edge.kind != "tool"
+        ]
 
     async def _record_history(
         self,
@@ -2569,8 +2860,7 @@ class RuntimeOrchestrator:
             audit_record,
         )
         self._increment_node_visit(run, node.node_id)
-        next_node_ids = self._plan_next_nodes(graph, run, node.node_id, output_payload)
-        self._queue_next_nodes(graph, run, node.node_id, output_payload, next_node_ids)
+        self._advance_downstream(graph, run, node.node_id, output_payload)
         run.metadata["last_output"] = dict(output_payload)
         run.current_node_ids = []
         run.pending_approval = None
