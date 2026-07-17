@@ -362,6 +362,24 @@ class RuntimeOrchestrator:
             if failed_run is not None:
                 return failed_run
             if not run.pending_node_ids:
+                # B9 deadlock guard: a non-empty join_state here means a convergent
+                # node is still waiting for an inbound edge that will never resolve
+                # (e.g. an inbound edge from an unreachable source). Fail loud
+                # rather than silently mark COMPLETED — which would drop the node
+                # and everything downstream and fire a false run.completed webhook.
+                # Legitimate joins clear their entry on dispatch/skip, so anything
+                # left is genuinely stuck. (Flag-gated: join_state is only ever
+                # populated when sequential_join_enabled is on.)
+                stuck_joins = run.metadata.get("join_state") or {}
+                if stuck_joins:
+                    waiting = ", ".join(sorted(stuck_joins))
+                    return await self._fail_run(
+                        run,
+                        "join_deadlock",
+                        f"sequential join barrier could not complete: node(s) [{waiting}] "
+                        "never received all inbound edges (unreachable source or "
+                        "unresolvable convergence)",
+                    )
                 # No more work is queued, so the run can be closed out as successful.
                 run.status = RunStatus.COMPLETED
                 run.current_node_ids = []

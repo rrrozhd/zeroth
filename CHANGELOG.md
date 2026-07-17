@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0.1] - 2026-07-17
+
+### Fixed
+
+- **B9 join barrier — deadlock guard (audit follow-up).** An adversarial stress
+  pass found that with `sequential_join_enabled` on, a convergent node with an
+  inbound edge from an **unreachable source** waited forever, after which `_drive`
+  hit "no pending work" and marked the run **COMPLETED** — silently dropping the
+  node and everything downstream and firing a false `run.completed` webhook. The
+  completion path now checks for leftover `join_state` (a join still waiting on an
+  edge that will never resolve) and **fails the run loudly** (`join_deadlock`)
+  instead. Flag-gated: `join_state` is only populated when the flag is on, so
+  flag-off behavior is unchanged. Adds `tests/orchestrator/test_join_barrier_stress.py`
+  (unreachable-source, wide fan-in, stacked diamonds, deep skip cascade,
+  conditional-both-fire, convergent-on-cycle).
+- **Known limitation documented:** the default `merge` strategy shallow-merges
+  *full* agent model dumps, so two parents sharing an output schema keep only the
+  last parent's values (earlier parents clobbered). Meaningful merges of
+  shared-schema outputs need `collect` or a `custom` reducer — pinned by the wide
+  fan-in stress test. (Left as-is pending a decision on the default; see PR.)
+
 ## [0.11] - 2026-07-17
 
 ### Added
