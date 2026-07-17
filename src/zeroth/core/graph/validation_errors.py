@@ -56,6 +56,8 @@ class ValidationCode(StrEnum):
     INVALID_TOOL_BINDING = "invalid_tool_binding"
     CAPABILITY_GRANT_INSUFFICIENT = "capability_grant_insufficient"
     MISSING_MCP_CAPABILITY = "missing_mcp_capability"
+    MISSING_JOIN_CONFIG = "missing_join_config"
+    JOIN_ON_CYCLE = "join_on_cycle"
 
 
 class ValidationIssue(BaseModel):

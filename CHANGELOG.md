@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11] - 2026-07-17
+
+### Added
+
+- **B9 — sequential join barrier (feature-flagged, default OFF).** A new
+  opt-in dispatch subsystem in the core `_drive` loop that fixes diamond
+  payload corruption: an unconditional convergent node (>1 non-tool inbound
+  control-flow edge that is not a `parallel_config` fan-in) previously executed
+  twice and clobbered its merged input (last-writer-wins in `_queue_next_nodes`
+  + a double-append, with the second dispatch reading an empty payload). Gated
+  behind `execution_settings.sequential_join_enabled`.
+  - **Model**: new `JoinConfig` (parallel/models.py) reusing the
+    `ParallelConfig` `merge_strategy`/`reducer_ref` vocabulary (default
+    `merge`); new `NodeBase.join_config`; new
+    `ExecutionSettings.sequential_join_enabled`.
+  - **Runtime**: token / skip-propagation join semantics — every non-tool
+    outgoing edge resolves DELIVERED or SUPPRESSED; a convergent node dispatches
+    once per iteration after all inbound edges resolve, merging delivered
+    payloads through the existing `parallel.reducers.dispatch_strategy` registry;
+    a fully-suppressed branch skip-cascades so downstream joins never deadlock.
+    `join_state` round-trips through the RunRepository checkpoint (resume-safe).
+  - **Validation** (flag-gated only): a node with >=2 unconditional inbound
+    edges and no `JoinConfig` is rejected (`MISSING_JOIN_CONFIG`); a convergent
+    node inside a cycle is rejected (`JOIN_ON_CYCLE`) because per-iteration loop
+    re-join is deferred (design §4.4). Conditional reconvergence (the flagship
+    `apps/vendor_dd` `report` node) is never flagged and runs unchanged.
+  - **Backward compatibility**: with the flag OFF (default) the new dispatch/
+    merge path is dormant and execution is byte-identical to pre-B9; publish
+    validation is unchanged. Deferred: per-iteration loop scoping and full
+    mid-join interrupt round-tripping (pinned with an xfail).
+  - **Known limitation**: a `parallel_config` node used as a convergent target
+    (>=2 unconditional inbound edges) is not covered — it owns its own fan-in so
+    the join barrier defers to it and validation does not flag it. Such a node
+    still double-dispatches exactly as it does with the flag off (no regression);
+    the sequential join barrier deliberately scopes parallel fan-in out.
+
 ## [0.10.1.25.1] - 2026-07-17
 
 ### Fixed

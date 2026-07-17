@@ -66,6 +66,51 @@ class ParallelConfig(BaseModel):
         return self
 
 
+class JoinConfig(BaseModel):
+    """Merge policy for a sequential *join* (convergent) node (B9).
+
+    A convergent node reached by more than one non-tool control-flow edge that
+    is *not* a ``parallel_config`` fan-in needs to declare how the payloads of
+    its delivered inbound edges combine when >1 deliver in the same iteration.
+    This reuses the exact ``merge_strategy``/``reducer_ref`` vocabulary as
+    :class:`ParallelConfig` and dispatches through the same
+    ``parallel.reducers.dispatch_strategy`` registry — the join subsystem does
+    NOT reinvent merge semantics.
+
+    Unlike ``ParallelConfig`` there is no ``split_path``/``fail_mode``/
+    ``max_branches``: a join has no fan-out list to split and no per-branch
+    failure handling; it simply reduces the ordered list of delivered inbound
+    payloads.
+
+    Default ``merge_strategy='merge'`` (shallow dict merge, last delivered edge
+    wins on key conflict) — the least-surprise behaviour for a plain diamond.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    merge_strategy: Literal["collect", "reduce", "merge", "custom"] = "merge"
+    """How delivered inbound payloads combine (same vocabulary as
+    ``ParallelConfig``): 'merge' shallow-merges dicts in inbound-edge order,
+    'reduce' applies the built-in last-wins fold, 'collect' gathers into a list,
+    and 'custom' applies a user-supplied dotted-path reducer."""
+
+    reducer_ref: str | None = None
+    """Dotted import path to a user-supplied reducer callable. Only valid with
+    ``merge_strategy='custom'`` (mirrors ``ParallelConfig``)."""
+
+    @model_validator(mode="after")
+    def _validate_reducer_ref_consistency(self) -> JoinConfig:
+        """Only ``custom`` may (and must) carry a ``reducer_ref`` (mirrors ParallelConfig)."""
+        if self.merge_strategy == "custom" and not self.reducer_ref:
+            raise ValueError("merge_strategy='custom' requires reducer_ref to be set")
+        if self.merge_strategy != "custom" and self.reducer_ref is not None:
+            raise ValueError(
+                "reducer_ref is only valid with merge_strategy='custom', "
+                f"got merge_strategy={self.merge_strategy!r}"
+            )
+        return self
+
+
 @dataclass(slots=True)
 class BranchContext:
     """Isolated execution context for a single parallel branch.
