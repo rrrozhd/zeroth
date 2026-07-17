@@ -1,95 +1,165 @@
 @import "tailwindcss";
 
-/* ---- Design tokens -------------------------------------------------------- */
-:root {
-  --app-bg: #f7f7f8; /* tinted so white cards lift off it */
-  --surface: #ffffff;
-  --foreground: #18181b; /* zinc-900 */
-  --muted: #52525b; /* zinc-600 — ~7:1 on app bg for comfortable AA margin */
-  --border: #e4e4e7; /* zinc-200 */
-  --accent: #4f46e5; /* indigo-600 */
-  --accent-fg: #ffffff;
-  --ring: #6366f1; /* indigo-500 */
-}
+/* Self-hosted IBM Plex (offline-safe for static export). Weights used by the design. */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --app-bg: #09090b; /* zinc-950 */
-    --surface: #18181b; /* zinc-900 */
-    --foreground: #fafafa;
-    --muted: #a1a1aa; /* zinc-400 */
-    --border: #27272a; /* zinc-800 */
-    --accent: #6366f1; /* indigo-500 */
-    --accent-fg: #ffffff;
-    --ring: #818cf8;
-  }
+/* ---- Design tokens (handoff, dark-only) ---------------------------------- */
+:root {
+  color-scheme: dark;
+  /* backgrounds */
+  --bg-page: #0b0d11;
+  --bg-chrome: #0d1015;
+  --bg-card: #11141a;
+  --bg-raised: #141822;
+  --bg-raised-2: #171b23;
+  --bg-code: #0d1015;
+  /* text */
+  --text-primary: #e7eaf0;
+  --text-secondary: #c6ccd8;
+  --text-muted: #8f97a6;
+  --text-faint: #5c6472;
+  --text-disabled: #3a4150;
+  --text-code: #a9b2c2;
+  /* accent + semantic */
+  --accent: #5eead4;
+  --success: #86efac;
+  --warning: #fcd34d;
+  --danger: #f87171;
+  --info: #93c5fd;
+  --agent: #c4b5fd;
+  --neutral: #a3adc2;
+  /* node-type colors (canvas, timelines, guide) */
+  --nt-entrypoint: #5eead4;
+  --nt-agent: #c4b5fd;
+  --nt-exec: #93c5fd;
+  --nt-approval: #fcd34d;
+  --nt-retrieval: #86efac;
+  --nt-subgraph: #a3adc2;
+  /* borders */
+  --hair: rgba(255, 255, 255, 0.07);
+  --hair-strong: rgba(255, 255, 255, 0.1);
 }
 
 @theme inline {
-  --color-app: var(--app-bg);
-  --color-surface: var(--surface);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
-  --color-border: var(--border);
+  --color-page: var(--bg-page);
+  --color-chrome: var(--bg-chrome);
+  --color-card: var(--bg-card);
+  --color-raised: var(--bg-raised);
+  --color-raised2: var(--bg-raised-2);
+  --color-code: var(--bg-code);
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
   --color-accent: var(--accent);
-  --color-accent-fg: var(--accent-fg);
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono:
-    ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, monospace;
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-agent: var(--agent);
+  --color-neutral: var(--neutral);
+  --color-hair: var(--hair);
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* LEGACY COMPAT — old token utilities used by not-yet-rebuilt screens
+     (studio/edit + its components). Keeps `next build` green during the
+     phased rebuild; DELETE when the last legacy screen is replaced (end of P2). */
+  --color-app: var(--bg-page);
+  --color-surface: var(--bg-card);
+  --color-foreground: var(--text-primary);
+  --color-border: var(--hair-strong);
+  --color-accent-fg: #0b0d11;
 }
 
 /* ---- Base ---------------------------------------------------------------- */
+html,
 body {
-  background: var(--app-bg);
-  color: var(--foreground);
+  height: 100%;
+}
+
+body {
+  background: var(--bg-page);
+  color: var(--text-primary);
   font-family: var(--font-sans);
+  font-size: 13.5px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow: hidden; /* the app shell owns scrolling */
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: rgba(94, 234, 212, 0.25);
 }
 
-/* One consistent, accessible focus ring on all interactive elements. */
 *:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 6px;
 }
 
-/* React Flow theming via its own CSS variables (the only override-safe way —
-   xyflow's stylesheet loads after ours). Keeps the canvas chrome on-theme in
-   both light and dark instead of rendering a white minimap/controls block. */
+/* scrollbars: #242a35 thumb on transparent */
+* {
+  scrollbar-color: #242a35 transparent;
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #242a35;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- Keyframes ----------------------------------------------------------- */
+@keyframes zpulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes zfade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.z-pulse {
+  animation: zpulse 1.8s ease-in-out infinite;
+}
+.z-fade {
+  animation: zfade 0.25s ease-out;
+}
+
+/* ---- React Flow retuned to the dark tokens (canvas skinned in P2) --------- */
 .react-flow {
-  --xy-background-color: var(--app-bg);
-  --xy-node-border-default: var(--border);
-  --xy-controls-button-background-color: var(--surface);
-  --xy-controls-button-background-color-hover: color-mix(
-    in srgb,
-    var(--foreground) 8%,
-    var(--surface)
-  );
-  --xy-controls-button-color: var(--foreground);
-  --xy-controls-button-color-hover: var(--foreground);
-  --xy-controls-button-border-color: var(--border);
-  --xy-minimap-background-color: var(--surface);
-  --xy-minimap-mask-background-color: color-mix(in srgb, var(--app-bg) 62%, transparent);
-  /* muted, not border: border-on-surface is ~1.3:1 in dark mode, which makes
-     the minimap read as an empty box. */
-  --xy-minimap-node-background-color: var(--muted);
-  --xy-edge-stroke: var(--muted);
+  --xy-background-color: var(--bg-page);
+  --xy-node-border-default: var(--hair-strong);
+  --xy-controls-button-background-color: var(--bg-card);
+  --xy-controls-button-background-color-hover: var(--bg-raised);
+  --xy-controls-button-color: var(--text-primary);
+  --xy-controls-button-border-color: var(--hair);
+  --xy-minimap-background-color: var(--bg-card);
+  --xy-edge-stroke: var(--text-faint);
 }
-
-.react-flow__minimap {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-/* The canvas control buttons keep xyflow's faint default focus — give them the
-   same visible ring as the rest of the app. */
 .react-flow__controls-button:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
