@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-07-17
+
+### Added
+- Proactive approval notifications (opt-in): a pluggable notifier fans the
+  `approval.requested` event out to configured transports — SMTP email and/or a
+  Slack incoming webhook — so a reviewer is pinged directly instead of relying on
+  a bring-your-own webhook subscription. Also fires on SLA-breach escalation
+  (alert and delegate paths), exactly once per approval. Configured via
+  `ZEROTH_APPROVAL_NOTIFICATIONS__*`; disabled and no-op by default. Transport
+  failures are logged and swallowed so a notification outage never blocks a run.
+
 ## [0.11.1] - 2026-07-17
 
 ### Added

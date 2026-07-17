@@ -558,6 +558,12 @@ async def bootstrap_service(
         except ImportError:
             pass
 
+    # Proactive approval notifications (email/Slack). Opt-in: a no-op unless
+    # a transport is configured, so the default stays BYO-webhook-only.
+    from zeroth.core.approvals.notifications import build_approval_notifier
+
+    approval_service.notifier = build_approval_notifier(settings.approval_notifications)
+
     # WS-E: retention / right-to-erasure wiring. Repositories + the erasure
     # service are ALWAYS constructed so the API works regardless of the worker;
     # the background purge worker is only built when retention.enabled is True.

@@ -135,6 +135,38 @@ class ApprovalSLASettings(BaseModel):
     checker_poll_interval: float = 10.0
 
 
+class SlackNotificationSettings(BaseModel):
+    """Slack incoming-webhook transport for approval notifications."""
+
+    webhook_url: str | None = None
+    timeout: float = 10.0
+
+
+class EmailNotificationSettings(BaseModel):
+    """SMTP transport for approval notifications."""
+
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    from_address: str | None = None
+    to_addresses: list[str] = Field(default_factory=list)
+    username: str | None = None
+    password: str | None = None
+    use_tls: bool = True
+    timeout: float = 10.0
+
+
+class ApprovalNotificationSettings(BaseModel):
+    """Proactive approval notifications (opt-in; disabled by default).
+
+    When disabled or unconfigured, no reviewer is pinged and behavior is
+    identical to the BYO-webhook-only baseline.
+    """
+
+    enabled: bool = False
+    slack: SlackNotificationSettings = Field(default_factory=SlackNotificationSettings)
+    email: EmailNotificationSettings = Field(default_factory=EmailNotificationSettings)
+
+
 class DispatchSettings(BaseModel):
     """Dispatch and horizontal scaling configuration."""
 
@@ -292,6 +324,9 @@ class ZerothSettings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
     approval_sla: ApprovalSLASettings = Field(default_factory=ApprovalSLASettings)
+    approval_notifications: ApprovalNotificationSettings = Field(
+        default_factory=ApprovalNotificationSettings
+    )
     dispatch: DispatchSettings = Field(default_factory=DispatchSettings)
     tls: TLSSettings = Field(default_factory=TLSSettings)
     artifact_store: ArtifactStoreSettings = Field(default_factory=ArtifactStoreSettings)

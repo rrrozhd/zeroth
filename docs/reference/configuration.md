@@ -134,6 +134,16 @@ Approval SLA timeout and escalation configuration.
 | `ZEROTH_APPROVAL_SLA__ENABLED` | `bool` | `True` |  |  |
 | `ZEROTH_APPROVAL_SLA__CHECKER_POLL_INTERVAL` | `float` | `10.0` |  |  |
 
+## Approval Notifications
+
+Proactive approval notifications (opt-in; disabled by default).
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__ENABLED` | `bool` | `False` |  |  |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__SLACK` | `SlackNotificationSettings` | `SlackNotificationSettings(webhook_url=None, timeout=10.0)` |  |  |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__EMAIL` | `EmailNotificationSettings` | `EmailNotificationSettings(smtp_host=None, smtp_port=587, from_address=None, to_addresses=[], username=None, password=None, use_tls=True, timeout=10.0)` |  |  |
+
 ## Dispatch
 
 Dispatch and horizontal scaling configuration.
