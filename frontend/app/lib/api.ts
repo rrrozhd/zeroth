@@ -848,3 +848,67 @@ export function replayDeadLetter(id: string): Promise<void> {
     method: "POST",
   });
 }
+
+// ---------------------------------------------------------------------------
+// P3 Govern — tenant cost/budget, retention, econ quality verdict.
+// ---------------------------------------------------------------------------
+
+export type TenantCost = S["TenantCostResponse"];
+export type TenantBudgetRequest = S["TenantBudgetRequest"];
+
+export function getTenantCost(tenantId: string): Promise<TenantCost> {
+  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/cost`);
+}
+export function setTenantBudget(
+  tenantId: string,
+  body: TenantBudgetRequest,
+): Promise<TenantCost> {
+  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/budget`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export type RetentionPolicy = S["RetentionPolicyResponse"];
+export type RetentionPolicyBody = S["RetentionPolicyBody"];
+export type LegalHold = S["LegalHoldResponse"];
+export type LegalHoldBody = S["LegalHoldBody"];
+export type ErasureResult = S["ErasureResponse"];
+export type ErasureRequestBody = S["ErasureRequestBody"];
+
+export function getRetentionPolicy(): Promise<RetentionPolicy> {
+  return apiFetch<RetentionPolicy>("/v1/retention/policy");
+}
+export function putRetentionPolicy(body: RetentionPolicyBody): Promise<RetentionPolicy> {
+  return apiFetch<RetentionPolicy>("/v1/retention/policy", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+export function placeLegalHold(body: LegalHoldBody): Promise<LegalHold> {
+  return apiFetch<LegalHold>("/v1/retention/legal-holds", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+export function releaseLegalHold(holdId: string): Promise<LegalHold> {
+  return apiFetch<LegalHold>(`/v1/retention/legal-holds/${encodeURIComponent(holdId)}`, {
+    method: "DELETE",
+  });
+}
+export function requestErasure(body: ErasureRequestBody): Promise<ErasureResult> {
+  return apiFetch<ErasureResult>("/v1/retention/erasure-requests", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export type QualityVerdictRequest = S["QualityVerdictRequest"];
+export type RunQualityVerdict = S["RunQualityVerdict"];
+
+export function attachQualityVerdict(body: QualityVerdictRequest): Promise<RunQualityVerdict> {
+  return apiFetch<RunQualityVerdict>("/v1/econ/quality-verdict", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
