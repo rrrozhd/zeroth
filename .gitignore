@@ -90,3 +90,6 @@ apps/vendor_dd/vendor_dd.sqlite*
 apps/vendor_dd/vendor_dd_econ.sqlite*
 apps/vendor_dd/project_unit/finmetrics/data/
 apps/vendor_dd/.runbook_state.json
+
+# Local planning / design docs — never tracked (kept on disk only)
+.planning/
