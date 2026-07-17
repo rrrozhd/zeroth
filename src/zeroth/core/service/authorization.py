@@ -32,6 +32,12 @@ class Permission(StrEnum):
     # Deliberately admin-tier (ADMIN holds all permissions); erasure is
     # irreversible and destroys the plaintext behind the audit trail.
     RETENTION_ADMIN = "retention:admin"
+    # Console → bundled Regulus control-plane read proxy (+ enforcement
+    # approve/reject). Deliberately admin-tier ONLY (not granted to OPERATOR or
+    # REVIEWER below): Regulus data is global/cross-tenant, and the econ token
+    # issuer is blocked over HTTP, so this platform-admin surface is the single
+    # controlled path into the econ plane. See REGULUS-FINDINGS.md / SECURITY.md.
+    ECON_ADMIN = "econ:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {

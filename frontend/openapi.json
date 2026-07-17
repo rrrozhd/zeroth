@@ -6493,6 +6493,95 @@
         ]
       }
     },
+    "/v1/econ/regulus/enforcement/actions/{action_id}/{decision}": {
+      "post": {
+        "operationId": "regulus_enforcement_decision_v1_econ_regulus_enforcement_actions__action_id___decision__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "action_id",
+            "required": true,
+            "schema": {
+              "title": "Action Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "decision",
+            "required": true,
+            "schema": {
+              "title": "Decision",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Regulus Enforcement Decision",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/{path}": {
+      "get": {
+        "operationId": "regulus_read_v1_econ_regulus__path__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Regulus Read",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/econ/rightsizing": {
       "post": {
         "description": "Return cheaper, capability-compatible alternatives to ``body.incumbent``.\n\nCandidates to A/B test, not a verdict \u2014 the endpoint gates on capability and\nprice only. An unknown incumbent returns ``incumbent_known=False`` (a 200 with an\nexplanation), never an error.",

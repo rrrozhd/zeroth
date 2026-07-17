@@ -401,6 +401,11 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_cost_routes(v1_router)
     register_rightsizing_routes(v1_router)
     register_econ_analytics_routes(v1_router)
+    # Admin-gated console proxy into the bundled Regulus control plane (read-only
+    # + enforcement approve/reject). See regulus_proxy_api / REGULUS-FINDINGS.md.
+    from zeroth.core.service.regulus_proxy_api import register_regulus_proxy_routes
+
+    register_regulus_proxy_routes(v1_router)
     register_webhook_routes(v1_router)
     register_artifact_routes(v1_router)
     register_template_routes(v1_router)
