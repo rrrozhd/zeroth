@@ -11,7 +11,7 @@ we learn (ponytail: don't pre-write plans for work earlier phases will re-inform
 |---|---|---|---|
 | **P0** Foundation | [P0-foundation.md](P0-foundation.md) | ✅ done (v0.10.1) | OpenAPI regen, design tokens, primitives, toast, polling, Connect bar, app shell, **Overview** |
 | **P1** Operate | [P1-operate.md](P1-operate.md) | ✅ done (v0.10.2) | Runs, Approvals, Audit, Deployments |
-| **P2** Build | _(write after P1)_ | pending | Studio (canvas re-skin), Templates, Connectors + webhooks |
+| **P2** Build | [P2-build.md](P2-build.md) | ✅ done (v0.10.3) | Studio (canvas re-skin), Templates, Connectors + webhooks |
 | **P3** Govern | _(write after P2)_ | pending | Cost, Retention, Rightsizing & Efficiency, Metrics |
 | **P4** Regulus | _(write after P3)_ | pending | Econ Dashboard, Capabilities, Enforcement, Costing, Reconciliation (graceful-degrade) |
 | **P5** Guide & polish | _(write after P4)_ | pending | Guide, states polish, a11y basics, final sweep |
