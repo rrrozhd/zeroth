@@ -14,7 +14,19 @@ we learn (ponytail: don't pre-write plans for work earlier phases will re-inform
 | **P2** Build | [P2-build.md](P2-build.md) | ✅ done (v0.10.3) | Studio (canvas re-skin), Templates, Connectors + webhooks |
 | **P3** Govern | [P3-govern.md](P3-govern.md) | ✅ done (v0.10.4) | Cost, Retention, Rightsizing & Efficiency, Metrics |
 | **P4** Regulus | [../REGULUS-FINDINGS.md](../REGULUS-FINDINGS.md) | ✅ done (v0.10.5) | Econ Dashboard, Capabilities, Enforcement, Costing, Reconciliation — via a new admin-gated backend proxy (`/v1/econ/regulus/*`) |
-| **P5** Guide & polish | _(write after P4)_ | pending | Guide, states polish, a11y basics, final sweep |
+| **P5** Guide & polish | [P5-polish.md](P5-polish.md) | ✅ done (v0.10.6) | Guide, a11y basics, rf-error triage, legacy-debt docs |
+
+## Known follow-ups (post-rebuild)
+
+- **Retire legacy `ui.tsx` + P0 compat aliases.** Still used by the Studio-canvas
+  subtree (`studio/edit`, `StudioNodeView`, `NodeInspector`, `ConnectorInline`,
+  `ModelRightsizing`, `CodeEditor`). The canvas is visually re-skinned (P2); this
+  is ~4k LOC of internal cleanup, deferred as its own effort.
+- **Content-type-aware `apiFetch`.** `/v1/metrics` (and any text endpoint) returns
+  non-JSON; the Metrics page works around it with a text refetch. A shared
+  content-type check in `apiFetch` would remove the double-fetch.
+- **Regulus writes beyond enforcement** (registry/capability mutations) — left off
+  the console deliberately; design separately if needed.
 
 ## Global rules (all phases)
 
