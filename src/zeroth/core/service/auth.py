@@ -15,7 +15,7 @@ from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod
 
 try:  # pragma: no cover - exercised once bearer verification lands
     import jwt
@@ -35,7 +35,8 @@ class StaticApiKeyCredential(BaseModel):
     credential_id: str
     secret: str
     subject: str
-    roles: list[ServiceRole] = Field(default_factory=list)
+    # Role names (built-in or custom); resolved to permissions by the registry.
+    roles: list[str] = Field(default_factory=list)
     tenant_id: str = "default"
     workspace_id: str | None = None
 
@@ -65,6 +66,10 @@ class ServiceAuthConfig(BaseModel):
 
     api_keys: list[StaticApiKeyCredential] = Field(default_factory=list)
     bearer: BearerTokenConfig | None = None
+    # Custom role name -> permission-name list. Validated into Permission enum
+    # members when the role registry is built (kept as strings here so this
+    # authentication-layer config stays free of the authorization module).
+    custom_roles: dict[str, list[str]] = Field(default_factory=dict)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ServiceAuthConfig:
@@ -74,6 +79,8 @@ class ServiceAuthConfig(BaseModel):
             payload["api_keys"] = json.loads(source["ZEROTH_SERVICE_API_KEYS_JSON"])
         if source.get("ZEROTH_SERVICE_BEARER_JSON"):
             payload["bearer"] = json.loads(source["ZEROTH_SERVICE_BEARER_JSON"])
+        if source.get("ZEROTH_SERVICE_ROLES_JSON"):
+            payload["custom_roles"] = json.loads(source["ZEROTH_SERVICE_ROLES_JSON"])
         return cls.model_validate(payload)
 
 
@@ -105,7 +112,7 @@ class JWTBearerTokenVerifier:
         return AuthenticatedPrincipal(
             subject=str(claims["sub"]),
             auth_method=AuthMethod.BEARER,
-            roles=[ServiceRole(role) for role in claims.get("roles", [])],
+            roles=[str(role) for role in claims.get("roles", [])],
             tenant_id=str(claims.get("tenant_id", "default")),
             workspace_id=claims.get("workspace_id"),
             claims=dict(claims),

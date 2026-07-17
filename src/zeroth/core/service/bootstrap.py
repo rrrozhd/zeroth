@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import FastAPI
 
@@ -36,6 +36,7 @@ from zeroth.core.runs import RunRepository, ThreadRepository
 from zeroth.core.secrets import SecretProvider, build_secret_provider
 from zeroth.core.service.app import create_app
 from zeroth.core.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, ServiceAuthenticator
+from zeroth.core.service.authorization import RoleRegistry
 from zeroth.core.signing import SigningKeyProvider, build_signing_provider_async
 from zeroth.core.storage import AsyncDatabase
 
@@ -115,6 +116,9 @@ class ServiceBootstrap:
     orchestrator: RuntimeOrchestrator
     auth_config: ServiceAuthConfig
     authenticator: ServiceAuthenticator
+    # Built-in-only by default; build_service_bootstrap replaces it with a
+    # registry that includes any config-defined custom roles.
+    role_registry: RoleRegistry = field(default_factory=RoleRegistry)
     # Phase 9 additions (optional so existing tests don't break).
     worker: RunWorker | None = None
     lease_manager: LeaseManager | None = None
@@ -246,6 +250,7 @@ async def bootstrap_service(
         resolved_auth_config,
         bearer_verifier=bearer_token_verifier,
     )
+    role_registry = RoleRegistry.from_config(resolved_auth_config.custom_roles)
 
     # Phase 9: durable dispatch, guardrails, observability.
     resolved_guardrail_config = guardrail_config or GuardrailConfig()
@@ -614,6 +619,7 @@ async def bootstrap_service(
         orchestrator=orchestrator,
         auth_config=resolved_auth_config,
         authenticator=authenticator,
+        role_registry=role_registry,
         worker=worker,
         lease_manager=lease_manager,
         guardrail_config=resolved_guardrail_config,

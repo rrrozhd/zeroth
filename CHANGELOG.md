@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-17
+
+### Added
+- Config-driven custom RBAC roles: define additional role name → permission-set
+  mappings via `ZEROTH_SERVICE_ROLES_JSON`, resolved through a new `RoleRegistry`
+  alongside the built-in operator/reviewer/admin roles. Principals carry role
+  names as strings; an unknown role grants no permissions (fail-closed), and a
+  custom role colliding with a built-in or naming an unknown permission is
+  rejected at boot.
+
 ## [0.11.0.1] - 2026-07-17
 
 ### Fixed

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
 
 from fastapi import HTTPException, Request, status
@@ -68,11 +69,75 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
     ServiceRole.ADMIN: set(Permission),
 }
 
+# Built-in roles keyed by their string name — the seed for every RoleRegistry.
+BUILTIN_ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
+    role.value: frozenset(perms) for role, perms in ROLE_PERMISSIONS.items()
+}
+
+
+class RoleRegistry:
+    """Resolves role names to permission sets.
+
+    Seeded with the three built-in roles; deployments may register additional
+    custom roles by name via configuration. An unknown role name resolves to no
+    permissions (fail-closed), so a typo or a revoked role never escalates.
+    """
+
+    def __init__(self, custom_roles: Mapping[str, Iterable[Permission]] | None = None) -> None:
+        table: dict[str, frozenset[Permission]] = dict(BUILTIN_ROLE_PERMISSIONS)
+        for name, perms in (custom_roles or {}).items():
+            if name in BUILTIN_ROLE_PERMISSIONS:
+                raise ValueError(f"custom role {name!r} collides with a built-in role")
+            table[name] = frozenset(perms)
+        self._table = table
+
+    @classmethod
+    def from_config(cls, custom_roles: Mapping[str, Iterable[str]] | None) -> RoleRegistry:
+        """Build a registry from raw config, validating permission names.
+
+        Each permission string must name a :class:`Permission` member; an
+        unknown permission is a configuration error and raises, rather than
+        silently dropping a grant.
+        """
+        resolved: dict[str, frozenset[Permission]] = {}
+        for name, perm_names in (custom_roles or {}).items():
+            perms: set[Permission] = set()
+            for perm_name in perm_names:
+                try:
+                    perms.add(Permission(perm_name))
+                except ValueError as exc:
+                    raise ValueError(
+                        f"custom role {name!r} references unknown permission {perm_name!r}"
+                    ) from exc
+            resolved[name] = frozenset(perms)
+        return cls(resolved)
+
+    def permissions_for(self, roles: Iterable[str]) -> set[Permission]:
+        """Union the permissions granted by the given role names."""
+        allowed: set[Permission] = set()
+        for role in roles:
+            allowed |= self._table.get(role, frozenset())
+        return allowed
+
+    def known_roles(self) -> frozenset[str]:
+        return frozenset(self._table)
+
+
+# Built-in-only registry used when no bootstrap-configured registry is present
+# (e.g. unit tests that construct principals directly).
+DEFAULT_ROLE_REGISTRY = RoleRegistry()
+
+
+def _role_registry(request: Request) -> RoleRegistry:
+    bootstrap = getattr(request.app.state, "bootstrap", None)
+    registry = getattr(bootstrap, "role_registry", None)
+    return registry if isinstance(registry, RoleRegistry) else DEFAULT_ROLE_REGISTRY
+
 
 async def require_permission(request: Request, permission: Permission) -> AuthenticatedPrincipal:
     """Require that the authenticated principal holds the requested permission."""
     principal = current_principal(request)
-    allowed = set().union(*(ROLE_PERMISSIONS.get(role, set()) for role in principal.roles))
+    allowed = _role_registry(request).permissions_for(principal.roles)
     if permission in allowed:
         return principal
     bootstrap = getattr(request.app.state, "bootstrap", None)

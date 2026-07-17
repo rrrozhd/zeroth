@@ -16,7 +16,13 @@ class AuthMethod(StrEnum):
 
 
 class ServiceRole(StrEnum):
-    """Service roles used by route authorization."""
+    """Built-in service roles used by route authorization.
+
+    These three are always present. Deployments may define additional custom
+    roles by name via configuration (``ZEROTH_SERVICE_ROLES_JSON``); principals
+    carry role names as plain strings so a custom role flows through the same
+    path, and an unknown name simply grants no permissions (fail-closed).
+    """
 
     OPERATOR = "operator"
     REVIEWER = "reviewer"
@@ -39,7 +45,10 @@ class ActorIdentity(BaseModel):
 
     subject: str
     auth_method: AuthMethod
-    roles: list[ServiceRole] = Field(default_factory=list)
+    # Role names, not the ServiceRole enum: built-in roles serialize to the same
+    # strings ("operator"/…), and custom role names defined via config flow
+    # through unchanged. Permission resolution happens against the role registry.
+    roles: list[str] = Field(default_factory=list)
     tenant_id: str = "default"
     workspace_id: str | None = None
 
