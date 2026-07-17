@@ -12,18 +12,22 @@ export type RegulusStatus = "enabled" | "absent" | "unknown";
  *   - else → 401/403 (missing/invalid key/role) → can't tell → unknown (hide) */
 export function regulusStatusFrom(httpStatus: number): RegulusStatus {
   if (httpStatus >= 200 && httpStatus < 300) return "enabled";
-  if (httpStatus === 404) return "absent";
+  // The console reaches Regulus only through the admin-gated proxy:
+  //   403 → caller lacks the admin role   (hide the section)
+  //   503 → Regulus mount is disabled     (hide)
+  //   404 → proxy/route absent             (hide)
+  if (httpStatus === 403 || httpStatus === 503 || httpStatus === 404) return "absent";
   return "unknown";
 }
 
-/** Probe the mounted Regulus openapi once, WITH the API key. Returns "unknown"
- *  when the key is absent or the network fails — the nav group only shows on a
- *  definite "enabled", so an ambiguous result safely hides it. */
+/** Probe the admin-gated Regulus proxy once, WITH the API key. The Regulus nav
+ *  section shows only on a definite "enabled" (200 = mounted AND caller is a
+ *  platform admin); 403/503/404/network all resolve to hidden. */
 export async function detectRegulus(): Promise<RegulusStatus> {
   const key = getApiKey();
   if (!key) return "unknown";
   try {
-    const res = await fetch(`${getApiBase()}/regulus/openapi.json`, {
+    const res = await fetch(`${getApiBase()}/v1/econ/regulus/dashboard/kpis`, {
       method: "GET",
       headers: { "X-API-Key": key },
     });

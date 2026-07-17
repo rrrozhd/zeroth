@@ -6,13 +6,12 @@ describe("regulusStatusFrom", () => {
     expect(regulusStatusFrom(200)).toBe("enabled");
     expect(regulusStatusFrom(204)).toBe("enabled");
   });
-  it("absent on 404 (auth passed, nothing mounted at /regulus)", () => {
+  it("absent on 403/503/404 (not admin / mount off / route absent → hidden)", () => {
+    expect(regulusStatusFrom(403)).toBe("absent");
+    expect(regulusStatusFrom(503)).toBe("absent");
     expect(regulusStatusFrom(404)).toBe("absent");
   });
-  it("unknown on 401/403 (missing/invalid key or role — can't tell)", () => {
-    // The whole service is behind auth middleware, so 401/403 does NOT imply a
-    // mounted-but-gated sub-app; treat it as indeterminate and hide the group.
+  it("unknown on 401/network (indeterminate → hidden)", () => {
     expect(regulusStatusFrom(401)).toBe("unknown");
-    expect(regulusStatusFrom(403)).toBe("unknown");
   });
 });
