@@ -79,6 +79,7 @@ src/zeroth/
     execution/
     http/
     memory/
+    persistence/
     rag/
     sandbox/
   eval/
@@ -100,7 +101,7 @@ integration modules. No backend domain may depend on service code.
 | `core.artifacts`, `core.dispatch`, `core.observability`, `core.secrets`, `core.storage`, `core.signing`, `core.config` | `platform.artifacts`, `platform.dispatch`, `platform.observability`, `platform.secrets`, `platform.storage`, `platform.signing`, `platform.config` | Move; add `platform.primitives` |
 | `core.graph`, `core.contracts`, `core.mappings`, `core.templates`, `core.conditions` | `contracts.graph`, `contracts.registry`, `contracts.mappings`, `contracts.templates`, `contracts.conditions` | Move; decompose validation |
 | `core.runs` models and repository protocols | `runtime.runs` | Runtime-owned run/thread/checkpoint domain contracts |
-| `core.runs` SQL persistence and row serialization | `platform.persistence.runs` | Concrete persistence; decompose repositories |
+| `core.runs` SQL persistence and row serialization | `integrations.persistence.runs` | Concrete persistence adapter; decompose repositories |
 | `core.service`, `core.deployments`, `core.webhooks` | `service.api`, `service.bootstrap`, `service.deployments`, `service.webhooks` | Move; decompose bootstrap |
 | `core.econ`, `econ_plane` | `econ.analytics`, `econ.instrumentation`, `econ.plane` | Consolidate without changing optional capabilities |
 | `core.http`, `core.rag`, `core.execution_units`, `core.sandbox_sidecar`, `core.memory` | `integrations.http`, `integrations.rag`, `integrations.execution`, `integrations.sandbox`, `integrations.memory` | Move; preserve optional integration surfaces |
@@ -138,12 +139,15 @@ the final refactor leaves no undocumented exception.
 
 `runtime.runs` owns the `Run`, `Thread`, checkpoint, history, and status models,
 plus repository protocols required by orchestration and agent runtime. Runtime
-code depends only on these models and protocols. `platform.persistence.runs`
-owns the SQL-backed `RunRepository` and `ThreadRepository`, transaction helpers,
-row serialization, retention queries, and concrete checkpoint persistence.
-Service bootstrap constructs those implementations and injects them through the
-runtime-owned protocols. This keeps persistence replaceable for library users
-and prevents a runtime-to-service dependency.
+code depends only on these models and protocols. `platform.storage` owns generic
+database connections, transactions, migrations, and backend-neutral storage
+infrastructure. `integrations.persistence.runs` depends on both runtime and
+platform and owns the SQL-backed `RunRepository` and `ThreadRepository`, row
+serialization, retention queries, and concrete checkpoint persistence. Service
+bootstrap constructs those implementations and injects them through the
+runtime-owned protocols. This keeps persistence replaceable for library users,
+prevents a runtime-to-service dependency, and preserves an acyclic dependency
+graph.
 
 ## Runtime Decomposition
 
