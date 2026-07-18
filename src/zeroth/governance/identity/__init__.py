@@ -1,0 +1,1 @@
+"""Governed actor identity."""

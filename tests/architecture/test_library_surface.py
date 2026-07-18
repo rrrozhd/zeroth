@@ -22,10 +22,66 @@ from pydantic import BaseModel
 
 FIXTURES = Path(__file__).parents[1] / "contracts" / "fixtures"
 REPO_ROOT = Path(__file__).parents[2]
+CANONICAL_PACKAGES = (
+    "zeroth.runtime",
+    "zeroth.runtime.orchestration",
+    "zeroth.runtime.agents",
+    "zeroth.runtime.context",
+    "zeroth.runtime.parallel",
+    "zeroth.runtime.runs",
+    "zeroth.runtime.subgraphs",
+    "zeroth.governance",
+    "zeroth.governance.approvals",
+    "zeroth.governance.audit",
+    "zeroth.governance.identity",
+    "zeroth.governance.policy",
+    "zeroth.governance.guardrails",
+    "zeroth.governance.retention",
+    "zeroth.platform",
+    "zeroth.platform.artifacts",
+    "zeroth.platform.config",
+    "zeroth.platform.dispatch",
+    "zeroth.platform.observability",
+    "zeroth.platform.persistence",
+    "zeroth.platform.primitives",
+    "zeroth.platform.secrets",
+    "zeroth.platform.signing",
+    "zeroth.platform.storage",
+    "zeroth.contracts",
+    "zeroth.contracts.conditions",
+    "zeroth.contracts.governed",
+    "zeroth.contracts.graph",
+    "zeroth.contracts.registry",
+    "zeroth.contracts.mappings",
+    "zeroth.contracts.templates",
+    "zeroth.service",
+    "zeroth.service.api",
+    "zeroth.service.bootstrap",
+    "zeroth.service.deployments",
+    "zeroth.service.webhooks",
+    "zeroth.econ",
+    "zeroth.econ.analytics",
+    "zeroth.econ.instrumentation",
+    "zeroth.econ.plane",
+    "zeroth.integrations",
+    "zeroth.integrations.execution",
+    "zeroth.integrations.http",
+    "zeroth.integrations.memory",
+    "zeroth.integrations.persistence",
+    "zeroth.integrations.rag",
+    "zeroth.integrations.sandbox",
+    "zeroth.eval",
+)
 
 
 def _load(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / name).read_text())
+
+
+@pytest.mark.parametrize("module_name", CANONICAL_PACKAGES)
+def test_every_canonical_package_imports(module_name: str) -> None:
+    """The authoritative backend package tree must remain importable."""
+    importlib.import_module(module_name)
 
 
 def _import_symbol(entry: dict[str, Any]) -> object:
