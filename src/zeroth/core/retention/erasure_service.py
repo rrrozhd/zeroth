@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from zeroth.core.retention.econ_eraser import EconEventEraser
     from zeroth.core.retention.legal_hold_repository import LegalHoldRepository
     from zeroth.core.retention.policy_repository import RetentionPolicyRepository
-    from zeroth.core.runs.repository import RunRepository
+    from zeroth.integrations.persistence.runs import RunRepository
 
 logger = logging.getLogger(__name__)
 

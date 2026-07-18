@@ -5,12 +5,16 @@ multiple runs together so you can track an ongoing conversation or task
 across several executions. This package provides the data models for both,
 plus repository classes that persist them in SQLite.
 
-The models are imported eagerly; the repositories resolve on first access.
-Importing them eagerly meant that reading a run *model* also loaded the
-concrete SQL adapter, so any module the adapter imports was loaded while this
-package was still initializing -- which makes extracting that adapter into
-:mod:`zeroth.integrations.persistence.runs` impossible without a circular
-import. ``from zeroth.core.runs import RunRepository`` is unchanged.
+The concrete repositories now live in :mod:`zeroth.integrations.persistence.runs`
+and are resolved from there on first access, so ``from zeroth.core.runs import
+RunRepository`` is unchanged.
+
+They stay lazy for the reason that made the extraction possible in the first
+place. Importing them eagerly meant that reading a run *model* also loaded the
+concrete SQL adapter, so every module the adapter imports was loaded while this
+package was still initializing -- which closed a circular import the moment the
+adapter lived outside ``zeroth.core``. Making this resolution eager again would
+reintroduce that cycle.
 """
 
 from __future__ import annotations
@@ -31,11 +35,11 @@ from zeroth.core.runs.models import (
 )
 
 if TYPE_CHECKING:
-    from zeroth.core.runs.repository import RunRepository, ThreadRepository
+    from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 _EXPORTS = {
-    "RunRepository": "repository",
-    "ThreadRepository": "repository",
+    "RunRepository": "zeroth.integrations.persistence.runs.run_repository",
+    "ThreadRepository": "zeroth.integrations.persistence.runs.thread_repository",
 }
 
 __all__ = [
@@ -54,12 +58,12 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
-    """Resolve the concrete repositories from their submodule on first access."""
-    submodule = _EXPORTS.get(name)
-    if submodule is None:
+    """Resolve the concrete repositories from the persistence package on first access."""
+    module = _EXPORTS.get(name)
+    if module is None:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)
-    value = getattr(importlib.import_module(f"{__name__}.{submodule}"), name)
+    value = getattr(importlib.import_module(module), name)
     globals()[name] = value
     return value
 

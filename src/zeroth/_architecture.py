@@ -107,10 +107,14 @@ def _exception_group(
 
 TEMPORARY_EXCEPTIONS = {
     **_exception_group(
-        ("zeroth.core.agent_runtime.thread_store", "zeroth.core.runs.repository"),
-        ("zeroth.core.runs", "zeroth.core.runs.repository"),
-        reason="Runtime code still reaches the concrete legacy run repository.",
-        removal_task="Task 6: split concrete run persistence and inject runtime protocols.",
+        ("zeroth.core.runs", "zeroth.integrations.persistence.runs"),
+        reason=(
+            "zeroth.core.runs:RunRepository and :ThreadRepository are protected "
+            "legacy capabilities, so the legacy package must keep republishing the "
+            "concrete adapters it no longer owns. Resolution stays lazy: making it "
+            "eager reintroduces the cycle that blocked the extraction."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
         ("zeroth.core.graph.validation", "zeroth.core.parallel.errors"),
@@ -137,7 +141,7 @@ TEMPORARY_EXCEPTIONS = {
             "zeroth.core.retention.econ_eraser",
             "zeroth.econ_plane.instrumentation.models",
         ),
-        ("zeroth.core.retention.erasure_service", "zeroth.core.runs.repository"),
+        ("zeroth.core.retention.erasure_service", "zeroth.integrations.persistence.runs"),
         reason="Retention orchestration directly owns concrete persistence cleanup.",
         removal_task="Task 9: decompose retention erasure behind injected cleanup adapters.",
     ),
@@ -174,13 +178,20 @@ TEMPORARY_EXCEPTIONS = {
         ("zeroth.core.approvals.service", "zeroth.core.runs"),
         ("zeroth.core.approvals.service", "zeroth.core.orchestrator.runtime"),
         ("zeroth.core.guardrails.dead_letter", "zeroth.core.runs"),
-        ("zeroth.core.guardrails.dead_letter", "zeroth.core.runs.repository"),
+        (
+            "zeroth.core.guardrails.dead_letter",
+            "zeroth.integrations.persistence.runs.run_repository",
+        ),
         ("zeroth.core.policy.guard", "zeroth.core.runs"),
         reason="Legacy governance services depend directly on runtime implementations.",
         removal_task="Task 13: move governance packages behind contract-owned interfaces.",
     ),
     **_exception_group(
         ("zeroth.core.agent_runtime.factory", "zeroth.core.deployments"),
+        (
+            "zeroth.core.agent_runtime.thread_store",
+            "zeroth.integrations.persistence.runs",
+        ),
         (
             "zeroth.core.agent_runtime.provider",
             "zeroth.core.governed.integrations.tool_calls",

@@ -14,8 +14,8 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.core.runs.models import Run, Thread, ThreadMemoryBinding, ThreadStatus
-from zeroth.core.runs.repository import RunRepository, ThreadRepository
 from zeroth.core.storage import AsyncDatabase
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.primitives import utc_now
 
 THREAD_STATE_CHECKPOINT_KIND = "thread_state"

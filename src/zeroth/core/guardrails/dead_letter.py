@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from zeroth.core.runs import RunFailureState, RunRepository, RunStatus
-from zeroth.core.runs.repository import DEAD_LETTER_REASON
+from zeroth.integrations.persistence.runs.run_repository import DEAD_LETTER_REASON
 
 
 @dataclass(slots=True)

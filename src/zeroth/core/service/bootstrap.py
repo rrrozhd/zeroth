@@ -32,12 +32,12 @@ from zeroth.core.observability.queue_gauge import QueueDepthGauge
 from zeroth.core.observability.tracing import configure_tracing
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.policy import PolicyGuard, PolicyRegistry, default_capability_registry
-from zeroth.core.runs import RunRepository, ThreadRepository
 from zeroth.core.secrets import SecretProvider, build_secret_provider
 from zeroth.core.service.app import create_app
 from zeroth.core.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, ServiceAuthenticator
 from zeroth.core.signing import SigningKeyProvider, build_signing_provider_async
 from zeroth.core.storage import AsyncDatabase
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 
 class _BootstrapMemorySubsection:
