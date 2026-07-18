@@ -21,7 +21,9 @@ flight and no file under `frontend/` will be modified by this work.
   exception semantics must remain stable.
 - Public import paths may change when the new ownership is clearer. Each such
   change must be recorded in a backend migration guide.
-- Existing documented library APIs should be preserved where practical.
+- Existing library capabilities, call signatures, return semantics, and
+  exception semantics must be preserved. The permitted compatibility break is
+  an import-location change documented in the migration guide.
 - Every independently testable refactor slice receives an atomic commit after
   its focused tests pass.
 - User-owned changes in the original worktree, especially `.planning/` and
@@ -73,6 +75,43 @@ decomposed behind clear interfaces, then moved with their cohesive domain when
 the dependency direction is explicit. Service and integrations may depend on
 runtime, governance, contracts, platform, and economics; those domains must not
 depend on service code.
+
+### Current-to-target module map
+
+| Current package | Target package | Disposition |
+| --- | --- | --- |
+| `core.orchestrator`, `core.agent_runtime`, `core.parallel`, `core.subgraph`, `core.context_window` | `runtime.orchestration`, `runtime.agents`, `runtime.parallel`, `runtime.subgraphs`, `runtime.context` | Move and decompose |
+| `core.approvals`, `core.audit`, `core.policy`, `core.guardrails`, `core.retention`, `core.identity` | `governance.approvals`, `governance.audit`, `governance.policy`, `governance.guardrails`, `governance.retention`, `governance.identity` | Move; decompose retention |
+| `core.artifacts`, `core.dispatch`, `core.observability`, `core.secrets`, `core.storage`, `core.signing`, `core.config` | `platform.artifacts`, `platform.dispatch`, `platform.observability`, `platform.secrets`, `platform.storage`, `platform.signing`, `platform.config` | Move; add `platform.primitives` |
+| `core.graph`, `core.contracts`, `core.mappings`, `core.templates`, `core.conditions` | `contracts.graph`, `contracts.registry`, `contracts.mappings`, `contracts.templates`, `contracts.conditions` | Move; decompose validation |
+| `core.service`, `core.deployments`, `core.runs`, `core.webhooks` | `service.api`, `service.bootstrap`, `service.deployments`, `service.runs`, `service.webhooks` | Move; decompose bootstrap and repositories |
+| `core.econ`, `econ_plane` | `econ.analytics`, `econ.instrumentation`, `econ.plane` | Consolidate without changing optional capabilities |
+| `core.http`, `core.rag`, `core.execution_units`, `core.sandbox_sidecar`, `core.memory` | `integrations.http`, `integrations.rag`, `integrations.execution`, `integrations.sandbox`, `integrations.memory` | Move; preserve optional integration surfaces |
+| `core.eval` | `eval` | Move as a stable library capability |
+| `core.demos`, `core.examples`, migrations | Existing locations until a separately justified change | Explicitly unchanged by this refactor |
+
+Package moves may be divided further in the implementation plan, but no
+backend package may be moved without appearing in this table or an approved
+spec amendment.
+
+### Import direction
+
+Allowed top-level dependencies are:
+
+| Package | May depend on |
+| --- | --- |
+| `platform` | standard library and third-party infrastructure only |
+| `contracts` | `platform` |
+| `governance` | `contracts`, `platform` |
+| `runtime` | `contracts`, `governance`, `platform`, `integrations` |
+| `econ` | `contracts`, `platform` |
+| `integrations` | `contracts`, `governance`, `platform`, `econ` |
+| `service` | every backend domain; no backend domain may import `service` |
+| `eval` | `contracts`, `runtime`, `platform` |
+
+An architecture test scans imports and fails on a disallowed top-level edge.
+Temporary exceptions require an explicit allow-list entry with a removal task;
+the final refactor leaves no undocumented exception.
 
 ## Runtime Decomposition
 
@@ -185,10 +224,27 @@ the commit or migration guide.
 
 ## Migration Documentation
 
-A backend migration guide maps old documented import paths to new paths and
-calls out removed legacy implementations. It distinguishes import-only changes
-from behavioral changes; this refactor is not expected to include intentional
-behavioral changes.
+Before moves begin, build a library-surface inventory from package `__all__`
+exports, public imports, reference documentation, examples, entry points,
+schema-exposed types, and optional integrations. The inventory is committed and
+becomes the source for import smoke tests.
+
+A backend migration guide maps old library paths to new paths and calls out
+removed legacy implementations. Every changed or removed public symbol receives
+a row with:
+
+| Field | Meaning |
+| --- | --- |
+| old path and symbol | Previously supported import |
+| new path and symbol | New canonical import, if any |
+| disposition | moved, renamed, superseded, or removed |
+| compatibility status | whether a temporary re-export exists; none is required |
+| replacement | Maintained capability replacing a superseded symbol |
+| removal evidence | Dead-code criteria and supporting searches/tests |
+
+Capabilities, signatures, return semantics, and exception semantics remain
+mandatory. Import location is the only generally permitted compatibility
+change. Any intentional behavioral change requires a separate approved design.
 
 ## Testing Strategy
 
@@ -201,6 +257,20 @@ uv run pytest -q
 
 The pre-refactor baseline is 1,973 passed, 16 deselected, and three warnings.
 
+Before implementation, capture explicit contract fixtures or characterization
+checks for:
+
+- the generated OpenAPI schema and stable HTTP response/error shapes;
+- database schema objects and migration revision ordering;
+- round-trip serialization of persisted runs, threads, checkpoints, audit
+  records, approvals, and cleanup manifests;
+- the inventoried library symbols and their public call signatures; and
+- representative exception types and failure semantics at public boundaries.
+
+Golden artifacts should compare semantic structures rather than unstable
+formatting. An approved fixture update must be isolated from implementation
+changes so contract drift cannot hide inside a refactor commit.
+
 For each extraction:
 
 1. add or identify characterization coverage for the boundary;
@@ -208,33 +278,42 @@ For each extraction:
    does not yet exist;
 3. implement the smallest extraction that passes it;
 4. run the focused domain tests;
-5. run Ruff on affected source;
+5. run Ruff on affected source; and
 6. commit the independently passing slice.
+
+Every completed implementation step, including package moves, documentation,
+architecture checks, and dead-code removals, receives an atomic commit after
+its focused tests and Ruff checks pass.
 
 After each domain migration, run its broader test group. Final verification is:
 
 ```bash
+uv sync --all-extras
 uv run pytest -v
 uv run ruff check src/
 uv run ruff format --check src/
+git diff --exit-code <refactor-base> -- frontend/
 ```
 
 An import-surface smoke test will exercise the documented backend library entry
-points and the new package locations. No completion claim is made without fresh
-full-suite and lint evidence.
+points and the new package locations. The final diff check proves that the
+frontend remained untouched. No completion claim is made without fresh
+all-extras, full-suite, lint, formatting, contract-fixture, architecture, import
+surface, and frontend-diff evidence.
 
 ## Delivery Order
 
-1. Establish architecture checks and migration documentation scaffolding.
-2. Introduce shared primitives where equivalence is proven.
-3. Decompose and migrate orchestration runtime.
-4. Decompose and migrate graph validation.
-5. Decompose and migrate runs and thread persistence.
-6. Decompose and migrate retention erasure.
-7. Decompose service bootstrap and API ownership.
-8. Move remaining cohesive backend packages into their target domains.
-9. Audit and remove only proven dead or superseded code.
-10. Run full verification and complete migration documentation.
+1. Inventory the library surface and capture protected contract fixtures.
+2. Establish architecture checks and migration documentation scaffolding.
+3. Introduce shared primitives where equivalence is proven.
+4. Decompose and migrate orchestration runtime.
+5. Decompose and migrate graph validation.
+6. Decompose and migrate runs and thread persistence.
+7. Decompose and migrate retention erasure.
+8. Decompose service bootstrap and API ownership.
+9. Move the remaining packages listed in the module map.
+10. Audit and remove only proven dead or superseded code.
+11. Run full verification and complete migration documentation.
 
 Each step is allowed to refine the exact module split when tests or dependency
 analysis reveal a safer boundary, but it may not broaden scope into frontend or
