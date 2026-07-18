@@ -12,11 +12,8 @@ from collections.abc import Iterable
 from typing import Any
 
 from zeroth.contracts.graph.validation.cycles import validate_cycles
+from zeroth.contracts.graph.validation.edges import validate_edges
 from zeroth.contracts.graph.validation.issues import append_issue
-from zeroth.contracts.graph.validation.mappings import (
-    validate_condition,
-    validate_mapping,
-)
 from zeroth.contracts.graph.validation.nodes import (
     validate_entrypoint,
     validate_nodes,
@@ -24,10 +21,10 @@ from zeroth.contracts.graph.validation.nodes import (
 from zeroth.contracts.graph.validation.references import (
     validate_graph_refs,
 )
+from zeroth.contracts.graph.validation.tools import validate_tool_attachments
 from zeroth.core.contracts.registry import ContractRegistry
 from zeroth.core.graph.models import (
     AgentNode,
-    Edge,
     ExecutableUnitNode,
     Graph,
     Node,
@@ -99,8 +96,15 @@ class GraphValidator:
         validate_graph_refs(graph, issues)
         validate_nodes(graph, node_map, issues, capability_checks=self)
         validate_entrypoint(graph, node_map, issues)
-        self._validate_edges(graph, node_map, edge_ids, adjacency, issues)
-        self._validate_tool_attachments(graph, node_map, issues)
+        validate_edges(
+            graph,
+            node_map,
+            edge_ids,
+            adjacency,
+            issues,
+            mapping_validator=self._mapping_validator,
+        )
+        validate_tool_attachments(graph, node_map, issues, capability_checks=self)
         validate_cycles(graph, node_map, adjacency, issues)
         await self._validate_parallel_configs(graph, issues)
 
@@ -254,204 +258,7 @@ class GraphValidator:
                     details={"missing_capabilities": missing},
                 )
 
-    def _validate_edges(
-        self,
-        graph: Graph,
-        node_map: dict[str, Node],
-        edge_ids: set[str],
-        adjacency: dict[str, list[str]],
-        issues: list[ValidationIssue],
-    ) -> None:
-        """Validate edge wiring and edge-level payloads.
-
-        This checks for duplicate IDs, unknown source or target nodes, and
-        invalid condition or mapping payloads.
-        """
-        for edge in graph.edges:
-            if edge.edge_id in edge_ids:
-                append_issue(
-                    issues,
-                    severity=ValidationSeverity.ERROR,
-                    code=ValidationCode.DUPLICATE_EDGE_ID,
-                    message=f"duplicate edge id: {edge.edge_id}",
-                    graph_id=graph.graph_id,
-                    edge_id=edge.edge_id,
-                )
-            edge_ids.add(edge.edge_id)
-
-            if edge.source_node_id not in node_map:
-                append_issue(
-                    issues,
-                    severity=ValidationSeverity.ERROR,
-                    code=ValidationCode.UNKNOWN_EDGE_SOURCE,
-                    message=f"edge source does not exist: {edge.source_node_id}",
-                    graph_id=graph.graph_id,
-                    edge_id=edge.edge_id,
-                    path=("edges", edge.edge_id, "source_node_id"),
-                    details={"source_node_id": edge.source_node_id},
-                )
-            elif edge.kind != "tool":
-                # Tool edges attach tools rather than route execution, so they
-                # stay out of the control-flow adjacency (and cycle checks).
-                adjacency[edge.source_node_id].append(edge.target_node_id)
-
-            if edge.target_node_id not in node_map:
-                append_issue(
-                    issues,
-                    severity=ValidationSeverity.ERROR,
-                    code=ValidationCode.UNKNOWN_EDGE_TARGET,
-                    message=f"edge target does not exist: {edge.target_node_id}",
-                    graph_id=graph.graph_id,
-                    edge_id=edge.edge_id,
-                    path=("edges", edge.edge_id, "target_node_id"),
-                    details={"target_node_id": edge.target_node_id},
-                )
-
-            if edge.kind == "tool":
-                self._validate_tool_edge(graph.graph_id, edge, node_map, issues)
-
-            if edge.condition is not None:
-                validate_condition(graph.graph_id, edge, issues)
-
-            if edge.mapping is not None:
-                validate_mapping(
-                    graph.graph_id,
-                    edge,
-                    issues,
-                    mapping_validator=self._mapping_validator,
-                )
-
-    def _validate_tool_edge(
-        self,
-        graph_id: str,
-        edge: Edge,
-        node_map: dict[str, Node],
-        issues: list[ValidationIssue],
-    ) -> None:
-        """Check a tool edge's endpoints: agent source, executable-unit target.
-
-        Conditions and mappings belong to control flow; a tool edge carrying
-        either is a sign the author meant a data edge.
-        """
-        source = node_map.get(edge.source_node_id)
-        if source is not None and not isinstance(source, AgentNode):
-            append_issue(
-                issues,
-                severity=ValidationSeverity.ERROR,
-                code=ValidationCode.INVALID_TOOL_EDGE,
-                message="tool edge source must be an agent node",
-                graph_id=graph_id,
-                edge_id=edge.edge_id,
-                path=("edges", edge.edge_id, "source_node_id"),
-                details={"source_node_id": edge.source_node_id},
-            )
-        target = node_map.get(edge.target_node_id)
-        if target is not None and not isinstance(target, ExecutableUnitNode):
-            append_issue(
-                issues,
-                severity=ValidationSeverity.ERROR,
-                code=ValidationCode.INVALID_TOOL_EDGE,
-                message="tool edge target must be an executable unit or code node",
-                graph_id=graph_id,
-                edge_id=edge.edge_id,
-                path=("edges", edge.edge_id, "target_node_id"),
-                details={"target_node_id": edge.target_node_id},
-            )
-        if edge.condition is not None or edge.mapping is not None:
-            append_issue(
-                issues,
-                severity=ValidationSeverity.ERROR,
-                code=ValidationCode.INVALID_TOOL_EDGE,
-                message="tool edges cannot carry conditions or mappings",
-                graph_id=graph_id,
-                edge_id=edge.edge_id,
-                path=("edges", edge.edge_id),
-            )
-
-    def _validate_tool_attachments(
-        self,
-        graph: Graph,
-        node_map: dict[str, Node],
-        issues: list[ValidationIssue],
-    ) -> None:
-        """Cross-check tool edges against each agent's tool bindings.
-
-        Every attached unit needs exactly one author-provided binding (name,
-        description, argument descriptions — enforced by the binding model),
-        names must be unique per agent, and bindings must not point at units
-        that are no longer attached.
-        """
-        tool_targets: dict[str, list[str]] = defaultdict(list)
-        for edge in graph.edges:
-            if edge.kind == "tool" and edge.enabled:
-                tool_targets[edge.source_node_id].append(edge.target_node_id)
-
-        for node in graph.nodes:
-            if not isinstance(node, AgentNode):
-                continue
-            attached = tool_targets.get(node.node_id, [])
-            bound_targets = [binding.target_node_id for binding in node.agent.tool_bindings]
-
-            for target_id in attached:
-                if bound_targets.count(target_id) == 0:
-                    append_issue(
-                        issues,
-                        severity=ValidationSeverity.ERROR,
-                        code=ValidationCode.INVALID_TOOL_BINDING,
-                        message=(
-                            f"attached tool {target_id!r} needs a binding with a "
-                            "name, description, and argument descriptions"
-                        ),
-                        graph_id=graph.graph_id,
-                        node_id=node.node_id,
-                        path=("nodes", node.node_id, "agent", "tool_bindings"),
-                        details={"target_node_id": target_id},
-                    )
-                elif bound_targets.count(target_id) > 1:
-                    append_issue(
-                        issues,
-                        severity=ValidationSeverity.ERROR,
-                        code=ValidationCode.INVALID_TOOL_BINDING,
-                        message=f"attached tool {target_id!r} has multiple bindings",
-                        graph_id=graph.graph_id,
-                        node_id=node.node_id,
-                        path=("nodes", node.node_id, "agent", "tool_bindings"),
-                        details={"target_node_id": target_id},
-                    )
-
-            for binding in node.agent.tool_bindings:
-                if binding.target_node_id not in attached:
-                    append_issue(
-                        issues,
-                        severity=ValidationSeverity.ERROR,
-                        code=ValidationCode.INVALID_TOOL_BINDING,
-                        message=(
-                            f"tool binding {binding.name!r} points at "
-                            f"{binding.target_node_id!r}, which is not attached by a tool edge"
-                        ),
-                        graph_id=graph.graph_id,
-                        node_id=node.node_id,
-                        path=("nodes", node.node_id, "agent", "tool_bindings"),
-                        details={"target_node_id": binding.target_node_id},
-                    )
-
-            names = [binding.name for binding in node.agent.tool_bindings]
-            duplicates = sorted({name for name in names if names.count(name) > 1})
-            if duplicates:
-                append_issue(
-                    issues,
-                    severity=ValidationSeverity.ERROR,
-                    code=ValidationCode.INVALID_TOOL_BINDING,
-                    message=f"tool names must be unique per agent: {', '.join(duplicates)}",
-                    graph_id=graph.graph_id,
-                    node_id=node.node_id,
-                    path=("nodes", node.node_id, "agent", "tool_bindings"),
-                    details={"duplicate_names": duplicates},
-                )
-
-            self._validate_tool_capability_grants(graph, node, node_map, issues)
-
-    def _validate_tool_capability_grants(
+    def validate_tool_grants(
         self,
         graph: Graph,
         node: AgentNode,

@@ -10,8 +10,8 @@ therefore injected as a collaborator and invoked at its original position.
 from __future__ import annotations
 
 from zeroth.contracts.graph.limits import INLINE_SOURCE_MAX_CHARS
+from zeroth.contracts.graph.validation.capabilities import NullCapabilityChecks
 from zeroth.contracts.graph.validation.nodes import (
-    NullCapabilityChecks,
     validate_entrypoint,
     validate_nodes,
 )

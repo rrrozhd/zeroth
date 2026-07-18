@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Protocol
-
 from zeroth.contracts.graph.limits import INLINE_SOURCE_MAX_CHARS
+from zeroth.contracts.graph.validation.capabilities import CapabilityChecks
 from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation.references import (
     all_unique,
@@ -25,37 +24,6 @@ from zeroth.core.graph.validation_errors import (
     ValidationIssue,
     ValidationSeverity,
 )
-
-
-class CapabilityChecks(Protocol):
-    """Capability rules a node must satisfy, supplied by the composing layer.
-
-    Capability grants are governance concerns -- they resolve refs against the
-    ``Capability`` enum -- which the contracts layer may not import. They also
-    fire partway through a node's issue sequence, so they cannot be appended by
-    a later pass without reordering the report. Hence a collaborator, invoked
-    at the position the rule has always occupied.
-    """
-
-    def validate_agent_capabilities(
-        self,
-        graph_id: str,
-        node: AgentNode,
-        issues: list[ValidationIssue],
-    ) -> None:
-        """Check an agent's declared capabilities against what it needs."""
-
-
-class NullCapabilityChecks:
-    """Contract-only validation: skips the governance-owned capability rules."""
-
-    def validate_agent_capabilities(
-        self,
-        graph_id: str,
-        node: AgentNode,
-        issues: list[ValidationIssue],
-    ) -> None:
-        """Do nothing; the composing layer supplies the real implementation."""
 
 
 def validate_nodes(
