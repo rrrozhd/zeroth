@@ -31,29 +31,37 @@ flight and no file under `frontend/` will be modified by this work.
 
 ## Target Architecture
 
-The long-term backend ownership model is:
+The following tree is the authoritative long-term backend ownership model:
 
 ```text
 src/zeroth/
   runtime/
     orchestration/
     agents/
+    context/
     parallel/
+    runs/
     subgraphs/
   governance/
     approvals/
     audit/
+    identity/
     policy/
     guardrails/
     retention/
   platform/
     artifacts/
+    config/
     dispatch/
     observability/
+    persistence/
     primitives/
     secrets/
+    signing/
     storage/
   contracts/
+    conditions/
+    governed/
     graph/
     registry/
     mappings/
@@ -61,20 +69,27 @@ src/zeroth/
   service/
     api/
     bootstrap/
+    deployments/
+    webhooks/
   econ/
     analytics/
     instrumentation/
+    plane/
   integrations/
+    execution/
     http/
+    memory/
     rag/
     sandbox/
+  eval/
 ```
 
 This is a staged migration rather than a single tree-wide move. Files are first
 decomposed behind clear interfaces, then moved with their cohesive domain when
 the dependency direction is explicit. Service and integrations may depend on
-runtime, governance, contracts, platform, and economics; those domains must not
-depend on service code.
+runtime, governance, contracts, platform, and economics. Runtime communicates
+with integrations through runtime-owned protocols and must not import concrete
+integration modules. No backend domain may depend on service code.
 
 ### Current-to-target module map
 
@@ -84,11 +99,17 @@ depend on service code.
 | `core.approvals`, `core.audit`, `core.policy`, `core.guardrails`, `core.retention`, `core.identity` | `governance.approvals`, `governance.audit`, `governance.policy`, `governance.guardrails`, `governance.retention`, `governance.identity` | Move; decompose retention |
 | `core.artifacts`, `core.dispatch`, `core.observability`, `core.secrets`, `core.storage`, `core.signing`, `core.config` | `platform.artifacts`, `platform.dispatch`, `platform.observability`, `platform.secrets`, `platform.storage`, `platform.signing`, `platform.config` | Move; add `platform.primitives` |
 | `core.graph`, `core.contracts`, `core.mappings`, `core.templates`, `core.conditions` | `contracts.graph`, `contracts.registry`, `contracts.mappings`, `contracts.templates`, `contracts.conditions` | Move; decompose validation |
-| `core.service`, `core.deployments`, `core.runs`, `core.webhooks` | `service.api`, `service.bootstrap`, `service.deployments`, `service.runs`, `service.webhooks` | Move; decompose bootstrap and repositories |
+| `core.runs` models and repository protocols | `runtime.runs` | Runtime-owned run/thread/checkpoint domain contracts |
+| `core.runs` SQL persistence and row serialization | `platform.persistence.runs` | Concrete persistence; decompose repositories |
+| `core.service`, `core.deployments`, `core.webhooks` | `service.api`, `service.bootstrap`, `service.deployments`, `service.webhooks` | Move; decompose bootstrap |
 | `core.econ`, `econ_plane` | `econ.analytics`, `econ.instrumentation`, `econ.plane` | Consolidate without changing optional capabilities |
 | `core.http`, `core.rag`, `core.execution_units`, `core.sandbox_sidecar`, `core.memory` | `integrations.http`, `integrations.rag`, `integrations.execution`, `integrations.sandbox`, `integrations.memory` | Move; preserve optional integration surfaces |
 | `core.eval` | `eval` | Move as a stable library capability |
+| `core.governed.app`, `core.governed.models` | `contracts.governed` | Consolidate governed specifications and models |
+| `core.governed.runtime`, `core.governed.tools` | `runtime.orchestration`, `runtime.agents` as appropriate | Merge legacy governed runtime capabilities into maintained runtime boundaries |
+| `core.governed.audit`, `core.governed.memory`, `core.governed.integrations` | `governance.audit`, `integrations.memory`, and the relevant integration package | Consolidate only after capability inventory and supersession evidence |
 | `core.demos`, `core.examples`, migrations | Existing locations until a separately justified change | Explicitly unchanged by this refactor |
+| `zeroth.core` package shell and top-level CLI/entry points | Existing location during migration; imports rewritten to canonical packages | Thin bootstrap/compatibility shell, not a home for domain implementations |
 
 Package moves may be divided further in the implementation plan, but no
 backend package may be moved without appearing in this table or an approved
@@ -103,15 +124,26 @@ Allowed top-level dependencies are:
 | `platform` | standard library and third-party infrastructure only |
 | `contracts` | `platform` |
 | `governance` | `contracts`, `platform` |
-| `runtime` | `contracts`, `governance`, `platform`, `integrations` |
+| `runtime` | `contracts`, `governance`, `platform` |
 | `econ` | `contracts`, `platform` |
-| `integrations` | `contracts`, `governance`, `platform`, `econ` |
+| `integrations` | `contracts`, `governance`, `platform`, `runtime`, `econ` |
 | `service` | every backend domain; no backend domain may import `service` |
 | `eval` | `contracts`, `runtime`, `platform` |
 
 An architecture test scans imports and fails on a disallowed top-level edge.
 Temporary exceptions require an explicit allow-list entry with a removal task;
 the final refactor leaves no undocumented exception.
+
+### Run and persistence boundary
+
+`runtime.runs` owns the `Run`, `Thread`, checkpoint, history, and status models,
+plus repository protocols required by orchestration and agent runtime. Runtime
+code depends only on these models and protocols. `platform.persistence.runs`
+owns the SQL-backed `RunRepository` and `ThreadRepository`, transaction helpers,
+row serialization, retention queries, and concrete checkpoint persistence.
+Service bootstrap constructs those implementations and injects them through the
+runtime-owned protocols. This keeps persistence replaceable for library users
+and prevents a runtime-to-service dependency.
 
 ## Runtime Decomposition
 
