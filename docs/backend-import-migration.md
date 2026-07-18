@@ -38,7 +38,7 @@ separate design amendment approves a move.
 | `zeroth.core.artifacts`, `zeroth.core.config`, `zeroth.core.dispatch`, `zeroth.core.observability`, `zeroth.core.secrets`, `zeroth.core.signing`, `zeroth.core.storage` | `zeroth.platform.artifacts`, `zeroth.platform.config`, `zeroth.platform.dispatch`, `zeroth.platform.observability`, `zeroth.platform.secrets`, `zeroth.platform.signing`, `zeroth.platform.storage` | Move; add shared persistence and primitives | Skeleton only |
 | `zeroth.core.conditions`, `zeroth.core.contracts`, `zeroth.core.graph`, `zeroth.core.mappings`, `zeroth.core.templates` | `zeroth.contracts.conditions`, `zeroth.contracts.registry`, `zeroth.contracts.graph`, `zeroth.contracts.mappings`, `zeroth.contracts.templates` | Move; decompose graph validation | Skeleton only |
 | `zeroth.core.runs` models and protocols | `zeroth.runtime.runs` | Move domain contracts | Canonical import path published |
-| `zeroth.core.runs` SQL persistence | `zeroth.integrations.persistence.runs` | Move and decompose persistence adapters | Parent skeleton only |
+| `zeroth.core.runs` SQL persistence | `zeroth.integrations.persistence.runs` | Move and decompose persistence adapters | Serialization and checkpoint storage extracted |
 | `zeroth.core.service`, `zeroth.core.deployments`, `zeroth.core.webhooks` | `zeroth.service.api`, `zeroth.service.bootstrap`, `zeroth.service.deployments`, `zeroth.service.webhooks` | Move; decompose bootstrap | Skeleton only |
 | `zeroth.core.econ`, `zeroth.econ_plane` | `zeroth.econ.analytics`, `zeroth.econ.instrumentation`, `zeroth.econ.plane` | Move and consolidate | Skeleton only |
 | `zeroth.core.execution_units`, `zeroth.core.http`, `zeroth.core.memory`, `zeroth.core.rag`, `zeroth.core.sandbox_sidecar` | `zeroth.integrations.execution`, `zeroth.integrations.http`, `zeroth.integrations.memory`, `zeroth.integrations.rag`, `zeroth.integrations.sandbox` | Move; preserve optional integrations | Skeleton only |
@@ -71,6 +71,32 @@ deliberately absent: the concrete repositories are persistence, not runtime
 contracts, and they move to `zeroth.integrations.persistence.runs` in Task 6.
 Runtime code depends on the new `RunReader`, `RunWriter`, `CheckpointStore`,
 and `ThreadStore` protocols published alongside the models.
+
+### Run serialization and checkpoint storage
+
+The first half of that persistence move is done. Row-to-model conversion now
+lives in `zeroth.integrations.persistence.runs.serialization` and the
+`run_checkpoints` table adapter in
+`zeroth.integrations.persistence.runs.checkpoint_store`.
+
+Neither addition appears in the symbol migration log or the canonical surface,
+and that is not an omission. Every symbol involved was a private helper —
+`_row_to_run`, `_row_to_thread`, `_dump_model`, `_dump_list`,
+`_new_checkpoint_id`, and the two `_*_state_json` methods — so none of them
+carries a protected legacy capability ID. The log records public import
+locations that consumers may depend on; it does not track internal structure.
+`RunRepository` and `ThreadRepository` remain published from
+`zeroth.core.runs`, and their entries move only when the repositories
+themselves do.
+
+The split follows the transaction boundary rather than the table names.
+`checkpoint_store` owns the `run_checkpoints` rows and the at-rest encryption
+of `state_json`; checkpoint *ordering* and the thread bookkeeping around a
+write stay with the caller, because both read and write the thread record. In
+the previous implementation each of those steps already opened its own
+transaction, so delegating only the row write keeps the lock scope identical.
+Moving the thread bookkeeping into the checkpoint adapter instead would have
+merged transactions that were previously separate.
 
 ### Why these models are republished rather than relocated
 
