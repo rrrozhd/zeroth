@@ -8,6 +8,7 @@ remains the public facade and composes them.
 
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
+from zeroth.runtime.orchestration.driver import GraphDriver
 from zeroth.runtime.orchestration.errors import (
     MemoryBindingResolutionError,
     NodeDispatcherError,
@@ -18,6 +19,7 @@ from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
 
 __all__ = [
+    "GraphDriver",
     "MemoryBindingResolutionError",
     "NodeDispatcher",
     "NodeDispatcherError",
