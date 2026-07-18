@@ -7,7 +7,7 @@ at each step, and the overall status of the run.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -17,11 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from zeroth.core.governed import RunState
 from zeroth.core.governed import RunStatus as RunStatus  # re-exported as zeroth.core.runs API
 from zeroth.core.identity import ActorIdentity
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 def _new_id() -> str:
@@ -59,7 +55,7 @@ class RunHistoryEntry(BaseModel):
     input_snapshot: dict[str, Any] = Field(default_factory=dict)
     output_snapshot: dict[str, Any] = Field(default_factory=dict)
     audit_ref: str | None = None
-    started_at: datetime = Field(default_factory=_utc_now)
+    started_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = None
     # Per-node cost (USD) promoted from the node's audit record. Lets
     # ``_sum_run_cost`` / ``_sum_audit_cost`` aggregate a run's spend from its
@@ -80,7 +76,7 @@ class RunConditionResult(BaseModel):
     condition_id: str
     selected_edge_id: str | None = None
     matched: bool
-    evaluated_at: datetime = Field(default_factory=_utc_now)
+    evaluated_at: datetime = Field(default_factory=utc_now)
     details: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -182,5 +178,5 @@ class Thread(BaseModel):
     run_ids: list[str] = Field(default_factory=list)
     active_run_id: str | None = None
     last_run_id: str | None = None
-    created_at: datetime = Field(default_factory=_utc_now)
-    updated_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

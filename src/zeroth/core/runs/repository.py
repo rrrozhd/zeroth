@@ -25,6 +25,7 @@ from zeroth.core.runs.models import (
 )
 from zeroth.core.storage import AsyncConnection, AsyncDatabase
 from zeroth.core.storage.json import from_json_value, load_typed_value, to_json_value
+from zeroth.platform.primitives import utc_now
 
 ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
     RunStatus.PENDING: {RunStatus.RUNNING, RunStatus.FAILED},
@@ -51,11 +52,6 @@ ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
 
 # Sentinel stored in failure_state.reason to mark dead-letter runs.
 DEAD_LETTER_REASON = "dead_letter"
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC."""
-    return datetime.now(UTC)
 
 
 def _new_checkpoint_id() -> str:
@@ -294,7 +290,7 @@ class _RunThreadStore:
             thread.active_run_id = None
         if thread.last_run_id == run_id:
             thread.last_run_id = thread.run_ids[-1] if thread.run_ids else None
-        thread.updated_at = _utc_now()
+        thread.updated_at = utc_now()
         await self.save_thread(thread)
 
     async def write_checkpoint(self, run: Run) -> str:
@@ -415,7 +411,7 @@ class _RunThreadStore:
         if run_id not in thread.run_ids:
             thread.run_ids.append(run_id)
         thread.last_run_id = run_id
-        thread.updated_at = _utc_now()
+        thread.updated_at = utc_now()
         await self.save_thread(thread)
 
     async def clear_active_run_id(self, thread_id: str, run_id: str) -> None:
@@ -424,7 +420,7 @@ class _RunThreadStore:
         if thread is None or thread.active_run_id != run_id:
             return
         thread.active_run_id = None
-        thread.updated_at = _utc_now()
+        thread.updated_at = utc_now()
         await self.save_thread(thread)
 
     async def put_run(self, run: Run) -> None:
@@ -468,7 +464,7 @@ class _RunThreadStore:
             if run.run_id not in thread.run_ids:
                 thread.run_ids.append(run.run_id)
             thread.last_run_id = run.run_id
-            thread.updated_at = _utc_now()
+            thread.updated_at = utc_now()
         return thread
 
     async def _record_thread_run(
@@ -498,7 +494,7 @@ class _RunThreadStore:
                 raise ValueError("thread identity mismatch")
             thread.run_ids = _merge(thread.run_ids, [run_id])
             thread.last_run_id = run_id
-            thread.updated_at = _utc_now()
+            thread.updated_at = utc_now()
         await self.save_thread(thread)
 
     async def _record_thread_checkpoint(self, thread_id: str, checkpoint_id: str) -> None:
@@ -507,7 +503,7 @@ class _RunThreadStore:
         if thread is None:
             return
         thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
-        thread.updated_at = _utc_now()
+        thread.updated_at = utc_now()
         await self.save_thread(thread)
 
     async def _checkpoint_ids(self, thread_id: str) -> list[str]:
@@ -1025,7 +1021,7 @@ class ThreadRepository:
 
     async def update(self, thread: Thread) -> Thread:
         """Save changes to an existing thread."""
-        thread.updated_at = _utc_now()
+        thread.updated_at = utc_now()
         await self._store.save_thread(thread)
         return await self.get(thread.thread_id)
 
@@ -1093,7 +1089,7 @@ class ThreadRepository:
         existing.last_run_id = run_id or existing.last_run_id
         if status is not None:
             existing.status = status
-        existing.updated_at = _utc_now()
+        existing.updated_at = utc_now()
         await self._store.save_thread(existing)
         return await self.get(thread_id)
 
@@ -1106,7 +1102,7 @@ class ThreadRepository:
             thread.run_ids.append(run_id)
         thread.active_run_id = run_id
         thread.last_run_id = run_id
-        thread.updated_at = _utc_now()
+        thread.updated_at = utc_now()
         await self._store.save_thread(thread)
         return await self.get(thread_id)
 

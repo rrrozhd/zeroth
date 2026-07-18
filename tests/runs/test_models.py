@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import zeroth.core.runs.models as run_models
+import zeroth.core.runs.repository as run_repository
 from zeroth.core.governed import RunStatus
 
 from zeroth.core.runs.models import (
@@ -11,6 +13,12 @@ from zeroth.core.runs.models import (
     ThreadMemoryBinding,
     ThreadStatus,
 )
+from zeroth.platform.primitives import utc_now
+
+
+def test_runs_domain_uses_platform_clock() -> None:
+    assert run_models.utc_now is utc_now
+    assert run_repository.utc_now is utc_now
 
 
 def test_run_model_round_trips_json_serialization() -> None:
