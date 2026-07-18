@@ -1,7 +1,17 @@
 # Blocker: eager `zeroth.core` imports prevent extracting persistence
 
-**Status:** open, blocks Task 6 onward. Discovered 2026-07-18 while starting
-Task 6 (split concrete run persistence). Task 5 is complete and unaffected.
+**Status:** RESOLVED 2026-07-18 by option 1 (make the platform layer
+import-clean). Discovered the same day while starting Task 6 (split concrete
+run persistence). Kept as the record of why the lazy package `__init__` files
+exist — reverting them re-blocks Task 6.
+
+Outcome: importing `zeroth.core.storage` went from **130 modules to 18**, and
+`zeroth.core.runs`, `agent_runtime`, `audit`, and `memory` are no longer
+reached at all. An extracted persistence module that imports the run models is
+now importable from both the integrations side and the core side.
+
+Enforced by `tests/architecture/test_import_layering.py`. See
+"Resolution" at the end of this document.
 
 ## Symptom
 
@@ -104,3 +114,56 @@ cold-import tests — currently
 Recommendation: option 1. The inverted dependency is real debt that every
 remaining move task will hit, the plan already schedules its removal, and
 options 2 and 3 both spend effort that option 1 makes unnecessary.
+
+## Resolution
+
+Option 1, in two commits. The full crossing-edge set turned out to be small:
+seven edges from two platform modules, which is why the earlier single-import
+probe failed — `econ/__init__.py` eagerly imported `quality`, `opportunities`,
+*and* `rightsizing_experiment`, and only one was cut.
+
+**`refactor: keep the platform layer out of higher domains`**
+
+- `zeroth.core.econ` and `zeroth.core.http` resolve their exports lazily.
+  `config.settings` needs one settings class from each, and importing a
+  submodule executes its package `__init__`. Both packages already used a
+  `__getattr__` for the single symbol that previously cycled; that pattern now
+  covers the whole public API.
+- `zeroth.core.storage.redis` moves its governed-store imports into the factory
+  that builds the stores, so the storage layer no longer imports governance and
+  runtime code at module scope.
+- `tests/architecture/test_import_layering.py` asserts the closure from
+  subprocesses, since the in-process suite always has `zeroth.core` warm.
+
+**`refactor: resolve run repositories lazily`**
+
+- `zeroth.core.runs` resolves `RunRepository`/`ThreadRepository` on first
+  access, so reading a run model no longer loads the SQL adapter.
+
+### What stayed, and why
+
+Four leaf modules — `zeroth.core.econ`, `.econ.models`, `zeroth.core.http`,
+`.http.models` — are still loaded by the platform layer, listed explicitly in
+`PERMITTED_NON_PLATFORM` with a test that fails if one stops being needed.
+`ZerothSettings` composes `RegulusSettings` and `HttpClientSettings` as fields,
+and its signature string — which embeds their module paths — is pinned in the
+immutable legacy surface. Relocating them hits the same wall documented in
+`docs/backend-import-migration.md`. They are leaves that import nothing else
+from `zeroth`, so they cost four modules and no fan-out.
+
+### One Python subtlety worth knowing before touching these files
+
+`zeroth.core.econ` exports a function named `unit_economics` from a submodule of
+the same name. Importing a submodule binds it as an attribute of its package,
+and CPython does that **after** the submodule finishes executing — so neither a
+lazy loader's cache nor a module-level `__getattr__` (PEP 562) can win the race,
+and asserting the binding from inside the submodule does not work either. The
+eager imports used to resolve this as a side effect of import order.
+
+A `ModuleType` subclass assigned to the package's `__class__` now keeps the
+function bound. Every import form was compared against the pre-change behavior
+and matches, including `import zeroth.core.econ.unit_economics as m`, which
+resolved to the *function* before this change too.
+
+Renaming the colliding submodule was considered and rejected: models defined in
+it are referenced in signatures pinned by the immutable legacy fixture.
