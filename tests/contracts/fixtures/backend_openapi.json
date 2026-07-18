@@ -243,6 +243,9 @@
             "$ref": "#/components/schemas/ApprovalStatus",
             "default": "pending"
           },
+          "summary": {
+            "type": "string"
+          },
           "tenant_id": {
             "default": "default",
             "type": "string"
@@ -777,6 +780,10 @@
       "CreateTemplateRequest": {
         "additionalProperties": false,
         "properties": {
+          "description": {
+            "default": "",
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -1013,6 +1020,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EvidenceSummaryResponse"
           }
         },
         "required": [
@@ -1654,6 +1664,16 @@
       "ManifestSummaryResponse": {
         "additionalProperties": false,
         "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "kind": {
             "type": "string"
           },
@@ -2542,6 +2562,9 @@
           },
           "run": {
             "$ref": "#/components/schemas/RunStatusResponse"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EvidenceSummaryResponse"
           }
         },
         "required": [
@@ -3071,6 +3094,10 @@
       },
       "TemplateResponse": {
         "properties": {
+          "description": {
+            "default": "",
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },

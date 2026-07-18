@@ -53,12 +53,18 @@ def _load(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / name).read_text())
 
 
-def _normalize_openapi(value: Any) -> Any:
+def _normalize_openapi(value: Any, *, keys_are_contract: bool = False) -> Any:
     if isinstance(value, dict):
         return {
-            key: _normalize_openapi(item)
+            key: _normalize_openapi(
+                item,
+                keys_are_contract=(
+                    not keys_are_contract
+                    and key in {"$defs", "definitions", "patternProperties", "properties"}
+                ),
+            )
             for key, item in sorted(value.items())
-            if key not in _OPENAPI_NOISE
+            if keys_are_contract or key not in _OPENAPI_NOISE
         }
     if isinstance(value, list):
         return [_normalize_openapi(item) for item in value]
@@ -182,6 +188,22 @@ def current_database_schema(database_path: Path) -> dict[str, Any]:
 
 def test_openapi_paths_and_components_match_semantic_snapshot() -> None:
     assert current_openapi_contract() == _load("backend_openapi.json")
+
+
+def test_openapi_normalization_preserves_property_names_that_match_metadata_keys() -> None:
+    """Schema fields named like OpenAPI prose metadata remain contract-bearing."""
+    schemas = current_openapi_contract()["components"]["schemas"]
+    raw_schemas = create_app(SimpleNamespace(regulus_client=None)).openapi()["components"][
+        "schemas"
+    ]
+    for schema_name, raw_schema in raw_schemas.items():
+        assert set(schemas[schema_name].get("properties", {})) == set(
+            raw_schema.get("properties", {})
+        )
+    assert "description" in schemas["CreateTemplateRequest"]["properties"]
+    assert "summary" in schemas["ApprovalRecord"]["properties"]
+    assert "description" not in schemas["CreateTemplateRequest"]
+    assert "title" not in schemas["CreateTemplateRequest"]["properties"]["description"]
 
 
 def test_alembic_order_and_actual_sqlite_schema_match_snapshot(tmp_path: Path) -> None:

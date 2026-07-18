@@ -7,8 +7,8 @@ the current import map is `backend_surface_canonical.json` beside it.
 
 ## Baseline scope
 
-- **880 public import bindings** across **151 modules**.
-- **219 schema-model bindings** discovered from Pydantic model/schema and HTTP API modules.
+- **895 public import bindings** across **153 modules**.
+- **234 schema-model bindings** discovered from Pydantic model/schema and HTTP API modules.
 - **152 public exception bindings** retained as library semantics.
 - **9 optional-integration bindings** explicitly protected.
 - **1 packaging entry point:** `zeroth-core = zeroth.core.cli:main`.
@@ -20,17 +20,17 @@ may have more than one evidence source.
 
 | Evidence class | Protected bindings carrying that evidence |
 | --- | ---: |
-| `__all__` | 557 |
+| `__all__` | 558 |
 | `docs` | 420 |
 | `entry_point` | 1 |
 | `examples` | 283 |
 | `optional_integration` | 9 |
-| `package_export` | 583 |
-| `schema_model` | 219 |
+| `package_export` | 584 |
+| `schema_model` | 234 |
 
 ## Contract rules
 
-- The legacy fixture is immutable after this baseline. It protects capability
+- The legacy fixture is immutable after this corrected baseline. It protects capability
   identity and signatures without requiring legacy import paths to remain the
   canonical paths forever.
 - The canonical fixture is executable import documentation. Every symbol is
@@ -177,10 +177,12 @@ objects intentionally appear at each supported package location.
 | `zeroth.core.service.cost_api` | `DeploymentCostResponse`, `TenantBudgetRequest`, `TenantCostResponse` | `schema_model` |
 | `zeroth.core.service.deployment_api` | `CreateDeploymentRequest`, `DeploymentSummaryResponse`, `RollbackDeploymentRequest` | `schema_model` |
 | `zeroth.core.service.econ_analytics_api` | `QualityVerdictRequest` | `schema_model` |
+| `zeroth.core.service.health` | `DependencyStatus`, `LivenessResponse`, `ReadinessResponse` | `schema_model` |
 | `zeroth.core.service.manifest_api` | `ManifestSummaryResponse` | `schema_model` |
 | `zeroth.core.service.retention_api` | `ErasureRequestBody`, `ErasureResponse`, `ErasureRunResult`, `LegalHoldBody`, `LegalHoldResponse`, `RetentionPolicyBody`, `RetentionPolicyResponse` | `schema_model` |
 | `zeroth.core.service.rightsizing_api` | `ExperimentRequest`, `RightsizingRequest` | `schema_model` |
 | `zeroth.core.service.run_api` | `ApprovalPausedState`, `RunInvocationRequest`, `RunInvocationResponse`, `RunStatusResponse` | `schema_model` |
+| `zeroth.core.service.studio_schemas` | `CreateContractRequest`, `CreateWorkflowRequest`, `NodeTypeResponse`, `PortDefinitionResponse`, `StudioContractResponse`, `StudioEdgeResponse`, `StudioNodeResponse`, `StudioPosition`, `StudioViewport`, `UpdateWorkflowRequest`, `WorkflowDetailResponse`, `WorkflowSummaryResponse` | `schema_model` |
 | `zeroth.core.service.template_api` | `CreateTemplateRequest`, `TemplateListResponse`, `TemplateResponse` | `schema_model` |
 | `zeroth.core.service.webhook_api` | `CreateSubscriptionRequest`, `WebhookDeadLetterListResponse`, `WebhookDeadLetterResponse`, `WebhookSubscriptionListResponse`, `WebhookSubscriptionResponse` | `schema_model` |
 | `zeroth.core.signing` | `Ed25519Signer`, `EnvHmacSigner`, `NullSigner`, `SigningConfigError`, `SigningKeyProvider`, `build_signing_provider`, `build_signing_provider_async`, `sign_digest`, `signable_bytes`, `verify_digest` | `__all__`, `package_export` |

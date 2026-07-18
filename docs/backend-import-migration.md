@@ -13,8 +13,8 @@ locations.
 - A temporary re-export is optional. Consumers should migrate to the canonical
   import recorded here instead of relying on compatibility shims.
 - `tests/contracts/fixtures/backend_surface_legacy.json` is immutable after
-  the baseline commit. It identifies protected capabilities independently of
-  their future import locations.
+  the corrected baseline inventory is accepted. It identifies protected
+  capabilities independently of their future import locations.
 - `tests/contracts/fixtures/backend_surface_canonical.json` is evolving. Every
   edit to it must be committed separately from production moves and accompanied
   by a row in this guide.

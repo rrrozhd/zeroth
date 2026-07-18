@@ -17,9 +17,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 
 FIXTURES = Path(__file__).parents[1] / "contracts" / "fixtures"
+REPO_ROOT = Path(__file__).parents[2]
 
 
 def _load(name: str) -> dict[str, Any]:
@@ -117,3 +119,55 @@ def test_surface_inventory_records_all_required_evidence_classes() -> None:
         "package_export",
         "schema_model",
     } <= evidence_classes
+
+
+def _discover_schema_models() -> set[str]:
+    """Discover models in the same schema-bearing modules covered by the inventory."""
+    source_root = REPO_ROOT / "src"
+    zeroth_root = source_root / "zeroth"
+    schema_paths = {
+        path
+        for path in zeroth_root.rglob("*.py")
+        if path.name in {"models.py", "schemas.py"}
+        or (
+            path.parent.name == "service"
+            and (
+                path.name.endswith("_api.py")
+                or path.name in {"app.py", "health.py", "studio_schemas.py"}
+            )
+        )
+    }
+    discovered: set[str] = set()
+    for path in schema_paths:
+        module_name = ".".join(path.relative_to(source_root).with_suffix("").parts)
+        module = importlib.import_module(module_name)
+        for name, value in vars(module).items():
+            if (
+                not name.startswith("_")
+                and inspect.isclass(value)
+                and value.__module__ == module_name
+                and issubclass(value, BaseModel)
+            ):
+                discovered.add(f"{module_name}:{name}")
+    return discovered
+
+
+def test_every_discovered_schema_model_is_in_legacy_and_canonical_surfaces() -> None:
+    """Reverse coverage prevents schema modules from being silently omitted."""
+    legacy = _load("backend_surface_legacy.json")
+    canonical = _load("backend_surface_canonical.json")
+    legacy_ids = {entry["id"] for entry in legacy["capabilities"]}
+    canonical_by_current_id = {
+        f"{entry['module']}:{entry['name']}": entry for entry in canonical["symbols"]
+    }
+    discovered = _discover_schema_models()
+
+    missing_canonical = sorted(discovered - canonical_by_current_id.keys())
+    assert not missing_canonical, f"schema models missing canonical entries: {missing_canonical}"
+
+    missing_legacy = sorted(
+        current_id
+        for current_id in discovered
+        if not (set(canonical_by_current_id[current_id]["legacy_ids"]) & legacy_ids)
+    )
+    assert not missing_legacy, f"schema models missing protected legacy IDs: {missing_legacy}"

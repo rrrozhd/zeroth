@@ -9767,6 +9767,42 @@
     },
     {
       "evidence": [
+        "schema_model:zeroth.core.service.health"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.health:DependencyStatus"
+      ],
+      "module": "zeroth.core.service.health",
+      "name": "DependencyStatus",
+      "signature": "(*, status: str, latency_ms: float | None = None, detail: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.health"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.health:LivenessResponse"
+      ],
+      "module": "zeroth.core.service.health",
+      "name": "LivenessResponse",
+      "signature": "(*, status: str = 'ok') -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.health"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.health:ReadinessResponse"
+      ],
+      "module": "zeroth.core.service.health",
+      "name": "ReadinessResponse",
+      "signature": "(*, status: str, checks: dict[str, zeroth.core.service.health.DependencyStatus] = <factory>) -> None"
+    },
+    {
+      "evidence": [
         "schema_model:zeroth.core.service.manifest_api"
       ],
       "kind": "class",
@@ -9932,6 +9968,150 @@
       "module": "zeroth.core.service.run_api",
       "name": "RunStatusResponse",
       "signature": "(*, run_id: str, status: zeroth.core.service.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.core.service.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:CreateContractRequest"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "CreateContractRequest",
+      "signature": "(*, name: Annotated[str, MinLen(min_length=1), MaxLen(max_length=200), _PydanticGeneralMetadata(pattern='^\\\\S+$')], json_schema: dict, metadata: dict = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:CreateWorkflowRequest"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "CreateWorkflowRequest",
+      "signature": "(*, name: Annotated[str, MinLen(min_length=1), MaxLen(max_length=200)]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:NodeTypeResponse"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "NodeTypeResponse",
+      "signature": "(*, type: str, label: str, category: str, ports: list[zeroth.core.service.studio_schemas.PortDefinitionResponse]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:PortDefinitionResponse"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "PortDefinitionResponse",
+      "signature": "(*, id: str, type: str, direction: str, label: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:StudioContractResponse"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "StudioContractResponse",
+      "signature": "(*, name: str, version: int, json_schema: dict = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:StudioEdgeResponse"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "StudioEdgeResponse",
+      "signature": "(*, id: str, source: str, target: str, source_handle: str | None = None, target_handle: str | None = None, kind: Literal['data', 'tool'] = 'data') -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:StudioNodeResponse"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "StudioNodeResponse",
+      "signature": "(*, id: str, type: str, position: zeroth.core.service.studio_schemas.StudioPosition, data: dict[str, typing.Any] = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:StudioPosition"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "StudioPosition",
+      "signature": "(*, x: float = 0.0, y: float = 0.0) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:StudioViewport"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "StudioViewport",
+      "signature": "(*, x: float = 0.0, y: float = 0.0, zoom: float = 1.0) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:UpdateWorkflowRequest"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "UpdateWorkflowRequest",
+      "signature": "(*, name: str | None = None, nodes: list[zeroth.core.service.studio_schemas.StudioNodeResponse] | None = None, edges: list[zeroth.core.service.studio_schemas.StudioEdgeResponse] | None = None, viewport: zeroth.core.service.studio_schemas.StudioViewport | None = None, entry_step: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:WorkflowDetailResponse"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "WorkflowDetailResponse",
+      "signature": "(*, id: str, name: str, version: int, status: str, entry_step: str | None = None, nodes: list[zeroth.core.service.studio_schemas.StudioNodeResponse], edges: list[zeroth.core.service.studio_schemas.StudioEdgeResponse], viewport: zeroth.core.service.studio_schemas.StudioViewport, updated_at: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.service.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.studio_schemas:WorkflowSummaryResponse"
+      ],
+      "module": "zeroth.core.service.studio_schemas",
+      "name": "WorkflowSummaryResponse",
+      "signature": "(*, id: str, name: str, version: int, status: str, updated_at: str) -> None"
     },
     {
       "evidence": [
