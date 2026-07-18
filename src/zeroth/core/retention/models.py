@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from zeroth.platform.primitives import utc_now
+
 # The reserved tenant that owns the system-wide default retention policy,
 # consulted whenever a tenant has no explicit policy row of its own.
 SYSTEM_DEFAULT_TENANT = "default"
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
 
 
 class RetentionPolicy(BaseModel):
@@ -33,8 +31,8 @@ class RetentionPolicy(BaseModel):
     audit_ttl_seconds: int | None = Field(default=None, ge=1)
     run_ttl_seconds: int | None = Field(default=None, ge=1)
     enabled: bool = True
-    created_at: datetime = Field(default_factory=_utc_now)
-    updated_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class LegalHold(BaseModel):
@@ -51,7 +49,7 @@ class LegalHold(BaseModel):
     reason: str | None = None
     active: bool = True
     placed_by: str | None = None
-    created_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
     released_at: datetime | None = None
 
 

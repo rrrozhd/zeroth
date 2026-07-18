@@ -7,7 +7,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
+import zeroth.core.retention.models as retention_models
 from zeroth.core.retention.models import RetentionPolicy
+from zeroth.platform.primitives import utc_now
+
+
+def test_retention_models_use_platform_clock() -> None:
+    assert retention_models.utc_now is utc_now
 
 
 async def _pii_in_audits(database, ssn: str) -> bool:
