@@ -11,6 +11,14 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
 
+from zeroth.contracts.graph.validation.issues import append_issue
+from zeroth.contracts.graph.validation.references import (
+    all_unique,
+    is_ref_like,
+    require_ref,
+    validate_graph_refs,
+    validate_ref_list,
+)
 from zeroth.core.contracts.registry import ContractRegistry
 from zeroth.core.graph.models import (
     AgentNode,
@@ -33,12 +41,6 @@ from zeroth.core.parallel.reducers import resolve_reducer_ref
 from zeroth.core.policy.models import Capability
 
 
-def _is_ref_like(value: str) -> bool:
-    """Return True if the string looks like a valid reference (non-empty, no spaces)."""
-    text = value.strip()
-    return bool(text) and not any(part.isspace() for part in text)
-
-
 def _capabilities_from_refs(refs: Iterable[str]) -> set[Capability]:
     """Map capability_binding refs to Capabilities, dropping non-value refs.
 
@@ -52,43 +54,6 @@ def _capabilities_from_refs(refs: Iterable[str]) -> set[Capability]:
         except ValueError:
             continue
     return caps
-
-
-def _append_issue(
-    issues: list[ValidationIssue],
-    *,
-    severity: ValidationSeverity,
-    code: ValidationCode,
-    message: str,
-    graph_id: str,
-    node_id: str | None = None,
-    edge_id: str | None = None,
-    path: tuple[str, ...] = (),
-    details: dict[str, Any] | None = None,
-) -> None:
-    """Helper to create a ValidationIssue and add it to the issues list."""
-    issues.append(
-        ValidationIssue(
-            severity=severity,
-            code=code,
-            message=message,
-            graph_id=graph_id,
-            node_id=node_id,
-            edge_id=edge_id,
-            path=path,
-            details=dict(details or {}),
-        )
-    )
-
-
-def _all_unique(values: Iterable[str]) -> bool:
-    """Return True if every string in the iterable is unique (no duplicates)."""
-    seen: set[str] = set()
-    for value in values:
-        if value in seen:
-            return False
-        seen.add(value)
-    return True
 
 
 class GraphValidator:
@@ -120,7 +85,7 @@ class GraphValidator:
         adjacency: dict[str, list[str]] = defaultdict(list)
 
         if not graph.nodes:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.EMPTY_GRAPH,
@@ -128,7 +93,7 @@ class GraphValidator:
                 graph_id=graph.graph_id,
             )
 
-        self._validate_graph_refs(graph, issues)
+        validate_graph_refs(graph, issues)
         self._validate_nodes(graph, node_map, issues)
         self._validate_entrypoint(graph, node_map, issues)
         self._validate_edges(graph, node_map, edge_ids, adjacency, issues)
@@ -170,7 +135,7 @@ class GraphValidator:
                 try:
                     resolve_reducer_ref(cfg.reducer_ref)  # type: ignore[arg-type]
                 except ReducerRefValidationError as exc:
-                    _append_issue(
+                    append_issue(
                         issues,
                         severity=ValidationSeverity.ERROR,
                         code=ValidationCode.INVALID_REDUCER_REF,
@@ -191,7 +156,7 @@ class GraphValidator:
     ) -> None:
         """Verify a node's output contract is dict-shaped for merge strategy (D-17)."""
         if self._contract_registry is None:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.WARNING,
                 code=ValidationCode.INVALID_MERGE_STRATEGY,
@@ -206,7 +171,7 @@ class GraphValidator:
             )
             return
         if not node.output_contract_ref:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_MERGE_STRATEGY,
@@ -223,7 +188,7 @@ class GraphValidator:
         try:
             contract_version = await self._contract_registry.get(node.output_contract_ref)
         except Exception as exc:  # noqa: BLE001 - any registry failure is validation-fatal
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_MERGE_STRATEGY,
@@ -240,7 +205,7 @@ class GraphValidator:
             return
         schema_type = contract_version.json_schema.get("type")
         if schema_type != "object":
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_MERGE_STRATEGY,
@@ -256,20 +221,6 @@ class GraphValidator:
                 details={"schema_type": schema_type},
             )
 
-    def _validate_graph_refs(self, graph: Graph, issues: list[ValidationIssue]) -> None:
-        """Check that graph-level policy references look valid."""
-        for ref in graph.policy_bindings:
-            if not _is_ref_like(ref):
-                _append_issue(
-                    issues,
-                    severity=ValidationSeverity.ERROR,
-                    code=ValidationCode.INVALID_POLICY_REF,
-                    message=f"invalid policy reference: {ref!r}",
-                    graph_id=graph.graph_id,
-                    path=("policy_bindings",),
-                    details={"ref": ref},
-                )
-
     def _validate_nodes(
         self,
         graph: Graph,
@@ -282,7 +233,7 @@ class GraphValidator:
         for node in graph.nodes:
             node_ids.append(node.node_id)
             if node.node_id in seen_ids:
-                _append_issue(
+                append_issue(
                     issues,
                     severity=ValidationSeverity.ERROR,
                     code=ValidationCode.DUPLICATE_NODE_ID,
@@ -296,15 +247,15 @@ class GraphValidator:
             node_map[node.node_id] = node
             self._validate_node(graph.graph_id, node, issues)
 
-        if node_ids and not _all_unique(node_ids):
+        if node_ids and not all_unique(node_ids):
             # The duplicate issue is already recorded per node; this branch just
             # preserves the "unique node IDs" rule in one place for readability.
             return
 
     def _validate_node(self, graph_id: str, node: Node, issues: list[ValidationIssue]) -> None:
         """Validate a single node's references, contracts, and type-specific data."""
-        if not _is_ref_like(node.graph_version_ref):
-            _append_issue(
+        if not is_ref_like(node.graph_version_ref):
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_GRAPH_VERSION_REF,
@@ -315,7 +266,7 @@ class GraphValidator:
                 details={"ref": node.graph_version_ref},
             )
 
-        self._require_ref(
+        require_ref(
             issues,
             graph_id=graph_id,
             node_id=node.node_id,
@@ -324,7 +275,7 @@ class GraphValidator:
             value=node.input_contract_ref,
             path=("nodes", node.node_id, "input_contract_ref"),
         )
-        self._require_ref(
+        require_ref(
             issues,
             graph_id=graph_id,
             node_id=node.node_id,
@@ -334,7 +285,7 @@ class GraphValidator:
             path=("nodes", node.node_id, "output_contract_ref"),
         )
 
-        self._validate_ref_list(
+        validate_ref_list(
             issues,
             graph_id=graph_id,
             node_id=node.node_id,
@@ -343,7 +294,7 @@ class GraphValidator:
             message="invalid node policy reference",
             path=("nodes", node.node_id, "policy_bindings"),
         )
-        self._validate_ref_list(
+        validate_ref_list(
             issues,
             graph_id=graph_id,
             node_id=node.node_id,
@@ -370,7 +321,7 @@ class GraphValidator:
     ) -> None:
         """Check agent-specific fields like instruction, model provider, and tool refs."""
         if not node.agent.instruction.strip():
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_NODE_ATTACHMENT,
@@ -380,7 +331,7 @@ class GraphValidator:
                 path=("nodes", node.node_id, "agent", "instruction"),
             )
         if not node.agent.model_provider.strip():
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_NODE_ATTACHMENT,
@@ -392,7 +343,7 @@ class GraphValidator:
         if node.agent.persist_conversation and not node.agent.input_messages_key:
             # Without a messages field there are no turns to persist — a
             # silent no-op the author almost certainly did not intend.
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_NODE_ATTACHMENT,
@@ -401,7 +352,7 @@ class GraphValidator:
                 node_id=node.node_id,
                 path=("nodes", node.node_id, "agent", "persist_conversation"),
             )
-        self._validate_ref_list(
+        validate_ref_list(
             issues,
             graph_id=graph_id,
             node_id=node.node_id,
@@ -410,7 +361,7 @@ class GraphValidator:
             message="invalid tool reference",
             path=("nodes", node.node_id, "agent", "tool_refs"),
         )
-        self._validate_ref_list(
+        validate_ref_list(
             issues,
             graph_id=graph_id,
             node_id=node.node_id,
@@ -427,7 +378,7 @@ class GraphValidator:
             required = {Capability.PROCESS_SPAWN, Capability.EXTERNAL_API_CALL}
             missing = sorted(cap.value for cap in (required - granted))
             if missing:
-                _append_issue(
+                append_issue(
                     issues,
                     severity=ValidationSeverity.ERROR,
                     code=ValidationCode.MISSING_MCP_CAPABILITY,
@@ -458,7 +409,7 @@ class GraphValidator:
             self._validate_inline_source(graph_id, node, issues)
             return
         if not node.executable_unit.manifest_ref.strip():
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_NODE_ATTACHMENT,
@@ -480,7 +431,7 @@ class GraphValidator:
         source = node.executable_unit.inline_source or ""
         path = ("nodes", node.node_id, "executable_unit", "inline_source")
         if not source.strip():
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_INLINE_SOURCE,
@@ -491,7 +442,7 @@ class GraphValidator:
             )
             return
         if len(source) > INLINE_SOURCE_MAX_CHARS:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_INLINE_SOURCE,
@@ -504,7 +455,7 @@ class GraphValidator:
         try:
             compile(source, f"<code node {node.node_id}>", "exec")
         except SyntaxError as exc:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_INLINE_SOURCE,
@@ -521,7 +472,7 @@ class GraphValidator:
         issues: list[ValidationIssue],
     ) -> None:
         """Check approval-node-specific fields like schema references."""
-        self._require_ref(
+        require_ref(
             issues,
             graph_id=graph_id,
             node_id=node.node_id,
@@ -530,7 +481,7 @@ class GraphValidator:
             value=node.human_approval.approval_payload_schema_ref,
             path=("nodes", node.node_id, "human_approval", "approval_payload_schema_ref"),
         )
-        self._require_ref(
+        require_ref(
             issues,
             graph_id=graph_id,
             node_id=node.node_id,
@@ -548,7 +499,7 @@ class GraphValidator:
     ) -> None:
         """Check that the graph has an entry step and that it points to a real node."""
         if graph.entry_step is None:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.MISSING_ENTRYPOINT,
@@ -558,7 +509,7 @@ class GraphValidator:
             )
             return
         if graph.entry_step not in node_map:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.UNKNOWN_ENTRYPOINT,
@@ -586,7 +537,7 @@ class GraphValidator:
         if not entry_nodes:
             return
         for extra in entry_nodes[1:]:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_NODE_ATTACHMENT,
@@ -597,7 +548,7 @@ class GraphValidator:
             )
         primary = entry_nodes[0]
         if graph.entry_step != primary.node_id:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.UNKNOWN_ENTRYPOINT,
@@ -610,7 +561,7 @@ class GraphValidator:
         entry_ids = {node.node_id for node in entry_nodes}
         for edge in graph.edges:
             if edge.target_node_id in entry_ids:
-                _append_issue(
+                append_issue(
                     issues,
                     severity=ValidationSeverity.ERROR,
                     code=ValidationCode.INVALID_NODE_ATTACHMENT,
@@ -636,7 +587,7 @@ class GraphValidator:
         """
         for edge in graph.edges:
             if edge.edge_id in edge_ids:
-                _append_issue(
+                append_issue(
                     issues,
                     severity=ValidationSeverity.ERROR,
                     code=ValidationCode.DUPLICATE_EDGE_ID,
@@ -647,7 +598,7 @@ class GraphValidator:
             edge_ids.add(edge.edge_id)
 
             if edge.source_node_id not in node_map:
-                _append_issue(
+                append_issue(
                     issues,
                     severity=ValidationSeverity.ERROR,
                     code=ValidationCode.UNKNOWN_EDGE_SOURCE,
@@ -663,7 +614,7 @@ class GraphValidator:
                 adjacency[edge.source_node_id].append(edge.target_node_id)
 
             if edge.target_node_id not in node_map:
-                _append_issue(
+                append_issue(
                     issues,
                     severity=ValidationSeverity.ERROR,
                     code=ValidationCode.UNKNOWN_EDGE_TARGET,
@@ -697,7 +648,7 @@ class GraphValidator:
         """
         source = node_map.get(edge.source_node_id)
         if source is not None and not isinstance(source, AgentNode):
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_TOOL_EDGE,
@@ -709,7 +660,7 @@ class GraphValidator:
             )
         target = node_map.get(edge.target_node_id)
         if target is not None and not isinstance(target, ExecutableUnitNode):
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_TOOL_EDGE,
@@ -720,7 +671,7 @@ class GraphValidator:
                 details={"target_node_id": edge.target_node_id},
             )
         if edge.condition is not None or edge.mapping is not None:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_TOOL_EDGE,
@@ -756,7 +707,7 @@ class GraphValidator:
 
             for target_id in attached:
                 if bound_targets.count(target_id) == 0:
-                    _append_issue(
+                    append_issue(
                         issues,
                         severity=ValidationSeverity.ERROR,
                         code=ValidationCode.INVALID_TOOL_BINDING,
@@ -770,7 +721,7 @@ class GraphValidator:
                         details={"target_node_id": target_id},
                     )
                 elif bound_targets.count(target_id) > 1:
-                    _append_issue(
+                    append_issue(
                         issues,
                         severity=ValidationSeverity.ERROR,
                         code=ValidationCode.INVALID_TOOL_BINDING,
@@ -783,7 +734,7 @@ class GraphValidator:
 
             for binding in node.agent.tool_bindings:
                 if binding.target_node_id not in attached:
-                    _append_issue(
+                    append_issue(
                         issues,
                         severity=ValidationSeverity.ERROR,
                         code=ValidationCode.INVALID_TOOL_BINDING,
@@ -800,7 +751,7 @@ class GraphValidator:
             names = [binding.name for binding in node.agent.tool_bindings]
             duplicates = sorted({name for name in names if names.count(name) > 1})
             if duplicates:
-                _append_issue(
+                append_issue(
                     issues,
                     severity=ValidationSeverity.ERROR,
                     code=ValidationCode.INVALID_TOOL_BINDING,
@@ -837,7 +788,7 @@ class GraphValidator:
                 required |= _capabilities_from_refs(target.capability_bindings)
             missing = sorted(cap.value for cap in (required - granted))
             if missing:
-                _append_issue(
+                append_issue(
                     issues,
                     severity=ValidationSeverity.ERROR,
                     code=ValidationCode.CAPABILITY_GRANT_INSUFFICIENT,
@@ -863,7 +814,7 @@ class GraphValidator:
         condition = edge.condition
         assert condition is not None
         if not condition.expression.strip():
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_CONDITION,
@@ -872,7 +823,7 @@ class GraphValidator:
                 edge_id=edge.edge_id,
                 path=("edges", edge.edge_id, "condition", "expression"),
             )
-        self._validate_ref_list(
+        validate_ref_list(
             issues,
             graph_id=graph_id,
             edge_id=edge.edge_id,
@@ -892,7 +843,7 @@ class GraphValidator:
         try:
             self._mapping_validator.validate(edge.mapping)  # type: ignore[arg-type]
         except MappingValidationError as exc:
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_MAPPING,
@@ -933,7 +884,7 @@ class GraphValidator:
             if self._component_has_safeguard(graph, component_edges):
                 continue
 
-            _append_issue(
+            append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.UNSAFE_CYCLE,
@@ -998,54 +949,3 @@ class GraphValidator:
                 strongconnect(node_id)
 
         return components
-
-    def _require_ref(
-        self,
-        issues: list[ValidationIssue],
-        *,
-        graph_id: str,
-        node_id: str,
-        code: ValidationCode,
-        message: str,
-        value: str | None,
-        path: tuple[str, ...],
-    ) -> None:
-        """Record an error if a required reference is missing or invalid."""
-        if value is None or not _is_ref_like(value):
-            _append_issue(
-                issues,
-                severity=ValidationSeverity.ERROR,
-                code=code,
-                message=message,
-                graph_id=graph_id,
-                node_id=node_id,
-                path=path,
-                details={"ref": value},
-            )
-
-    def _validate_ref_list(
-        self,
-        issues: list[ValidationIssue],
-        *,
-        graph_id: str,
-        refs: list[str],
-        code: ValidationCode,
-        message: str,
-        path: tuple[str, ...],
-        node_id: str | None = None,
-        edge_id: str | None = None,
-    ) -> None:
-        """Check each reference in a list and record an error for any invalid ones."""
-        for index, ref in enumerate(refs):
-            if not _is_ref_like(ref):
-                _append_issue(
-                    issues,
-                    severity=ValidationSeverity.ERROR,
-                    code=code,
-                    message=message,
-                    graph_id=graph_id,
-                    node_id=node_id,
-                    edge_id=edge_id,
-                    path=path + (str(index),),
-                    details={"ref": ref},
-                )
