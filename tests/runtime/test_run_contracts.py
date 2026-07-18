@@ -66,9 +66,7 @@ def test_canonical_package_imports_in_a_cold_interpreter() -> None:
         text=True,
     )
 
-    assert result.returncode == 0, (
-        f"zeroth.runtime.runs is not cold-importable:\n{result.stderr}"
-    )
+    assert result.returncode == 0, f"zeroth.runtime.runs is not cold-importable:\n{result.stderr}"
 
 
 @pytest.mark.parametrize("name", CANONICAL_MODELS)
@@ -93,12 +91,21 @@ def test_canonical_models_are_the_protected_model_objects(name: str) -> None:
     assert getattr(canonical, name) is getattr(legacy, name)
 
 
-def test_run_model_keeps_its_protected_constructor_signature() -> None:
-    """Moving the import location must not alter the persisted model contract."""
-    import zeroth.core.runs as legacy
+@pytest.mark.parametrize("name", CANONICAL_MODELS)
+def test_canonical_models_are_republished_rather_than_redefined(name: str) -> None:
+    """The canonical package must not shadow the models with new definitions.
 
-    assert inspect.signature(Run) == inspect.signature(legacy.Run)
-    assert Run.__module__ == "zeroth.core.runs.models"
+    ``inspect.signature`` renders annotations using each type's defining
+    module, so redefining these classes here would rewrite signature strings
+    such as ``list[zeroth.core.runs.models.RunHistoryEntry]`` — strings pinned
+    in the immutable legacy library surface. Asserting the defining module is
+    what keeps that failure mode out of the tree.
+    """
+    import zeroth.runtime.runs as canonical
+
+    model = getattr(canonical, name)
+
+    assert model.__module__ in {"zeroth.core.runs.models", "zeroth.core.governed.models.common"}
 
 
 def _protocol_members(protocol: type) -> dict[str, inspect.Signature]:
@@ -180,31 +187,6 @@ def test_protocols_are_annotated_with_canonical_run_domain_models() -> None:
     hints = get_type_hints(RunReader.get)
 
     assert hints["return"] == Run | None
-
-
-def test_run_protocols_accept_a_structural_double() -> None:
-    """Runtime collaborators can be driven by any object with the right shape."""
-
-    class RecordingRunStore:
-        def __init__(self) -> None:
-            self.saved: list[Run] = []
-
-        async def create(self, run: Run) -> Run:
-            self.saved.append(run)
-            return run
-
-        async def put(self, run: Run) -> Run:
-            self.saved.append(run)
-            return run
-
-        async def get(self, run_id: str) -> Run | None:
-            return next((run for run in self.saved if run.run_id == run_id), None)
-
-    store = RecordingRunStore()
-    writer: RunWriter = store
-    reader: RunReader = store
-
-    assert writer is reader
 
 
 async def test_structural_double_round_trips_a_run_through_the_protocols() -> None:
