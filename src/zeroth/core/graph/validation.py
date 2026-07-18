@@ -11,14 +11,18 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
 
+from zeroth.contracts.graph.validation.cycles import validate_cycles
 from zeroth.contracts.graph.validation.issues import append_issue
+from zeroth.contracts.graph.validation.mappings import (
+    validate_condition,
+    validate_mapping,
+)
 from zeroth.contracts.graph.validation.nodes import (
     validate_entrypoint,
     validate_nodes,
 )
 from zeroth.contracts.graph.validation.references import (
     validate_graph_refs,
-    validate_ref_list,
 )
 from zeroth.core.contracts.registry import ContractRegistry
 from zeroth.core.graph.models import (
@@ -34,7 +38,7 @@ from zeroth.core.graph.validation_errors import (
     ValidationIssue,
     ValidationSeverity,
 )
-from zeroth.core.mappings import MappingValidationError, MappingValidator
+from zeroth.core.mappings import MappingValidator
 from zeroth.core.parallel.errors import ReducerRefValidationError
 from zeroth.core.parallel.reducers import resolve_reducer_ref
 from zeroth.core.policy.models import Capability
@@ -97,7 +101,7 @@ class GraphValidator:
         validate_entrypoint(graph, node_map, issues)
         self._validate_edges(graph, node_map, edge_ids, adjacency, issues)
         self._validate_tool_attachments(graph, node_map, issues)
-        self._validate_cycles(graph, node_map, adjacency, issues)
+        validate_cycles(graph, node_map, adjacency, issues)
         await self._validate_parallel_configs(graph, issues)
 
         return GraphValidationReport(graph_id=graph.graph_id, issues=issues)
@@ -307,10 +311,15 @@ class GraphValidator:
                 self._validate_tool_edge(graph.graph_id, edge, node_map, issues)
 
             if edge.condition is not None:
-                self._validate_condition(graph.graph_id, edge, issues)
+                validate_condition(graph.graph_id, edge, issues)
 
             if edge.mapping is not None:
-                self._validate_mapping(graph.graph_id, edge, issues)
+                validate_mapping(
+                    graph.graph_id,
+                    edge,
+                    issues,
+                    mapping_validator=self._mapping_validator,
+                )
 
     def _validate_tool_edge(
         self,
@@ -481,149 +490,3 @@ class GraphValidator:
                     path=("nodes", node.node_id, "agent", "tool_bindings"),
                     details={"tool": binding.name, "missing_capabilities": missing},
                 )
-
-    def _validate_condition(
-        self,
-        graph_id: str,
-        edge: Edge,
-        issues: list[ValidationIssue],
-    ) -> None:
-        """Check that an edge's condition has a non-empty expression and valid operand refs."""
-        condition = edge.condition
-        assert condition is not None
-        if not condition.expression.strip():
-            append_issue(
-                issues,
-                severity=ValidationSeverity.ERROR,
-                code=ValidationCode.INVALID_CONDITION,
-                message="condition expression is required",
-                graph_id=graph_id,
-                edge_id=edge.edge_id,
-                path=("edges", edge.edge_id, "condition", "expression"),
-            )
-        validate_ref_list(
-            issues,
-            graph_id=graph_id,
-            edge_id=edge.edge_id,
-            refs=condition.operand_refs,
-            code=ValidationCode.INVALID_CONDITION,
-            message="invalid condition operand reference",
-            path=("edges", edge.edge_id, "condition", "operand_refs"),
-        )
-
-    def _validate_mapping(
-        self,
-        graph_id: str,
-        edge: Edge,
-        issues: list[ValidationIssue],
-    ) -> None:
-        """Validate an edge's data mapping using the mapping validator."""
-        try:
-            self._mapping_validator.validate(edge.mapping)  # type: ignore[arg-type]
-        except MappingValidationError as exc:
-            append_issue(
-                issues,
-                severity=ValidationSeverity.ERROR,
-                code=ValidationCode.INVALID_MAPPING,
-                message=str(exc),
-                graph_id=graph_id,
-                edge_id=edge.edge_id,
-                path=("edges", edge.edge_id, "mapping"),
-                details={"error": str(exc)},
-            )
-
-    def _validate_cycles(
-        self,
-        graph: Graph,
-        node_map: dict[str, Node],
-        adjacency: dict[str, list[str]],
-        issues: list[ValidationIssue],
-    ) -> None:
-        """Detect unsafe cycles in the graph.
-
-        Cycles are allowed only when the graph has a configured safeguard that
-        prevents infinite execution.
-        """
-        components = self._strongly_connected_components(node_map.keys(), adjacency)
-        for component in components:
-            if len(component) == 1:
-                node_id = next(iter(component))
-                if node_id not in adjacency.get(node_id, []):
-                    continue
-
-            component_edges = [
-                edge
-                for edge in graph.edges
-                if edge.enabled
-                and edge.kind != "tool"
-                and edge.source_node_id in component
-                and edge.target_node_id in component
-            ]
-            if self._component_has_safeguard(graph, component_edges):
-                continue
-
-            append_issue(
-                issues,
-                severity=ValidationSeverity.ERROR,
-                code=ValidationCode.UNSAFE_CYCLE,
-                message="cyclic graph path must declare a safeguard",
-                graph_id=graph.graph_id,
-                details={
-                    "nodes": sorted(component),
-                    "edges": [edge.edge_id for edge in component_edges],
-                },
-            )
-
-    def _component_has_safeguard(self, graph: Graph, edges: list[Edge]) -> bool:
-        """Return True if a cycle has something preventing infinite loops."""
-        if graph.execution_settings.max_visits_per_edge is not None:
-            return True
-        return any(edge.condition and edge.condition.allow_cycle_traversal for edge in edges)
-
-    def _strongly_connected_components(
-        self,
-        node_ids: Iterable[str],
-        adjacency: dict[str, list[str]],
-    ) -> list[set[str]]:
-        """Find all groups of nodes that can reach each other (Tarjan's algorithm).
-
-        Each group returned is a set of node IDs that form a cycle.
-        Single nodes without self-loops are also returned but filtered later.
-        """
-        index = 0
-        stack: list[str] = []
-        on_stack: set[str] = set()
-        indices: dict[str, int] = {}
-        lowlinks: dict[str, int] = {}
-        components: list[set[str]] = []
-
-        def strongconnect(node_id: str) -> None:
-            nonlocal index
-            indices[node_id] = index
-            lowlinks[node_id] = index
-            index += 1
-            stack.append(node_id)
-            on_stack.add(node_id)
-
-            for neighbour in adjacency.get(node_id, []):
-                if neighbour not in indices:
-                    strongconnect(neighbour)
-                    lowlinks[node_id] = min(lowlinks[node_id], lowlinks[neighbour])
-                elif neighbour in on_stack:
-                    lowlinks[node_id] = min(lowlinks[node_id], indices[neighbour])
-
-            if lowlinks[node_id] == indices[node_id]:
-                component: set[str] = set()
-                while stack:
-                    current = stack.pop()
-                    on_stack.remove(current)
-                    component.add(current)
-                    if current == node_id:
-                        break
-                components.append(component)
-
-        for node_id in node_ids:
-            if node_id not in indices:
-                strongconnect(node_id)
-
-        return components
