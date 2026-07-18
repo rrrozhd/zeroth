@@ -8,7 +8,7 @@ via Alembic migrations at startup.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -24,7 +24,23 @@ from zeroth.core.runs.models import (
     ThreadStatus,
 )
 from zeroth.core.storage import AsyncConnection, AsyncDatabase
-from zeroth.core.storage.json import from_json_value, load_typed_value, to_json_value
+from zeroth.core.storage.json import from_json_value, to_json_value
+from zeroth.integrations.persistence.runs.checkpoint_store import (
+    CheckpointRowStore,
+)
+from zeroth.integrations.persistence.runs.checkpoint_store import (
+    new_checkpoint_id as _new_checkpoint_id,
+)
+from zeroth.integrations.persistence.runs.serialization import (
+    dump_list as _dump_list,
+)
+from zeroth.integrations.persistence.runs.serialization import (
+    dump_model as _dump_model,
+)
+from zeroth.integrations.persistence.runs.serialization import (
+    row_to_run,
+    row_to_thread,
+)
 from zeroth.platform.primitives import utc_now
 
 ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
@@ -54,11 +70,6 @@ ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
 DEAD_LETTER_REASON = "dead_letter"
 
 
-def _new_checkpoint_id() -> str:
-    """Generate a new random hex ID for a checkpoint."""
-    return uuid4().hex
-
-
 def _validate_transition(current: RunStatus, new: RunStatus) -> None:
     """Check that moving from one run status to another is valid.
 
@@ -70,20 +81,6 @@ def _validate_transition(current: RunStatus, new: RunStatus) -> None:
     if new not in ALLOWED_TRANSITIONS[current]:
         msg = f"invalid run transition: {current.value} -> {new.value}"
         raise ValueError(msg)
-
-
-def _dump_model(value: object | None) -> str | None:
-    """Serialize a Pydantic model (or plain value) to a JSON string for storage."""
-    if value is None:
-        return None
-    if hasattr(value, "model_dump"):
-        return to_json_value(value)  # type: ignore[arg-type]
-    return to_json_value(value)  # type: ignore[arg-type]
-
-
-def _dump_list(items: Sequence[object]) -> str:
-    """Serialize a list of Pydantic models to a JSON string for storage."""
-    return to_json_value([item.model_dump(mode="json") for item in items])  # type: ignore[attr-defined]
 
 
 def _merge(existing: list[str], updates: Sequence[str] | None) -> list[str]:
@@ -116,6 +113,11 @@ class _RunThreadStore:
     """
 
     database: AsyncDatabase
+    checkpoints: CheckpointRowStore = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Bind the ``run_checkpoints`` adapter to the same database."""
+        self.checkpoints = CheckpointRowStore(self.database)
 
     async def save_run(self, run: Run) -> None:
         """Insert or update a run record in the database."""
@@ -262,7 +264,7 @@ class _RunThreadStore:
             row = await connection.fetch_one(sql, params)
         if row is None:
             return None
-        return self._row_to_run(row)
+        return row_to_run(row)
 
     async def get_thread(self, thread_id: str) -> Thread | None:
         """Load a thread from the database by its ID, or return None if not found."""
@@ -273,7 +275,7 @@ class _RunThreadStore:
             )
         if row is None:
             return None
-        return self._row_to_thread(row)
+        return row_to_thread(row)
 
     async def delete_run(self, run_id: str) -> None:
         """Remove a run from the database and update its parent thread."""
@@ -316,60 +318,20 @@ class _RunThreadStore:
         run.touch()
         snapshot = run.model_dump(mode="json")
         checkpoint_order = await self._next_checkpoint_order(run.thread_id)
-        state_json = self._encrypt_state_json(to_json_value(snapshot))
-        async with self.database.transaction() as connection:
-            await connection.execute(
-                """
-                INSERT INTO run_checkpoints (
-                    checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(checkpoint_id) DO UPDATE SET
-                    run_id = excluded.run_id,
-                    thread_id = excluded.thread_id,
-                    checkpoint_order = excluded.checkpoint_order,
-                    state_json = excluded.state_json
-                """,
-                (
-                    checkpoint_id,
-                    run.run_id,
-                    run.thread_id,
-                    checkpoint_order,
-                    state_json,
-                    run.updated_at.isoformat(),
-                ),
-            )
+        await self.checkpoints.write_row(
+            checkpoint_id=checkpoint_id,
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            checkpoint_order=checkpoint_order,
+            state_json=to_json_value(snapshot),
+            created_at=run.updated_at.isoformat(),
+        )
         await self._record_thread_checkpoint(run.thread_id, checkpoint_id)
         return checkpoint_id
 
-    def _encrypt_state_json(self, state_json: str) -> str:
-        """Encrypt state_json at rest when the database has an encrypted_field."""
-        encrypted_field = getattr(self.database, "encrypted_field", None)
-        if encrypted_field is None:
-            return state_json
-        return encrypted_field.encrypt(state_json)
-
-    def _decrypt_state_json(self, state_json: str) -> str:
-        """Reverse of _encrypt_state_json; passthrough when no encrypted_field."""
-        encrypted_field = getattr(self.database, "encrypted_field", None)
-        if encrypted_field is None:
-            return state_json
-        try:
-            return encrypted_field.decrypt(state_json)
-        except Exception:
-            # Value was written before encryption was enabled; return as-is.
-            return state_json
-
     async def get_checkpoint(self, checkpoint_id: str) -> Run | None:
         """Load a previously saved checkpoint by its ID."""
-        async with self.database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT state_json FROM run_checkpoints WHERE checkpoint_id = ?",
-                (checkpoint_id,),
-            )
-        if row is None:
-            return None
-        state_json = self._decrypt_state_json(row["state_json"])
-        return Run.model_validate(load_typed_value(state_json, dict[str, Any]))
+        return await self.checkpoints.get(checkpoint_id)
 
     async def get_latest_checkpoint(self, thread_id: str) -> Run | None:
         """Load the most recent checkpoint for a given thread."""
@@ -519,17 +481,7 @@ class _RunThreadStore:
 
     async def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
         """Return the checkpoint_id for the most recent checkpoint of a run."""
-        async with self.database.transaction() as connection:
-            row = await connection.fetch_one(
-                """
-                SELECT checkpoint_id FROM run_checkpoints
-                WHERE run_id = ?
-                ORDER BY checkpoint_order DESC
-                LIMIT 1
-                """,
-                (run_id,),
-            )
-        return row["checkpoint_id"] if row else None
+        return await self.checkpoints.latest_id_for_run(run_id)
 
     async def count_pending(self, deployment_ref: str) -> int:
         """Count runs with PENDING status for a deployment."""
@@ -584,7 +536,7 @@ class _RunThreadStore:
                     """,
                     (deployment_ref, limit, offset),
                 )
-        return [self._row_to_run(row) for row in rows]
+        return [row_to_run(row) for row in rows]
 
     async def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
         """Return runs that have been dead-lettered (failed with dead_letter reason)."""
@@ -599,72 +551,9 @@ class _RunThreadStore:
             )
         return [
             r
-            for r in (self._row_to_run(row) for row in rows)
+            for r in (row_to_run(row) for row in rows)
             if r.failure_state is not None and r.failure_state.reason == DEAD_LETTER_REASON
         ]
-
-    def _row_to_run(self, row: dict[str, Any]) -> Run:
-        """Convert a raw database row into a Run model."""
-        return Run(
-            run_id=row["run_id"],
-            checkpoint_id=row["checkpoint_id"],
-            parent_checkpoint_id=row["parent_checkpoint_id"],
-            epoch=row["epoch"],
-            workflow_name=row["workflow_name"],
-            status=RunStatus(row["status"]),
-            current_step=row["current_step"],
-            completed_steps=load_typed_value(row["completed_steps"], list[str]) or [],
-            artifacts=load_typed_value(row["artifacts"], dict[str, Any]) or {},
-            channels=load_typed_value(row["channels"], dict[str, Any]) or {},
-            pending_approval=load_typed_value(row["pending_approval"], Any),
-            pending_interrupt_id=row["pending_interrupt_id"],
-            started_at=datetime.fromisoformat(row["started_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
-            error=row["error"],
-            metadata=load_typed_value(row["metadata"], dict[str, Any]) or {},
-            graph_version_ref=row["graph_version_ref"],
-            deployment_ref=row["deployment_ref"],
-            tenant_id=row["tenant_id"] or "default",
-            workspace_id=row["workspace_id"],
-            submitted_by=load_typed_value(row["submitted_by"], dict[str, Any]),
-            thread_id=row["thread_id"],
-            current_node_ids=load_typed_value(row["current_node_ids"], list[str]) or [],
-            pending_node_ids=load_typed_value(row["pending_node_ids"], list[str]) or [],
-            execution_history=(
-                load_typed_value(row["execution_history"], list[RunHistoryEntry]) or []
-            ),
-            node_visit_counts=load_typed_value(row["node_visit_counts"], dict[str, int]) or {},
-            condition_results=(
-                load_typed_value(row["condition_results"], list[RunConditionResult]) or []
-            ),
-            audit_refs=load_typed_value(row["audit_refs"], list[str]) or [],
-            final_output=load_typed_value(row["final_output"], Any),
-            failure_state=load_typed_value(row["failure_state"], dict[str, Any]),
-        )
-
-    def _row_to_thread(self, row: dict[str, Any]) -> Thread:
-        """Convert a raw database row into a Thread model."""
-        return Thread(
-            thread_id=row["thread_id"],
-            graph_version_ref=row["graph_version_ref"],
-            deployment_ref=row["deployment_ref"],
-            tenant_id=row["tenant_id"] or "default",
-            workspace_id=row["workspace_id"],
-            status=ThreadStatus(row["status"]),
-            participating_agent_refs=(
-                load_typed_value(row["participating_agent_refs"], list[str]) or []
-            ),
-            state_snapshot_refs=load_typed_value(row["state_snapshot_refs"], list[str]) or [],
-            checkpoint_refs=load_typed_value(row["checkpoint_refs"], list[str]) or [],
-            memory_bindings=(
-                load_typed_value(row["memory_bindings"], list[ThreadMemoryBinding]) or []
-            ),
-            run_ids=load_typed_value(row["run_ids"], list[str]) or [],
-            active_run_id=row["active_run_id"],
-            last_run_id=row["last_run_id"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
-        )
 
 
 class RunRepository:
@@ -1017,7 +906,7 @@ class ThreadRepository:
             rows = await connection.fetch_all(
                 "SELECT * FROM threads ORDER BY created_at, thread_id"
             )
-        return [self._store._row_to_thread(row) for row in rows]
+        return [row_to_thread(row) for row in rows]
 
     async def update(self, thread: Thread) -> Thread:
         """Save changes to an existing thread."""
