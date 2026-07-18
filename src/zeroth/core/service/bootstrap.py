@@ -18,7 +18,6 @@ from zeroth.core.econ.client import RegulusClient
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.graph import Graph, GraphRepository
 from zeroth.core.graph.serialization import deserialize_graph
-from zeroth.core.graph.validation import GraphValidator
 from zeroth.core.graph.versioning import graph_version_ref
 from zeroth.core.guardrails.config import GuardrailConfig
 from zeroth.core.guardrails.dead_letter import DeadLetterManager
@@ -38,6 +37,7 @@ from zeroth.core.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, 
 from zeroth.core.signing import SigningKeyProvider, build_signing_provider_async
 from zeroth.core.storage import AsyncDatabase
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from zeroth.runtime.graph_validation import GraphValidator
 
 
 class _BootstrapMemorySubsection:

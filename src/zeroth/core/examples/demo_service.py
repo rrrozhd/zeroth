@@ -21,7 +21,7 @@ from zeroth.core.contracts.registry import ContractRegistry, ContractVersionExis
 from zeroth.core.deployments import Deployment, DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.graph.models import AgentNode, AgentNodeData, DisplayMetadata, Graph
 from zeroth.core.graph.repository import GraphRepository
-from zeroth.core.graph.validation import GraphValidator
+from zeroth.runtime.graph_validation import GraphValidator
 
 if TYPE_CHECKING:
     from zeroth.core.storage.database import AsyncDatabase

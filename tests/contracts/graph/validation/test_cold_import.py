@@ -25,8 +25,12 @@ COLD_IMPORTS = (
     # Canonical-package-first: what a library consumer does.
     "from zeroth.contracts.graph.validation.issues import append_issue",
     "from zeroth.contracts.graph.validation.references import validate_graph_refs",
-    # Legacy-path-first: what existing callers do.
-    "import zeroth.core.graph.validation",
+    "from zeroth.contracts.graph.validation import ContractValidator",
+    # The public validator, composed in the runtime layer.
+    "from zeroth.runtime.graph_validation import GraphValidator",
+    # Legacy-path-first: what existing callers do. Resolution is lazy, so this
+    # also proves the shim's deferred runtime import survives a cold start.
+    "from zeroth.core.graph.validation import GraphValidator",
     # Package-init-first: the edge that closes the cycle if it goes eager.
     "import zeroth.core.graph",
 )

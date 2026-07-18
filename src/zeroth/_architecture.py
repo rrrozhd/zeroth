@@ -117,11 +117,15 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.graph.validation", "zeroth.core.parallel.errors"),
-        ("zeroth.core.graph.validation", "zeroth.core.parallel.reducers"),
-        ("zeroth.core.graph.validation", "zeroth.core.policy.models"),
-        reason="The legacy graph validator mixes contract and execution validation.",
-        removal_task="Task 7: decompose graph validation behind contract-owned validators.",
+        ("zeroth.core.graph.validation", "zeroth.runtime.graph_validation"),
+        reason=(
+            "zeroth.core.graph.validation is a compatibility re-export of the "
+            "public GraphValidator, which composes contract validators with "
+            "execution checks and therefore lives in the runtime layer. "
+            "Resolution stays lazy: an eager import here would put the runtime "
+            "on the import path of anything reaching zeroth.core.graph."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
         ("zeroth.core.orchestrator.runtime", "zeroth.core.execution_units"),
