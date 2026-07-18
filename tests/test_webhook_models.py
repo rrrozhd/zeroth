@@ -6,6 +6,15 @@ import hashlib
 import hmac
 from datetime import UTC, datetime
 
+import zeroth.core.webhooks.models as webhook_models
+import zeroth.core.webhooks.repository as webhook_repository
+from zeroth.platform.primitives import utc_now
+
+
+def test_webhook_domain_uses_platform_clock() -> None:
+    assert webhook_models.utc_now is utc_now
+    assert webhook_repository.utc_now is utc_now
+
 
 class TestWebhookEventType:
     """WebhookEventType enum values."""

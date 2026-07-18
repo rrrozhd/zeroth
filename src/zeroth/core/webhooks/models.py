@@ -7,17 +7,14 @@ entries, and escalation actions used throughout the webhook subsystem.
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 def _new_id() -> str:
@@ -69,8 +66,8 @@ class WebhookSubscription(BaseModel):
     secret: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     event_types: list[WebhookEventType]
     active: bool = True
-    created_at: datetime = Field(default_factory=_utc_now)
-    updated_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class WebhookDelivery(BaseModel):
@@ -91,11 +88,11 @@ class WebhookDelivery(BaseModel):
     status: DeliveryStatus = DeliveryStatus.PENDING
     attempt_count: int = 0
     max_attempts: int = 5
-    next_attempt_at: datetime = Field(default_factory=_utc_now)
+    next_attempt_at: datetime = Field(default_factory=utc_now)
     last_error: str | None = None
     last_status_code: int | None = None
-    created_at: datetime = Field(default_factory=_utc_now)
-    updated_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class WebhookDeadLetter(BaseModel):
@@ -115,8 +112,8 @@ class WebhookDeadLetter(BaseModel):
     attempt_count: int
     last_error: str | None = None
     last_status_code: int | None = None
-    created_at: datetime = Field(default_factory=_utc_now)
-    dead_lettered_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    dead_lettered_at: datetime = Field(default_factory=utc_now)
 
 
 class WebhookEventPayload(BaseModel):
@@ -130,7 +127,7 @@ class WebhookEventPayload(BaseModel):
 
     event_type: WebhookEventType
     event_id: str = Field(default_factory=_new_id)
-    timestamp: datetime = Field(default_factory=_utc_now)
+    timestamp: datetime = Field(default_factory=utc_now)
     deployment_ref: str
     tenant_id: str
     data: dict[str, Any]

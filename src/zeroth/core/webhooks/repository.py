@@ -7,7 +7,7 @@ JSON columns, async with self._database.transaction() as connection.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from zeroth.core.storage.database import AsyncDatabase
@@ -19,11 +19,7 @@ from zeroth.core.webhooks.models import (
     WebhookEventType,
     WebhookSubscription,
 )
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 def _new_id() -> str:
@@ -120,7 +116,7 @@ class WebhookRepository:
 
     async def deactivate_subscription(self, subscription_id: str) -> None:
         """Set a subscription to inactive."""
-        now = _utc_now().isoformat()
+        now = utc_now().isoformat()
         async with self._database.transaction() as conn:
             await conn.execute(
                 "UPDATE webhook_subscriptions SET active = 0, updated_at = ? "
@@ -189,7 +185,7 @@ class WebhookRepository:
 
         Returns the claimed delivery, or ``None`` when nothing is due.
         """
-        now = _utc_now()
+        now = utc_now()
         now_iso = now.isoformat()
         async with self._database.transaction() as conn:
             row = await conn.fetch_one(
@@ -228,7 +224,7 @@ class WebhookRepository:
 
     async def mark_delivered(self, delivery_id: str) -> None:
         """Mark a delivery as successfully delivered."""
-        now = _utc_now().isoformat()
+        now = utc_now().isoformat()
         async with self._database.transaction() as conn:
             await conn.execute(
                 "UPDATE webhook_deliveries SET status = ?, updated_at = ? WHERE delivery_id = ?",
@@ -251,7 +247,7 @@ class WebhookRepository:
         the delivery worker owns the backoff policy (see ``next_retry_delay``)
         and this method persists it verbatim rather than re-deriving it.
         """
-        now = _utc_now()
+        now = utc_now()
         async with self._database.transaction() as conn:
             row = await conn.fetch_one(
                 "SELECT attempt_count FROM webhook_deliveries WHERE delivery_id = ?",
@@ -285,7 +281,7 @@ class WebhookRepository:
         Inserts into webhook_dead_letters from delivery data, then updates
         the delivery status to DEAD_LETTER.
         """
-        now = _utc_now()
+        now = utc_now()
         async with self._database.transaction() as conn:
             row = await conn.fetch_one(
                 "SELECT * FROM webhook_deliveries WHERE delivery_id = ?",
