@@ -12,6 +12,10 @@ import hashlib
 
 from pydantic import BaseModel, ConfigDict
 
+# Re-exported so existing importers keep working. The cap is defined with the
+# graph authoring contract: the publish gate enforces it, and the contracts
+# layer may not import this package.
+from zeroth.contracts.graph.limits import INLINE_SOURCE_MAX_CHARS as INLINE_SOURCE_MAX_CHARS
 from zeroth.core.execution_units.models import (
     InlineSourceArtifactSource,
     InlineUnitManifest,
@@ -20,10 +24,6 @@ from zeroth.core.execution_units.models import (
     RunConfig,
 )
 from zeroth.core.execution_units.runner import ExecutableUnitBinding
-
-# Inline source travels inside graph payload rows and diff output — cap it
-# well below anything that would strain those paths.
-INLINE_SOURCE_MAX_CHARS = 65_536
 
 # How the sandboxed process is invoked; the runner materializes the source as
 # this file in the sandbox working directory. -I = isolated mode (ignores

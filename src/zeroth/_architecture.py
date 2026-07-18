@@ -120,7 +120,6 @@ TEMPORARY_EXCEPTIONS = {
         ("zeroth.core.graph.validation", "zeroth.core.parallel.errors"),
         ("zeroth.core.graph.validation", "zeroth.core.parallel.reducers"),
         ("zeroth.core.graph.validation", "zeroth.core.policy.models"),
-        ("zeroth.core.graph.validation", "zeroth.core.execution_units.inline"),
         reason="The legacy graph validator mixes contract and execution validation.",
         removal_task="Task 7: decompose graph validation behind contract-owned validators.",
     ),
