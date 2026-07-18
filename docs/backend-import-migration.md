@@ -69,6 +69,9 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.runs:ThreadRepository` | `zeroth.integrations.persistence.runs:ThreadRepository` | Move to concrete persistence | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.graph.validation:GraphValidator` | `zeroth.runtime.graph_validation:GraphValidator` | Move composed validator to runtime | Legacy path still re-exports, lazily | Same class object | Not removed |
 | `zeroth.core.execution_units.inline:INLINE_SOURCE_MAX_CHARS` | `zeroth.contracts.graph.limits:INLINE_SOURCE_MAX_CHARS` | Move authoring limit to contracts | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.orchestrator.runtime:OrchestratorError` | `zeroth.runtime.orchestration.errors:OrchestratorError` | Move runtime exceptions to the canonical package | Legacy paths still re-export | Same class object | Not removed |
+| `zeroth.core.orchestrator.runtime:NodeDispatcherError` | `zeroth.runtime.orchestration.errors:NodeDispatcherError` | Move runtime exceptions to the canonical package | Legacy paths still re-export | Same class object | Not removed |
+| `zeroth.core.orchestrator.runtime:MemoryBindingResolutionError` | `zeroth.runtime.orchestration.errors:MemoryBindingResolutionError` | Move runtime exceptions to the canonical package | Legacy paths still re-export | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
@@ -233,6 +236,79 @@ put the validation package on `zeroth.core.graph`'s own import path while the
 validators import graph models straight back, which made the canonical package
 uncold-importable. `tests/contracts/graph/validation/test_cold_import.py`
 pins every import order from subprocesses.
+
+### Orchestration runtime
+
+`RuntimeOrchestrator` is now a composition facade. The work moved to six
+collaborators in `zeroth.runtime.orchestration`, each holding one concern and
+receiving its dependencies explicitly:
+
+| Module | Owns |
+| --- | --- |
+| `driver` | the drive loop, terminal transitions, pause points, next-node planning and queueing, webhooks, artifact-TTL refresh |
+| `dispatcher` | node-type resolution, agent runner wiring and restoration, retrieval, thread and template-memory resolution |
+| `tool_executor` | every governed executable-unit invocation — graph step, inline code node, agent tool call |
+| `parallel_executor` | fan-out, fan-in, branch governance and audit, the D-11 approval pause and its resume |
+| `policy_gate` | loop guards, policy evaluation, the side-effect approval gate and its consumption |
+| `audit_recorder` | every audit-repository write, plus redaction and typed-field promotion |
+| `errors` | the three public exception types |
+
+**Why the collaborators are properties, not fields.** `RuntimeOrchestrator` is a
+`@dataclass(slots=True)` whose *entire* `__init__` signature — all 25 fields —
+is pinned in the immutable `backend_surface_legacy.json`. No field may be added,
+removed, renamed, or retyped, and `slots=True` forbids ad-hoc attributes, so a
+collaborator cannot be stored at all. Each is rebuilt per access from the
+orchestrator's own fields; they are frozen dataclasses, so that is free. The
+same constraint is why `run_repository` could **not** be narrowed to the
+`RunReader`/`RunWriter`/`CheckpointStore` protocols published in Task 5, even
+though the runtime uses only five of its methods: the annotation source text
+`RunRepository` is part of the pinned string.
+
+Two dependencies point back at the facade, and both are external contracts
+rather than convenience. `SubgraphExecutor.execute` takes `orchestrator=` by
+keyword, and a paused child run is resumed through `resume_graph` so its run
+span opens identically. Both are passed explicitly rather than reached for.
+
+`zeroth.core.dispatch.worker` and `zeroth.core.subgraph.executor` call
+`orchestrator._drive` and `orchestrator._entry_step` by name, so the facade
+keeps those (and every other private helper the suite exercises) as delegating
+methods. They are repointed when those packages move.
+
+**Ordering is the contract.** The sequence of `run_repository.put` /
+`write_checkpoint` / `audit_repository.write` / webhook emission is not an
+implementation detail — a checkpoint written before its audit record changes
+what a crashed run replays. `tests/runtime/orchestration/test_characterization.py`
+pins the exact ordered call sequence for the completed, failed, rejected,
+policy-denied, approval-paused and fan-out paths, and was committed green
+against the pre-decomposition facade before anything moved.
+
+#### The four dependency exceptions this task was scheduled to remove
+
+Task 8 was scheduled to remove four `TEMPORARY_EXCEPTIONS` edges by injecting
+integration collaborators. **None could be removed.** Each is retargeted onto
+its new importer with a per-edge reason recorded in `src/zeroth/_architecture.py`;
+the summary is:
+
+- **`zeroth.core.execution_units` (`ExecutableUnitRunner`)** — the type is named
+  in the facade's pinned `executable_unit_runner` field annotation, and the
+  dependency scanner walks the AST, so even a `TYPE_CHECKING` import records the
+  edge. The same wall as `RepositoryThreadStateStore` above.
+- **`zeroth.core.governed.memory.models` (`MemoryScope`)** — the enum's module
+  path is embedded in signature strings pinned by the immutable legacy fixture,
+  the same wall as `policy.models:Capability`.
+- **`zeroth.core.econ.adapter` (`InstrumentedProviderAdapter`)** — removal needs
+  a provider-wrapping seam on the injected `cost_estimator`, but that field is
+  typed `object | None` and duck-typed doubles are already relied on, so
+  requiring a new method breaks existing callers.
+- **`zeroth.core.execution_units.inline` (`build_inline_binding`)** — it
+  constructs runner types, so it cannot move to contracts; removal needs a new
+  run-inline-source method on `ExecutableUnitRunner`.
+
+The last two are removable, but only by adding public methods to packages
+outside this task's boundary — which is a public-interface change, not a
+behavior-preserving decomposition. All four are retargeted to Task 14, which
+moves the runtime packages and economics behind owned protocols and therefore
+has to answer the question properly.
 
 ## Updating the canonical surface
 

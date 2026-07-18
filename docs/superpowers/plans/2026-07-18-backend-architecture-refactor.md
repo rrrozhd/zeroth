@@ -208,12 +208,12 @@ guard as it is published, since the warm-cache suite cannot see the failure.
 - Replace: `src/zeroth/core/orchestrator/runtime.py`
 - Modify: orchestrator imports in production slices; migration guide only in separate follow-up commits
 
-- [ ] Add characterization coverage for run/resume/failure/audit order/policy/tool/fan-out/pause-resume and confirm it passes against the legacy facade.
-- [ ] For `audit_recorder`, add a failing collaborator import/injection test, extract minimally, run `uv run pytest tests/runtime/orchestration/test_audit_recorder.py tests/orchestrator -q`, Ruff, and commit `refactor: extract runtime audit recording`.
-- [ ] For `policy_gate`, repeat red/import/injection, run its test plus `tests/policy tests/approvals`, Ruff, and commit `refactor: extract runtime policy gate`.
-- [ ] For `dispatcher`/`tool_executor`, repeat red/import/injection, run their tests plus `tests/agent_runtime tests/execution_units tests/rag`, Ruff, and commit `refactor: extract runtime dispatch`.
-- [ ] For `parallel_executor`, repeat red/import/injection, run its tests plus `tests/parallel tests/subgraph`, Ruff, and commit `refactor: extract parallel runtime`.
-- [ ] For `driver`, repeat red/import/injection, leave `RuntimeOrchestrator` as composition facade, run `uv run pytest tests/runtime/orchestration tests/orchestrator tests/parallel tests/subgraph tests/policy tests/approvals tests/agent_runtime tests/contracts/test_refactor_contract_snapshots.py -q`, Ruff, and commit `refactor: compose runtime orchestrator`.
+- [x] Add characterization coverage for run/resume/failure/audit order/policy/tool/fan-out/pause-resume and confirm it passes against the legacy facade.
+- [x] For `audit_recorder`, add a failing collaborator import/injection test, extract minimally, run `uv run pytest tests/runtime/orchestration/test_audit_recorder.py tests/orchestrator -q`, Ruff, and commit `refactor: extract runtime audit recording`.
+- [x] For `policy_gate`, repeat red/import/injection, run its test plus `tests/policy tests/approvals`, Ruff, and commit `refactor: extract runtime policy gate`.
+- [x] For `dispatcher`/`tool_executor`, repeat red/import/injection, run their tests plus `tests/agent_runtime tests/execution_units tests/rag`, Ruff, and commit `refactor: extract runtime dispatch`.
+- [x] For `parallel_executor`, repeat red/import/injection, run its tests plus `tests/parallel tests/subgraph`, Ruff, and commit `refactor: extract parallel runtime`.
+- [x] For `driver`, repeat red/import/injection, leave `RuntimeOrchestrator` as composition facade, run `uv run pytest tests/runtime/orchestration tests/orchestrator tests/parallel tests/subgraph tests/policy tests/approvals tests/agent_runtime tests/contracts/test_refactor_contract_snapshots.py -q`, Ruff, and commit `refactor: compose runtime orchestrator`.
 
 ### Task 9: Decompose retention erasure
 
