@@ -8,18 +8,14 @@ around, and stored.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.graph.models import Condition as GraphCondition
 from zeroth.core.runs.models import RunConditionResult
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC. Used as a default factory for timestamps."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 class ConditionOutcome(BaseModel):
@@ -129,7 +125,7 @@ class BranchResolution(BaseModel):
     condition_results: list[RunConditionResult] = Field(default_factory=list)
     terminal_reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-    resolved_at: datetime = Field(default_factory=_utc_now)
+    resolved_at: datetime = Field(default_factory=utc_now)
 
 
 class NextStepPlan(BaseModel):

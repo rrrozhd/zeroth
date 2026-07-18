@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import pytest
 
+import zeroth.core.conditions.models as condition_models
 from zeroth.core.conditions import ConditionContext, ConditionEvaluator
 from zeroth.core.conditions.errors import ConditionEvaluationError
 from zeroth.core.conditions.evaluator import _SafeEvaluator
 from zeroth.core.graph.models import Condition as GraphCondition
+from zeroth.platform.primitives import utc_now
+
+
+def test_condition_models_use_platform_clock() -> None:
+    assert condition_models.utc_now is utc_now
 
 
 def test_condition_evaluator_handles_nested_paths_and_metadata() -> None:
