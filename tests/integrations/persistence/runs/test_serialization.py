@@ -131,7 +131,11 @@ def _thread_row(**overrides: object) -> dict[str, object]:
         "state_snapshot_refs": to_json_value(["checkpoint-1"]),
         "checkpoint_refs": to_json_value(["checkpoint-1"]),
         "memory_bindings": to_json_value(
-            [ThreadMemoryBinding(connector_id="conn-1", instance_id="memory-1").model_dump(mode="json")]
+            [
+                ThreadMemoryBinding(connector_id="conn-1", instance_id="memory-1").model_dump(
+                    mode="json"
+                )
+            ]
         ),
         "run_ids": to_json_value(["run-1"]),
         "active_run_id": "run-1",
