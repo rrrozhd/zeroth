@@ -67,6 +67,8 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.runs:ThreadStatus` | `zeroth.runtime.runs:ThreadStatus` | Move to runtime run domain | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.runs:RunRepository` | `zeroth.integrations.persistence.runs:RunRepository` | Move to concrete persistence | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.runs:ThreadRepository` | `zeroth.integrations.persistence.runs:ThreadRepository` | Move to concrete persistence | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.validation:GraphValidator` | `zeroth.runtime.graph_validation:GraphValidator` | Move composed validator to runtime | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.execution_units.inline:INLINE_SOURCE_MAX_CHARS` | `zeroth.contracts.graph.limits:INLINE_SOURCE_MAX_CHARS` | Move authoring limit to contracts | Legacy path still re-exports | Same object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
@@ -175,6 +177,62 @@ Task 11, and so on — because at that point it is no longer on the eager core
 import path. Relocating the run models earlier would not lift this constraint
 on its own: they also depend on `zeroth.core.governed` and
 `zeroth.core.identity`, which trigger the same eager `__init__`.
+
+### Graph validation
+
+Graph validation is now seven contract-owned validators plus a composed public
+entry point. `zeroth.contracts.graph.validation` holds `issues`, `references`,
+`nodes`, `edges`, `tools`, `mappings`, `cycles`, and a `ContractValidator`
+facade that runs them in the canonical order. None of them imports runtime,
+governance, or integration code.
+
+`GraphValidator` itself moved to `zeroth.runtime.graph_validation`, and
+`zeroth.core.graph.validation` re-exports it through a module `__getattr__`.
+Neither symbol appears in the canonical surface, which is not an omission:
+`GraphValidator` was never a protected legacy capability. The row above records
+the import location because consumers depend on it, not because a capability ID
+moved.
+
+**Why the public validator is not in `contracts`.** Two of its checks cannot
+live there. Parallel-config validation resolves `reducer_ref` through the
+runtime reducer registry. Capability grants resolve refs against
+`zeroth.core.policy.models:Capability`, and that enum cannot move: its module
+path is embedded in nine signature strings pinned by the immutable
+`backend_surface_legacy.json`, the same wall documented above for the run
+models. So the layer that composes contract validation with execution
+validation is by definition above `contracts`, and `runtime` is the lowest
+layer permitted to import contracts, governance, and runtime together.
+
+Keeping the facade in `contracts` was the alternative. It would have left the
+`parallel.errors`, `parallel.reducers`, and `policy.models` dependency
+exceptions in place — relocated onto `zeroth.contracts.graph.validation.*` and
+retagged, rather than removed. Composing in runtime retires all three and
+leaves one edge, the shim's `zeroth.core.graph.validation` →
+`zeroth.runtime.graph_validation`, tagged Task 18 next to the identical
+`zeroth.core.runs` case.
+
+**The capability seam.** The two governance rules reach the contract validators
+through `CapabilityChecks`, a protocol in
+`zeroth.contracts.graph.validation.capabilities`; `GraphValidator` implements
+it. Injection rather than a later pass is load-bearing for behavior, not just
+taste: the MCP check fires partway through a node's issues and the grant check
+at the end of each agent's tool block, so running them afterwards would reorder
+the report. Issue order is a contract — Studio highlights by `path`, the
+console prints `message` verbatim, and the first error is the one an author
+sees. `tests/contracts/graph/validation/test_characterization.py` pins codes,
+paths, messages, and order for representative graphs, including one that trips
+all seven validators at once.
+
+A consumer that wants structure-only validation can use `ContractValidator`
+directly: it is synchronous, needs no registry, and silently skips the
+governance rules when no `CapabilityChecks` is supplied.
+
+**Import direction.** `GraphRepository` now imports `GraphValidator` under
+`TYPE_CHECKING`; it only ever named the type in annotations. The eager import
+put the validation package on `zeroth.core.graph`'s own import path while the
+validators import graph models straight back, which made the canonical package
+uncold-importable. `tests/contracts/graph/validation/test_cold_import.py`
+pins every import order from subprocesses.
 
 ## Updating the canonical surface
 
