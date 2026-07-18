@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import zeroth.core.webhooks.repository as webhook_repository
 from zeroth.core.webhooks.models import (
     DeliveryStatus,
     WebhookDelivery,
@@ -165,9 +166,13 @@ class TestWebhookRepositorySubscriptions:
         assert sub3.subscription_id not in ids  # different deployment
 
     @pytest.mark.asyncio
-    async def test_deactivate_subscription(self, async_database, make_subscription):
+    async def test_deactivate_subscription(
+        self, async_database, make_subscription, monkeypatch
+    ):
         from zeroth.core.webhooks.repository import WebhookRepository
 
+        fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+        monkeypatch.setattr(webhook_repository, "utc_now", lambda: fixed)
         repo = WebhookRepository(async_database)
         sub = make_subscription()
         await repo.create_subscription(sub)
@@ -175,6 +180,7 @@ class TestWebhookRepositorySubscriptions:
         fetched = await repo.get_subscription(sub.subscription_id)
         assert fetched is not None
         assert fetched.active is False
+        assert fetched.updated_at == fixed
 
     @pytest.mark.asyncio
     async def test_deactivated_excluded_from_event_list(self, async_database, make_subscription):

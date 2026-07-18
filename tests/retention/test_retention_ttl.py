@@ -12,8 +12,16 @@ from zeroth.core.retention.models import RetentionPolicy
 from zeroth.platform.primitives import utc_now
 
 
-def test_retention_models_use_platform_clock() -> None:
-    assert retention_models.utc_now is utc_now
+def test_retention_models_consume_platform_clock_per_instance() -> None:
+    assert retention_models.RetentionPolicy.model_fields["created_at"].default_factory is utc_now
+    assert retention_models.RetentionPolicy.model_fields["updated_at"].default_factory is utc_now
+    assert retention_models.LegalHold.model_fields["created_at"].default_factory is utc_now
+
+    first = retention_models.RetentionPolicy(tenant_id="tenant-1")
+    second = retention_models.RetentionPolicy(tenant_id="tenant-2")
+
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
 
 
 async def _pii_in_audits(database, ssn: str) -> bool:

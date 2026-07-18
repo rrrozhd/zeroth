@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 from pydantic import BaseModel
 
@@ -17,8 +19,23 @@ from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.platform.primitives import utc_now
 
 
-def test_deployment_models_use_platform_clock() -> None:
-    assert deployment_models.utc_now is utc_now
+def test_deployment_models_consume_platform_clock_per_instance() -> None:
+    assert deployment_models.Deployment.model_fields["created_at"].default_factory is utc_now
+    assert deployment_models.Deployment.model_fields["updated_at"].default_factory is utc_now
+
+    values = {
+        "deployment_id": "deployment-1",
+        "deployment_ref": "deployment-ref",
+        "graph_id": "graph-1",
+        "graph_version": 1,
+        "graph_version_ref": "graph-1@1",
+        "serialized_graph": "{}",
+    }
+    first = deployment_models.Deployment(**values)
+    second = deployment_models.Deployment(**values)
+
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
 
 
 class DeploymentInputContract(BaseModel):

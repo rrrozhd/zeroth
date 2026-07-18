@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 import zeroth.core.approvals.models as approval_models
@@ -16,8 +18,30 @@ from zeroth.core.runs import Run, RunRepository
 from zeroth.platform.primitives import utc_now
 
 
-def test_approval_models_use_platform_clock() -> None:
-    assert approval_models.utc_now is utc_now
+def test_approval_models_consume_platform_clock_per_instance() -> None:
+    assert approval_models.ApprovalResolution.model_fields["resolved_at"].default_factory is utc_now
+    assert approval_models.ApprovalRecord.model_fields["created_at"].default_factory is utc_now
+    assert approval_models.ApprovalRecord.model_fields["updated_at"].default_factory is utc_now
+
+    first = approval_models.ApprovalRecord(
+        run_id="run-1",
+        node_id="node-1",
+        graph_version_ref="graph@1",
+        deployment_ref="deployment-1",
+        summary="Review",
+        rationale="Policy requires approval",
+    )
+    second = approval_models.ApprovalRecord(
+        run_id="run-2",
+        node_id="node-2",
+        graph_version_ref="graph@1",
+        deployment_ref="deployment-1",
+        summary="Review again",
+        rationale="Policy requires approval",
+    )
+
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
 
 
 def _node() -> HumanApprovalNode:

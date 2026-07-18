@@ -7,13 +7,35 @@ import hmac
 from datetime import UTC, datetime
 
 import zeroth.core.webhooks.models as webhook_models
-import zeroth.core.webhooks.repository as webhook_repository
 from zeroth.platform.primitives import utc_now
 
 
-def test_webhook_domain_uses_platform_clock() -> None:
-    assert webhook_models.utc_now is utc_now
-    assert webhook_repository.utc_now is utc_now
+def test_webhook_models_consume_platform_clock_per_instance() -> None:
+    assert webhook_models.WebhookSubscription.model_fields["created_at"].default_factory is utc_now
+    assert webhook_models.WebhookSubscription.model_fields["updated_at"].default_factory is utc_now
+    assert webhook_models.WebhookDelivery.model_fields["next_attempt_at"].default_factory is utc_now
+    assert webhook_models.WebhookDelivery.model_fields["created_at"].default_factory is utc_now
+    assert webhook_models.WebhookDelivery.model_fields["updated_at"].default_factory is utc_now
+    assert webhook_models.WebhookDeadLetter.model_fields["created_at"].default_factory is utc_now
+    assert (
+        webhook_models.WebhookDeadLetter.model_fields["dead_lettered_at"].default_factory
+        is utc_now
+    )
+    assert webhook_models.WebhookEventPayload.model_fields["timestamp"].default_factory is utc_now
+
+    first = webhook_models.WebhookSubscription(
+        deployment_ref="deployment-1",
+        target_url="https://example.com/first",
+        event_types=[webhook_models.WebhookEventType.RUN_COMPLETED],
+    )
+    second = webhook_models.WebhookSubscription(
+        deployment_ref="deployment-1",
+        target_url="https://example.com/second",
+        event_types=[webhook_models.WebhookEventType.RUN_COMPLETED],
+    )
+
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
 
 
 class TestWebhookEventType:

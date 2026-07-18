@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import zeroth.core.graph.models as graph_models
 import zeroth.core.graph.versioning as graph_versioning
 from zeroth.core.governed.app.spec import GovernedFlowSpec
@@ -29,9 +31,36 @@ from zeroth.core.mappings.models import (
 from zeroth.platform.primitives import utc_now
 
 
-def test_graph_domain_uses_platform_clock() -> None:
-    assert graph_models.utc_now is utc_now
-    assert graph_versioning.utc_now is utc_now
+def test_graph_models_consume_platform_clock_per_instance(monkeypatch) -> None:
+    assert graph_models.Graph.model_fields["created_at"].default_factory is utc_now
+    assert graph_models.Graph.model_fields["updated_at"].default_factory is utc_now
+
+    first = build_graph()
+    second = build_graph()
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
+
+    fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(graph_models, "utc_now", lambda: fixed)
+
+    transitioned = first.transition_to(first.status)
+
+    assert transitioned.updated_at == fixed
+
+
+def test_graph_versioning_consumes_platform_clock(monkeypatch) -> None:
+    fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(graph_versioning, "utc_now", lambda: fixed)
+    graph = build_graph()
+
+    cloned = graph_versioning.clone_graph_version(
+        graph,
+        version=graph.version + 1,
+        status=graph_models.GraphStatus.DRAFT,
+    )
+
+    assert cloned.created_at == fixed
+    assert cloned.updated_at == fixed
 
 
 def build_graph() -> Graph:

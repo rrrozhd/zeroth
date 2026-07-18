@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
+import zeroth.core.runs.repository as run_repository
 from zeroth.core.governed import RunStatus
 
 from zeroth.core.runs.models import (
@@ -12,6 +15,19 @@ from zeroth.core.runs.models import (
     ThreadStatus,
 )
 from zeroth.core.runs.repository import RunRepository, ThreadRepository
+
+
+async def test_thread_repository_consumes_platform_clock(runs_db, monkeypatch) -> None:
+    fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(run_repository, "utc_now", lambda: fixed)
+    repository = ThreadRepository(runs_db)
+    thread = await repository.create(
+        Thread(graph_version_ref="graph:v1", deployment_ref="deployment:v1")
+    )
+
+    updated = await repository.attach_run(thread.thread_id, "run-1")
+
+    assert updated.updated_at == fixed
 
 
 async def test_run_repository_crud_round_trip(runs_db) -> None:

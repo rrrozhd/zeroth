@@ -1,16 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import zeroth.core.agent_runtime.thread_store as thread_store
 from zeroth.core.agent_runtime.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )
 from zeroth.core.runs.repository import RunRepository, ThreadRepository
-from zeroth.platform.primitives import utc_now
-
-
-def test_thread_store_uses_platform_clock() -> None:
-    assert thread_store.utc_now is utc_now
 
 
 async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
@@ -48,7 +45,10 @@ async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
 
 async def test_thread_state_store_checkpoints_and_loads_latest_state(
     sqlite_db,
+    monkeypatch,
 ) -> None:
+    fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(thread_store, "utc_now", lambda: fixed)
     run_repository = RunRepository(sqlite_db)
     thread_repository = ThreadRepository(sqlite_db)
     resolver = RepositoryThreadResolver(thread_repository)
@@ -86,6 +86,7 @@ async def test_thread_state_store_checkpoints_and_loads_latest_state(
     assert latest_checkpoint is not None
     assert latest_checkpoint.metadata["checkpoint_kind"] == "thread_state"
     assert latest_checkpoint.metadata["thread_state"] == {"step": 2, "nested": {"token": "abc"}}
+    assert latest_checkpoint.metadata["created_at"] == fixed.isoformat()
     assert latest_checkpoint.audit_refs == []
     assert latest_checkpoint.final_output is None
 

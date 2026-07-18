@@ -3,16 +3,35 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 
 import zeroth.core.guardrails.rate_limit as rate_limit
 from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
-from zeroth.platform.primitives import utc_now
 
 BUCKET = "tenant:default:deployment:test"
 
 
-def test_rate_limit_uses_platform_clock() -> None:
-    assert rate_limit.utc_now is utc_now
+async def test_rate_limit_consumes_platform_clock(sqlite_db, monkeypatch) -> None:
+    fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(rate_limit, "utc_now", lambda: fixed)
+
+    await TokenBucketRateLimiter(sqlite_db).check_and_consume("clock-bucket")
+    await QuotaEnforcer(sqlite_db).check_and_increment("clock-quota", limit=5)
+
+    async with sqlite_db.transaction() as connection:
+        bucket = await connection.fetch_one(
+            "SELECT last_refill_at FROM rate_limit_buckets WHERE bucket_key = ?",
+            ("clock-bucket",),
+        )
+        quota = await connection.fetch_one(
+            "SELECT window_start FROM quota_counters WHERE counter_key = ?",
+            ("clock-quota",),
+        )
+
+    assert bucket is not None
+    assert quota is not None
+    assert bucket["last_refill_at"] == fixed.isoformat()
+    assert quota["window_start"] == fixed.isoformat()
 
 
 async def test_token_bucket_allows_first_request(sqlite_db) -> None:

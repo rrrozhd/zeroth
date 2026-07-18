@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 import zeroth.core.conditions.models as condition_models
@@ -10,8 +12,14 @@ from zeroth.core.graph.models import Condition as GraphCondition
 from zeroth.platform.primitives import utc_now
 
 
-def test_condition_models_use_platform_clock() -> None:
-    assert condition_models.utc_now is utc_now
+def test_condition_models_consume_platform_clock_per_instance() -> None:
+    assert condition_models.BranchResolution.model_fields["resolved_at"].default_factory is utc_now
+
+    first = condition_models.BranchResolution(graph_id="graph-1", source_node_id="node-1")
+    second = condition_models.BranchResolution(graph_id="graph-2", source_node_id="node-2")
+
+    assert first.resolved_at.tzinfo is UTC
+    assert first.resolved_at is not second.resolved_at
 
 
 def test_condition_evaluator_handles_nested_paths_and_metadata() -> None:
