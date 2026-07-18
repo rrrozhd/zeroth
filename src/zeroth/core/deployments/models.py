@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 class DeploymentStatus(StrEnum):
@@ -51,5 +48,5 @@ class Deployment(BaseModel):
     tenant_id: str = "default"
     workspace_id: str | None = None
     status: DeploymentStatus = DeploymentStatus.ACTIVE
-    created_at: datetime = Field(default_factory=_utc_now)
-    updated_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

@@ -4,6 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
+import zeroth.core.deployments.models as deployment_models
 from zeroth.core.contracts import ContractRegistry
 from zeroth.core.deployments import (
     DeploymentError,
@@ -13,6 +14,11 @@ from zeroth.core.deployments import (
 )
 from zeroth.core.graph import GraphRepository
 from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.platform.primitives import utc_now
+
+
+def test_deployment_models_use_platform_clock() -> None:
+    assert deployment_models.utc_now is utc_now
 
 
 class DeploymentInputContract(BaseModel):
