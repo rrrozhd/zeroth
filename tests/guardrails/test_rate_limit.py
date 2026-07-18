@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import time
 
+import zeroth.core.guardrails.rate_limit as rate_limit
 from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.platform.primitives import utc_now
 
 BUCKET = "tenant:default:deployment:test"
+
+
+def test_rate_limit_uses_platform_clock() -> None:
+    assert rate_limit.utc_now is utc_now
 
 
 async def test_token_bucket_allows_first_request(sqlite_db) -> None:

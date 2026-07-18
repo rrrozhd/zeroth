@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 from zeroth.core.storage import AsyncDatabase
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 @dataclass(slots=True)
@@ -40,7 +37,7 @@ class TokenBucketRateLimiter:
         Returns:
             True if a token was consumed, False if the bucket is empty.
         """
-        now = _utc_now()
+        now = utc_now()
         now_iso = now.isoformat()
         async with self.database.transaction() as conn:
             row = await conn.fetch_one(
@@ -109,7 +106,7 @@ class QuotaEnforcer:
         Returns:
             True if within quota (counter incremented), False if exhausted.
         """
-        now = _utc_now()
+        now = utc_now()
         now_iso = now.isoformat()
         async with self.database.transaction() as conn:
             row = await conn.fetch_one(
