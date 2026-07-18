@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+import zeroth.core.approvals.models as approval_models
 from zeroth.core.approvals import (
     ApprovalDecision,
     ApprovalRepository,
@@ -12,6 +13,11 @@ from zeroth.core.audit import AuditRepository
 from zeroth.core.graph import HumanApprovalNode, HumanApprovalNodeData
 from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.core.runs import Run, RunRepository
+from zeroth.platform.primitives import utc_now
+
+
+def test_approval_models_use_platform_clock() -> None:
+    assert approval_models.utc_now is utc_now
 
 
 def _node() -> HumanApprovalNode:

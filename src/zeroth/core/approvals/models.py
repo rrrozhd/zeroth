@@ -7,7 +7,7 @@ database, and the API.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -15,11 +15,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.identity import ActorIdentity
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC. Used as a default factory for timestamp fields."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 def _new_id() -> str:
@@ -75,7 +71,7 @@ class ApprovalResolution(BaseModel):
     decision: ApprovalDecision
     actor: ActorIdentity
     edited_payload: dict[str, Any] | None = None
-    resolved_at: datetime = Field(default_factory=_utc_now)
+    resolved_at: datetime = Field(default_factory=utc_now)
 
 
 class ApprovalRecord(BaseModel):
@@ -112,5 +108,5 @@ class ApprovalRecord(BaseModel):
     sla_deadline: datetime | None = None
     escalation_action: str | None = None
     escalated_from_id: str | None = None
-    created_at: datetime = Field(default_factory=_utc_now)
-    updated_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
