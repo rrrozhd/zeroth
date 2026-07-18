@@ -8672,7 +8672,7 @@
       "legacy_ids": [
         "zeroth.core.runs:RunRepository"
       ],
-      "module": "zeroth.core.runs",
+      "module": "zeroth.integrations.persistence.runs",
       "name": "RunRepository",
       "signature": "(database: 'AsyncDatabase')"
     },
@@ -8746,7 +8746,7 @@
       "legacy_ids": [
         "zeroth.core.runs:ThreadRepository"
       ],
-      "module": "zeroth.core.runs",
+      "module": "zeroth.integrations.persistence.runs",
       "name": "ThreadRepository",
       "signature": "(database: 'AsyncDatabase')"
     },

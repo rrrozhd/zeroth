@@ -38,7 +38,7 @@ separate design amendment approves a move.
 | `zeroth.core.artifacts`, `zeroth.core.config`, `zeroth.core.dispatch`, `zeroth.core.observability`, `zeroth.core.secrets`, `zeroth.core.signing`, `zeroth.core.storage` | `zeroth.platform.artifacts`, `zeroth.platform.config`, `zeroth.platform.dispatch`, `zeroth.platform.observability`, `zeroth.platform.secrets`, `zeroth.platform.signing`, `zeroth.platform.storage` | Move; add shared persistence and primitives | Skeleton only |
 | `zeroth.core.conditions`, `zeroth.core.contracts`, `zeroth.core.graph`, `zeroth.core.mappings`, `zeroth.core.templates` | `zeroth.contracts.conditions`, `zeroth.contracts.registry`, `zeroth.contracts.graph`, `zeroth.contracts.mappings`, `zeroth.contracts.templates` | Move; decompose graph validation | Skeleton only |
 | `zeroth.core.runs` models and protocols | `zeroth.runtime.runs` | Move domain contracts | Canonical import path published |
-| `zeroth.core.runs` SQL persistence | `zeroth.integrations.persistence.runs` | Move and decompose persistence adapters | Serialization and checkpoint storage extracted |
+| `zeroth.core.runs` SQL persistence | `zeroth.integrations.persistence.runs` | Move and decompose persistence adapters | Canonical import path published |
 | `zeroth.core.service`, `zeroth.core.deployments`, `zeroth.core.webhooks` | `zeroth.service.api`, `zeroth.service.bootstrap`, `zeroth.service.deployments`, `zeroth.service.webhooks` | Move; decompose bootstrap | Skeleton only |
 | `zeroth.core.econ`, `zeroth.econ_plane` | `zeroth.econ.analytics`, `zeroth.econ.instrumentation`, `zeroth.econ.plane` | Move and consolidate | Skeleton only |
 | `zeroth.core.execution_units`, `zeroth.core.http`, `zeroth.core.memory`, `zeroth.core.rag`, `zeroth.core.sandbox_sidecar` | `zeroth.integrations.execution`, `zeroth.integrations.http`, `zeroth.integrations.memory`, `zeroth.integrations.rag`, `zeroth.integrations.sandbox` | Move; preserve optional integrations | Skeleton only |
@@ -65,12 +65,14 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.runs:Thread` | `zeroth.runtime.runs:Thread` | Move to runtime run domain | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.runs:ThreadMemoryBinding` | `zeroth.runtime.runs:ThreadMemoryBinding` | Move to runtime run domain | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.runs:ThreadStatus` | `zeroth.runtime.runs:ThreadStatus` | Move to runtime run domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.runs:RunRepository` | `zeroth.integrations.persistence.runs:RunRepository` | Move to concrete persistence | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.runs:ThreadRepository` | `zeroth.integrations.persistence.runs:ThreadRepository` | Move to concrete persistence | Legacy path still re-exports | Same class object | Not removed |
 
-`zeroth.core.runs:RunRepository` and `zeroth.core.runs:ThreadRepository` are
-deliberately absent: the concrete repositories are persistence, not runtime
-contracts, and they move to `zeroth.integrations.persistence.runs` in Task 6.
-Runtime code depends on the new `RunReader`, `RunWriter`, `CheckpointStore`,
-and `ThreadStore` protocols published alongside the models.
+The two repositories are persistence, not runtime contracts, which is why they
+land under `zeroth.integrations.persistence.runs` rather than
+`zeroth.runtime.runs`. Runtime code depends on the `RunReader`, `RunWriter`,
+`CheckpointStore`, and `ThreadStore` protocols published alongside the models,
+and receives a concrete adapter through injection.
 
 ### Run serialization and checkpoint storage
 
@@ -79,15 +81,12 @@ lives in `zeroth.integrations.persistence.runs.serialization` and the
 `run_checkpoints` table adapter in
 `zeroth.integrations.persistence.runs.checkpoint_store`.
 
-Neither addition appears in the symbol migration log or the canonical surface,
+Neither module appears in the symbol migration log or the canonical surface,
 and that is not an omission. Every symbol involved was a private helper —
 `_row_to_run`, `_row_to_thread`, `_dump_model`, `_dump_list`,
 `_new_checkpoint_id`, and the two `_*_state_json` methods — so none of them
 carries a protected legacy capability ID. The log records public import
 locations that consumers may depend on; it does not track internal structure.
-`RunRepository` and `ThreadRepository` remain published from
-`zeroth.core.runs`, and their entries move only when the repositories
-themselves do.
 
 The split follows the transaction boundary rather than the table names.
 `checkpoint_store` owns the `run_checkpoints` rows and the at-rest encryption
@@ -97,6 +96,33 @@ the previous implementation each of those steps already opened its own
 transaction, so delegating only the row write keeps the lock scope identical.
 Moving the thread bookkeeping into the checkpoint adapter instead would have
 merged transactions that were previously separate.
+
+### Two dependency exceptions this move could not remove
+
+`zeroth.core.runs.repository` is now a pure re-export and nothing inside the
+tree depends on it. Two runtime-to-integrations edges survive anyway, and both
+are retargeted at the canonical package rather than deleted.
+
+**`zeroth.core.runs` → `zeroth.integrations.persistence.runs`.**
+`zeroth.core.runs:RunRepository` and `zeroth.core.runs:ThreadRepository` are
+protected legacy capabilities, so the legacy package has to keep republishing
+adapters it no longer owns. No package move dissolves this; it ends when the
+`zeroth.core` compatibility shell is retired. The resolution stays lazy — an
+eager import here reintroduces the cycle that blocked the extraction in the
+first place.
+
+**`zeroth.core.agent_runtime.thread_store` →
+`zeroth.integrations.persistence.runs`.** `RepositoryThreadStateStore`
+constructs `RunRepository` and `ThreadRepository` when it is not handed them,
+so this is a real dependency rather than a type-only import. Narrowing it to
+the `RunReader`/`ThreadStore` protocols is not available as a local fix: the
+constructor signature, including those two type names, is pinned in the
+immutable `backend_surface_legacy.json`, and `from __future__ import
+annotations` means the pinned string is the annotation source text. Changing
+the names fails the legacy-surface gate. The edge therefore moves with the
+rest of the agent runtime in Task 14, whose completion check — that runtime
+has no import of `zeroth.integrations` — is what will force the constructor
+question to be answered properly.
 
 ### Why these models are republished rather than relocated
 
