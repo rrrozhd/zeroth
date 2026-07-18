@@ -301,10 +301,11 @@ def scan_backend_dependencies(
     violations: list[DependencyViolation] = []
     for path in scanned_files:
         importer, _ = _module_name(path, source_root)
+        imports = _imports(path, source_root)
         importer_domain = _canonical_domain(importer)
         if importer_domain is None:
             continue
-        for line, imported in _imports(path, source_root):
+        for line, imported in imports:
             imported_domain = _canonical_domain(imported)
             if imported_domain is None or imported_domain == importer_domain:
                 continue

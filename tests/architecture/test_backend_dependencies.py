@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).parents[2]
 SOURCE_ROOT = REPO_ROOT / "src"
@@ -90,6 +92,24 @@ def test_allowed_and_disallowed_edges_follow_the_matrix(tmp_path: Path) -> None:
     assert [(item.importer, item.line, item.imported) for item in violations] == [
         ("zeroth.contracts.graph", 1, "zeroth.governance.policy")
     ]
+
+
+def test_scanner_parses_unclassified_modules_and_reports_syntax_errors(
+    tmp_path: Path,
+) -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    source_root = tmp_path / "src"
+    module = _write_module(
+        source_root,
+        "zeroth.core.examples.broken",
+        "def broken(:\n",
+    )
+
+    with pytest.raises(SyntaxError) as caught:
+        architecture.scan_backend_dependencies(source_root)
+
+    assert caught.value.filename == str(module)
+    assert caught.value.lineno == 1
 
 
 def test_temporary_exceptions_match_the_exact_importer_and_imported_module(
