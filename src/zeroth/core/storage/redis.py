@@ -12,13 +12,19 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from zeroth.core.governed.audit.redis import RedisAuditEmitter
-from zeroth.core.governed.runtime import RedisInterruptStore, RedisRunStore
+if TYPE_CHECKING:
+    # Imported for annotations only. The governed stores are runtime and
+    # governance code; importing them here would make the storage layer --
+    # the bottom of the dependency matrix -- eagerly load the layers above
+    # it. ``build_governai_redis_runtime`` imports them when it actually
+    # builds a store. See tests/architecture/test_import_layering.py.
+    from zeroth.core.governed.audit.redis import RedisAuditEmitter
+    from zeroth.core.governed.runtime import RedisInterruptStore, RedisRunStore
 
 
 class RedisDeploymentMode(StrEnum):
@@ -194,6 +200,9 @@ def build_governai_redis_runtime(
     It resolves the Redis URL and wires up the run store, interrupt store,
     and audit emitter with the right prefixes and TTLs.
     """
+    from zeroth.core.governed.audit.redis import RedisAuditEmitter
+    from zeroth.core.governed.runtime import RedisInterruptStore, RedisRunStore
+
     redis_url = config.redis_url(
         require_docker_available=require_docker_available,
         container_inspector=container_inspector,
