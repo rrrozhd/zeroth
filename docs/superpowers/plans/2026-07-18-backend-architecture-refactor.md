@@ -166,15 +166,23 @@ guard as it is published, since the warm-cache suite cannot see the failure.
 - Modify: service/bootstrap wiring and persistence imports
 - Modify: `docs/backend-import-migration.md`
 
-- [ ] Add failing imports for `serialization` and `checkpoint_store`; run `uv run pytest tests/integrations/persistence/runs/test_serialization.py tests/integrations/persistence/runs/test_checkpoint_store.py -v` and confirm missing-module failures.
-- [ ] Extract serialization and checkpoint storage; rerun that exact command, Ruff the two source/test modules, and commit `refactor: extract run serialization and checkpoints`.
-- [ ] Update the canonical fixture/migration row, rerun surface/snapshot tests, and commit separately: `docs: record run serialization migration`.
-- [ ] Add failing imports and characterization tests for transaction scope, transitions, row conversion, and erasure queries; run the new `test_run_repository.py` and confirm missing-module failures.
-- [ ] Extract run persistence and retention queries; rerun `uv run pytest tests/integrations/persistence/runs/test_run_repository.py tests/runs -q`, Ruff affected files, and commit `refactor: extract run persistence adapter`.
-- [ ] Add a failing canonical import plus thread create/get/update/resolve tests, extract thread persistence, run `uv run pytest tests/integrations/persistence/runs/test_thread_repository.py tests/runs -q`, Ruff, and commit `refactor: extract thread persistence adapter`.
-- [ ] Update bootstrap injection and remove the legacy repository implementation after import inventory proves no remaining canonical consumers.
-- [ ] Run `uv run pytest tests/runs tests/storage tests/retention tests/service tests/contracts/test_refactor_contract_snapshots.py tests/architecture/test_library_surface.py -q`.
-- [ ] Run `uv run ruff check src/zeroth/integrations/persistence src/zeroth/runtime/runs src/zeroth/core/service tests/integrations/persistence` and the frontend guard; commit production wiring as `refactor: wire canonical run persistence`, then update the canonical fixture/migration row, rerun surface/snapshot tests, and commit `docs: record run persistence migration` separately.
+- [x] Add failing imports for `serialization` and `checkpoint_store`; run `uv run pytest tests/integrations/persistence/runs/test_serialization.py tests/integrations/persistence/runs/test_checkpoint_store.py -v` and confirm missing-module failures.
+- [x] Extract serialization and checkpoint storage; rerun that exact command, Ruff the two source/test modules, and commit `refactor: extract run serialization and checkpoints`.
+- [x] Update the canonical fixture/migration row, rerun surface/snapshot tests, and commit separately: `docs: record run serialization migration`.
+- [x] Add failing imports and characterization tests for transaction scope, transitions, row conversion, and erasure queries; run the new `test_run_repository.py` and confirm missing-module failures.
+- [x] Extract run persistence and retention queries; rerun `uv run pytest tests/integrations/persistence/runs/test_run_repository.py tests/runs -q`, Ruff affected files, and commit `refactor: extract run persistence adapter`.
+- [x] Add a failing canonical import plus thread create/get/update/resolve tests, extract thread persistence, run `uv run pytest tests/integrations/persistence/runs/test_thread_repository.py tests/runs -q`, Ruff, and commit `refactor: extract thread persistence adapter`.
+- [x] Update bootstrap injection and remove the legacy repository implementation after import inventory proves no remaining canonical consumers.
+      **Partially deferred:** the import inventory proved the opposite of its
+      precondition. `zeroth.core.runs` must keep republishing the adapters
+      (`zeroth.core.runs:RunRepository` is a protected legacy capability) until the
+      compatibility shell retires in Task 18, and `agent_runtime.thread_store`
+      genuinely constructs them — narrowing it to the protocols would rewrite a
+      signature pinned in the immutable legacy fixture, so it moves with the agent
+      runtime in Task 14. `core/runs/repository.py` is now a 23-line re-export shim
+      and a leaf. Reasons recorded in `docs/backend-import-migration.md`.
+- [x] Run `uv run pytest tests/runs tests/storage tests/retention tests/service tests/contracts/test_refactor_contract_snapshots.py tests/architecture/test_library_surface.py -q`.
+- [x] Run `uv run ruff check src/zeroth/integrations/persistence src/zeroth/runtime/runs src/zeroth/core/service tests/integrations/persistence` and the frontend guard; commit production wiring as `refactor: wire canonical run persistence`, then update the canonical fixture/migration row, rerun surface/snapshot tests, and commit `docs: record run persistence migration` separately.
 
 ### Task 7: Decompose graph validation
 
