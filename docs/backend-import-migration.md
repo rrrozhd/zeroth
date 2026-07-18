@@ -282,6 +282,25 @@ pins the exact ordered call sequence for the completed, failed, rejected,
 policy-denied, approval-paused and fan-out paths, and was committed green
 against the pre-decomposition facade before anything moved.
 
+**Why the canonical surface still points at the legacy modules.** The three
+exception entries in `backend_surface_canonical.json` keep
+`zeroth.core.orchestrator[.runtime]` as their `module`, even though the class
+definitions now live in `zeroth.runtime.orchestration.errors`. That is a
+decision, not an oversight, and it is the opposite of the run-models case
+above — deliberately so. There the canonical package was *published*, so the
+canonical entries moved with it. Orchestration's disposition row is still
+`Skeleton only`: `RuntimeOrchestrator` has not moved and cannot until its pinned
+capability ID is retired. Flipping only the three exceptions would have the
+fixture claim a package move that has not happened. The definitions relocated
+because the collaborators that raise them may not import the facade — an import
+constraint, not a published relocation. The entries flip when the package does.
+
+Nothing in the gate depends on the choice:
+`test_every_canonical_symbol_imports_and_matches_its_signature` checks that the
+recorded module resolves the symbol and that the signature matches; it never
+compares `__module__`, and the exceptions render `<not-inspectable>` on both
+sides.
+
 #### The four dependency exceptions this task was scheduled to remove
 
 Task 8 was scheduled to remove four `TEMPORARY_EXCEPTIONS` edges by injecting
