@@ -25,8 +25,6 @@ def _new_id() -> str:
     return uuid4().hex
 
 
-
-
 class ThreadStatus(StrEnum):
     """Lifecycle states for a thread.
 
