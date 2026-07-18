@@ -6,17 +6,13 @@ and the timeline container. All models use Pydantic for validation.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.core.identity import ActorIdentity
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC. Used as a default timestamp factory."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 class AuditRedactionConfig(BaseModel):
@@ -79,7 +75,7 @@ class ApprovalActionRecord(BaseModel):
     action: str
     actor: ActorIdentity | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-    occurred_at: datetime = Field(default_factory=_utc_now)
+    occurred_at: datetime = Field(default_factory=utc_now)
 
 
 class TokenUsage(BaseModel):
@@ -162,7 +158,7 @@ class NodeAuditRecord(BaseModel):
     erasure_reason: str | None = None  # ttl | rte | manual
     digest_version: int = 1
     pii_commitments: dict[str, str] | None = None
-    started_at: datetime = Field(default_factory=_utc_now)
+    started_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = None
 
     @model_validator(mode="after")

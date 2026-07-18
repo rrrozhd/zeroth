@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+import zeroth.core.audit.models as audit_models
 from zeroth.core.audit import (
     AuditContinuityVerifier,
     AuditQuery,
@@ -17,6 +18,11 @@ from zeroth.core.audit import (
     ToolCallRecord,
 )
 from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.platform.primitives import utc_now
+
+
+def test_audit_models_use_platform_clock() -> None:
+    assert audit_models.utc_now is utc_now
 
 
 def _record(
