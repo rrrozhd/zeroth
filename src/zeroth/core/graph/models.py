@@ -7,7 +7,7 @@ pieces, plus helper enums and settings objects.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
@@ -28,11 +28,7 @@ from zeroth.core.parallel.models import ParallelConfig
 from zeroth.core.policy.models import Capability
 from zeroth.core.subgraph.models import SubgraphNodeData
 from zeroth.core.templates.models import TemplateReference
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 class GraphStatus(StrEnum):
@@ -523,8 +519,8 @@ class Graph(BaseModel):
     policy_bindings: list[str] = Field(default_factory=list)
     deployment_settings: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=_utc_now)
-    updated_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
     def _validate_references(self) -> Graph:
@@ -554,11 +550,11 @@ class Graph(BaseModel):
             GraphStatus.ARCHIVED: set(),
         }
         if status == self.status:
-            return self.model_copy(update={"updated_at": _utc_now()})
+            return self.model_copy(update={"updated_at": utc_now()})
         if status not in allowed_transitions[self.status]:
             msg = f"invalid graph status transition: {self.status.value} -> {status.value}"
             raise ValueError(msg)
-        return self.model_copy(update={"status": status, "updated_at": _utc_now()})
+        return self.model_copy(update={"status": status, "updated_at": utc_now()})
 
     def publish(self) -> Graph:
         """Mark this graph as published (ready to run)."""

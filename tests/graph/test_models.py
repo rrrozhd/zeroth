@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import zeroth.core.graph.models as graph_models
+import zeroth.core.graph.versioning as graph_versioning
 from zeroth.core.governed.app.spec import GovernedFlowSpec
 
 from zeroth.core.graph.models import (
@@ -24,6 +26,12 @@ from zeroth.core.mappings.models import (
     PassthroughMappingOperation,
     RenameMappingOperation,
 )
+from zeroth.platform.primitives import utc_now
+
+
+def test_graph_domain_uses_platform_clock() -> None:
+    assert graph_models.utc_now is utc_now
+    assert graph_versioning.utc_now is utc_now
 
 
 def build_graph() -> Graph:

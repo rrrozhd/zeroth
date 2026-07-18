@@ -6,14 +6,8 @@ draft version.  The functions here handle that cloning logic.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from zeroth.core.graph.models import Graph, GraphStatus
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC."""
-    return datetime.now(UTC)
+from zeroth.platform.primitives import utc_now
 
 
 def graph_version_ref(graph_id: str, version: int) -> str:
@@ -26,7 +20,7 @@ def clone_graph_version(graph: Graph, *, version: int, status: GraphStatus) -> G
     cloned = graph.model_copy(deep=True)
     cloned.version = version
     cloned.status = status
-    cloned.created_at = _utc_now()
+    cloned.created_at = utc_now()
     cloned.updated_at = cloned.created_at
 
     version_ref = graph_version_ref(cloned.graph_id, version)
