@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import zeroth.core.agent_runtime.thread_store as thread_store
 from zeroth.core.agent_runtime.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )
 from zeroth.core.runs.repository import RunRepository, ThreadRepository
+from zeroth.platform.primitives import utc_now
+
+
+def test_thread_store_uses_platform_clock() -> None:
+    assert thread_store.utc_now is utc_now
 
 
 async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:

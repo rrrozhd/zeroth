@@ -8,7 +8,6 @@ unlike the in-memory store which loses data when the process stops.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -17,15 +16,11 @@ from pydantic import BaseModel, ConfigDict
 from zeroth.core.runs.models import Run, Thread, ThreadMemoryBinding, ThreadStatus
 from zeroth.core.runs.repository import RunRepository, ThreadRepository
 from zeroth.core.storage import AsyncDatabase
+from zeroth.platform.primitives import utc_now
 
 THREAD_STATE_CHECKPOINT_KIND = "thread_state"
 THREAD_STATE_METADATA_KEY = "thread_state"
 THREAD_STATE_KIND_KEY = "checkpoint_kind"
-
-
-def _utc_now() -> datetime:
-    """Return the current time in UTC."""
-    return datetime.now(UTC)
 
 
 def _new_checkpoint_id() -> str:
@@ -189,7 +184,7 @@ class RepositoryThreadStateStore:
                 THREAD_STATE_KIND_KEY: THREAD_STATE_CHECKPOINT_KIND,
                 THREAD_STATE_METADATA_KEY: dict(state),
                 "thread_id": thread.thread_id,
-                "created_at": _utc_now().isoformat(),
+                "created_at": utc_now().isoformat(),
             },
         )
         run.checkpoint_id = checkpoint_id
