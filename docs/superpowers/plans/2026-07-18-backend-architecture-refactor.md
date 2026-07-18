@@ -28,12 +28,12 @@
 **Files:**
 - Create: `docs/backend-refactor-baseline.md`
 
-- [ ] Run `uv sync --all-extras`; expect exit 0.
-- [ ] Run `uv run pytest -q`; expect exactly `1973 passed, 16 deselected, 3 warnings` before implementation.
-- [ ] Run `uv run python -c "import chromadb, elasticsearch, psycopg; from zeroth.core.memory.chroma_connector import ChromaDBMemoryConnector; from zeroth.core.memory.elastic_connector import ElasticsearchMemoryConnector; from zeroth.core.memory.pgvector_connector import PgvectorMemoryConnector"`; expect exit 0.
-- [ ] Record the commands, environment, totals, deselections, and known warnings in the baseline document.
-- [ ] Run `git diff --exit-code 01b36a9 -- frontend/`; expect exit 0 and no output.
-- [ ] Commit: `docs: record backend refactor baseline`.
+- [x] Run `uv sync --all-extras`; expect exit 0.
+- [x] Run `uv run pytest -q`; expect exactly `1973 passed, 16 deselected, 3 warnings` before implementation.
+- [x] Run `uv run python -c "import chromadb, elasticsearch, psycopg; from zeroth.core.memory.chroma_connector import ChromaDBMemoryConnector; from zeroth.core.memory.elastic_connector import ElasticsearchMemoryConnector; from zeroth.core.memory.pgvector_connector import PgvectorMemoryConnector"`; expect exit 0.
+- [x] Record the commands, environment, totals, deselections, and known warnings in the baseline document.
+- [x] Run `git diff --exit-code 01b36a9 -- frontend/`; expect exit 0 and no output.
+- [x] Commit: `docs: record backend refactor baseline`.
 
 ### Task 1: Capture protected contracts and library inventory
 
@@ -48,14 +48,14 @@
 - Create: `tests/contracts/fixtures/database_schema.json`
 - Modify: `tests/conftest.py` only if stable snapshot normalization needs a shared fixture
 
-- [ ] Enumerate public symbols from `__all__`, package exports, docs, examples, entry points, schema models, and optional integrations into immutable `backend_surface_legacy.json`, evolving `backend_surface_canonical.json`, and the human-readable inventory.
-- [ ] Add one test that verifies immutable legacy capabilities/signatures and a separate smoke test that imports every evolving canonical symbol and checks `inspect.signature` for callables.
-- [ ] Add semantic snapshots for OpenAPI paths/components, Alembic revision order, actual SQLite schema tables/columns/indexes/constraints, persisted model round trips, and representative public exceptions.
-- [ ] Require every canonical fixture edit to be isolated with its migration-guide row; never edit the legacy fixture after this task.
-- [ ] Run the snapshot tests and confirm they pass against the baseline; these are characterization tests rather than new behavior.
-- [ ] Run `uv run pytest tests/architecture/test_library_surface.py tests/contracts/test_refactor_contract_snapshots.py -v`.
-- [ ] Run `uv run ruff check tests/architecture tests/contracts`.
-- [ ] Commit: `test: capture backend refactor contracts`.
+- [x] Enumerate public symbols from `__all__`, package exports, docs, examples, entry points, schema models, and optional integrations into immutable `backend_surface_legacy.json`, evolving `backend_surface_canonical.json`, and the human-readable inventory.
+- [x] Add one test that verifies immutable legacy capabilities/signatures and a separate smoke test that imports every evolving canonical symbol and checks `inspect.signature` for callables.
+- [x] Add semantic snapshots for OpenAPI paths/components, Alembic revision order, actual SQLite schema tables/columns/indexes/constraints, persisted model round trips, and representative public exceptions.
+- [x] Require every canonical fixture edit to be isolated with its migration-guide row; never edit the legacy fixture after this task.
+- [x] Run the snapshot tests and confirm they pass against the baseline; these are characterization tests rather than new behavior.
+- [x] Run `uv run pytest tests/architecture/test_library_surface.py tests/contracts/test_refactor_contract_snapshots.py -v`.
+- [x] Run `uv run ruff check tests/architecture tests/contracts`.
+- [x] Commit: `test: capture backend refactor contracts`.
 
 ### Task 2: Enforce dependency direction
 
@@ -63,12 +63,12 @@
 - Create: `tests/architecture/test_backend_dependencies.py`
 - Create: `src/zeroth/_architecture.py`
 
-- [ ] Write a failing repository-wide AST test defining the exact dependency matrix and scanning every Python file under `src/zeroth`; confirm it fails on current unclassified edges.
-- [ ] Implement a scanner in `_architecture.py` that normalizes absolute and relative imports, reports importer file/line and imported module, and supports exact `(importer, imported)` temporary exceptions.
-- [ ] Seed narrowly scoped current-edge exceptions; every entry must include a reason and exact removal task. Keep the real-tree assertion enabled.
-- [ ] Run `uv run pytest tests/architecture/test_backend_dependencies.py -v`.
-- [ ] Run `uv run ruff check src/zeroth/_architecture.py tests/architecture`.
-- [ ] Commit: `test: enforce backend dependency direction`.
+- [x] Write a failing repository-wide AST test defining the exact dependency matrix and scanning every Python file under `src/zeroth`; confirm it fails on current unclassified edges.
+- [x] Implement a scanner in `_architecture.py` that normalizes absolute and relative imports, reports importer file/line and imported module, and supports exact `(importer, imported)` temporary exceptions.
+- [x] Seed narrowly scoped current-edge exceptions; every entry must include a reason and exact removal task. Keep the real-tree assertion enabled.
+- [x] Run `uv run pytest tests/architecture/test_backend_dependencies.py -v`.
+- [x] Run `uv run ruff check src/zeroth/_architecture.py tests/architecture`.
+- [x] Commit: `test: enforce backend dependency direction`.
 
 ### Task 3: Introduce canonical package skeletons and migration guide
 
@@ -78,13 +78,13 @@
 - Modify: `docs/backend-import-migration.md`
 - Modify: `tests/architecture/test_library_surface.py`
 
-- [ ] Add failing imports for every canonical top-level and nested package in the design; run the surface test and confirm `ModuleNotFoundError` for the first missing package.
-- [ ] Create empty package skeletons with narrow docstrings and no eager cross-domain imports.
-- [ ] Add only the migration-table schema in this production skeleton commit.
-- [ ] Run `uv run pytest tests/architecture -v`.
-- [ ] Run `uv run ruff check src/zeroth tests/architecture`.
-- [ ] Commit production skeletons: `refactor: establish backend domain packages`.
-- [ ] Add initial unchanged/move rows, run the surface test, and commit separately: `docs: initialize backend import migration`.
+- [x] Add failing imports for every canonical top-level and nested package in the design; run the surface test and confirm `ModuleNotFoundError` for the first missing package.
+- [x] Create empty package skeletons with narrow docstrings and no eager cross-domain imports.
+- [x] Add only the migration-table schema in this production skeleton commit.
+- [x] Run `uv run pytest tests/architecture -v`.
+- [x] Run `uv run ruff check src/zeroth tests/architecture`.
+- [x] Commit production skeletons: `refactor: establish backend domain packages`.
+- [x] Add initial unchanged/move rows, run the surface test, and commit separately: `docs: initialize backend import migration`.
 
 ### Task 4: Consolidate clocks and identifier primitives
 
@@ -93,12 +93,12 @@
 - Create: `tests/platform/test_primitives.py`
 - Modify identical helpers one domain at a time in approvals, audit, conditions, deployments, graph, guardrails, runs, retention, thread store, and webhooks
 
-- [ ] Add failing tests for timezone-aware UTC values, injected clock behavior, and UUID string generation.
-- [ ] Implement `utc_now()`, a `Clock` protocol, `SystemClock`, and `new_uuid()` without domain-specific formatting.
-- [ ] Run `uv run pytest tests/platform/test_primitives.py -v` and `uv run ruff check src/zeroth/platform/primitives tests/platform/test_primitives.py`; commit `refactor: add platform primitives` before migrating consumers.
-- [ ] For each domain, add a failing monkeypatch/injection test proving it consumes the canonical helper, replace only equivalent helpers, run that domain's tests and Ruff, then commit `refactor: use platform primitives in <domain>`.
-- [ ] Run `uv run pytest tests/platform/test_primitives.py tests/approvals tests/audit tests/conditions tests/runs tests/retention tests/test_webhook_models.py tests/test_webhook_repository.py -q` as the combined gate.
-- [ ] Run `uv run ruff check src/zeroth/platform src/zeroth/core` and the frontend diff guard.
+- [x] Add failing tests for timezone-aware UTC values, injected clock behavior, and UUID string generation.
+- [x] Implement `utc_now()`, a `Clock` protocol, `SystemClock`, and `new_uuid()` without domain-specific formatting.
+- [x] Run `uv run pytest tests/platform/test_primitives.py -v` and `uv run ruff check src/zeroth/platform/primitives tests/platform/test_primitives.py`; commit `refactor: add platform primitives` before migrating consumers.
+- [x] For each domain, add a failing monkeypatch/injection test proving it consumes the canonical helper, replace only equivalent helpers, run that domain's tests and Ruff, then commit `refactor: use platform primitives in <domain>`.
+- [x] Run `uv run pytest tests/platform/test_primitives.py tests/approvals tests/audit tests/conditions tests/runs tests/retention tests/test_webhook_models.py tests/test_webhook_repository.py -q` as the combined gate.
+- [x] Run `uv run ruff check src/zeroth/platform src/zeroth/core` and the frontend diff guard.
 
 ### Task 5: Establish runtime run-domain contracts
 
@@ -108,13 +108,17 @@
 - Modify: orchestrator, agent runtime, approval, dispatch, retention, and service imports of run/thread models and protocols
 - Modify: `docs/backend-import-migration.md`
 
-- [ ] Add failing canonical import and signature tests for run/thread/checkpoint models and repository protocols.
-- [ ] Move models without changing Pydantic fields, defaults, serialization, enums, or exception behavior.
-- [ ] Define narrowly named `RunReader`, `RunWriter`, `CheckpointStore`, and `ThreadStore` protocols from actual runtime consumption. Preserve the complete public `RunRepository` and `ThreadRepository` APIs and their immutable legacy signatures.
-- [ ] Rewrite runtime-facing imports to `zeroth.runtime.runs`.
-- [ ] Run `uv run pytest tests/runs tests/orchestrator tests/agent_runtime tests/dispatch tests/approvals -q`.
-- [ ] Run `uv run pytest tests/contracts/test_refactor_contract_snapshots.py tests/architecture/test_library_surface.py -v` and `uv run ruff check src/zeroth/runtime src/zeroth/core tests/runtime`.
-- [ ] Commit: `refactor: define runtime run contracts`.
+- [x] Add failing canonical import and signature tests for run/thread/checkpoint models and repository protocols.
+- [x] Move models without changing Pydantic fields, defaults, serialization, enums, or exception behavior.
+- [x] Define narrowly named `RunReader`, `RunWriter`, `CheckpointStore`, and `ThreadStore` protocols from actual runtime consumption. Preserve the complete public `RunRepository` and `ThreadRepository` APIs and their immutable legacy signatures.
+- [ ] Rewrite runtime-facing imports to `zeroth.runtime.runs`. **Deferred:** while the
+      canonical package re-exports models defined under `zeroth.core`, no module reachable
+      from `zeroth.core.__init__` can import it without closing an import cycle. Each
+      consumer is repointed as its own package leaves `zeroth.core` (Tasks 10-16). See
+      the import-direction constraint in `docs/backend-import-migration.md`.
+- [x] Run `uv run pytest tests/runs tests/orchestrator tests/agent_runtime tests/dispatch tests/approvals -q`.
+- [x] Run `uv run pytest tests/contracts/test_refactor_contract_snapshots.py tests/architecture/test_library_surface.py -v` and `uv run ruff check src/zeroth/runtime src/zeroth/core tests/runtime`.
+- [x] Commit: `refactor: define runtime run contracts`.
 
 ### Task 6: Split concrete run persistence
 
