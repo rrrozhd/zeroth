@@ -192,13 +192,13 @@ guard as it is published, since the warm-cache suite cannot see the failure.
 - Replace: `src/zeroth/core/graph/validation.py`
 - Modify: graph validator imports in production slices; migration guide only in separate follow-up commits
 
-- [ ] Add a parameterized characterization test asserting exact issue codes, paths, messages, and order for representative invalid graphs; run it and confirm it passes against legacy behavior.
-- [ ] Add a failing import test for `issues`/`references`, extract them, run `uv run pytest tests/contracts/graph/validation/test_issues_references.py tests/graph -q`, Ruff, and commit `refactor: extract graph validation primitives`.
-- [ ] Add a failing import test for `nodes`, extract node/entrypoint validation, run its new test plus `tests/graph`, Ruff, and commit `refactor: extract graph node validation`.
-- [ ] Repeat the red/import, focused pass, Ruff, and atomic commit cycle for `edges`/`tools` and then `mappings`/`cycles`.
-- [ ] Keep `GraphValidator` as the canonical facade and preserve `validate`/`validate_or_raise` signatures.
-- [ ] Run `uv run pytest tests/graph tests/contracts/graph/validation tests/contracts/test_refactor_contract_snapshots.py -q`.
-- [ ] Run `uv run ruff check src/zeroth/contracts/graph tests/contracts/graph`; compose the facade and commit `refactor: compose graph validation facade`.
+- [x] Add a parameterized characterization test asserting exact issue codes, paths, messages, and order for representative invalid graphs; run it and confirm it passes against legacy behavior.
+- [x] Add a failing import test for `issues`/`references`, extract them, run `uv run pytest tests/contracts/graph/validation/test_issues_references.py tests/graph -q`, Ruff, and commit `refactor: extract graph validation primitives`.
+- [x] Add a failing import test for `nodes`, extract node/entrypoint validation, run its new test plus `tests/graph`, Ruff, and commit `refactor: extract graph node validation`.
+- [x] Repeat the red/import, focused pass, Ruff, and atomic commit cycle for `edges`/`tools` and then `mappings`/`cycles`.
+- [x] Keep `GraphValidator` as the canonical facade and preserve `validate`/`validate_or_raise` signatures.
+- [x] Run `uv run pytest tests/graph tests/contracts/graph/validation tests/contracts/test_refactor_contract_snapshots.py -q`.
+- [x] Run `uv run ruff check src/zeroth/contracts/graph tests/contracts/graph`; compose the facade and commit `refactor: compose graph validation facade`.
 
 ### Task 8: Decompose orchestration runtime
 
