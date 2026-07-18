@@ -73,6 +73,92 @@ def test_scanner_normalizes_relative_imports_to_absolute_modules(tmp_path: Path)
     ]
 
 
+def test_importfrom_resolves_top_level_package_alias(tmp_path: Path) -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    source_root = tmp_path / "src"
+    _write_module(source_root, "zeroth.runtime.__init__", "")
+    _write_module(
+        source_root,
+        "zeroth.platform.clock",
+        "from zeroth import runtime\n",
+    )
+
+    violations = architecture.find_dependency_violations(source_root)
+
+    assert [(item.importer, item.imported) for item in violations] == [
+        ("zeroth.platform.clock", "zeroth.runtime")
+    ]
+
+
+def test_importfrom_resolves_nested_module_alias(tmp_path: Path) -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    source_root = tmp_path / "src"
+    _write_module(source_root, "zeroth.core.runs.repository", "")
+    _write_module(
+        source_root,
+        "zeroth.runtime.driver",
+        "from zeroth.core.runs import repository\n",
+    )
+
+    violations = architecture.find_dependency_violations(source_root)
+
+    assert [(item.importer, item.imported) for item in violations] == [
+        ("zeroth.runtime.driver", "zeroth.core.runs.repository")
+    ]
+
+
+def test_package_init_importer_is_normalized_when_resolving_alias(
+    tmp_path: Path,
+) -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    source_root = tmp_path / "src"
+    _write_module(source_root, "zeroth.runtime.runs", "")
+    _write_module(
+        source_root,
+        "zeroth.platform.__init__",
+        "from zeroth.runtime import runs\n",
+    )
+
+    violations = architecture.find_dependency_violations(source_root)
+
+    assert [(item.importer, item.imported) for item in violations] == [
+        ("zeroth.platform", "zeroth.runtime"),
+        ("zeroth.platform", "zeroth.runtime.runs"),
+    ]
+
+
+def test_relative_importfrom_resolves_child_module_alias(tmp_path: Path) -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    source_root = tmp_path / "src"
+    _write_module(source_root, "zeroth.core.runs.repository", "")
+    _write_module(
+        source_root,
+        "zeroth.core.runs.__init__",
+        "from . import repository\n",
+    )
+
+    violations = architecture.find_dependency_violations(source_root, exceptions={})
+
+    assert [(item.importer, item.imported) for item in violations] == [
+        ("zeroth.core.runs", "zeroth.core.runs.repository")
+    ]
+
+
+def test_importfrom_does_not_treat_symbol_alias_as_a_module(tmp_path: Path) -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    source_root = tmp_path / "src"
+    _write_module(source_root, "zeroth.__init__", "service = object()\n")
+    _write_module(
+        source_root,
+        "zeroth.runtime.driver",
+        "from zeroth import service\n",
+    )
+
+    violations = architecture.find_dependency_violations(source_root)
+
+    assert not violations
+
+
 def test_allowed_and_disallowed_edges_follow_the_matrix(tmp_path: Path) -> None:
     architecture = importlib.import_module("zeroth._architecture")
     source_root = tmp_path / "src"

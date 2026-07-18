@@ -250,7 +250,16 @@ def _relative_module(
     return ".".join(parts)
 
 
-def _imports(path: Path, source_root: Path) -> list[tuple[int, str]]:
+def _module_index(paths: tuple[Path, ...], source_root: Path) -> frozenset[str]:
+    modules: set[str] = set()
+    for path in paths:
+        module, _ = _module_name(path, source_root)
+        parts = module.split(".")
+        modules.update(".".join(parts[:end]) for end in range(1, len(parts) + 1))
+    return frozenset(modules)
+
+
+def _imports(path: Path, source_root: Path, module_index: frozenset[str]) -> list[tuple[int, str]]:
     importer, is_package = _module_name(path, source_root)
     tree = ast.parse(path.read_text(), filename=str(path))
     imported: list[tuple[int, str]] = []
@@ -268,14 +277,14 @@ def _imports(path: Path, source_root: Path) -> list[tuple[int, str]]:
                     module=node.module,
                 )
             )
-            if node.module is None:
-                imported.extend(
-                    (node.lineno, f"{base}.{alias.name}".strip("."))
-                    for alias in node.names
-                    if alias.name != "*"
-                )
-            elif base:
+            if node.module is not None and base:
                 imported.append((node.lineno, base))
+            imported.extend(
+                (node.lineno, candidate)
+                for alias in node.names
+                if alias.name != "*"
+                and (candidate := f"{base}.{alias.name}".strip(".")) in module_index
+            )
     return imported
 
 
@@ -298,10 +307,11 @@ def scan_backend_dependencies(
     if exceptions is None:
         exceptions = TEMPORARY_EXCEPTIONS
     scanned_files = tuple(sorted((source_root / "zeroth").rglob("*.py")))
+    module_index = _module_index(scanned_files, source_root)
     violations: list[DependencyViolation] = []
     for path in scanned_files:
         importer, _ = _module_name(path, source_root)
-        imports = _imports(path, source_root)
+        imports = _imports(path, source_root, module_index)
         importer_domain = _canonical_domain(importer)
         if importer_domain is None:
             continue
