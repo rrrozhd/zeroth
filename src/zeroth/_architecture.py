@@ -129,14 +129,57 @@ TEMPORARY_EXCEPTIONS = {
     ),
     **_exception_group(
         ("zeroth.core.orchestrator.runtime", "zeroth.core.execution_units"),
+        reason=(
+            "RuntimeOrchestrator names ExecutableUnitRunner in its "
+            "executable_unit_runner field annotation, and that full __init__ "
+            "signature is pinned in the immutable backend_surface_legacy.json. "
+            "The type name cannot be renamed or dropped, and the dependency "
+            "scanner walks the AST, so even a TYPE_CHECKING-guarded import "
+            "still records the edge. Same wall as RepositoryThreadStateStore "
+            "in docs/backend-import-migration.md."
+        ),
+        removal_task="Task 14: move runtime packages and inject owned protocols.",
+    ),
+    **_exception_group(
+        ("zeroth.runtime.orchestration.dispatcher", "zeroth.core.econ.adapter"),
+        reason=(
+            "NodeDispatcher wraps an agent's provider in InstrumentedProviderAdapter "
+            "for per-call cost attribution. Removing the edge needs a wrapping seam "
+            "on the injected cost_estimator, but that field is typed 'object | None' "
+            "and duck-typed doubles are already relied on (tests/test_econ_adapter.py "
+            "passes a bare object), so requiring a new method breaks existing callers. "
+            "The construction moved with the dispatch code it belongs to; the edge "
+            "itself outlives Task 8."
+        ),
+        removal_task="Task 14: move economics behind contract and platform boundaries.",
+    ),
+    **_exception_group(
         (
-            "zeroth.core.orchestrator.runtime",
+            "zeroth.runtime.orchestration.dispatcher",
             "zeroth.core.governed.memory.models",
         ),
-        ("zeroth.core.orchestrator.runtime", "zeroth.core.execution_units.inline"),
-        ("zeroth.core.orchestrator.runtime", "zeroth.core.econ.adapter"),
-        reason="The monolithic orchestrator directly constructs integration collaborators.",
-        removal_task="Task 8: decompose orchestration and inject integration collaborators.",
+        reason=(
+            "NodeDispatcher maps the authored string scope names on retrieval and "
+            "template-memory bindings onto MemoryScope members before calling a "
+            "connector. The enum cannot move: its module path is embedded in "
+            "signature strings pinned by the immutable legacy fixture, the same "
+            "wall documented for policy.models:Capability."
+        ),
+        removal_task="Task 14: move runtime packages and inject owned protocols.",
+    ),
+    **_exception_group(
+        (
+            "zeroth.runtime.orchestration.tool_executor",
+            "zeroth.core.execution_units.inline",
+        ),
+        reason=(
+            "RuntimeToolExecutor synthesizes a binding for a Studio code node, whose "
+            "source travels in the graph rather than a registry. build_inline_binding "
+            "constructs ExecutableUnitBinding and the inline manifest models, so it "
+            "cannot move to contracts; removing the edge needs a new run-inline-source "
+            "method on ExecutableUnitRunner, which is outside this task's boundary."
+        ),
+        removal_task="Task 14: move runtime packages and inject owned protocols.",
     ),
     **_exception_group(
         ("zeroth.core.retention.econ_eraser", "zeroth.econ_plane.database"),
