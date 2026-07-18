@@ -13,6 +13,7 @@ from zeroth.runtime.orchestration.errors import (
     NodeDispatcherError,
     OrchestratorError,
 )
+from zeroth.runtime.orchestration.parallel_executor import RuntimeParallelExecutor
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
 
@@ -22,6 +23,7 @@ __all__ = [
     "NodeDispatcherError",
     "OrchestratorError",
     "RuntimeAuditRecorder",
+    "RuntimeParallelExecutor",
     "RuntimePolicyGate",
     "RuntimeToolExecutor",
 ]
