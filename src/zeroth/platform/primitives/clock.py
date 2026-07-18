@@ -1,7 +1,7 @@
 """Clock primitives for backend code."""
 
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 def utc_now() -> datetime:
@@ -9,6 +9,7 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+@runtime_checkable
 class Clock(Protocol):
     """Provide the current time."""
 
