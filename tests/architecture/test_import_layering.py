@@ -54,10 +54,14 @@ PERMITTED_NON_PLATFORM = frozenset(
     }
 )
 
-_PROBE = """
+# Imported packages are free to print banners, warnings, or progress to stdout,
+# so the payload is fenced by a sentinel rather than assumed to be the last line.
+_SENTINEL = "---zeroth-import-probe---"
+
+_PROBE = f"""
 import json, sys
-import {root}
-print(json.dumps([m for m in sys.modules if m.startswith("zeroth")]))
+import {{root}}
+print("{_SENTINEL}" + json.dumps([m for m in sys.modules if m.startswith("zeroth")]))
 """
 
 
@@ -68,7 +72,15 @@ def _modules_loaded_by(root: str) -> list[str]:
         text=True,
     )
     assert result.returncode == 0, f"importing {root} failed:\n{result.stderr}"
-    return json.loads(result.stdout.strip().splitlines()[-1])
+
+    payloads = [
+        line.partition(_SENTINEL)[2] for line in result.stdout.splitlines() if _SENTINEL in line
+    ]
+    assert len(payloads) == 1, (
+        f"expected exactly one probe payload from {root}, got {len(payloads)}."
+        f"\nstdout:\n{result.stdout}"
+    )
+    return json.loads(payloads[0])
 
 
 @pytest.mark.parametrize("root", PLATFORM_ROOTS)

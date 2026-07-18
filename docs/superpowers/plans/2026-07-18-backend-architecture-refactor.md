@@ -120,6 +120,43 @@
 - [x] Run `uv run pytest tests/contracts/test_refactor_contract_snapshots.py tests/architecture/test_library_surface.py -v` and `uv run ruff check src/zeroth/runtime src/zeroth/core tests/runtime`.
 - [x] Commit: `refactor: define runtime run contracts`.
 
+### Task 5.5: Make the platform layer import-clean (inserted 2026-07-18)
+
+**Not in the original plan.** Added because Task 6 could not proceed without
+it, and Tasks 7-16 depend on it for the same reason.
+
+Importing `zeroth.core.storage` -- the bottom of the dependency matrix --
+executed 130 modules including `zeroth.core.runs.repository`, `agent_runtime`,
+`audit`, and `memory`. Any module the repository imports was therefore loaded
+while `zeroth.core` was still initializing, so extracting a concrete adapter
+into its own package produced a circular import in both directions. The static
+dependency matrix could not see this: it checks which modules *name* each
+other, not what the interpreter actually executes.
+
+- [x] Enumerate every module-level route from the platform layer into higher
+      domains (seven edges from two modules).
+- [x] Resolve `zeroth.core.econ` and `zeroth.core.http` exports lazily so
+      `config.settings` can read one settings model without loading the
+      package's whole public API.
+- [x] Move the governed-store imports in `zeroth.core.storage.redis` into the
+      factory that builds them.
+- [x] Resolve `RunRepository`/`ThreadRepository` lazily in `zeroth.core.runs`.
+- [x] Add `tests/architecture/test_import_layering.py`, which asserts the
+      closure from subprocesses; the in-process suite always has `zeroth.core`
+      warm via `tests/conftest.py` and structurally cannot catch this.
+- [x] Commits: `refactor: keep the platform layer out of higher domains`,
+      `refactor: resolve run repositories lazily`.
+
+Result: 130 modules down to 18. **Do not make these package `__init__` files
+eager again** -- that re-blocks Task 6 onward. Full analysis, the four permitted
+leaf imports that remain, and a Python name-collision subtlety in
+`zeroth.core.econ` that is not obvious from the code:
+`docs/backend-refactor-eager-import-blocker.md`.
+
+Applies to the remaining move tasks: a package moved out of `zeroth.core` must
+stay cold-importable. Each canonical package needs a subprocess cold-import
+guard as it is published, since the warm-cache suite cannot see the failure.
+
 ### Task 6: Split concrete run persistence
 
 **Files:**
