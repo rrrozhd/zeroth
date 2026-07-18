@@ -20,7 +20,7 @@ from typing import Any
 
 from zeroth.core.agent_runtime import AgentRunner, RepositoryThreadResolver
 from zeroth.core.agent_runtime.errors import BudgetExceededError
-from zeroth.core.approvals import ApprovalDecision, ApprovalRecord, ApprovalService
+from zeroth.core.approvals import ApprovalRecord, ApprovalService
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
 from zeroth.core.audit.models import MemoryAccessRecord, ToolCallRecord
 from zeroth.core.conditions import NextStepPlanner
@@ -32,7 +32,6 @@ from zeroth.core.graph import (
     ExecutableUnitNode,
     Graph,
     HumanApprovalNode,
-    HumanApprovalNodeData,
     Node,
     RetrievalNode,
     SubgraphNode,
@@ -51,8 +50,7 @@ from zeroth.core.parallel.models import (
     FanInResult,
     GlobalStepTracker,
 )
-from zeroth.core.policy import Capability, PolicyDecision, PolicyGuard
-from zeroth.core.policy.errors import parse_effective_capabilities
+from zeroth.core.policy import Capability, PolicyGuard
 from zeroth.core.runs import Run, RunFailureState, RunHistoryEntry, RunRepository, RunStatus
 from zeroth.core.secrets import SecretResolver
 from zeroth.core.subgraph.errors import (
@@ -63,6 +61,7 @@ from zeroth.core.subgraph.errors import (
 )
 from zeroth.core.subgraph.resolver import base_node_id, merge_governance, namespace_subgraph
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
+from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 
 logger = logging.getLogger(__name__)
 
@@ -1181,28 +1180,7 @@ class RuntimeOrchestrator:
         input_payload: Mapping[str, Any],
     ) -> str | None:
         """Check policy for a branch node dispatch. Returns denial reason or None."""
-        guard = self.policy_guard
-        if guard is None:
-            return None
-        result = guard.evaluate(graph, node, run, input_payload)
-        if result.decision is PolicyDecision.ALLOW:
-            # G2: persist the granted capability set for this branch node exactly
-            # as the sequential ``_enforce_policy`` does. Without this the branch
-            # dispatch's ``_enforcement_context_for`` reads an empty context and
-            # ``require_capabilities`` fail-closed DENIES memory reads/writes and
-            # capability-bearing tools even when the node correctly declared them.
-            #
-            # Concurrency: fan-out branches run under ``asyncio.gather``.
-            # ``setdefault`` creates the shared ``enforcement`` dict exactly once,
-            # then each branch writes ONLY its own ``node_id`` key. The guard
-            # ignores per-branch input, so sibling branches evaluating the same
-            # node write an identical value — never clobbering each other. There
-            # is no ``await`` between the setdefault and the key write, so the
-            # read-modify-write is atomic under cooperative scheduling.
-            enforcement = run.metadata.setdefault("enforcement", {})
-            enforcement[node.node_id] = result.model_dump(mode="json")
-            return None
-        return result.reason or "policy denied execution"
+        return await self._policy_gate.enforce_policy_for_branch(graph, run, node, input_payload)
 
     def _merge_fan_in_state(self, run: Run, fan_in_result: FanInResult) -> None:
         """Merge branch execution state back into the parent Run.
@@ -1928,26 +1906,34 @@ class RuntimeOrchestrator:
             return {}
         return dict(payload)
 
+    @property
+    def _policy_gate(self) -> RuntimePolicyGate:
+        """The policy collaborator, built from this orchestrator's own dependencies.
+
+        Rebuilt per access for the same reason as ``_audit_recorder``: the
+        pinned ``__init__`` signature forbids storing it, and construction of a
+        frozen dataclass is free. ``fail_run`` and ``refresh_artifact_ttls`` are
+        passed as bound callbacks so the gate never sees the orchestrator.
+        """
+        return RuntimePolicyGate(
+            run_repository=self.run_repository,
+            audit_recorder=self._audit_recorder,
+            fail_run=self._fail_run,
+            refresh_artifact_ttls=self._refresh_artifact_ttls,
+            policy_guard=self.policy_guard,
+            approval_service=self.approval_service,
+            executable_unit_runner=self.executable_unit_runner,
+            agent_runners=self.agent_runners,
+        )
+
     async def _enforce_loop_guards(
         self,
         graph: Graph,
         run: Run,
         started_at: float,
     ) -> Run | None:
-        """Check if the run has exceeded its step or time limits.
-
-        Returns a failed Run if a limit is exceeded, or None if everything
-        is within bounds. This prevents infinite loops in graphs.
-        """
-        total_steps = len(run.execution_history)
-        settings = graph.execution_settings
-        if total_steps >= settings.max_total_steps:
-            return await self._fail_run(run, "max_total_steps", "max total step limit exceeded")
-        if settings.max_total_runtime_seconds is not None:
-            elapsed = perf_counter() - started_at
-            if elapsed > settings.max_total_runtime_seconds:
-                return await self._fail_run(run, "max_total_runtime", "max total runtime exceeded")
-        return None
+        """Check if the run has exceeded its step or time limits."""
+        return await self._policy_gate.enforce_loop_guards(graph, run, started_at)
 
     async def _enforce_policy(
         self,
@@ -1956,82 +1942,16 @@ class RuntimeOrchestrator:
         node: Node,
         input_payload: Mapping[str, Any],
     ) -> Run | None:
-        """Check if the policy guard allows this node to run.
-
-        If a policy guard is configured and denies execution, the run is
-        marked as failed with a policy violation reason. Returns None if
-        no guard is set or if the policy allows execution.
-        """
-        guard = self.policy_guard
-        if guard is None:
-            return None
-        result = guard.evaluate(graph, node, run, input_payload)
-        if result.decision is PolicyDecision.ALLOW:
-            enforcement = dict(run.metadata.get("enforcement", {}))
-            enforcement[node.node_id] = result.model_dump(mode="json")
-            run.metadata["enforcement"] = enforcement
-            return None
-
-        # Policy failures are recorded like a node attempt so operators can diagnose why it stopped.
-        audit_refs = list(run.audit_refs)
-        audit_ref = f"audit:{len(audit_refs) + 1}"
-        audit_refs.append(audit_ref)
-        run.audit_refs = audit_refs
-        if self.audit_repository is not None:
-            await self.audit_repository.write(
-                NodeAuditRecord(
-                    audit_id=self._stored_audit_id(run.run_id, audit_ref),
-                    run_id=run.run_id,
-                    thread_id=run.thread_id,
-                    tenant_id=run.tenant_id,
-                    workspace_id=run.workspace_id,
-                    node_id=node.node_id,
-                    node_version=node.node_version,
-                    graph_version_ref=run.graph_version_ref,
-                    deployment_ref=run.deployment_ref,
-                    attempt=1,
-                    status="rejected",
-                    completed_at=datetime.now(UTC),
-                    input_snapshot=self._redact_for_audit(dict(input_payload)),
-                    output_snapshot={},
-                    execution_metadata=self._redact_for_audit(
-                        {
-                            "enforcement": result.model_dump(mode="json"),
-                            "enforcement_applied": False,
-                        }
-                    ),
-                    error=result.reason,
-                )
-            )
-        run.touch()
-        run = await self.run_repository.put(run)
-        return await self._fail_run(
-            run, "policy_violation", result.reason or "policy denied execution"
-        )
+        """Check if the policy guard allows this node to run."""
+        return await self._policy_gate.enforce_policy(graph, run, node, input_payload)
 
     def _enforcement_context_for(self, run: Run, node_id: str) -> dict[str, Any]:
         """Return the stored policy enforcement context for a node, if any."""
-        enforcement = run.metadata.get("enforcement", {})
-        if not isinstance(enforcement, Mapping):
-            return {}
-        context = enforcement.get(node_id, {})
-        if not isinstance(context, Mapping):
-            return {}
-        return dict(context)
+        return self._policy_gate.enforcement_context_for(run, node_id)
 
     def _effective_capabilities_for(self, run: Run, node_id: str) -> set[Capability] | None:
-        """Return the node's granted capability set, or None when enforcement is off.
-
-        WS-C: mirrors the runner's rule for the orchestrator's own memory-resolve
-        callers (retrieval, template-memory). ``None`` iff the policy guard is not
-        wired; otherwise the parsed granted set (empty denies — fail-closed). The
-        active/off decision is the explicit ``policy_guard is not None`` check, not
-        an inference from missing keys, so an unenforced node can never bypass an
-        active gate.
-        """
-        if self.policy_guard is None:
-            return None
-        return parse_effective_capabilities(self._enforcement_context_for(run, node_id))
+        """Return the node's granted capability set, or None when enforcement is off."""
+        return self._policy_gate.effective_capabilities_for(run, node_id)
 
     async def _gate_policy_required_side_effects(
         self,
@@ -2040,43 +1960,7 @@ class RuntimeOrchestrator:
         input_payload: Mapping[str, Any],
     ) -> Run | None:
         """Pause execution when policy requires approval before side effects."""
-        enforcement = self._enforcement_context_for(run, node.node_id)
-        if not enforcement.get("approval_required_for_side_effects"):
-            return None
-        approved_nodes = set(run.metadata.get("approved_side_effect_nodes", []))
-        if node.node_id in approved_nodes:
-            return None
-        if not self._node_has_side_effects(node):
-            return None
-        service = self.approval_service
-        approval_id = None
-        if service is not None:
-            approval = await service.create_pending(
-                run=run,
-                node=HumanApprovalNode(
-                    node_id=node.node_id,
-                    graph_version_ref=node.graph_version_ref,
-                    human_approval=HumanApprovalNodeData(),
-                ),
-                input_payload=dict(input_payload),
-            )
-            approval_id = approval.approval_id
-        run.status = RunStatus.WAITING_APPROVAL
-        payloads = dict(run.metadata.get("node_payloads", {}))
-        payloads[node.node_id] = dict(input_payload)
-        run.metadata["node_payloads"] = payloads
-        run.metadata["pending_approval"] = {
-            "node_id": node.node_id,
-            "input": dict(input_payload),
-            "approval_id": approval_id,
-            "kind": "side_effect_policy",
-        }
-        run.pending_node_ids.insert(0, node.node_id)
-        run.touch()
-        persisted = await self.run_repository.put(run)
-        await self.run_repository.write_checkpoint(persisted)
-        await self._refresh_artifact_ttls(persisted)
-        return persisted
+        return await self._policy_gate.gate_policy_required_side_effects(run, node, input_payload)
 
     async def _consume_side_effect_approval(
         self,
@@ -2085,58 +1969,11 @@ class RuntimeOrchestrator:
         input_payload: Mapping[str, Any],
     ) -> Run | None:
         """Resolve pending side-effect approval state before re-executing a node."""
-        pending = run.metadata.get("pending_approval")
-        if not isinstance(pending, Mapping):
-            return None
-        if pending.get("kind") != "side_effect_policy" or pending.get("node_id") != node.node_id:
-            return None
-        approval_id = pending.get("approval_id")
-        if approval_id is None or self.approval_service is None:
-            run.status = RunStatus.WAITING_APPROVAL
-            run.pending_node_ids.insert(0, node.node_id)
-            persisted = await self.run_repository.put(run)
-            await self.run_repository.write_checkpoint(persisted)
-            await self._refresh_artifact_ttls(persisted)
-            return persisted
-        record = await self.approval_service.get(approval_id)
-        if record is None or record.resolution is None:
-            run.status = RunStatus.WAITING_APPROVAL
-            run.pending_node_ids.insert(0, node.node_id)
-            persisted = await self.run_repository.put(run)
-            await self.run_repository.write_checkpoint(persisted)
-            await self._refresh_artifact_ttls(persisted)
-            return persisted
-        run.metadata.pop("pending_approval", None)
-        if record.resolution.decision is ApprovalDecision.REJECT:
-            return await self._fail_run(run, "approval_rejected", "approval rejected")
-        approved_nodes = set(run.metadata.get("approved_side_effect_nodes", []))
-        approved_nodes.add(node.node_id)
-        run.metadata["approved_side_effect_nodes"] = sorted(approved_nodes)
-        if record.resolution.edited_payload is not None:
-            payloads = dict(run.metadata.get("node_payloads", {}))
-            payloads[node.node_id] = dict(record.resolution.edited_payload)
-            run.metadata["node_payloads"] = payloads
-        return None
+        return await self._policy_gate.consume_side_effect_approval(run, node, input_payload)
 
     def _node_has_side_effects(self, node: Node) -> bool:
         """Detect whether a node can cause side effects that require approval."""
-        if isinstance(node, ExecutableUnitNode):
-            if bool(node.execution_config.get("side_effect")):
-                return True
-            registry = getattr(self.executable_unit_runner, "registry", None)
-            if registry is not None and registry.has(node.executable_unit.manifest_ref):
-                return bool(registry.get(node.executable_unit.manifest_ref).manifest.side_effect)
-            return False
-        if isinstance(node, AgentNode):
-            runner = self.agent_runners.get(node.node_id) or self.agent_runners.get(
-                base_node_id(node.node_id)
-            )
-            if runner is None:
-                return False
-            config = getattr(runner, "config", None)
-            attachments = getattr(config, "tool_attachments", []) if config is not None else []
-            return any(attachment.side_effect_allowed for attachment in attachments)
-        return False
+        return self._policy_gate.node_has_side_effects(node)
 
     async def _run_agent_with_optional_enforcement(
         self,

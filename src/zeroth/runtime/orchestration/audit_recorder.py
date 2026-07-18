@@ -256,6 +256,52 @@ class RuntimeAuditRecorder:
             )
         )
 
+    async def record_policy_rejection(
+        self,
+        run: Run,
+        node: Node,
+        input_payload: Mapping[str, Any],
+        decision_payload: Mapping[str, Any],
+        reason: str | None,
+    ) -> None:
+        """Record a policy denial like a node attempt so operators can diagnose the stop.
+
+        The audit ref is numbered and appended to the run even when no audit
+        repository is configured, so the run's ref sequence is identical either
+        way — matching the completed and failed paths.
+        """
+        audit_refs = list(run.audit_refs)
+        audit_ref = f"audit:{len(audit_refs) + 1}"
+        audit_refs.append(audit_ref)
+        run.audit_refs = audit_refs
+        if self.audit_repository is None:
+            return
+        await self.audit_repository.write(
+            NodeAuditRecord(
+                audit_id=self.stored_audit_id(run.run_id, audit_ref),
+                run_id=run.run_id,
+                thread_id=run.thread_id,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
+                node_id=node.node_id,
+                node_version=node.node_version,
+                graph_version_ref=run.graph_version_ref,
+                deployment_ref=run.deployment_ref,
+                attempt=1,
+                status="rejected",
+                completed_at=datetime.now(UTC),
+                input_snapshot=self.redact(dict(input_payload)),
+                output_snapshot={},
+                execution_metadata=self.redact(
+                    {
+                        "enforcement": dict(decision_payload),
+                        "enforcement_applied": False,
+                    }
+                ),
+                error=reason,
+            )
+        )
+
     async def record_failed_branch_execution(
         self,
         run: Run,

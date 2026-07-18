@@ -7,5 +7,6 @@ remains the public facade and composes them.
 """
 
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
+from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 
-__all__ = ["RuntimeAuditRecorder"]
+__all__ = ["RuntimeAuditRecorder", "RuntimePolicyGate"]
