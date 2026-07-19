@@ -159,9 +159,7 @@ def _wait_for_status(
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     try:
-        wait_for(
-            lambda: _run_status_payload(client, run_id, headers=headers)["status"] == status
-        )
+        wait_for(lambda: _run_status_payload(client, run_id, headers=headers)["status"] == status)
     except AssertionError:
         payload = _run_status_payload(client, run_id, headers=headers)
         raise AssertionError(

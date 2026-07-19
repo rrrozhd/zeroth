@@ -42,7 +42,6 @@ _SCHEMA_BEARING_NAMES = {"app.py", "health.py", "studio_schemas.py"}
 # renamed, and that is exactly what needs review.
 EXPECTED_SERVICE_SCHEMA_MODELS = {
     "admin_api:AdminRunListResponse",
-    "app:HealthResponse",
     "approval_api:ApprovalResolutionRequest",
     "approval_api:ApprovalResolutionResponse",
     "audit_api:AttestationVerificationResponse",
@@ -68,6 +67,10 @@ EXPECTED_SERVICE_SCHEMA_MODELS = {
     "deployment_api:DeploymentSummaryResponse",
     "deployment_api:RollbackDeploymentRequest",
     "econ_analytics_api:QualityVerdictRequest",
+    # HealthResponse's stem changed app->health in the health move: defining it
+    # in zeroth/service/app.py would put it back into path-sensitive discovery
+    # under a new module path and deadlock the app move. Reviewed, deliberate.
+    "health:HealthResponse",
     "health:DependencyStatus",
     "health:LivenessResponse",
     "health:ReadinessResponse",

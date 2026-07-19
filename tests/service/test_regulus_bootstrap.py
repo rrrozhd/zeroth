@@ -22,9 +22,7 @@ async def test_bootstrap_threads_self_auth_provider_when_regulus_enabled(
     settings = get_settings()
     monkeypatch.setattr(settings.regulus, "enabled", True)
 
-    service, _ = await deploy_service(
-        sqlite_db, agent_graph(graph_id="regulus-bootstrap-wiring")
-    )
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="regulus-bootstrap-wiring"))
     try:
         # The real wiring ran: both self-call clients carry a headers provider.
         assert service.regulus_client is not None

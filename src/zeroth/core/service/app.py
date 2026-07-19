@@ -15,7 +15,6 @@ from typing import Protocol
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.observability.correlation import (
     get_correlation_id,
@@ -30,6 +29,7 @@ from zeroth.service.api.audit_api import register_audit_routes
 from zeroth.service.api.contracts_api import register_contract_routes
 from zeroth.service.api.cost_api import register_cost_routes
 from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
+from zeroth.service.api.health import HealthResponse
 from zeroth.service.api.retention_api import register_retention_routes
 from zeroth.service.api.rightsizing_api import register_rightsizing_routes
 from zeroth.service.api.run_api import register_run_routes
@@ -50,17 +50,6 @@ class ServiceBootstrapLike(Protocol):
     orchestrator: object
     audit_repository: object
     authenticator: object
-
-
-class HealthResponse(BaseModel):
-    """Response payload for the wrapper health endpoint."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    status: str = Field(default="ok")
-    deployment_ref: str
-    deployment_version: int
-    graph_version_ref: str
 
 
 def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
@@ -313,7 +302,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             )
 
     # Register health probe routes BEFORE auth middleware (per D-07).
-    from zeroth.core.service.health import register_health_routes
+    from zeroth.service.api.health import register_health_routes
 
     register_health_routes(app)
 

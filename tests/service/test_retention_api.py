@@ -144,9 +144,7 @@ async def test_legal_hold_makes_erasure_conflict_then_release_allows_it(sqlite_d
         )
         assert conflict.status_code == 409, conflict.text
 
-        released = client.delete(
-            f"/v1/retention/legal-holds/{hold_id}", headers=admin_headers()
-        )
+        released = client.delete(f"/v1/retention/legal-holds/{hold_id}", headers=admin_headers())
         assert released.status_code == 200
         assert released.json()["active"] is False
 
@@ -169,9 +167,7 @@ async def test_cross_tenant_erasure_denied(sqlite_db) -> None:
         sqlite_db, agent_graph(graph_id="graph-ret-xtenant"), auth_config=auth
     )
     await _seed_run(service, deployment, "run-default", ssn="123-00-4567")
-    app = await bootstrap_app(
-        sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=auth
-    )
+    app = await bootstrap_app(sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=auth)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
@@ -196,9 +192,7 @@ async def test_release_cross_tenant_hold_denied(sqlite_db) -> None:
     service, deployment = await deploy_service(
         sqlite_db, agent_graph(graph_id="graph-ret-holdscope"), auth_config=auth
     )
-    app = await bootstrap_app(
-        sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=auth
-    )
+    app = await bootstrap_app(sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=auth)
     app.state.bootstrap = service
 
     with TestClient(app) as client:

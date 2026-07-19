@@ -96,7 +96,7 @@ async def test_check_redis_ok():
     mock_redis.ping.return_value = True
     mock_redis.aclose = AsyncMock()
 
-    with patch("zeroth.core.service.health.redis_from_url", return_value=mock_redis):
+    with patch("zeroth.service.api.health.redis_from_url", return_value=mock_redis):
         result = await check_redis("redis://localhost:6379/0")
     assert result.status == "ok"
     assert result.latency_ms is not None
@@ -108,7 +108,7 @@ async def test_check_redis_error():
     mock_redis.ping.side_effect = ConnectionError("Redis down")
     mock_redis.aclose = AsyncMock()
 
-    with patch("zeroth.core.service.health.redis_from_url", return_value=mock_redis):
+    with patch("zeroth.service.api.health.redis_from_url", return_value=mock_redis):
         result = await check_redis("redis://localhost:6379/0")
     assert result.status == "error"
     assert "Redis down" in result.detail
@@ -129,7 +129,7 @@ async def test_check_regulus_ok():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("zeroth.core.service.health.httpx.AsyncClient", return_value=mock_client):
+    with patch("zeroth.service.api.health.httpx.AsyncClient", return_value=mock_client):
         result = await check_regulus("http://regulus:8000")
     assert result.status == "ok"
     assert result.latency_ms is not None
@@ -148,7 +148,7 @@ async def test_check_regulus_unavailable_on_error():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("zeroth.core.service.health.httpx.AsyncClient", return_value=mock_client):
+    with patch("zeroth.service.api.health.httpx.AsyncClient", return_value=mock_client):
         result = await check_regulus("http://regulus:8000")
     assert result.status == "unavailable"
 

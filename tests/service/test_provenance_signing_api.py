@@ -133,9 +133,7 @@ async def test_run_audit_verification_reports_signed(sqlite_db) -> None:
     run = await _signed_run(service)
 
     with TestClient(app) as client:
-        response = client.get(
-            f"/runs/{run.run_id}/audit-verification", headers=admin_headers()
-        )
+        response = client.get(f"/runs/{run.run_id}/audit-verification", headers=admin_headers())
 
     assert response.status_code == 200
     body = response.json()
@@ -219,9 +217,7 @@ async def test_missing_signer_fails_closed_on_signed_records(sqlite_db) -> None:
     service.signer = None
 
     with TestClient(app) as client:
-        response = client.get(
-            f"/runs/{run.run_id}/audit-verification", headers=admin_headers()
-        )
+        response = client.get(f"/runs/{run.run_id}/audit-verification", headers=admin_headers())
 
     assert response.status_code == 200
     body = response.json()
@@ -264,18 +260,12 @@ async def test_cross_tenant_verify_endpoints_return_404(sqlite_db) -> None:
 
         # Tenant A sees its own run verification.
         assert (
-            client.get(
-                f"/runs/{run.run_id}/audit-verification", headers=a_headers
-            ).status_code
+            client.get(f"/runs/{run.run_id}/audit-verification", headers=a_headers).status_code
             == 200
         )
         # Tenant B is denied the cross-tenant run (404, not a signature verdict).
-        run_denied = client.get(
-            f"/runs/{run.run_id}/audit-verification", headers=b_headers
-        )
-        post_denied = client.post(
-            f"/runs/{run.run_id}/verify-chain", json={}, headers=b_headers
-        )
+        run_denied = client.get(f"/runs/{run.run_id}/audit-verification", headers=b_headers)
+        post_denied = client.post(f"/runs/{run.run_id}/verify-chain", json={}, headers=b_headers)
         att_denied = client.get(
             f"/deployments/{deployment.deployment_ref}/attestation/verify",
             headers=b_headers,
