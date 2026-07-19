@@ -7,7 +7,7 @@ from enum import StrEnum
 from fastapi import HTTPException, Request, status
 
 from zeroth.core.identity import AuthenticatedPrincipal, ServiceRole
-from zeroth.core.service.auth import current_principal, record_service_denial
+from zeroth.service.api.authentication import current_principal, record_service_denial
 
 
 class Permission(StrEnum):

@@ -22,10 +22,10 @@ if TYPE_CHECKING:
     from zeroth.core.observability.queue_gauge import QueueDepthGauge
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.core.secrets import SecretProvider
-    from zeroth.core.service.auth import ServiceAuthConfig, ServiceAuthenticator
     from zeroth.core.signing import SigningKeyProvider
     from zeroth.core.storage import AsyncDatabase
     from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+    from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
 
 
 class DeploymentBootstrapError(RuntimeError):
