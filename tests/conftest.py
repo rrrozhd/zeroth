@@ -172,7 +172,7 @@ def _otel_exporter():
 @pytest.fixture
 def otel_spans(_otel_exporter):
     """Enable tracing for one test and yield the cleared in-memory span exporter."""
-    from zeroth.core.observability import tracing
+    from zeroth.platform.observability import tracing
 
     _otel_exporter.clear()
     tracing._TRACING_ENABLED = True

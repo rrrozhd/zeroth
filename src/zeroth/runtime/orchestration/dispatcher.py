@@ -33,9 +33,9 @@ from zeroth.core.graph import (
     Node,
     RetrievalNode,
 )
-from zeroth.core.observability import start_span
 from zeroth.core.runs import Run
 from zeroth.core.subgraph.resolver import base_node_id
+from zeroth.platform.observability import start_span
 from zeroth.runtime.orchestration.errors import (
     MemoryBindingResolutionError,
     NodeDispatcherError,

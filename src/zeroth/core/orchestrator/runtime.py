@@ -28,7 +28,6 @@ from zeroth.core.graph import (
     RetrievalNode,
 )
 from zeroth.core.mappings import MappingExecutor
-from zeroth.core.observability import start_span
 from zeroth.core.parallel.executor import ParallelExecutor
 from zeroth.core.parallel.models import (
     BranchContext,
@@ -38,6 +37,7 @@ from zeroth.core.parallel.models import (
 from zeroth.core.policy import Capability, PolicyGuard
 from zeroth.core.runs import Run, RunRepository, RunStatus
 from zeroth.core.secrets import SecretResolver
+from zeroth.platform.observability import start_span
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.driver import GraphDriver

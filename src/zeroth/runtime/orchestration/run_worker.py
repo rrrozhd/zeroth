@@ -25,8 +25,8 @@ from zeroth.platform.dispatch.lease import LeaseManager
 if TYPE_CHECKING:
     from zeroth.core.graph import Graph
     from zeroth.core.guardrails.dead_letter import DeadLetterManager
-    from zeroth.core.observability.metrics import MetricsCollector
     from zeroth.core.orchestrator import RuntimeOrchestrator
+    from zeroth.platform.observability.metrics import MetricsCollector
 
 logger = logging.getLogger(__name__)
 

@@ -23,9 +23,6 @@ from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.core.memory.factory import register_memory_connectors
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.memory.runtime_configs import load_persisted_connectors
-from zeroth.core.observability.metrics import MetricsCollector
-from zeroth.core.observability.queue_gauge import QueueDepthGauge
-from zeroth.core.observability.tracing import configure_tracing
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.policy import PolicyGuard, PolicyRegistry, default_capability_registry
 from zeroth.core.secrets import SecretProvider, build_secret_provider
@@ -33,6 +30,9 @@ from zeroth.core.signing import build_signing_provider_async
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.dispatch import LeaseManager
+from zeroth.platform.observability.metrics import MetricsCollector
+from zeroth.platform.observability.queue_gauge import QueueDepthGauge
+from zeroth.platform.observability.tracing import configure_tracing
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.runtime.orchestration.run_worker import RunWorker

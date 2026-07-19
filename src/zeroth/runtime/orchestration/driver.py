@@ -31,7 +31,6 @@ from zeroth.core.conditions import NextStepPlanner
 from zeroth.core.conditions.models import ConditionContext, TraversalState
 from zeroth.core.graph import Graph, HumanApprovalNode, SubgraphNode
 from zeroth.core.mappings import MappingExecutor
-from zeroth.core.observability import start_span
 from zeroth.core.parallel.errors import FanOutValidationError, ParallelExecutionError
 from zeroth.core.parallel.models import GlobalStepTracker
 from zeroth.core.runs import Run, RunFailureState, RunStatus
@@ -42,6 +41,7 @@ from zeroth.core.subgraph.errors import (
     SubgraphResolutionError,
 )
 from zeroth.core.subgraph.resolver import merge_governance, namespace_subgraph
+from zeroth.platform.observability import start_span
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.errors import OrchestratorError

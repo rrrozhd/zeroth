@@ -47,7 +47,7 @@ from zeroth.core.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.observability import (
+from zeroth.platform.observability import (
     MetricsCollector,
     new_correlation_id,
     set_correlation_id,

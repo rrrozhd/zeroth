@@ -55,9 +55,9 @@ from zeroth.core.guardrails.content import (
     PIIFilter,
 )
 from zeroth.core.memory import MemoryConnectorResolver
-from zeroth.core.observability import start_span
 from zeroth.core.policy.errors import parse_effective_capabilities, require_capabilities
 from zeroth.core.policy.models import Capability
+from zeroth.platform.observability import start_span
 
 
 class AgentRunner:

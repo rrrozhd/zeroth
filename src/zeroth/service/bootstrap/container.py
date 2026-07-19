@@ -17,13 +17,13 @@ if TYPE_CHECKING:
     from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
     from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
     from zeroth.core.memory.registry import InMemoryConnectorRegistry
-    from zeroth.core.observability.metrics import MetricsCollector
-    from zeroth.core.observability.queue_gauge import QueueDepthGauge
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.core.secrets import SecretProvider
     from zeroth.core.signing import SigningKeyProvider
     from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
     from zeroth.platform.dispatch import LeaseManager
+    from zeroth.platform.observability.metrics import MetricsCollector
+    from zeroth.platform.observability.queue_gauge import QueueDepthGauge
     from zeroth.platform.storage import AsyncDatabase
     from zeroth.runtime.orchestration.run_worker import RunWorker
     from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
