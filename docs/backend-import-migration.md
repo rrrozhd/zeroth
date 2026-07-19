@@ -87,6 +87,11 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.service.studio_schemas:UpdateWorkflowRequest` | `zeroth.service.api.studio_schemas:UpdateWorkflowRequest` | Move Studio schema models to the service API package | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.service.studio_schemas:WorkflowDetailResponse` | `zeroth.service.api.studio_schemas:WorkflowDetailResponse` | Move Studio schema models to the service API package | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.service.studio_schemas:WorkflowSummaryResponse` | `zeroth.service.api.studio_schemas:WorkflowSummaryResponse` | Move Studio schema models to the service API package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.bootstrap:run_migrations` | `zeroth.service.bootstrap.migrations:run_migrations` | Decompose service bootstrap | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.service.bootstrap:ServiceBootstrap` | `zeroth.service.bootstrap.container:ServiceBootstrap` | Decompose service bootstrap | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.bootstrap:DeploymentBootstrapError` | `zeroth.service.bootstrap.container:DeploymentBootstrapError` | Decompose service bootstrap | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.bootstrap:bootstrap_service` | `zeroth.service.bootstrap.factory:bootstrap_service` | Decompose service bootstrap | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.service.bootstrap:bootstrap_app` | `zeroth.service.bootstrap.factory:bootstrap_app` | Decompose service bootstrap | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

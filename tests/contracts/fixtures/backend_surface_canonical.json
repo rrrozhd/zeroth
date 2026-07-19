@@ -9546,7 +9546,7 @@
       "legacy_ids": [
         "zeroth.core.service.bootstrap:DeploymentBootstrapError"
       ],
-      "module": "zeroth.core.service.bootstrap",
+      "module": "zeroth.service.bootstrap.container",
       "name": "DeploymentBootstrapError",
       "signature": "<not-inspectable>"
     },
@@ -9558,7 +9558,7 @@
       "legacy_ids": [
         "zeroth.core.service.bootstrap:ServiceBootstrap"
       ],
-      "module": "zeroth.core.service.bootstrap",
+      "module": "zeroth.service.bootstrap.container",
       "name": "ServiceBootstrap",
       "signature": "(deployment_service: 'DeploymentService', deployment: 'Deployment', graph: 'Graph', run_repository: 'RunRepository', thread_repository: 'ThreadRepository', approval_service: 'ApprovalService', audit_repository: 'AuditRepository', contract_registry: 'ContractRegistry', orchestrator: 'RuntimeOrchestrator', auth_config: 'ServiceAuthConfig', authenticator: 'ServiceAuthenticator', worker: 'RunWorker | None' = None, lease_manager: 'LeaseManager | None' = None, guardrail_config: 'GuardrailConfig | None' = None, rate_limiter: 'TokenBucketRateLimiter | None' = None, quota_enforcer: 'QuotaEnforcer | None' = None, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, queue_gauge: 'QueueDepthGauge | None' = None, regulus_client: 'RegulusClient | None' = None, budget_enforcer: 'object | None' = None, memory_registry: 'InMemoryConnectorRegistry | None' = None, memory_connector_config_repository: 'MemoryConnectorConfigRepository | None' = None, memory_resolver: 'object | None' = None, database: 'AsyncDatabase | None' = None, graph_repository: 'GraphRepository | None' = None, webhook_service: 'object | None' = None, webhook_repository: 'object | None' = None, delivery_worker: 'object | None' = None, sla_checker: 'object | None' = None, webhook_http_client: 'object | None' = None, cost_estimator: 'object | None' = None, arq_pool: 'object | None' = None, redis_client: 'object | None' = None, artifact_store: 'object | None' = None, http_client: 'object | None' = None, template_registry: 'object | None' = None, subgraph_executor: 'object | None' = None, secret_provider: 'SecretProvider | None' = None, signer: 'SigningKeyProvider | None' = None, retention_policy_repository: 'object | None' = None, legal_hold_repository: 'object | None' = None, retention_log_repository: 'object | None' = None, retention_erasure_service: 'object | None' = None, retention_worker: 'object | None' = None) -> None"
     },
@@ -9576,7 +9576,7 @@
       "legacy_ids": [
         "zeroth.core.service.bootstrap:bootstrap_service"
       ],
-      "module": "zeroth.core.service.bootstrap",
+      "module": "zeroth.service.bootstrap.factory",
       "name": "bootstrap_service",
       "signature": "(database: 'AsyncDatabase', *, deployment_ref: 'str', agent_runners: 'Mapping[str, AgentRunner] | None' = None, executable_unit_runner: 'ExecutableUnitRunner | None' = None, auth_config: 'ServiceAuthConfig | None' = None, bearer_token_verifier: 'JWTBearerTokenVerifier | None' = None, guardrail_config: 'GuardrailConfig | None' = None, enable_durable_worker: 'bool' = True, secret_provider: 'SecretProvider | None' = None) -> 'ServiceBootstrap'"
     },
@@ -9593,7 +9593,7 @@
       "legacy_ids": [
         "zeroth.core.service.bootstrap:run_migrations"
       ],
-      "module": "zeroth.core.service.bootstrap",
+      "module": "zeroth.service.bootstrap.migrations",
       "name": "run_migrations",
       "signature": "(database_url: 'str') -> 'None'"
     },
