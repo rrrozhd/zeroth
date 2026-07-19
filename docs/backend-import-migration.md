@@ -72,6 +72,9 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.orchestrator.runtime:OrchestratorError` | `zeroth.runtime.orchestration.errors:OrchestratorError` | Move runtime exceptions to the canonical package | Legacy paths still re-export | Same class object | Not removed |
 | `zeroth.core.orchestrator.runtime:NodeDispatcherError` | `zeroth.runtime.orchestration.errors:NodeDispatcherError` | Move runtime exceptions to the canonical package | Legacy paths still re-export | Same class object | Not removed |
 | `zeroth.core.orchestrator.runtime:MemoryBindingResolutionError` | `zeroth.runtime.orchestration.errors:MemoryBindingResolutionError` | Move runtime exceptions to the canonical package | Legacy paths still re-export | Same class object | Not removed |
+| `zeroth.core.retention:SqlAlchemyEconEventEraser` | `zeroth.econ.plane.erasure:SqlAlchemyEconEventEraser` | Move concrete econ adapter to the econ domain | Legacy paths still re-export, lazily | Same class object | Not removed |
+| `zeroth.core.retention.erasure_service:LegalHoldError` | `zeroth.governance.retention.errors:LegalHoldError` | Move retention exceptions to the canonical package | Legacy paths still re-export | Same class object | Not removed |
+| `zeroth.core.retention.erasure_service:StaleCleanupClaimError` | `zeroth.governance.retention.errors:StaleCleanupClaimError` | Move retention exceptions to the canonical package | Legacy paths still re-export | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
@@ -328,6 +331,93 @@ outside this task's boundary — which is a public-interface change, not a
 behavior-preserving decomposition. All four are retargeted to Task 14, which
 moves the runtime packages and economics behind owned protocols and therefore
 has to answer the question properly.
+
+### Retention erasure
+
+`RetentionErasureService` is now a composition facade. The work moved to five
+collaborators in `zeroth.governance.retention`, each holding one concern and
+receiving its dependencies explicitly:
+
+| Module | Owns |
+| --- | --- |
+| `manifests` | building the cleanup manifest and projecting it into `ErasureResult` |
+| `replay` | folding legacy retention audit entries back into claim state |
+| `claims` | claim leases, `(claim_id, generation)` fencing, and the CAS writes behind them |
+| `executor` | running manifest operations against the artifact store and econ plane, heartbeating the lease |
+| `compatibility` | the legacy per-step retention log entries, all best-effort |
+| `errors` | the two public exception types |
+
+**Why the collaborators are properties, not fields.** The existing suite (and
+`bootstrap`) reassigns `_artifact_store` and `_econ_eraser` after construction,
+and monkeypatches `_replay_cleanup_state` to count legacy materializations. A
+collaborator captured in `__init__` would freeze the originals and silently
+ignore all of it, so each is rebuilt per access from the service's own fields;
+they are frozen dataclasses, so that is free. The facade also keeps every
+private helper the suite drives directly (`_release_cleanup_claim`,
+`_record_operation_delta`, `_after_lock_acquired`, …) as delegating methods.
+
+**Transaction scope is the contract.** Each fenced writer in `claims` opens
+exactly one tenant-serialized transaction and does the state read, the log
+append, and the CAS update inside it. `load_or_materialize`, `state_record`,
+`claim`, and `repair_terminal` instead take a caller-supplied connection
+because they run in the middle of the service's own transaction — re-entering
+the coordinator there would deadlock on the tenant lock, and claiming outside
+it would open the check-then-claim race the fence exists to close. This follows
+the Task 6 precedent in `checkpoint_store`: the coordinating step stays with
+the caller that holds the transaction.
+
+**Ordering is the contract, too.** The sequence hold-check → TTL recheck →
+plaintext harvest → destructive writes → `erasure_authorized` inside one
+transaction, then prefix sweep → per-key deletes → econ deletion, each
+bracketed by fenced deltas, then the terminal event, then the external and
+database compatibility logs — is pinned by
+`tests/governance/retention/test_characterization.py`, committed green against
+the pre-decomposition service before anything moved.
+
+**Why the canonical surface still points at the legacy modules.** Exactly the
+orchestration case above: retention's disposition row is `Skeleton only`
+(the package move is Task 13), so the canonical entries for
+`RetentionErasureService`, `LegalHoldError`, and `StaleCleanupClaimError` keep
+their `zeroth.core.retention[.erasure_service]` modules even though the
+exception definitions now live in `zeroth.governance.retention.errors` and the
+service is republished by `zeroth.governance.retention.service`. The
+definitions of the exceptions relocated because the collaborators that raise
+them may not import the facade — an import constraint, not a published
+relocation. The service definition did not move at all: its pinned `__init__`
+names `RunRepository`, the same wall as `RuntimeOrchestrator`.
+
+**Import direction while the facade stays in `zeroth.core`.** The legacy
+package resolves `RetentionErasureService` lazily and `worker.py` imports it
+under `TYPE_CHECKING` only, because every extracted collaborator imports the
+manifest and state models that still live in `zeroth.core.retention` — an eager
+resolution there re-enters a partially initialized module the moment a cold
+interpreter starts from either side.
+`tests/governance/retention/test_cold_import.py` pins eight import orders from
+subprocesses.
+
+#### The three dependency exceptions this task was scheduled to remove
+
+Task 9's tag — "decompose retention erasure behind injected cleanup adapters" —
+covered three edges. **Two are removed, one is retargeted:**
+
+- **`zeroth.core.retention.econ_eraser` → `zeroth.econ_plane.database` and
+  `.instrumentation.models` — removed.** The only reason the governance domain
+  imported the econ plane was that the concrete `SqlAlchemyEconEventEraser`
+  lived in the retention package. The adapter moved to
+  `zeroth.econ.plane.erasure` (econ → econ, always permitted); the
+  `EconEventEraser` protocol stays with retention, and the erasure service
+  keeps receiving the adapter by injection. The legacy module re-exports the
+  class through a module `__getattr__` with no `TYPE_CHECKING` import, so no
+  replacement edge exists.
+- **`zeroth.core.retention.erasure_service` →
+  `zeroth.integrations.persistence.runs` — retargeted to Task 18.** The
+  service's pinned `__init__` names `RunRepository` in the `run_repository`
+  annotation, and the dependency scanner walks the AST, so even the
+  `TYPE_CHECKING` import records the edge. Narrowing to the run persistence
+  protocols changes the pinned annotation text — the same wall as
+  `RepositoryThreadStateStore`. Moving retention to governance in Task 13 does
+  not lift it either, since governance may not import integrations; the edge
+  ends when the legacy surface retires with the `zeroth.core` shell.
 
 ## Updating the canonical surface
 
