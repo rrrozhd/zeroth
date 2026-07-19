@@ -38,66 +38,17 @@ from zeroth.core.signing import SigningKeyProvider, build_signing_provider_async
 from zeroth.core.storage import AsyncDatabase
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.runtime.graph_validation import GraphValidator
-
-
-class _BootstrapMemorySubsection:
-    """Tiny helper providing default attribute values for memory sub-settings."""
-
-    def __init__(self, **kwargs: object) -> None:
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-
-
-class _BootstrapMemorySettings:
-    """Default memory settings used by bootstrap when no ZerothSettings is available.
-
-    Provides the attribute shape expected by ``register_memory_connectors``:
-    ``memory``, ``pgvector``, ``chroma``, and ``elasticsearch`` sub-objects.
-    All external backends are disabled by default; only in-memory connectors
-    are registered.
-    """
-
-    def __init__(self) -> None:
-        self.memory = _BootstrapMemorySubsection(
-            default_connector="ephemeral",
-            redis_kv_prefix="zeroth:mem:kv",
-            redis_thread_prefix="zeroth:mem:thread",
-        )
-        self.pgvector = _BootstrapMemorySubsection(
-            enabled=False,
-            table_name="zeroth_memory_vectors",
-            embedding_model="text-embedding-3-small",
-            embedding_dimensions=1536,
-        )
-        self.chroma = _BootstrapMemorySubsection(
-            enabled=False,
-            host="localhost",
-            port=8000,
-            collection_prefix="zeroth_memory",
-        )
-        self.elasticsearch = _BootstrapMemorySubsection(
-            enabled=False,
-            hosts=["http://localhost:9200"],
-            index_prefix="zeroth_memory",
-        )
+from zeroth.service.bootstrap.configuration import (
+    _BootstrapMemorySettings as _BootstrapMemorySettings,
+)
+from zeroth.service.bootstrap.configuration import (
+    _BootstrapMemorySubsection as _BootstrapMemorySubsection,
+)
+from zeroth.service.bootstrap.migrations import run_migrations as run_migrations
 
 
 class DeploymentBootstrapError(RuntimeError):
     """Raised when the service cannot load the requested deployment."""
-
-
-def run_migrations(database_url: str) -> None:
-    """Run Alembic migrations against the given database URL."""
-    import importlib.resources
-
-    from alembic import command
-    from alembic.config import Config
-
-    alembic_cfg = Config()
-    migrations_dir = str(importlib.resources.files("zeroth.core.migrations"))
-    alembic_cfg.set_main_option("script_location", migrations_dir)
-    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
-    command.upgrade(alembic_cfg, "head")
 
 
 @dataclass(slots=True)
