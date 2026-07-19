@@ -91,7 +91,7 @@
       ],
       "module": "zeroth.core",
       "name": "RedisConfig",
-      "signature": "(*, mode: zeroth.core.storage.redis.RedisDeploymentMode = <RedisDeploymentMode.LOCAL: 'local'>, url: str | None = None, host: str = '127.0.0.1', port: Annotated[int, Ge(ge=1), Le(le=65535)] = 6379, database: Annotated[int, Ge(ge=0)] = 0, username: str | None = None, password: pydantic.types.SecretStr | None = None, ssl: bool = False, key_prefix: str = 'zeroth', run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, docker_binary: str = 'docker', docker_container_name: str = 'zeroth-redis', docker_host: str | None = None) -> None"
+      "signature": "(*, mode: zeroth.platform.storage.redis.RedisDeploymentMode = <RedisDeploymentMode.LOCAL: 'local'>, url: str | None = None, host: str = '127.0.0.1', port: Annotated[int, Ge(ge=1), Le(le=65535)] = 6379, database: Annotated[int, Ge(ge=0)] = 0, username: str | None = None, password: pydantic.types.SecretStr | None = None, ssl: bool = False, key_prefix: str = 'zeroth', run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, docker_binary: str = 'docker', docker_container_name: str = 'zeroth-redis', docker_host: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -10353,200 +10353,200 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:AsyncConnection"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "AsyncConnection",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:AsyncDatabase"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "AsyncDatabase",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:AsyncPostgresDatabase"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "AsyncPostgresDatabase",
       "signature": "(pool: 'AsyncConnectionPool', *, coordination_timeout_seconds: 'float' = 5.0) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
         "examples:examples/10_serve_in_python.py",
         "examples:examples/20_approval_gate.py",
         "examples:examples/25_webhook_delivery.py",
         "examples:examples/_common.py",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:AsyncSQLiteDatabase"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "AsyncSQLiteDatabase",
       "signature": "(path: 'str', *, encryption_key: 'str | bytes | None' = None, coordination_timeout_seconds: 'float' = 5.0) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:EncryptedField"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "EncryptedField",
       "signature": "(key: 'str | bytes') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.integrations.persistence.governed_redis",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.integrations.persistence.governed_redis"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:GovernAIRedisRuntimeStores"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.integrations.persistence.governed_redis",
       "name": "GovernAIRedisRuntimeStores",
       "signature": "(run_store: 'RedisRunStore', interrupt_store: 'RedisInterruptStore', audit_emitter: 'RedisAuditEmitter') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:Migration"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "Migration",
       "signature": "(version: 'int', name: 'str', sql: 'str') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:RedisConfig"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "RedisConfig",
-      "signature": "(*, mode: zeroth.core.storage.redis.RedisDeploymentMode = <RedisDeploymentMode.LOCAL: 'local'>, url: str | None = None, host: str = '127.0.0.1', port: Annotated[int, Ge(ge=1), Le(le=65535)] = 6379, database: Annotated[int, Ge(ge=0)] = 0, username: str | None = None, password: pydantic.types.SecretStr | None = None, ssl: bool = False, key_prefix: str = 'zeroth', run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, docker_binary: str = 'docker', docker_container_name: str = 'zeroth-redis', docker_host: str | None = None) -> None"
+      "signature": "(*, mode: zeroth.platform.storage.redis.RedisDeploymentMode = <RedisDeploymentMode.LOCAL: 'local'>, url: str | None = None, host: str = '127.0.0.1', port: Annotated[int, Ge(ge=1), Le(le=65535)] = 6379, database: Annotated[int, Ge(ge=0)] = 0, username: str | None = None, password: pydantic.types.SecretStr | None = None, ssl: bool = False, key_prefix: str = 'zeroth', run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, docker_binary: str = 'docker', docker_container_name: str = 'zeroth-redis', docker_host: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:RedisDeploymentMode"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "RedisDeploymentMode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage:SQLiteDatabase"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "SQLiteDatabase",
       "signature": "(path: 'str | Path', *, encryption_key: 'str | bytes | None' = None)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.integrations.persistence.governed_redis",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.integrations.persistence.governed_redis"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.storage:build_governai_redis_runtime"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.integrations.persistence.governed_redis",
       "name": "build_governai_redis_runtime",
       "signature": "(config: 'RedisConfig', *, async_redis_client: 'Any | None' = None, sync_redis_client: 'Any | None' = None, require_docker_available: 'bool' = False, container_inspector: 'Callable[[str], bool] | None' = None) -> 'GovernAIRedisRuntimeStores'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.storage:create_database"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "create_database",
       "signature": "(settings: 'ZerothSettings') -> 'AsyncDatabase'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.storage:docker_container_running"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "docker_container_running",
       "signature": "(container_name: 'str', *, docker_binary: 'str' = 'docker') -> 'bool'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.storage",
+        "__all__:zeroth.platform.storage",
         "docs:docs/reference/python-api/storage.md",
-        "package_export:zeroth.core.storage"
+        "package_export:zeroth.platform.storage"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.storage:ensure_and_lock_row"
       ],
-      "module": "zeroth.core.storage",
+      "module": "zeroth.platform.storage",
       "name": "ensure_and_lock_row",
       "signature": "(connection: 'AsyncConnection', *, backend: \"Literal['sqlite', 'postgres']\", table: 'str', key_column: 'str', key: 'str') -> 'dict[str, object] | None'"
     },
@@ -10563,19 +10563,19 @@
       "legacy_ids": [
         "zeroth.core.storage.async_sqlite:AsyncSQLiteDatabase"
       ],
-      "module": "zeroth.core.storage.async_sqlite",
+      "module": "zeroth.platform.storage.async_sqlite",
       "name": "AsyncSQLiteDatabase",
       "signature": "(path: 'str', *, encryption_key: 'str | bytes | None' = None, coordination_timeout_seconds: 'float' = 5.0) -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.storage.database"
+        "package_export:zeroth.platform.storage.database"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.storage.database:CoordinationTimeoutError"
       ],
-      "module": "zeroth.core.storage.database",
+      "module": "zeroth.platform.storage.database",
       "name": "CoordinationTimeoutError",
       "signature": "<not-inspectable>"
     },
@@ -10590,7 +10590,7 @@
       "legacy_ids": [
         "zeroth.core.storage.factory:create_database"
       ],
-      "module": "zeroth.core.storage.factory",
+      "module": "zeroth.platform.storage.factory",
       "name": "create_database",
       "signature": "(settings: 'ZerothSettings') -> 'AsyncDatabase'"
     },

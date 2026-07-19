@@ -154,6 +154,23 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.config.settings:get_settings` | `zeroth.platform.config.settings:get_settings` | Move config to platform | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.econ.models:RegulusSettings` | `zeroth.platform.config.models:RegulusSettings` | Move composed settings section into platform config | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.http.models:HttpClientSettings` | `zeroth.platform.config.models:HttpClientSettings` | Move composed settings section into platform config | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:AsyncConnection` | `zeroth.platform.storage:AsyncConnection` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:AsyncDatabase` | `zeroth.platform.storage:AsyncDatabase` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:AsyncPostgresDatabase` | `zeroth.platform.storage:AsyncPostgresDatabase` | Move storage to platform | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.storage:AsyncSQLiteDatabase` | `zeroth.platform.storage:AsyncSQLiteDatabase` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:EncryptedField` | `zeroth.platform.storage:EncryptedField` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:Migration` | `zeroth.platform.storage:Migration` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:RedisConfig` | `zeroth.platform.storage:RedisConfig` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:RedisDeploymentMode` | `zeroth.platform.storage:RedisDeploymentMode` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:SQLiteDatabase` | `zeroth.platform.storage:SQLiteDatabase` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage:create_database` | `zeroth.platform.storage:create_database` | Move storage to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.storage:docker_container_running` | `zeroth.platform.storage:docker_container_running` | Move storage to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.storage:ensure_and_lock_row` | `zeroth.platform.storage:ensure_and_lock_row` | Move storage to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.storage:GovernAIRedisRuntimeStores` | `zeroth.integrations.persistence.governed_redis:GovernAIRedisRuntimeStores` | Move governed store factory to integrations | Legacy paths still re-export, lazily | Same class object | Not removed |
+| `zeroth.core.storage:build_governai_redis_runtime` | `zeroth.integrations.persistence.governed_redis:build_governai_redis_runtime` | Move governed store factory to integrations | Legacy paths still re-export, lazily | Same function object | Not removed |
+| `zeroth.core.storage.async_sqlite:AsyncSQLiteDatabase` | `zeroth.platform.storage.async_sqlite:AsyncSQLiteDatabase` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage.database:CoordinationTimeoutError` | `zeroth.platform.storage.database:CoordinationTimeoutError` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.storage.factory:create_database` | `zeroth.platform.storage.factory:create_database` | Move storage to platform | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
