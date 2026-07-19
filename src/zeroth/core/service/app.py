@@ -406,7 +406,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_template_routes(v1_router)
     register_retention_routes(v1_router)
 
-    from zeroth.core.service.connector_api import register_connector_routes
+    from zeroth.service.api.connector_api import register_connector_routes
     from zeroth.service.api.deployment_api import register_deployment_routes
     from zeroth.service.api.manifest_api import register_manifest_routes
 
