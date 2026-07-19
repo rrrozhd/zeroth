@@ -30,7 +30,6 @@ from zeroth.core.audit.erasure_schema import AUDIT_CLEANUP_PAYLOAD_FIELDS
 from zeroth.core.retention.cleanup_manifest import (
     CleanupManifest,
     CleanupOperation,
-    parse_cleanup_manifest,
 )
 from zeroth.core.retention.cleanup_state_repository import (
     CleanupStateRecord,
@@ -38,7 +37,17 @@ from zeroth.core.retention.cleanup_state_repository import (
 )
 from zeroth.core.retention.coordination import RetentionCoordinator
 from zeroth.core.retention.models import ErasureResult
-from zeroth.core.storage.json import from_json_value
+from zeroth.governance.retention.claims import CleanupClaims
+
+# Re-exported: both exceptions are protected legacy capabilities recorded at this
+# module path. Their definitions moved because the collaborators that raise them
+# may not import this facade.
+from zeroth.governance.retention.errors import (
+    LegalHoldError as LegalHoldError,
+)
+from zeroth.governance.retention.errors import (
+    StaleCleanupClaimError as StaleCleanupClaimError,
+)
 from zeroth.governance.retention.manifests import (
     build_cleanup_manifest,
     manifest_complete,
@@ -57,15 +66,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class StaleCleanupClaimError(RuntimeError):
-    """Raised when an expired cleanup worker attempts to mutate newer state."""
-
-
 _CleanupReplayState = CleanupReplayState
-
-
-class LegalHoldError(RuntimeError):
-    """Raised when erasure is refused because an active legal hold covers it."""
 
 
 def _harvest_artifact_keys(payload: Any, *, run_id: str) -> set[str]:
@@ -106,6 +107,25 @@ class RetentionErasureService:
         self._coordinator = RetentionCoordinator(run_repository.database)
         self._cleanup_state = CleanupStateRepository()
         self._cleanup_lease_seconds = cleanup_lease_seconds
+
+    @property
+    def _claims(self) -> CleanupClaims:
+        """The claim collaborator, rebuilt per access from this service's own fields.
+
+        Rebuilding rather than storing is deliberate. Tests and callers reassign
+        ``_artifact_store``, ``_econ_eraser`` and ``_cleanup_state`` after
+        construction, and ``_replay_cleanup_state`` is monkeypatched to count
+        legacy materializations. A collaborator captured in ``__init__`` would
+        freeze the originals and silently ignore all of it. ``CleanupClaims`` is
+        a frozen dataclass, so this costs nothing.
+        """
+        return CleanupClaims(
+            coordinator=self._coordinator,
+            log=self._log,
+            cleanup_state=self._cleanup_state,
+            lease_seconds=self._cleanup_lease_seconds,
+            replay=self._replay_cleanup_state,
+        )
 
     async def erase_run(
         self,
@@ -296,26 +316,14 @@ class RetentionErasureService:
             if self._manifest_complete(manifest):
                 terminal_log_id = state.terminal_log_id
                 if terminal_log_id is None:
-                    terminal_log_id = await self._log.record_in_transaction(
-                        transaction.connection,
-                        tenant_id=tenant_id,
-                        run_id=run_id,
-                        action="external_cleanup_completed",
-                        reason=reason,
-                        detail={
-                            "authorization_log_id": log_id,
-                            "claim_id": None,
-                            "generation": state.generation,
-                            "revision": state.revision + 1,
-                            "repaired": True,
-                        },
-                    )
-                    await self._cleanup_state.repair_terminal_in_transaction(
+                    terminal_log_id = await self._claims.repair_terminal(
                         transaction.connection,
                         authorization_log_id=log_id,
+                        tenant_id=tenant_id,
+                        run_id=run_id,
+                        reason=reason,
                         generation=state.generation,
-                        expected_revision=state.revision,
-                        terminal_log_id=terminal_log_id,
+                        revision=state.revision,
                     )
                 return self._result_from_manifest(
                     manifest,
@@ -324,27 +332,16 @@ class RetentionErasureService:
                 )
             generation = state.generation + 1
             lease_expires_at = datetime.now(UTC) + timedelta(seconds=self._cleanup_lease_seconds)
-            claim_log_id = await self._log.record_in_transaction(
-                transaction.connection,
-                tenant_id=tenant_id,
-                run_id=run_id,
-                action="external_cleanup_claimed",
-                reason=reason,
-                detail={
-                    "authorization_log_id": log_id,
-                    "claim_id": claim_id,
-                    "generation": generation,
-                    "revision": state.revision + 1,
-                    "lease_expires_at": lease_expires_at.isoformat(),
-                },
-            )
-            await self._cleanup_state.claim_in_transaction(
+            claim_log_id = await self._claims.claim(
                 transaction.connection,
                 authorization_log_id=log_id,
+                tenant_id=tenant_id,
+                run_id=run_id,
+                reason=reason,
+                claim_id=claim_id,
+                generation=generation,
                 expected_generation=state.generation,
                 expected_revision=state.revision,
-                claim_id=claim_id,
-                claim_log_id=claim_log_id,
                 lease_expires_at=lease_expires_at,
             )
 
@@ -526,74 +523,7 @@ class RetentionErasureService:
         authorization: dict[str, Any],
     ) -> _CleanupReplayState:
         """Load current state in O(N), replaying audit history once only for legacy rows."""
-        authorization_log_id = str(authorization["log_id"])
-        materialized = await self._cleanup_state.get_state_in_transaction(
-            connection,
-            authorization_log_id,
-        )
-        if materialized is None:
-            entries = await self._log.list_for_run_in_transaction(
-                connection,
-                str(authorization["run_id"]),
-            )
-            replayed = self._replay_cleanup_state(authorization, entries)
-            await self._cleanup_state.initialize_in_transaction(
-                connection,
-                authorization_log_id=authorization_log_id,
-                manifest=replayed.manifest,
-                generation=replayed.generation,
-                revision=replayed.revision,
-                active_claim_id=replayed.active_claim_id,
-                active_claim_log_id=replayed.active_claim_log_id,
-                lease_expires_at=replayed.lease_expires_at,
-                terminal_status=replayed.terminal_status,
-                terminal_log_id=replayed.terminal_log_id,
-            )
-            return replayed
-
-        tenant_id = str(authorization["tenant_id"])
-        run_id = str(authorization["run_id"])
-        reason = str(authorization["reason"])
-        if (
-            materialized.tenant_id != tenant_id
-            or materialized.run_id != run_id
-            or materialized.reason != reason
-        ):
-            raise ValueError("cleanup state identity does not match authorization log")
-        manifest = parse_cleanup_manifest(
-            from_json_value(authorization["detail"]),
-            tenant_id=tenant_id,
-            run_id=run_id,
-            reason=reason,
-        )
-        operation_rows = await self._cleanup_state.list_operations_in_transaction(
-            connection,
-            authorization_log_id,
-        )
-        operation_state = {row.operation_id: row for row in operation_rows}
-        manifest_ids = {operation.operation_id for operation in manifest.operations}
-        if set(operation_state) != manifest_ids:
-            raise ValueError("cleanup operation state does not match authorization manifest")
-        manifest.operations = [
-            operation.model_copy(
-                update={
-                    "status": operation_state[operation.operation_id].status,
-                    "deleted_count": operation_state[operation.operation_id].deleted_count,
-                    "error": operation_state[operation.operation_id].error,
-                }
-            )
-            for operation in manifest.operations
-        ]
-        return _CleanupReplayState(
-            manifest=manifest,
-            generation=materialized.generation,
-            revision=materialized.revision,
-            active_claim_id=materialized.active_claim_id,
-            active_claim_log_id=materialized.active_claim_log_id,
-            lease_expires_at=materialized.lease_expires_at,
-            terminal_status=materialized.terminal_status,
-            terminal_log_id=materialized.terminal_log_id,
-        )
+        return await self._claims.load_or_materialize(connection, authorization)
 
     async def _get_or_materialize_state_record(
         self,
@@ -601,23 +531,7 @@ class RetentionErasureService:
         authorization_log_id: str,
     ) -> CleanupStateRecord:
         """Return the materialized cleanup state row, replaying legacy audit history when absent."""
-        state = await self._cleanup_state.get_state_in_transaction(
-            connection,
-            authorization_log_id,
-        )
-        if state is not None:
-            return state
-        authorization = await self._log.get_in_transaction(connection, authorization_log_id)
-        if authorization is None or authorization["action"] != "erasure_authorized":
-            raise ValueError("cleanup authorization disappeared")
-        await self._load_or_materialize_cleanup_state(connection, authorization)
-        state = await self._cleanup_state.get_state_in_transaction(
-            connection,
-            authorization_log_id,
-        )
-        if state is None:  # pragma: no cover - initialization is transactional
-            raise RuntimeError("cleanup state initialization failed")
-        return state
+        return await self._claims.state_record(connection, authorization_log_id)
 
     @staticmethod
     def _manifest_complete(manifest: CleanupManifest) -> bool:
@@ -750,36 +664,13 @@ class RetentionErasureService:
         run_id: str,
     ) -> str:
         """Extend the active claim's lease (fenced against stale claims); return the log id."""
-        async with self._coordinator.transaction(tenant_id) as transaction:
-            state = await self._get_or_materialize_state_record(
-                transaction.connection,
-                authorization_log_id,
-            )
-            self._verify_active_claim(state, claim_id, generation)
-            lease_expires_at = datetime.now(UTC) + timedelta(seconds=self._cleanup_lease_seconds)
-            log_id = await self._log.record_in_transaction(
-                transaction.connection,
-                tenant_id=tenant_id,
-                run_id=run_id,
-                action="external_cleanup_heartbeat",
-                reason=state.reason,
-                detail={
-                    "authorization_log_id": authorization_log_id,
-                    "claim_id": claim_id,
-                    "generation": generation,
-                    "revision": state.revision + 1,
-                    "lease_expires_at": lease_expires_at.isoformat(),
-                },
-            )
-            await self._cleanup_state.heartbeat_in_transaction(
-                transaction.connection,
-                authorization_log_id=authorization_log_id,
-                claim_id=claim_id,
-                generation=generation,
-                expected_revision=state.revision,
-                lease_expires_at=lease_expires_at,
-            )
-            return log_id
+        return await self._claims.record_heartbeat(
+            authorization_log_id=authorization_log_id,
+            claim_id=claim_id,
+            generation=generation,
+            tenant_id=tenant_id,
+            run_id=run_id,
+        )
 
     @staticmethod
     async def _call_with_idempotency(
@@ -798,41 +689,12 @@ class RetentionErasureService:
         operation: CleanupOperation,
     ) -> str:
         """Persist one operation's status delta (log entry + state row) under the claim fence."""
-        async with self._coordinator.transaction(operation.tenant_id) as transaction:
-            state = await self._get_or_materialize_state_record(
-                transaction.connection,
-                authorization_log_id,
-            )
-            self._verify_active_claim(state, claim_id, generation)
-            lease_expires_at = datetime.now(UTC) + timedelta(seconds=self._cleanup_lease_seconds)
-            log_id = await self._log.record_in_transaction(
-                transaction.connection,
-                tenant_id=operation.tenant_id,
-                run_id=operation.run_id,
-                action="external_cleanup_operation",
-                reason=state.reason,
-                detail={
-                    "authorization_log_id": authorization_log_id,
-                    "claim_id": claim_id,
-                    "generation": generation,
-                    "revision": state.revision + 1,
-                    "lease_expires_at": lease_expires_at.isoformat(),
-                    "operation_id": operation.operation_id,
-                    "status": operation.status,
-                    "deleted_count": operation.deleted_count,
-                    "error": operation.error,
-                },
-            )
-            await self._cleanup_state.update_operation_in_transaction(
-                transaction.connection,
-                authorization_log_id=authorization_log_id,
-                claim_id=claim_id,
-                generation=generation,
-                expected_revision=state.revision,
-                operation=operation,
-                lease_expires_at=lease_expires_at,
-            )
-            return log_id
+        return await self._claims.record_operation_delta(
+            authorization_log_id,
+            claim_id,
+            generation,
+            operation,
+        )
 
     @staticmethod
     def _verify_active_claim(
@@ -841,10 +703,7 @@ class RetentionErasureService:
         generation: int,
     ) -> None:
         """Raise :class:`StaleCleanupClaimError` unless the claim/generation still own the state."""
-        if state.active_claim_id != claim_id or state.generation != generation:
-            raise StaleCleanupClaimError(
-                f"cleanup claim {claim_id!r} generation {generation} is stale"
-            )
+        CleanupClaims.verify_active(state, claim_id, generation)
 
     async def _record_terminal_fenced(
         self,
@@ -856,36 +715,13 @@ class RetentionErasureService:
         failed: bool,
     ) -> str:
         """Record the completed/failed terminal event and state, fenced against stale claims."""
-        async with self._coordinator.transaction(manifest.tenant_id) as transaction:
-            state = await self._get_or_materialize_state_record(
-                transaction.connection,
-                authorization_log_id,
-            )
-            self._verify_active_claim(state, claim_id, generation)
-            terminal_status = "failed" if failed else "completed"
-            log_id = await self._log.record_in_transaction(
-                transaction.connection,
-                tenant_id=manifest.tenant_id,
-                run_id=manifest.run_id,
-                action=("external_cleanup_failed" if failed else "external_cleanup_completed"),
-                reason=manifest.reason,
-                detail={
-                    "authorization_log_id": authorization_log_id,
-                    "claim_id": claim_id,
-                    "generation": generation,
-                    "revision": state.revision + 1,
-                },
-            )
-            await self._cleanup_state.terminal_in_transaction(
-                transaction.connection,
-                authorization_log_id=authorization_log_id,
-                claim_id=claim_id,
-                generation=generation,
-                expected_revision=state.revision,
-                terminal_status=terminal_status,
-                terminal_log_id=log_id,
-            )
-            return log_id
+        return await self._claims.record_terminal(
+            authorization_log_id,
+            claim_id,
+            generation,
+            manifest,
+            failed=failed,
+        )
 
     async def _release_cleanup_claim(
         self,
@@ -898,36 +734,14 @@ class RetentionErasureService:
         reason: str,
     ) -> None:
         """Best-effort release of an aborted claim so a later retry can re-claim immediately."""
-        try:
-            async with self._coordinator.transaction(tenant_id) as transaction:
-                state = await self._get_or_materialize_state_record(
-                    transaction.connection,
-                    authorization_log_id,
-                )
-                if state.active_claim_id != claim_id or state.generation != generation:
-                    return
-                await self._log.record_in_transaction(
-                    transaction.connection,
-                    tenant_id=tenant_id,
-                    run_id=run_id,
-                    action="external_cleanup_claim_released",
-                    reason=reason,
-                    detail={
-                        "authorization_log_id": authorization_log_id,
-                        "claim_id": claim_id,
-                        "generation": generation,
-                        "revision": state.revision + 1,
-                    },
-                )
-                await self._cleanup_state.release_in_transaction(
-                    transaction.connection,
-                    authorization_log_id=authorization_log_id,
-                    claim_id=claim_id,
-                    generation=generation,
-                    expected_revision=state.revision,
-                )
-        except Exception:
-            logger.exception("failed to release external cleanup claim %s", claim_id)
+        await self._claims.release(
+            authorization_log_id=authorization_log_id,
+            claim_id=claim_id,
+            generation=generation,
+            tenant_id=tenant_id,
+            run_id=run_id,
+            reason=reason,
+        )
 
     @staticmethod
     def _result_from_manifest(
