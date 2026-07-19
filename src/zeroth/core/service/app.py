@@ -395,7 +395,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     app.include_router(studio_router)
 
-    from zeroth.core.service.admin_api import register_admin_routes
+    from zeroth.service.api.admin_api import register_admin_routes
 
     register_admin_routes(v1_router)
     register_cost_routes(v1_router)
