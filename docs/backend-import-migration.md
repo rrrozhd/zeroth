@@ -147,11 +147,27 @@ compares the canonical entry against the legacy one. Relocation therefore fails
 that gate whether or not the canonical fixture is updated, and the legacy
 fixture may not be edited.
 
-Physically relocating model definitions requires first making the surface
-harness location-independent — normalizing `zeroth.*` module qualifiers out of
-signature strings on both sides at comparison time, with the fixtures left
-untouched. That is a deliberate amendment to a Task 1 contract and belongs in
-its own commit, before the Task 12–16 package moves that cannot avoid it.
+**Resolved 2026-07-18** in `test: compare capability signatures independently
+of import location`. `_comparable()` in
+`tests/architecture/test_library_surface.py` now normalizes
+`zeroth.<anything>.SomeType` to `SomeType` on both sides of every signature
+comparison. The fixtures are never rewritten, so the immutability rule holds
+literally.
+
+This was forced rather than chosen: 141 of the 895 protected capabilities carry
+a `zeroth.*` path in their pinned signature, concentrated in the packages Tasks
+10–16 must move — `execution_units` (96), `graph` (51), `service` (26),
+`identity` (21), `agent_runtime` (19), `runs` and `config` (17 each),
+`approvals` (16), `audit` (15). Raw string comparison made every one of those
+moves fail a fixture that cannot be edited.
+
+Physical relocation is therefore available from Task 10 onward. The re-export
+approach used in Tasks 5–9 remains valid and does not need unwinding; it is
+simply no longer the only option. Accepted cost: two same-named classes in
+different packages no longer compare as different — parameter names, order,
+defaults and bare type names stay pinned, and
+`tests/architecture/test_backend_dependencies.py` independently constrains
+which package may supply a symbol.
 
 ### Import-direction constraint while the models are republished
 
