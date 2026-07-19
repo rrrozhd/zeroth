@@ -356,7 +356,7 @@ async def bootstrap_service(
     orchestrator.http_client = http_client_instance
 
     # Phase 36: Template registry and renderer.
-    from zeroth.core.templates import TemplateRegistry, TemplateRenderer  # noqa: PLC0415
+    from zeroth.contracts.templates import TemplateRegistry, TemplateRenderer  # noqa: PLC0415
 
     template_registry = TemplateRegistry()
     template_renderer = TemplateRenderer()

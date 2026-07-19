@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.core.templates.errors import TemplateNotFoundError, TemplateVersionExistsError
+from zeroth.contracts.templates.errors import TemplateNotFoundError, TemplateVersionExistsError
 from zeroth.service.api.authorization import Permission, require_permission
 
 

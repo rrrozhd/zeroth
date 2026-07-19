@@ -192,7 +192,7 @@ class NodeDispatcher:
             and self.template_renderer is not None
             and agent_template_ref is not None
         ):
-            from zeroth.core.templates import TemplateRegistry, TemplateRenderer
+            from zeroth.contracts.templates import TemplateRegistry, TemplateRenderer
 
             template_ref = node.agent.template_ref
             registry: TemplateRegistry = self.template_registry
@@ -213,7 +213,7 @@ class NodeDispatcher:
             rendered_prompt_for_audit = render_result.rendered
 
             # Phase 36: Redact secret variable values before audit storage.
-            from zeroth.core.templates.redaction import (
+            from zeroth.contracts.templates.redaction import (
                 identify_secret_variables,
                 redact_rendered_prompt,
             )

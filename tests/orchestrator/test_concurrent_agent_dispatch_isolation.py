@@ -38,7 +38,7 @@ from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs import Run, RunRepository
-from zeroth.core.templates import TemplateReference, TemplateRegistry, TemplateRenderer
+from zeroth.contracts.templates import TemplateReference, TemplateRegistry, TemplateRenderer
 
 
 class _Input(BaseModel):

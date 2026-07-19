@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from zeroth.core.graph.models import AgentNode, AgentNodeData, Edge, Graph
-from zeroth.core.templates.models import TemplateReference
+from zeroth.contracts.templates.models import TemplateReference
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ class TestAgentNodeDataTemplateRef:
 class TestOrchestratorTemplateResolution:
     @pytest.fixture()
     def registry(self):
-        from zeroth.core.templates.registry import TemplateRegistry
+        from zeroth.contracts.templates.registry import TemplateRegistry
 
         reg = TemplateRegistry()
         reg.register("greeting", 1, "Hello {{ input.name }}! Key={{ input.api_key }}")
@@ -149,7 +149,7 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.fixture()
     def renderer(self):
-        from zeroth.core.templates.renderer import TemplateRenderer
+        from zeroth.contracts.templates.renderer import TemplateRenderer
 
         return TemplateRenderer()
 
@@ -252,7 +252,7 @@ class TestOrchestratorTemplateResolution:
     @pytest.mark.asyncio()
     async def test_template_not_found_raises(self, registry, renderer, runner):
         from zeroth.core.orchestrator import RuntimeOrchestrator
-        from zeroth.core.templates.errors import TemplateNotFoundError
+        from zeroth.contracts.templates.errors import TemplateNotFoundError
 
         graph = self._make_graph(template_ref=TemplateReference(name="nonexistent"))
         orchestrator = RuntimeOrchestrator(
@@ -317,7 +317,7 @@ class TestOrchestratorTemplateResolution:
     @pytest.mark.asyncio()
     async def test_template_variables_include_input_and_state(self, renderer, runner):
         """Template variables should include input payload and run state metadata."""
-        from zeroth.core.templates.registry import TemplateRegistry
+        from zeroth.contracts.templates.registry import TemplateRegistry
         from zeroth.core.orchestrator import RuntimeOrchestrator
 
         reg = TemplateRegistry()
@@ -360,7 +360,7 @@ class TestOrchestratorTemplateResolution:
 class TestAuditRedaction:
     @pytest.fixture()
     def renderer(self):
-        from zeroth.core.templates.renderer import TemplateRenderer
+        from zeroth.contracts.templates.renderer import TemplateRenderer
 
         return TemplateRenderer()
 
@@ -394,7 +394,7 @@ class TestAuditRedaction:
     async def test_secret_variable_redacted_in_audit(self, renderer, runner):
         """When template has a secret-patterned variable, audit rendered_prompt is redacted."""
         from zeroth.core.orchestrator import RuntimeOrchestrator
-        from zeroth.core.templates.registry import TemplateRegistry
+        from zeroth.contracts.templates.registry import TemplateRegistry
 
         reg = TemplateRegistry()
         reg.register(
@@ -416,7 +416,8 @@ class TestAuditRedaction:
             template_renderer=renderer,
         )
         run = await orchestrator.run_graph(
-            graph, {"name": "Alice", "api_key": "sk-secret-123"},
+            graph,
+            {"name": "Alice", "api_key": "sk-secret-123"},
         )
 
         assert len(audit_repo.records) == 1
@@ -433,7 +434,7 @@ class TestAuditRedaction:
     async def test_no_secret_variables_unredacted_in_audit(self, renderer, runner):
         """When template variables have no secret names, rendered_prompt is unredacted."""
         from zeroth.core.orchestrator import RuntimeOrchestrator
-        from zeroth.core.templates.registry import TemplateRegistry
+        from zeroth.contracts.templates.registry import TemplateRegistry
 
         reg = TemplateRegistry()
         reg.register("safe_test", 1, "Hello {{ input.name }}!")

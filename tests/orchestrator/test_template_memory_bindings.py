@@ -32,8 +32,8 @@ from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnect
 from zeroth.core.memory.tenant_scoped import TenantScopedMemoryConnector
 from zeroth.core.orchestrator.runtime import MemoryBindingResolutionError, RuntimeOrchestrator
 from zeroth.core.runs import Run, RunRepository, RunStatus
-from zeroth.core.templates.registry import TemplateRegistry
-from zeroth.core.templates.renderer import TemplateRenderer
+from zeroth.contracts.templates.registry import TemplateRegistry
+from zeroth.contracts.templates.renderer import TemplateRenderer
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -402,7 +402,7 @@ class _AnyOutput(BaseModel):
 @pytest.mark.asyncio
 async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
     """End-to-end: memory value from template_memory_binding reaches the rendered template."""
-    from zeroth.core.templates.models import TemplateReference
+    from zeroth.contracts.templates.models import TemplateReference
 
     reg, raw = _make_registry_and_connector()
     await _prepopulate(raw, "lang", "Python")
@@ -478,7 +478,7 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
 @pytest.mark.asyncio
 async def test_tmb_audit_record_present_in_dispatch_audit(sqlite_db) -> None:
     """_dispatch_node populates execution_metadata.template_memory_bindings in audit record."""
-    from zeroth.core.templates.models import TemplateReference
+    from zeroth.contracts.templates.models import TemplateReference
 
     reg, raw = _make_registry_and_connector()
     await _prepopulate(raw, "ctx", "some-context")

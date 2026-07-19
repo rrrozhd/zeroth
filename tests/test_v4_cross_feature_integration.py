@@ -35,9 +35,9 @@ from zeroth.core.parallel.errors import FanOutValidationError
 from zeroth.core.parallel.models import ParallelConfig
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.templates.models import TemplateReference
-from zeroth.core.templates.registry import TemplateRegistry
-from zeroth.core.templates.renderer import TemplateRenderer
+from zeroth.contracts.templates.models import TemplateReference
+from zeroth.contracts.templates.registry import TemplateRegistry
+from zeroth.contracts.templates.renderer import TemplateRenderer
 
 
 # ---------------------------------------------------------------------------
