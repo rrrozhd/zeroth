@@ -45,6 +45,7 @@ RELOCATED_SERVICE_MODULES = [
     ("zeroth.service.api.webhook_api", "zeroth.core.service.webhook_api"),
     ("zeroth.service.api.retention_api", "zeroth.core.service.retention_api"),
     ("zeroth.service.api.audit_api", "zeroth.core.service.audit_api"),
+    ("zeroth.service.api.studio_api", "zeroth.core.service.studio_api"),
 ]
 
 

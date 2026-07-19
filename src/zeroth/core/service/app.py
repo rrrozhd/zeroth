@@ -391,7 +391,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_run_routes(v1_router)
 
     # Studio graph authoring API
-    from zeroth.core.service.studio_api import router as studio_router
+    from zeroth.service.api.studio_api import router as studio_router
 
     app.include_router(studio_router)
 
