@@ -19,10 +19,10 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from zeroth.core.runs import RunStatus
-from zeroth.core.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase
 
 try:
-    from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
+    from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
     _HAS_PG = True
 except ImportError:

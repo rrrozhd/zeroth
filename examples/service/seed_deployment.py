@@ -35,7 +35,7 @@ from zeroth.core.graph import (
     GraphRepository,
 )
 from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage.factory import create_database
+from zeroth.platform.storage.factory import create_database
 
 DEPLOYMENT_REF = "examples-api"
 

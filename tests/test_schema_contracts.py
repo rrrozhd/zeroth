@@ -18,7 +18,7 @@ from tests.test_studio_publish_deploy import _make_env
 from zeroth.core.contracts.registry import ContractReference, ContractRegistry
 from zeroth.core.contracts.schema_model import model_from_json_schema
 from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 ORDER_SCHEMA = {
     "type": "object",

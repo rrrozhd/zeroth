@@ -25,7 +25,7 @@ from zeroth.core.audit.coordination import AuditChainOrderingError, order_audit_
 from zeroth.core.audit.erasure_schema import pii_commitment_fields
 from zeroth.core.audit.models import AuditContinuityReport, NodeAuditRecord
 from zeroth.core.signing import sign_digest, verify_digest
-from zeroth.core.storage.json import to_json_value
+from zeroth.platform.storage.json import to_json_value
 
 if TYPE_CHECKING:
     from zeroth.core.signing import SigningKeyProvider

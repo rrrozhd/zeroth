@@ -7,7 +7,7 @@ read them back out again.
 from __future__ import annotations
 
 from zeroth.core.graph.models import Graph
-from zeroth.core.storage.json import load_model, to_json_value
+from zeroth.platform.storage.json import load_model, to_json_value
 
 
 def serialize_graph(graph: Graph) -> str:

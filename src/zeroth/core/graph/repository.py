@@ -15,7 +15,7 @@ from zeroth.core.graph.models import Graph, GraphStatus
 from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.core.graph.storage import GRAPH_SCHEMA_VERSION
 from zeroth.core.graph.versioning import clone_graph_version
-from zeroth.core.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase
 
 if TYPE_CHECKING:
     # Annotation-only: importing the validator eagerly would put the whole

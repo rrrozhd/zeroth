@@ -13,7 +13,7 @@ from zeroth.core.graph.repository import GraphRepository
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.core.service.studio_api import router as studio_router
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 def _make_app(

@@ -32,7 +32,7 @@ os.environ.setdefault(
 )
 
 from zeroth.core.service.bootstrap import run_migrations  # noqa: E402
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ def postgres_container():
 @pytest.fixture
 async def postgres_database(postgres_container):
     """Async Postgres database for tests."""
-    from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
+    from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
     url = postgres_container.get_connection_url()
     sa_url = url.replace("psycopg2", "psycopg")
@@ -121,7 +121,7 @@ async def dual_database(request, tmp_path, postgres_container):
         yield db
         await db.close()
     else:
-        from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
+        from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
         url = postgres_container.get_connection_url()
         sa_url = url.replace("psycopg2", "psycopg")

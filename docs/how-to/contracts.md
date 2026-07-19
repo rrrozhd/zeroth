@@ -15,7 +15,7 @@ from zeroth.core.contracts import (
     ContractReference,
     StepContractBinding,
 )
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 class SummariseInput(BaseModel):

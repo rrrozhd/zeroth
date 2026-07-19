@@ -89,8 +89,8 @@ class TestRunRepositoryDualBackend:
 class TestDatabaseFactory:
     async def test_factory_creates_sqlite(self, tmp_path):
         from zeroth.platform.config.settings import ZerothSettings
-        from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
-        from zeroth.core.storage.factory import create_database
+        from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+        from zeroth.platform.storage.factory import create_database
 
         settings = ZerothSettings(
             database={"backend": "sqlite", "sqlite_path": str(tmp_path / "test.db")}
@@ -101,8 +101,8 @@ class TestDatabaseFactory:
 
     async def test_factory_creates_postgres(self, postgres_container):
         from zeroth.platform.config.settings import ZerothSettings
-        from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
-        from zeroth.core.storage.factory import create_database
+        from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
+        from zeroth.platform.storage.factory import create_database
 
         url = postgres_container.get_connection_url()
         dsn = url.replace("postgresql+psycopg2://", "postgresql://")

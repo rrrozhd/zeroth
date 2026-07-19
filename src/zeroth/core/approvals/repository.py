@@ -9,8 +9,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from zeroth.core.approvals.models import ApprovalRecord, ApprovalStatus
-from zeroth.core.storage import AsyncDatabase
-from zeroth.core.storage.json import load_typed_value, to_json_value
+from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage.json import load_typed_value, to_json_value
 
 
 class ApprovalRepository:

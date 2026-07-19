@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from zeroth.core.storage import SQLiteDatabase
+from zeroth.platform.storage import SQLiteDatabase
 
 
 @pytest.fixture

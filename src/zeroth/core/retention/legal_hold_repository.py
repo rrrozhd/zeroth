@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from zeroth.core.retention.coordination import RetentionCoordinator, RetentionTransaction
 from zeroth.core.retention.models import LegalHold, TenantHolds
-from zeroth.core.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase
 
 
 class LegalHoldRepository:

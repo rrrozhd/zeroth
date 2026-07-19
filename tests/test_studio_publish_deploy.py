@@ -23,7 +23,7 @@ from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.core.service.deployment_api import register_deployment_routes
 from zeroth.core.service.studio_api import router as studio_router
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 class _In(BaseModel):

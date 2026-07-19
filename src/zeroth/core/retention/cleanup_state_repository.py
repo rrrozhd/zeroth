@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from zeroth.core.retention.cleanup_manifest import CleanupManifest, CleanupOperation
-    from zeroth.core.storage import AsyncConnection
+    from zeroth.platform.storage import AsyncConnection
 
 
 @dataclass(frozen=True, slots=True)

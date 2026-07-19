@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase
 
 
 def _utcnow_iso() -> str:

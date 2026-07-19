@@ -17,7 +17,7 @@ from zeroth.core.graph import (
     Graph,
     GraphRepository,
 )
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 async def main() -> None:

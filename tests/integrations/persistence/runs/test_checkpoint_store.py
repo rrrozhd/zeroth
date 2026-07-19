@@ -15,9 +15,9 @@ from pathlib import Path
 import pytest
 
 from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage import EncryptedField
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.core.storage.json import to_json_value
+from zeroth.platform.storage import EncryptedField
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.json import to_json_value
 from zeroth.integrations.persistence.runs.checkpoint_store import (
     CheckpointRowStore,
     new_checkpoint_id,

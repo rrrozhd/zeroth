@@ -12,8 +12,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from zeroth.core.storage import AsyncConnection
-from zeroth.core.storage.json import from_json_value
+from zeroth.platform.storage import AsyncConnection
+from zeroth.platform.storage.json import from_json_value
 from zeroth.runtime.runs import RunStatus
 
 #: TTL erasure only ever considers runs that have finished. PENDING, RUNNING,

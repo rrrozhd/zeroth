@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from zeroth.core.storage import AsyncDatabase
 from zeroth.platform.primitives import utc_now
+from zeroth.platform.storage import AsyncDatabase
 
 
 @dataclass(slots=True)

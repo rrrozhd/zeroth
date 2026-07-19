@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.integrations.persistence.runs import retention_queries
 from zeroth.integrations.persistence.runs.run_repository import (
     ALLOWED_TRANSITIONS,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from zeroth.core.retention.models import SYSTEM_DEFAULT_TENANT, RetentionPolicy
-from zeroth.core.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase
 
 
 def _to_bool(value: object) -> bool:

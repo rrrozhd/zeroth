@@ -12,8 +12,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from zeroth.core.storage import AsyncConnection, AsyncDatabase
-from zeroth.core.storage.json import to_json_value
+from zeroth.platform.storage import AsyncConnection, AsyncDatabase
+from zeroth.platform.storage.json import to_json_value
 
 
 class RetentionAuditLogRepository:

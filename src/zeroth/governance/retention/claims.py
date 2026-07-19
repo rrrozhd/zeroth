@@ -28,9 +28,9 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from zeroth.core.retention.cleanup_manifest import CleanupManifest, parse_cleanup_manifest
-from zeroth.core.storage.json import from_json_value
 from zeroth.governance.retention.errors import StaleCleanupClaimError
 from zeroth.governance.retention.replay import CleanupReplayState
+from zeroth.platform.storage.json import from_json_value
 
 if TYPE_CHECKING:
     from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository

@@ -12,7 +12,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import uuid4
 
-from zeroth.core.storage import AsyncDatabase
 from zeroth.integrations.persistence.runs.run_repository import (
     _merge,
     _merge_models,
@@ -20,6 +19,7 @@ from zeroth.integrations.persistence.runs.run_repository import (
 )
 from zeroth.integrations.persistence.runs.serialization import row_to_thread
 from zeroth.platform.primitives import utc_now
+from zeroth.platform.storage import AsyncDatabase
 from zeroth.runtime.runs import Thread, ThreadMemoryBinding, ThreadStatus
 
 __all__ = ["ThreadRepository"]

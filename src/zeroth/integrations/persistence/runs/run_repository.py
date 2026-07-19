@@ -19,8 +19,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from zeroth.core.storage import AsyncConnection, AsyncDatabase
-from zeroth.core.storage.json import to_json_value
 from zeroth.integrations.persistence.runs import retention_queries
 from zeroth.integrations.persistence.runs.checkpoint_store import (
     CheckpointRowStore,
@@ -39,6 +37,8 @@ from zeroth.integrations.persistence.runs.serialization import (
     row_to_thread,
 )
 from zeroth.platform.primitives import utc_now
+from zeroth.platform.storage import AsyncConnection, AsyncDatabase
+from zeroth.platform.storage.json import to_json_value
 from zeroth.runtime.runs import (
     Run,
     RunConditionResult,

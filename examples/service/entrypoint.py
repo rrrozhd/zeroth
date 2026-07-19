@@ -55,7 +55,7 @@ from zeroth.core.identity import ServiceRole
 from zeroth.core.service.app import create_app
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import bootstrap_service
-from zeroth.core.storage.factory import create_database
+from zeroth.platform.storage.factory import create_database
 
 
 async def build_app_async():

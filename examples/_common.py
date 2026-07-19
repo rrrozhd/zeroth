@@ -38,7 +38,7 @@ from zeroth.core.service.bootstrap import (
     bootstrap_service,
     run_migrations,
 )
-from zeroth.core.storage import AsyncSQLiteDatabase
+from zeroth.platform.storage import AsyncSQLiteDatabase
 
 # ---------------------------------------------------------------------------
 # Env guards so the whole examples suite runs hermetically in CI.

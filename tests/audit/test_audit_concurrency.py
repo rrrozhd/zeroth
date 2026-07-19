@@ -10,7 +10,7 @@ from tests.conftest import requires_docker
 from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
 from zeroth.core.audit import coordination as audit_coordination
 from zeroth.core.audit.verifier import compute_chained_record
-from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
+from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
 
 def _record(*, audit_id: str, run_id: str, started_at: datetime) -> NodeAuditRecord:

@@ -24,7 +24,7 @@ from zeroth.core.graph.repository import GraphRepository
 from zeroth.runtime.graph_validation import GraphValidator
 
 if TYPE_CHECKING:
-    from zeroth.core.storage.database import AsyncDatabase
+    from zeroth.platform.storage.database import AsyncDatabase
 
 DEMO_GRAPH_ID = "demo-hello"
 DEMO_INPUT_CONTRACT = "contract://demo-question"

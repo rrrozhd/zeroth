@@ -23,8 +23,8 @@ if TYPE_CHECKING:
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.core.secrets import SecretProvider
     from zeroth.core.signing import SigningKeyProvider
-    from zeroth.core.storage import AsyncDatabase
     from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+    from zeroth.platform.storage import AsyncDatabase
     from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
 
 

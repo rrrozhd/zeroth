@@ -33,6 +33,7 @@ PLATFORM_ROOTS = (
     "zeroth.core.storage",
     "zeroth.core.config",
     "zeroth.platform.config",
+    "zeroth.platform.storage",
     "zeroth.platform.primitives",
 )
 

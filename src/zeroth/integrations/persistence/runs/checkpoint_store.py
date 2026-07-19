@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from zeroth.core.storage import AsyncDatabase
-from zeroth.core.storage.json import load_typed_value
+from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage.json import load_typed_value
 from zeroth.runtime.runs import Run
 
 

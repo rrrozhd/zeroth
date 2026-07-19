@@ -27,7 +27,7 @@ from zeroth.core.policy.models import Capability
 
 if TYPE_CHECKING:
     from zeroth.core.secrets import SecretProvider
-    from zeroth.core.storage.database import AsyncDatabase
+    from zeroth.platform.storage.database import AsyncDatabase
 
 
 class AgentRunnerFactoryError(RuntimeError):

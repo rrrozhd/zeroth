@@ -14,8 +14,8 @@ from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import RunRepository, RunStatus, ThreadRepository
 from zeroth.core.secrets import EnvSecretProvider, SecretResolver
 from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage import EncryptedField
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage import EncryptedField
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 def test_encrypted_field_round_trips_plaintext() -> None:

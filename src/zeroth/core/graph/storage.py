@@ -6,7 +6,7 @@ table.  The repository uses these migrations automatically when it starts up.
 
 from __future__ import annotations
 
-from zeroth.core.storage import Migration
+from zeroth.platform.storage import Migration
 
 GRAPH_SCHEMA_VERSION = 2
 GRAPH_SCHEMA_SCOPE = "graphs"

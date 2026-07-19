@@ -58,8 +58,8 @@ async def _serve(settings) -> None:
 
 async def _bootstrap():
     """Create database, bootstrap service, and return the FastAPI app."""
-    from zeroth.core.storage.factory import create_database
     from zeroth.platform.config.settings import get_settings
+    from zeroth.platform.storage.factory import create_database
     from zeroth.service.app import create_app
     from zeroth.service.bootstrap.factory import bootstrap_service
 

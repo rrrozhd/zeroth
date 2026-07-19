@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from zeroth.core.audit.models import NodeAuditRecord
-from zeroth.core.storage.coordination import ensure_and_lock_row
-from zeroth.core.storage.database import AsyncConnection
-from zeroth.core.storage.json import load_typed_value
+from zeroth.platform.storage.coordination import ensure_and_lock_row
+from zeroth.platform.storage.database import AsyncConnection
+from zeroth.platform.storage.json import load_typed_value
 
 # Keep the common pure-sequence path indexable. In particular, do not replace
 # these with a CASE expression that forces SQLite to build a temporary B-tree.

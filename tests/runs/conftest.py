@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 @pytest.fixture

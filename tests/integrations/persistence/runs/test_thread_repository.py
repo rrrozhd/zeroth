@@ -13,7 +13,7 @@ import sys
 
 import pytest
 
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
 from zeroth.runtime.runs import Thread, ThreadMemoryBinding, ThreadStatus
 

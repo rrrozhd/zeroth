@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from zeroth.core.storage import AsyncConnection, AsyncDatabase, ensure_and_lock_row
+from zeroth.platform.storage import AsyncConnection, AsyncDatabase, ensure_and_lock_row
 
 
 @dataclass(frozen=True, slots=True)

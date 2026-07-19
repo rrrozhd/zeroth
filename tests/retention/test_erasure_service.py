@@ -10,7 +10,7 @@ import pytest
 from tests.retention.conftest import make_audit_record
 from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.core.retention.erasure_service import LegalHoldError
-from zeroth.core.storage.json import to_json_value
+from zeroth.platform.storage.json import to_json_value
 
 
 async def _pii_present(database, ssn: str) -> dict[str, bool]:

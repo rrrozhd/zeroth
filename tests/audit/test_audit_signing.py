@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
 from zeroth.core.audit.verifier import _compute_record_digest, compute_chained_record
 from zeroth.core.signing import EnvHmacSigner
-from zeroth.core.storage.json import to_json_value
+from zeroth.platform.storage.json import to_json_value
 
 
 def _record(*, audit_id: str, run_id: str, node_id: str = "n1") -> NodeAuditRecord:

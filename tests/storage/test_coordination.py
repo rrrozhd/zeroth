@@ -10,11 +10,11 @@ import pytest
 from psycopg.errors import LockNotAvailable, QueryCanceled
 
 from tests.conftest import requires_docker
-from zeroth.core.storage import async_sqlite
-from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.core.storage.database import CoordinationTimeoutError
-from zeroth.core.storage.coordination import ensure_and_lock_row
+from zeroth.platform.storage import async_sqlite
+from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.database import CoordinationTimeoutError
+from zeroth.platform.storage.coordination import ensure_and_lock_row
 
 
 @pytest.mark.asyncio
@@ -511,7 +511,7 @@ async def test_postgres_ordinary_transaction_preserves_query_cancellation() -> N
 
 @pytest.mark.asyncio
 async def test_postgres_create_validates_timeout_before_opening_pool() -> None:
-    with patch("zeroth.core.storage.async_postgres.AsyncConnectionPool") as pool_type:
+    with patch("zeroth.platform.storage.async_postgres.AsyncConnectionPool") as pool_type:
         with pytest.raises(ValueError, match="finite positive"):
             await AsyncPostgresDatabase.create(
                 "postgresql://example.invalid/database",

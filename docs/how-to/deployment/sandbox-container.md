@@ -83,6 +83,6 @@ per-execution resource flags (`build_docker_resource_flags` in
 
 The runtime calls `docker inspect -f '{{.State.Running}}'` to decide if
 the sidecar is healthy (`docker_container_running` in
-`zeroth.core.storage.redis` and equivalent checks in the sandbox
+`zeroth.platform.storage.redis` and equivalent checks in the sandbox
 module). Your orchestrator's own health probes are independent — use
 both.

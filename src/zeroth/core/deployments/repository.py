@@ -11,8 +11,8 @@ from zeroth.core.deployments.provenance import (
     compute_graph_snapshot_digest,
     compute_settings_snapshot_digest,
 )
-from zeroth.core.storage import AsyncDatabase
-from zeroth.core.storage.json import load_typed_value, to_json_value
+from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage.json import load_typed_value, to_json_value
 
 
 class DeploymentRefLineageConflictError(RuntimeError):

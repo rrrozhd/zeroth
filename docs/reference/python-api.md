@@ -14,7 +14,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 ### Data & state
 - [Mappings](python-api/mappings.md) — `zeroth.core.mappings`
 - [Memory](python-api/memory.md) — `zeroth.core.memory`
-- [Storage](python-api/storage.md) — `zeroth.core.storage`
+- [Storage](python-api/storage.md) — `zeroth.platform.storage`
 - [Contracts](python-api/contracts.md) — `zeroth.core.contracts`
 - [Runs](python-api/runs.md) — `zeroth.core.runs`
 

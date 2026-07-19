@@ -14,9 +14,9 @@ from zeroth.core.retention.legal_hold_repository import LegalHoldRepository
 from zeroth.core.retention.models import LegalHold
 from zeroth.core.retention.policy_repository import RetentionPolicyRepository
 from zeroth.core.runs import RunRepository
-from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.core.storage.database import AsyncDatabase, CoordinationTimeoutError
+from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.database import AsyncDatabase, CoordinationTimeoutError
 
 
 class _BlockingPlaceRepository(LegalHoldRepository):

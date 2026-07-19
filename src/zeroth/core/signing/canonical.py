@@ -12,7 +12,7 @@ sides regardless of insertion order.
 
 from __future__ import annotations
 
-from zeroth.core.storage.json import to_json_value
+from zeroth.platform.storage.json import to_json_value
 
 
 def signable_bytes(digest: str, key_id: str, algorithm: str) -> bytes:

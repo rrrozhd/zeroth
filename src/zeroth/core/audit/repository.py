@@ -23,8 +23,8 @@ from zeroth.core.audit.erasure_schema import (
 )
 from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
-from zeroth.core.storage import AsyncConnection, AsyncDatabase
-from zeroth.core.storage.json import to_json_value
+from zeroth.platform.storage import AsyncConnection, AsyncDatabase
+from zeroth.platform.storage.json import to_json_value
 
 if TYPE_CHECKING:
     from zeroth.core.signing import SigningKeyProvider

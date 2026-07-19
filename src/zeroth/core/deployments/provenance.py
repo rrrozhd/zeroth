@@ -18,7 +18,7 @@ import hashlib
 from typing import TYPE_CHECKING
 
 from zeroth.core.signing import sign_digest, verify_digest
-from zeroth.core.storage.json import to_json_value
+from zeroth.platform.storage.json import to_json_value
 
 if TYPE_CHECKING:
     from zeroth.core.signing import SigningKeyProvider

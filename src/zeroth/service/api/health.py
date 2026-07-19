@@ -18,7 +18,7 @@ from redis.asyncio import from_url as redis_from_url
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from zeroth.core.storage.database import AsyncDatabase
+    from zeroth.platform.storage.database import AsyncDatabase
 
 
 class DependencyStatus(BaseModel):

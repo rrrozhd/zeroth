@@ -10,7 +10,7 @@ A run is Zeroth's persistent record of one graph execution. After the orchestrat
 import asyncio
 
 from zeroth.core.runs import Run, RunRepository, RunStatus
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 async def main() -> None:

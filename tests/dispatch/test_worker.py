@@ -10,7 +10,7 @@ from zeroth.core.dispatch.lease import LeaseManager
 from zeroth.core.dispatch.worker import RunWorker
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.runs.models import Run
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 DEPLOYMENT = "worker-test-deployment"
 

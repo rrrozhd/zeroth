@@ -45,8 +45,8 @@ def _cmd_migrate(_args: argparse.Namespace) -> int:
 def _cmd_seed_demo(args: argparse.Namespace) -> int:
     async def _run() -> None:
         from zeroth.core.examples.demo_service import seed_demo
-        from zeroth.core.storage.factory import create_database
         from zeroth.platform.config.settings import get_settings
+        from zeroth.platform.storage.factory import create_database
 
         ensure_schema()
         database = await create_database(get_settings())

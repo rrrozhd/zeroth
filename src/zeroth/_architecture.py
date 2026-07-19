@@ -202,10 +202,20 @@ TEMPORARY_EXCEPTIONS = {
         ("zeroth.core.dispatch.worker", "zeroth.core.orchestrator"),
         ("zeroth.core.dispatch.worker", "zeroth.core.approvals"),
         ("zeroth.core.secrets.provider", "zeroth.core.execution_units.models"),
-        ("zeroth.core.storage.redis", "zeroth.core.governed.audit.redis"),
-        ("zeroth.core.storage.redis", "zeroth.core.governed.runtime"),
         reason="Legacy infrastructure packages contain domain-aware wiring.",
         removal_task="Task 11: move platform packages and relocate domain-aware wiring.",
+    ),
+    **_exception_group(
+        ("zeroth.core.storage.redis", "zeroth.integrations.persistence.governed_redis"),
+        reason=(
+            "zeroth.core.storage:GovernAIRedisRuntimeStores and "
+            ":build_governai_redis_runtime are protected legacy capabilities, so "
+            "the legacy storage package must keep republishing the governed store "
+            "factory it no longer owns. Resolution stays lazy: making it eager "
+            "would put runtime and governance code on the import path of "
+            "everything that touches storage."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
         ("zeroth.core.conditions.branch", "zeroth.core.runs.models"),
