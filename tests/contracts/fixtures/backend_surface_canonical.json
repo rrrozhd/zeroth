@@ -9356,25 +9356,25 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.approval_api"
+        "schema_model:zeroth.service.api.approval_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.approval_api:ApprovalResolutionRequest"
       ],
-      "module": "zeroth.core.service.approval_api",
+      "module": "zeroth.service.api.approval_api",
       "name": "ApprovalResolutionRequest",
       "signature": "(*, decision: zeroth.core.approvals.models.ApprovalDecision, edited_payload: dict[str, typing.Any] | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.approval_api"
+        "schema_model:zeroth.service.api.approval_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.approval_api:ApprovalResolutionResponse"
       ],
-      "module": "zeroth.core.service.approval_api",
+      "module": "zeroth.service.api.approval_api",
       "name": "ApprovalResolutionResponse",
       "signature": "(*, approval: zeroth.core.approvals.models.ApprovalRecord, run: zeroth.service.api.run_api.RunStatusResponse) -> None"
     },
@@ -9599,49 +9599,49 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.connector_api"
+        "schema_model:zeroth.service.api.connector_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.connector_api:ConnectorCreateRequest"
       ],
-      "module": "zeroth.core.service.connector_api",
+      "module": "zeroth.service.api.connector_api",
       "name": "ConnectorCreateRequest",
       "signature": "(*, ref: str, backend_type: str, params: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.connector_api"
+        "schema_model:zeroth.service.api.connector_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.connector_api:ConnectorSummaryResponse"
       ],
-      "module": "zeroth.core.service.connector_api",
+      "module": "zeroth.service.api.connector_api",
       "name": "ConnectorSummaryResponse",
       "signature": "(*, ref: str, connector_type: str, scope: str, backend: str, source: str = 'env', backend_type: str | None = None, params: dict[str, typing.Any] | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.connector_api"
+        "schema_model:zeroth.service.api.connector_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.connector_api:ConnectorTestResponse"
       ],
-      "module": "zeroth.core.service.connector_api",
+      "module": "zeroth.service.api.connector_api",
       "name": "ConnectorTestResponse",
       "signature": "(*, ok: bool, detail: str | None = None, latency_ms: float) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.connector_api"
+        "schema_model:zeroth.service.api.connector_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.connector_api:ConnectorUpdateRequest"
       ],
-      "module": "zeroth.core.service.connector_api",
+      "module": "zeroth.service.api.connector_api",
       "name": "ConnectorUpdateRequest",
       "signature": "(*, backend_type: str, params: dict[str, typing.Any] = <factory>) -> None"
     },
@@ -9683,73 +9683,73 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.cost_api"
+        "schema_model:zeroth.service.api.cost_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.cost_api:DeploymentCostResponse"
       ],
-      "module": "zeroth.core.service.cost_api",
+      "module": "zeroth.service.api.cost_api",
       "name": "DeploymentCostResponse",
       "signature": "(*, deployment_ref: str, total_cost_usd: float, currency: str = 'USD') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.cost_api"
+        "schema_model:zeroth.service.api.cost_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.cost_api:TenantBudgetRequest"
       ],
-      "module": "zeroth.core.service.cost_api",
+      "module": "zeroth.service.api.cost_api",
       "name": "TenantBudgetRequest",
       "signature": "(*, budget_cap_usd: float) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.cost_api"
+        "schema_model:zeroth.service.api.cost_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.cost_api:TenantCostResponse"
       ],
-      "module": "zeroth.core.service.cost_api",
+      "module": "zeroth.service.api.cost_api",
       "name": "TenantCostResponse",
       "signature": "(*, tenant_id: str, total_cost_usd: float, budget_cap_usd: float | None = None, currency: str = 'USD') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.deployment_api"
+        "schema_model:zeroth.service.api.deployment_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.deployment_api:CreateDeploymentRequest"
       ],
-      "module": "zeroth.core.service.deployment_api",
+      "module": "zeroth.service.api.deployment_api",
       "name": "CreateDeploymentRequest",
       "signature": "(*, deployment_ref: str, graph_id: str, graph_version: int | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.deployment_api"
+        "schema_model:zeroth.service.api.deployment_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.deployment_api:DeploymentSummaryResponse"
       ],
-      "module": "zeroth.core.service.deployment_api",
+      "module": "zeroth.service.api.deployment_api",
       "name": "DeploymentSummaryResponse",
       "signature": "(*, deployment_ref: str, version: int, graph_version_ref: str, status: str, serving: bool, created_at: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.deployment_api"
+        "schema_model:zeroth.service.api.deployment_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.deployment_api:RollbackDeploymentRequest"
       ],
-      "module": "zeroth.core.service.deployment_api",
+      "module": "zeroth.service.api.deployment_api",
       "name": "RollbackDeploymentRequest",
       "signature": "(*, target_graph_version: int) -> None"
     },
@@ -9899,25 +9899,25 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.rightsizing_api"
+        "schema_model:zeroth.service.api.rightsizing_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.rightsizing_api:ExperimentRequest"
       ],
-      "module": "zeroth.core.service.rightsizing_api",
+      "module": "zeroth.service.api.rightsizing_api",
       "name": "ExperimentRequest",
       "signature": "(*, node_id: Annotated[str, MinLen(min_length=1)], incumbent: Annotated[str, MinLen(min_length=1)], instruction: Annotated[str, MinLen(min_length=1)], needs_tools: bool = False, needs_vision: bool = False, judge_model: str | None = None, max_candidates: Annotated[int, Ge(ge=1), Le(le=6)] = 2, max_cases: Annotated[int, Ge(ge=1), Le(le=25)] = 5, min_cases: Annotated[int, Ge(ge=1), Le(le=50)] = 5, tolerance_pct: Annotated[float, Ge(ge=0.0), Le(le=100.0)] = 5.0, mode: Literal['equivalence', 'correctness'] = 'equivalence') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.rightsizing_api"
+        "schema_model:zeroth.service.api.rightsizing_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.rightsizing_api:RightsizingRequest"
       ],
-      "module": "zeroth.core.service.rightsizing_api",
+      "module": "zeroth.service.api.rightsizing_api",
       "name": "RightsizingRequest",
       "signature": "(*, incumbent: Annotated[str, MinLen(min_length=1)], needs_tools: bool = False, needs_vision: bool = False, min_savings_pct: Annotated[float, Ge(ge=0.0), Le(le=100.0)] = 20.0, limit: Annotated[int, Ge(ge=1), Le(le=20)] = 6) -> None"
     },
@@ -10115,37 +10115,37 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.template_api"
+        "schema_model:zeroth.service.api.template_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.template_api:CreateTemplateRequest"
       ],
-      "module": "zeroth.core.service.template_api",
+      "module": "zeroth.service.api.template_api",
       "name": "CreateTemplateRequest",
       "signature": "(*, name: str, version: int = 1, template_str: str, variables: list[str] = [], description: str = '') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.template_api"
+        "schema_model:zeroth.service.api.template_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.template_api:TemplateListResponse"
       ],
-      "module": "zeroth.core.service.template_api",
+      "module": "zeroth.service.api.template_api",
       "name": "TemplateListResponse",
-      "signature": "(*, templates: list[zeroth.core.service.template_api.TemplateResponse]) -> None"
+      "signature": "(*, templates: list[zeroth.service.api.template_api.TemplateResponse]) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.template_api"
+        "schema_model:zeroth.service.api.template_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.template_api:TemplateResponse"
       ],
-      "module": "zeroth.core.service.template_api",
+      "module": "zeroth.service.api.template_api",
       "name": "TemplateResponse",
       "signature": "(*, name: str, version: int, template_str: str, variables: list[str], description: str = '') -> None"
     },

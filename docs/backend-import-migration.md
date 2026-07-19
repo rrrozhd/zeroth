@@ -106,6 +106,23 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.service.run_api:RunInvocationRequest` | `zeroth.service.api.run_api:RunInvocationRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.service.run_api:RunInvocationResponse` | `zeroth.service.api.run_api:RunInvocationResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.service.run_api:RunStatusResponse` | `zeroth.service.api.run_api:RunStatusResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.approval_api:ApprovalResolutionRequest` | `zeroth.service.api.approval_api:ApprovalResolutionRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.approval_api:ApprovalResolutionResponse` | `zeroth.service.api.approval_api:ApprovalResolutionResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.connector_api:ConnectorCreateRequest` | `zeroth.service.api.connector_api:ConnectorCreateRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.connector_api:ConnectorSummaryResponse` | `zeroth.service.api.connector_api:ConnectorSummaryResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.connector_api:ConnectorTestResponse` | `zeroth.service.api.connector_api:ConnectorTestResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.connector_api:ConnectorUpdateRequest` | `zeroth.service.api.connector_api:ConnectorUpdateRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.cost_api:DeploymentCostResponse` | `zeroth.service.api.cost_api:DeploymentCostResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.cost_api:TenantBudgetRequest` | `zeroth.service.api.cost_api:TenantBudgetRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.cost_api:TenantCostResponse` | `zeroth.service.api.cost_api:TenantCostResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.deployment_api:CreateDeploymentRequest` | `zeroth.service.api.deployment_api:CreateDeploymentRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.deployment_api:DeploymentSummaryResponse` | `zeroth.service.api.deployment_api:DeploymentSummaryResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.deployment_api:RollbackDeploymentRequest` | `zeroth.service.api.deployment_api:RollbackDeploymentRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.rightsizing_api:ExperimentRequest` | `zeroth.service.api.rightsizing_api:ExperimentRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.rightsizing_api:RightsizingRequest` | `zeroth.service.api.rightsizing_api:RightsizingRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.template_api:CreateTemplateRequest` | `zeroth.service.api.template_api:CreateTemplateRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.template_api:TemplateListResponse` | `zeroth.service.api.template_api:TemplateListResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.template_api:TemplateResponse` | `zeroth.service.api.template_api:TemplateResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
