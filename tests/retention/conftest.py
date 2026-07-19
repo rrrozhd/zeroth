@@ -15,7 +15,7 @@ from zeroth.core.retention import (
     RetentionPolicyRepository,
 )
 from zeroth.core.runs import Run, RunRepository
-from zeroth.core.signing import EnvHmacSigner
+from zeroth.platform.signing import EnvHmacSigner
 
 
 class FakeArtifactStore:

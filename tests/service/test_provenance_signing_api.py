@@ -21,7 +21,7 @@ from zeroth.core.graph import GraphRepository
 from zeroth.core.identity import ServiceRole
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import bootstrap_app, bootstrap_service
-from zeroth.core.signing import EnvHmacSigner, SigningKeyProvider
+from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider
 
 _KEY = EnvHmacSigner(key_id="k1", keys={"k1": b"provenance-endpoint-key"})
 

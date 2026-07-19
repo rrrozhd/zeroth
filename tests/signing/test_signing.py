@@ -6,7 +6,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from zeroth.platform.config.settings import ProvenanceSigningSettings
 from zeroth.platform.secrets import EnvSecretProvider
-from zeroth.core.signing import (
+from zeroth.platform.signing import (
     Ed25519Signer,
     EnvHmacSigner,
     NullSigner,
@@ -153,7 +153,7 @@ def test_build_off_mode_returns_null_signer() -> None:
 
 
 def test_build_kms_mode_without_key_fails_closed() -> None:
-    from zeroth.core.signing import SigningConfigError
+    from zeroth.platform.signing import SigningConfigError
 
     try:
         build_signing_provider(
@@ -203,7 +203,7 @@ import pytest  # noqa: E402
 
 @pytest.mark.asyncio
 async def test_build_signing_provider_async_resolves_without_sync_call() -> None:
-    from zeroth.core.signing import build_signing_provider_async
+    from zeroth.platform.signing import build_signing_provider_async
 
     signer = await build_signing_provider_async(
         ProvenanceSigningSettings(mode="env", signing_key_id="k1"),

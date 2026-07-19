@@ -27,7 +27,7 @@ from zeroth.platform.storage import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.json import to_json_value
 
 if TYPE_CHECKING:
-    from zeroth.core.signing import SigningKeyProvider
+    from zeroth.platform.signing import SigningKeyProvider
 
 
 class AuditRepository:

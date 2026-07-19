@@ -38,6 +38,7 @@ PLATFORM_ROOTS = (
     "zeroth.platform.dispatch",
     "zeroth.platform.observability",
     "zeroth.platform.secrets",
+    "zeroth.platform.signing",
     "zeroth.platform.primitives",
 )
 

@@ -12,7 +12,7 @@ from zeroth.core.deployments.provenance import (
     verify_attestation_full,
 )
 from zeroth.core.graph import GraphRepository
-from zeroth.core.signing import EnvHmacSigner, SigningKeyProvider
+from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider
 
 
 class _In(BaseModel):

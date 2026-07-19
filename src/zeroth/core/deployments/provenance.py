@@ -17,11 +17,11 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING
 
-from zeroth.core.signing import sign_digest, verify_digest
+from zeroth.platform.signing import sign_digest, verify_digest
 from zeroth.platform.storage.json import to_json_value
 
 if TYPE_CHECKING:
-    from zeroth.core.signing import SigningKeyProvider
+    from zeroth.platform.signing import SigningKeyProvider
 
 
 def compute_graph_snapshot_digest(serialized_graph: str) -> str:

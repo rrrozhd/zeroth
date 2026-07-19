@@ -14,7 +14,7 @@ from zeroth.core.audit.verifier import (
     _compute_record_digest,
     compute_chained_record,
 )
-from zeroth.core.signing import EnvHmacSigner
+from zeroth.platform.signing import EnvHmacSigner
 
 
 async def test_crypto_erase_preserves_chain_verification(sqlite_db) -> None:

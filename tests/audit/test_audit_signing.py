@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
 from zeroth.core.audit.verifier import _compute_record_digest, compute_chained_record
-from zeroth.core.signing import EnvHmacSigner
+from zeroth.platform.signing import EnvHmacSigner
 from zeroth.platform.storage.json import to_json_value
 
 

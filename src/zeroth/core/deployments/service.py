@@ -25,7 +25,7 @@ from zeroth.core.graph.serialization import serialize_graph
 from zeroth.core.graph.versioning import graph_version_ref
 
 if TYPE_CHECKING:
-    from zeroth.core.signing import SigningKeyProvider
+    from zeroth.platform.signing import SigningKeyProvider
 
 
 class DeploymentError(RuntimeError):

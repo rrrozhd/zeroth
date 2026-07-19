@@ -1,14 +1,11 @@
-"""Keyed provenance signing (WS-D): sign digests, verify by key id.
+"""Legacy import path for the platform signing package.
 
-The digest layer stays unkeyed SHA-256 (tamper-evident); this package adds a
-keyed signature *over* the digest (tamper-resistant). ``signable_bytes`` binds
-the key id and algorithm into the signed material so they cannot be swapped
-after signing. See ``docs/provenance-trust-model.md`` for what a valid signature
-asserts per mode.
+Keyed provenance signing lives in :mod:`zeroth.platform.signing`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.signing.canonical import signable_bytes
-from zeroth.core.signing.provider import (
+from zeroth.platform.signing import (
     Ed25519Signer,
     EnvHmacSigner,
     NullSigner,
@@ -17,6 +14,7 @@ from zeroth.core.signing.provider import (
     build_signing_provider,
     build_signing_provider_async,
     sign_digest,
+    signable_bytes,
     verify_digest,
 )
 
