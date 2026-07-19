@@ -249,6 +249,26 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.contracts.errors:ContractRegistryError` | `zeroth.contracts.registry.errors:ContractRegistryError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.contracts.errors:ContractTypeResolutionError` | `zeroth.contracts.registry.errors:ContractTypeResolutionError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.contracts.errors:ContractVersionExistsError` | `zeroth.contracts.registry.errors:ContractVersionExistsError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:BranchResolution` | `zeroth.contracts.conditions:BranchResolution` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:BranchResolver` | `zeroth.contracts.conditions:BranchResolver` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:ConditionBinder` | `zeroth.contracts.conditions:ConditionBinder` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:ConditionBinding` | `zeroth.contracts.conditions:ConditionBinding` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:ConditionContext` | `zeroth.contracts.conditions:ConditionContext` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:ConditionEvaluator` | `zeroth.contracts.conditions:ConditionEvaluator` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:ConditionOutcome` | `zeroth.contracts.conditions:ConditionOutcome` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:NextStepPlan` | `zeroth.contracts.conditions:NextStepPlan` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:NextStepPlanner` | `zeroth.contracts.conditions:NextStepPlanner` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:TraversalState` | `zeroth.contracts.conditions:TraversalState` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions:ConditionResultRecorder` | `zeroth.runtime.runs:ConditionResultRecorder` | Move condition recording to runtime run domain | Legacy path lazily re-exports | Same class object | Not removed |
+| `zeroth.core.conditions.errors:BranchResolutionError` | `zeroth.contracts.conditions.errors:BranchResolutionError` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions.errors:ConditionEvaluationError` | `zeroth.contracts.conditions.errors:ConditionEvaluationError` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions.models:BranchResolution` | `zeroth.contracts.conditions.models:BranchResolution` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions.models:ConditionBinding` | `zeroth.contracts.conditions.models:ConditionBinding` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions.models:ConditionContext` | `zeroth.contracts.conditions.models:ConditionContext` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions.models:ConditionOutcome` | `zeroth.contracts.conditions.models:ConditionOutcome` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions.models:NextStepPlan` | `zeroth.contracts.conditions.models:NextStepPlan` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.conditions.models:TraversalState` | `zeroth.contracts.conditions.models:TraversalState` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.runs.models:RunConditionResult` | `zeroth.contracts.conditions.models:RunConditionResult` | Move condition-result definition to conditions contracts | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

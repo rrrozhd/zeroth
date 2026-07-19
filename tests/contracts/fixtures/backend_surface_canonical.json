@@ -1880,251 +1880,251 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:BranchResolution"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "BranchResolution",
-      "signature": "(*, graph_id: str, source_node_id: str, active_edge_ids: list[str] = <factory>, suppressed_edge_ids: list[str] = <factory>, next_node_ids: list[str] = <factory>, condition_results: list[zeroth.core.runs.models.RunConditionResult] = <factory>, terminal_reason: str | None = None, metadata: dict[str, typing.Any] = <factory>, resolved_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, graph_id: str, source_node_id: str, active_edge_ids: list[str] = <factory>, suppressed_edge_ids: list[str] = <factory>, next_node_ids: list[str] = <factory>, condition_results: list[zeroth.contracts.conditions.models.RunConditionResult] = <factory>, terminal_reason: str | None = None, metadata: dict[str, typing.Any] = <factory>, resolved_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:BranchResolver"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "BranchResolver",
       "signature": "(*, binder: 'ConditionBinder | None' = None, evaluator: 'ConditionEvaluator | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:ConditionBinder"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "ConditionBinder",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:ConditionBinding"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "ConditionBinding",
       "signature": "(*, graph_id: str, edge_id: str, source_node_id: str, target_node_id: str, condition: zeroth.core.graph.models.Condition | None = None, enabled: bool = True, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:ConditionContext"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "ConditionContext",
       "signature": "(*, payload: dict[str, typing.Any] = <factory>, state: dict[str, typing.Any] = <factory>, variables: dict[str, typing.Any] = <factory>, node_visit_counts: dict[str, int] = <factory>, edge_visit_counts: dict[str, int] = <factory>, path: list[str] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:ConditionEvaluator"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "ConditionEvaluator",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:ConditionOutcome"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "ConditionOutcome",
-      "signature": "(*, result: zeroth.core.runs.models.RunConditionResult, graph_id: str, source_node_id: str, target_node_id: str | None = None, edge_id: str | None = None, expression: str | None = None, branch_rule: str | None = None, operand_refs: list[str] = <factory>, details: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, result: zeroth.contracts.conditions.models.RunConditionResult, graph_id: str, source_node_id: str, target_node_id: str | None = None, edge_id: str | None = None, expression: str | None = None, branch_rule: str | None = None, operand_refs: list[str] = <factory>, details: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.runtime.runs",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.runtime.runs"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:ConditionResultRecorder"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.runtime.runs",
       "name": "ConditionResultRecorder",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:NextStepPlan"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "NextStepPlan",
-      "signature": "(*, graph_id: str, current_node_id: str, next_node_ids: list[str] = <factory>, branch_resolution: zeroth.core.conditions.models.BranchResolution, traversal_state: zeroth.core.conditions.models.TraversalState = <factory>, terminal_reason: str | None = None) -> None"
+      "signature": "(*, graph_id: str, current_node_id: str, next_node_ids: list[str] = <factory>, branch_resolution: zeroth.contracts.conditions.models.BranchResolution, traversal_state: zeroth.contracts.conditions.models.TraversalState = <factory>, terminal_reason: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:NextStepPlanner"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "NextStepPlanner",
       "signature": "(resolver: 'BranchResolver | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.conditions",
+        "__all__:zeroth.contracts.conditions",
         "docs:docs/reference/python-api/conditions.md",
-        "package_export:zeroth.core.conditions"
+        "package_export:zeroth.contracts.conditions"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions:TraversalState"
       ],
-      "module": "zeroth.core.conditions",
+      "module": "zeroth.contracts.conditions",
       "name": "TraversalState",
       "signature": "(*, node_visit_counts: dict[str, int] = <factory>, edge_visit_counts: dict[str, int] = <factory>, path: list[str] = <factory>) -> None"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.conditions.errors"
+        "package_export:zeroth.contracts.conditions.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions.errors:BranchResolutionError"
       ],
-      "module": "zeroth.core.conditions.errors",
+      "module": "zeroth.contracts.conditions.errors",
       "name": "BranchResolutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.conditions.errors"
+        "package_export:zeroth.contracts.conditions.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions.errors:ConditionEvaluationError"
       ],
-      "module": "zeroth.core.conditions.errors",
+      "module": "zeroth.contracts.conditions.errors",
       "name": "ConditionEvaluationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.conditions.models"
+        "schema_model:zeroth.contracts.conditions.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions.models:BranchResolution"
       ],
-      "module": "zeroth.core.conditions.models",
+      "module": "zeroth.contracts.conditions.models",
       "name": "BranchResolution",
-      "signature": "(*, graph_id: str, source_node_id: str, active_edge_ids: list[str] = <factory>, suppressed_edge_ids: list[str] = <factory>, next_node_ids: list[str] = <factory>, condition_results: list[zeroth.core.runs.models.RunConditionResult] = <factory>, terminal_reason: str | None = None, metadata: dict[str, typing.Any] = <factory>, resolved_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, graph_id: str, source_node_id: str, active_edge_ids: list[str] = <factory>, suppressed_edge_ids: list[str] = <factory>, next_node_ids: list[str] = <factory>, condition_results: list[zeroth.contracts.conditions.models.RunConditionResult] = <factory>, terminal_reason: str | None = None, metadata: dict[str, typing.Any] = <factory>, resolved_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.conditions.models"
+        "schema_model:zeroth.contracts.conditions.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions.models:ConditionBinding"
       ],
-      "module": "zeroth.core.conditions.models",
+      "module": "zeroth.contracts.conditions.models",
       "name": "ConditionBinding",
       "signature": "(*, graph_id: str, edge_id: str, source_node_id: str, target_node_id: str, condition: zeroth.core.graph.models.Condition | None = None, enabled: bool = True, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.conditions.models"
+        "schema_model:zeroth.contracts.conditions.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions.models:ConditionContext"
       ],
-      "module": "zeroth.core.conditions.models",
+      "module": "zeroth.contracts.conditions.models",
       "name": "ConditionContext",
       "signature": "(*, payload: dict[str, typing.Any] = <factory>, state: dict[str, typing.Any] = <factory>, variables: dict[str, typing.Any] = <factory>, node_visit_counts: dict[str, int] = <factory>, edge_visit_counts: dict[str, int] = <factory>, path: list[str] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.conditions.models"
+        "schema_model:zeroth.contracts.conditions.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions.models:ConditionOutcome"
       ],
-      "module": "zeroth.core.conditions.models",
+      "module": "zeroth.contracts.conditions.models",
       "name": "ConditionOutcome",
-      "signature": "(*, result: zeroth.core.runs.models.RunConditionResult, graph_id: str, source_node_id: str, target_node_id: str | None = None, edge_id: str | None = None, expression: str | None = None, branch_rule: str | None = None, operand_refs: list[str] = <factory>, details: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, result: zeroth.contracts.conditions.models.RunConditionResult, graph_id: str, source_node_id: str, target_node_id: str | None = None, edge_id: str | None = None, expression: str | None = None, branch_rule: str | None = None, operand_refs: list[str] = <factory>, details: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.conditions.models"
+        "schema_model:zeroth.contracts.conditions.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions.models:NextStepPlan"
       ],
-      "module": "zeroth.core.conditions.models",
+      "module": "zeroth.contracts.conditions.models",
       "name": "NextStepPlan",
-      "signature": "(*, graph_id: str, current_node_id: str, next_node_ids: list[str] = <factory>, branch_resolution: zeroth.core.conditions.models.BranchResolution, traversal_state: zeroth.core.conditions.models.TraversalState = <factory>, terminal_reason: str | None = None) -> None"
+      "signature": "(*, graph_id: str, current_node_id: str, next_node_ids: list[str] = <factory>, branch_resolution: zeroth.contracts.conditions.models.BranchResolution, traversal_state: zeroth.contracts.conditions.models.TraversalState = <factory>, terminal_reason: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.conditions.models"
+        "schema_model:zeroth.contracts.conditions.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.conditions.models:TraversalState"
       ],
-      "module": "zeroth.core.conditions.models",
+      "module": "zeroth.contracts.conditions.models",
       "name": "TraversalState",
       "signature": "(*, node_visit_counts: dict[str, int] = <factory>, edge_visit_counts: dict[str, int] = <factory>, path: list[str] = <factory>) -> None"
     },
@@ -7799,7 +7799,7 @@
       ],
       "module": "zeroth.core.orchestrator",
       "name": "RuntimeOrchestrator",
-      "signature": "(run_repository: 'RunRepository', agent_runners: 'Mapping[str, AgentRunner]', executable_unit_runner: 'ExecutableUnitRunner', audit_repository: 'AuditRepository | None' = None, policy_guard: 'PolicyGuard | None' = None, approval_service: 'ApprovalService | None' = None, secret_resolver: 'SecretResolver | None' = None, thread_resolver: 'RepositoryThreadResolver | None' = None, webhook_service: 'object | None' = None, regulus_client: 'object | None' = None, cost_estimator: 'object | None' = None, deployment_ref: 'str | None' = None, memory_resolver: 'object | None' = None, budget_enforcer: 'object | None' = None, per_run_cap_usd: 'float | None' = None, artifact_store: 'Any | None' = None, http_client: 'Any | None' = None, template_registry: 'Any | None' = None, template_renderer: 'Any | None' = None, context_window_enabled: 'bool' = True, parallel_executor: 'ParallelExecutor' = <zeroth.core.parallel.executor.ParallelExecutor object at 0x<address>>, branch_planner: 'NextStepPlanner' = <zeroth.core.conditions.branch.NextStepPlanner object at 0x<address>>, mapping_executor: 'MappingExecutor' = <zeroth.core.mappings.executor.MappingExecutor object at 0x<address>>, subgraph_executor: 'Any | None' = None) -> None"
+      "signature": "(run_repository: 'RunRepository', agent_runners: 'Mapping[str, AgentRunner]', executable_unit_runner: 'ExecutableUnitRunner', audit_repository: 'AuditRepository | None' = None, policy_guard: 'PolicyGuard | None' = None, approval_service: 'ApprovalService | None' = None, secret_resolver: 'SecretResolver | None' = None, thread_resolver: 'RepositoryThreadResolver | None' = None, webhook_service: 'object | None' = None, regulus_client: 'object | None' = None, cost_estimator: 'object | None' = None, deployment_ref: 'str | None' = None, memory_resolver: 'object | None' = None, budget_enforcer: 'object | None' = None, per_run_cap_usd: 'float | None' = None, artifact_store: 'Any | None' = None, http_client: 'Any | None' = None, template_registry: 'Any | None' = None, template_renderer: 'Any | None' = None, context_window_enabled: 'bool' = True, parallel_executor: 'ParallelExecutor' = <zeroth.core.parallel.executor.ParallelExecutor object at 0x<address>>, branch_planner: 'NextStepPlanner' = <zeroth.contracts.conditions.branch.NextStepPlanner object at 0x<address>>, mapping_executor: 'MappingExecutor' = <zeroth.core.mappings.executor.MappingExecutor object at 0x<address>>, subgraph_executor: 'Any | None' = None) -> None"
     },
     {
       "evidence": [
@@ -8616,7 +8616,7 @@
       ],
       "module": "zeroth.runtime.runs",
       "name": "Run",
-      "signature": "(*, run_id: str = <factory>, thread_id: str | None = None, checkpoint_id: str | None = None, parent_checkpoint_id: str | None = None, epoch: int = 0, workflow_name: str = '', status: zeroth.core.governed.models.common.RunStatus = <RunStatus.PENDING: 'PENDING'>, current_step: str | None = None, completed_steps: list[str] = <factory>, artifacts: dict[str, typing.Any] = <factory>, channels: dict[str, typing.Any] = <factory>, pending_approval: zeroth.core.governed.models.approval.ApprovalRequest | None = None, pending_interrupt_id: str | None = None, started_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, error: str | None = None, metadata: dict[str, typing.Any] = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, parent_run_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_node_ids: list[str] = <factory>, pending_node_ids: list[str] = <factory>, execution_history: list[zeroth.core.runs.models.RunHistoryEntry] = <factory>, node_visit_counts: dict[str, int] = <factory>, condition_results: list[zeroth.core.runs.models.RunConditionResult] = <factory>, audit_refs: list[str] = <factory>, final_output: dict[str, typing.Any] | list[typing.Any] | str | int | float | bool | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None) -> None"
+      "signature": "(*, run_id: str = <factory>, thread_id: str | None = None, checkpoint_id: str | None = None, parent_checkpoint_id: str | None = None, epoch: int = 0, workflow_name: str = '', status: zeroth.core.governed.models.common.RunStatus = <RunStatus.PENDING: 'PENDING'>, current_step: str | None = None, completed_steps: list[str] = <factory>, artifacts: dict[str, typing.Any] = <factory>, channels: dict[str, typing.Any] = <factory>, pending_approval: zeroth.core.governed.models.approval.ApprovalRequest | None = None, pending_interrupt_id: str | None = None, started_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, error: str | None = None, metadata: dict[str, typing.Any] = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, parent_run_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_node_ids: list[str] = <factory>, pending_node_ids: list[str] = <factory>, execution_history: list[zeroth.core.runs.models.RunHistoryEntry] = <factory>, node_visit_counts: dict[str, int] = <factory>, condition_results: list[zeroth.contracts.conditions.models.RunConditionResult] = <factory>, audit_refs: list[str] = <factory>, final_output: dict[str, typing.Any] | list[typing.Any] | str | int | float | bool | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None) -> None"
     },
     {
       "evidence": [
@@ -8774,17 +8774,17 @@
       ],
       "module": "zeroth.core.runs.models",
       "name": "Run",
-      "signature": "(*, run_id: str = <factory>, thread_id: str | None = None, checkpoint_id: str | None = None, parent_checkpoint_id: str | None = None, epoch: int = 0, workflow_name: str = '', status: zeroth.core.governed.models.common.RunStatus = <RunStatus.PENDING: 'PENDING'>, current_step: str | None = None, completed_steps: list[str] = <factory>, artifacts: dict[str, typing.Any] = <factory>, channels: dict[str, typing.Any] = <factory>, pending_approval: zeroth.core.governed.models.approval.ApprovalRequest | None = None, pending_interrupt_id: str | None = None, started_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, error: str | None = None, metadata: dict[str, typing.Any] = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, parent_run_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_node_ids: list[str] = <factory>, pending_node_ids: list[str] = <factory>, execution_history: list[zeroth.core.runs.models.RunHistoryEntry] = <factory>, node_visit_counts: dict[str, int] = <factory>, condition_results: list[zeroth.core.runs.models.RunConditionResult] = <factory>, audit_refs: list[str] = <factory>, final_output: dict[str, typing.Any] | list[typing.Any] | str | int | float | bool | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None) -> None"
+      "signature": "(*, run_id: str = <factory>, thread_id: str | None = None, checkpoint_id: str | None = None, parent_checkpoint_id: str | None = None, epoch: int = 0, workflow_name: str = '', status: zeroth.core.governed.models.common.RunStatus = <RunStatus.PENDING: 'PENDING'>, current_step: str | None = None, completed_steps: list[str] = <factory>, artifacts: dict[str, typing.Any] = <factory>, channels: dict[str, typing.Any] = <factory>, pending_approval: zeroth.core.governed.models.approval.ApprovalRequest | None = None, pending_interrupt_id: str | None = None, started_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, error: str | None = None, metadata: dict[str, typing.Any] = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, parent_run_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_node_ids: list[str] = <factory>, pending_node_ids: list[str] = <factory>, execution_history: list[zeroth.core.runs.models.RunHistoryEntry] = <factory>, node_visit_counts: dict[str, int] = <factory>, condition_results: list[zeroth.contracts.conditions.models.RunConditionResult] = <factory>, audit_refs: list[str] = <factory>, final_output: dict[str, typing.Any] | list[typing.Any] | str | int | float | bool | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.runs.models"
+        "schema_model:zeroth.contracts.conditions.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.runs.models:RunConditionResult"
       ],
-      "module": "zeroth.core.runs.models",
+      "module": "zeroth.contracts.conditions.models",
       "name": "RunConditionResult",
       "signature": "(*, condition_id: str, selected_edge_id: str | None = None, matched: bool, evaluated_at: datetime.datetime = <factory>, details: dict[str, typing.Any] = <factory>) -> None"
     },
