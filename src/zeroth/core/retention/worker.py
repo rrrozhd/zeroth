@@ -12,9 +12,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from zeroth.core.retention.erasure_service import RetentionErasureService
 from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+
+if TYPE_CHECKING:
+    # Annotation-only: importing the service here would put it on this package's
+    # own import path, and its collaborators import back into this package.
+    from zeroth.core.retention.erasure_service import RetentionErasureService
 
 logger = logging.getLogger(__name__)
 

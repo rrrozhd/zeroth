@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -31,8 +30,6 @@ from zeroth.core.audit.erasure_schema import AUDIT_CLEANUP_PAYLOAD_FIELDS
 from zeroth.core.retention.cleanup_manifest import (
     CleanupManifest,
     CleanupOperation,
-    DatabaseErasureOutcome,
-    operation_id,
     parse_cleanup_manifest,
 )
 from zeroth.core.retention.cleanup_state_repository import (
@@ -42,6 +39,12 @@ from zeroth.core.retention.cleanup_state_repository import (
 from zeroth.core.retention.coordination import RetentionCoordinator
 from zeroth.core.retention.models import ErasureResult
 from zeroth.core.storage.json import from_json_value
+from zeroth.governance.retention.manifests import (
+    build_cleanup_manifest,
+    manifest_complete,
+    result_from_manifest,
+)
+from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
 
 if TYPE_CHECKING:
     from zeroth.core.audit.repository import AuditRepository
@@ -58,18 +61,7 @@ class StaleCleanupClaimError(RuntimeError):
     """Raised when an expired cleanup worker attempts to mutate newer state."""
 
 
-@dataclass(slots=True)
-class _CleanupReplayState:
-    """Current claim/lease/terminal view of one cleanup manifest (replayed or materialized)."""
-
-    manifest: CleanupManifest
-    generation: int = 0
-    revision: int = 0
-    active_claim_id: str | None = None
-    active_claim_log_id: str | None = None
-    lease_expires_at: datetime | None = None
-    terminal_status: str | None = None
-    terminal_log_id: str | None = None
+_CleanupReplayState = CleanupReplayState
 
 
 class LegalHoldError(RuntimeError):
@@ -512,60 +504,12 @@ class RetentionErasureService:
         join_keys: list[str],
     ) -> CleanupManifest:
         """Build the external-cleanup manifest (artifact + econ operations) for an erased run."""
-        artifact_status = "pending" if self._artifact_store is not None else "skipped"
-        econ_status = "pending" if self._econ_eraser is not None else "skipped"
-        operations = [
-            CleanupOperation(
-                operation_id=operation_id(
-                    result.tenant_id, result.run_id, "artifact_prefix", result.run_id
-                ),
-                kind="artifact_prefix",
-                tenant_id=result.tenant_id,
-                run_id=result.run_id,
-                status=(
-                    artifact_status
-                    if getattr(self._artifact_store, "cleanup_run", None) is not None
-                    else "skipped"
-                ),
-            )
-        ]
-        operations.extend(
-            CleanupOperation(
-                operation_id=operation_id(result.tenant_id, result.run_id, "artifact_key", key),
-                kind="artifact_key",
-                tenant_id=result.tenant_id,
-                run_id=result.run_id,
-                artifact_key=key,
-                status=artifact_status,
-            )
-            for key in artifact_keys
-        )
-        operations.append(
-            CleanupOperation(
-                operation_id=operation_id(
-                    result.tenant_id,
-                    result.run_id,
-                    "econ",
-                    "\0".join(join_keys),
-                ),
-                kind="econ",
-                tenant_id=result.tenant_id,
-                run_id=result.run_id,
-                join_keys=join_keys,
-                status=econ_status,
-                deleted_count=None,
-            )
-        )
-        return CleanupManifest(
-            tenant_id=result.tenant_id,
-            run_id=result.run_id,
-            reason=result.reason,
-            database_result=DatabaseErasureOutcome(
-                audits_erased=result.audits_erased,
-                checkpoints_deleted=result.checkpoints_deleted,
-                run_redacted=result.run_redacted,
-            ),
-            operations=operations,
+        return build_cleanup_manifest(
+            result,
+            artifact_keys,
+            join_keys,
+            artifact_store=self._artifact_store,
+            econ_eraser=self._econ_eraser,
         )
 
     def _replay_cleanup_state(
@@ -574,112 +518,7 @@ class RetentionErasureService:
         entries: list[dict[str, Any]],
     ) -> _CleanupReplayState:
         """Rebuild cleanup state by replaying a run's retention audit entries (legacy rows)."""
-        log_id = str(authorization["log_id"])
-        tenant_id = str(authorization["tenant_id"])
-        run_id = str(authorization["run_id"])
-        reason = str(authorization["reason"])
-        authorization_detail = from_json_value(authorization["detail"])
-        state = _CleanupReplayState(
-            manifest=parse_cleanup_manifest(
-                authorization_detail,
-                tenant_id=tenant_id,
-                run_id=run_id,
-                reason=reason,
-            )
-        )
-        versioned_events: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
-        for entry in entries:
-            detail = from_json_value(entry["detail"])
-            if not isinstance(detail, dict) or detail.get("authorization_log_id") != log_id:
-                continue
-            revision = detail.get("revision")
-            generation = detail.get("generation")
-            if isinstance(revision, int) and isinstance(generation, int):
-                versioned_events.append((revision, entry, detail))
-            elif "manifest" in detail:
-                state.manifest = parse_cleanup_manifest(
-                    detail["manifest"],
-                    tenant_id=tenant_id,
-                    run_id=run_id,
-                    reason=reason,
-                )
-            elif (
-                isinstance(authorization_detail, dict)
-                and "cleanup_status" in detail
-                and "version" not in authorization_detail
-            ):
-                migrated_detail = dict(authorization_detail)
-                migrated_detail["cleanup_status"] = detail["cleanup_status"]
-                state.manifest = parse_cleanup_manifest(
-                    migrated_detail,
-                    tenant_id=tenant_id,
-                    run_id=run_id,
-                    reason=reason,
-                )
-        operation_indexes = {
-            operation.operation_id: index
-            for index, operation in enumerate(state.manifest.operations)
-        }
-        for revision, entry, detail in sorted(versioned_events, key=lambda item: item[0]):
-            if revision <= state.revision:
-                continue
-            generation = int(detail["generation"])
-            action = str(entry["action"])
-            claim_id = detail.get("claim_id")
-            if action == "external_cleanup_claimed":
-                if generation <= state.generation:
-                    continue
-                state.generation = generation
-                state.revision = revision
-                state.active_claim_id = str(claim_id)
-                state.active_claim_log_id = str(entry["log_id"])
-                state.lease_expires_at = datetime.fromisoformat(str(detail["lease_expires_at"]))
-                state.terminal_log_id = None
-                continue
-            if generation != state.generation:
-                continue
-            if action == "external_cleanup_heartbeat":
-                if claim_id != state.active_claim_id:
-                    continue
-                state.revision = revision
-                state.lease_expires_at = datetime.fromisoformat(str(detail["lease_expires_at"]))
-            elif action == "external_cleanup_operation":
-                if claim_id != state.active_claim_id:
-                    continue
-                operation_id_value = str(detail["operation_id"])
-                index = operation_indexes.get(operation_id_value)
-                if index is None:
-                    raise ValueError("cleanup delta references unknown operation")
-                operation = state.manifest.operations[index]
-                state.manifest.operations[index] = operation.model_copy(
-                    update={
-                        "status": detail["status"],
-                        "deleted_count": detail.get("deleted_count"),
-                        "error": detail.get("error"),
-                    }
-                )
-                state.revision = revision
-                if detail.get("lease_expires_at"):
-                    state.lease_expires_at = datetime.fromisoformat(str(detail["lease_expires_at"]))
-            elif action == "external_cleanup_claim_released":
-                if claim_id != state.active_claim_id:
-                    continue
-                state.revision = revision
-                state.active_claim_id = None
-                state.active_claim_log_id = None
-                state.lease_expires_at = None
-            elif action in {"external_cleanup_completed", "external_cleanup_failed"}:
-                if claim_id is not None and claim_id != state.active_claim_id:
-                    continue
-                state.revision = revision
-                state.active_claim_id = None
-                state.active_claim_log_id = None
-                state.lease_expires_at = None
-                state.terminal_status = (
-                    "completed" if action == "external_cleanup_completed" else "failed"
-                )
-                state.terminal_log_id = str(entry["log_id"])
-        return state
+        return replay_cleanup_state(authorization, entries)
 
     async def _load_or_materialize_cleanup_state(
         self,
@@ -783,9 +622,7 @@ class RetentionErasureService:
     @staticmethod
     def _manifest_complete(manifest: CleanupManifest) -> bool:
         """Return True when every manifest operation is already completed or skipped."""
-        return all(
-            operation.status in {"completed", "skipped"} for operation in manifest.operations
-        )
+        return manifest_complete(manifest)
 
     async def _execute_claimed_cleanup(
         self,
@@ -1101,39 +938,11 @@ class RetentionErasureService:
         force_status: str | None = None,
     ) -> ErasureResult:
         """Project a cleanup manifest into the :class:`ErasureResult` returned to callers."""
-        statuses = {operation.status for operation in manifest.operations}
-        cleanup_status = force_status
-        if cleanup_status is None:
-            if "failed" in statuses:
-                cleanup_status = "failed"
-            elif statuses <= {"completed", "skipped"}:
-                cleanup_status = "complete"
-            else:
-                cleanup_status = "pending"
-        artifact_deleted = sum(
-            int(operation.deleted_count or 0)
-            for operation in manifest.operations
-            if operation.kind in {"artifact_prefix", "artifact_key"}
-        )
-        econ_operations = [
-            operation for operation in manifest.operations if operation.kind == "econ"
-        ]
-        econ_deleted = None
-        if econ_operations and econ_operations[0].status != "skipped":
-            econ_deleted = int(econ_operations[0].deleted_count or 0)
-        database = manifest.database_result
-        return ErasureResult(
-            run_id=manifest.run_id,
-            tenant_id=manifest.tenant_id,
-            reason=manifest.reason,
-            audits_erased=database.audits_erased,
-            checkpoints_deleted=database.checkpoints_deleted,
-            run_redacted=database.run_redacted,
-            artifacts_deleted=artifact_deleted,
-            econ_events_deleted=econ_deleted,
-            external_cleanup_status=cleanup_status,  # type: ignore[arg-type]
+        return result_from_manifest(
+            manifest,
             authorization_log_id=authorization_log_id,
             retry_log_id=retry_log_id,
+            force_status=force_status,
         )
 
     async def _record_database_compatibility_steps(self, result: ErasureResult) -> None:
