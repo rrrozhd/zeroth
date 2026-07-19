@@ -45,6 +45,32 @@ def test_canonical_service_modules_import_in_a_cold_interpreter() -> None:
     assert result.returncode == 0, f"canonical-first cold import failed:\n{result.stderr}"
 
 
+def test_legacy_service_package_init_is_lazy() -> None:
+    """Importing ``zeroth.core.service`` must not execute the app or bootstrap.
+
+    The legacy package init is the re-entry point for the cycle class this
+    module guards: any ``zeroth.core.service.X`` import from inside a canonical
+    ``zeroth.service.*`` module re-runs the package init, and if that init
+    eagerly imports ``.bootstrap`` — now a shim over ``zeroth.service.bootstrap``
+    — it re-enters the partially initialized canonical module. Laziness here is
+    load-bearing, exactly like the ``zeroth.core.econ``/``http``/``runs`` inits.
+    """
+    code = (
+        "import sys\n"
+        "import zeroth.core.service\n"
+        "assert 'zeroth.core.service.app' not in sys.modules, 'app imported eagerly'\n"
+        "assert 'zeroth.core.service.bootstrap' not in sys.modules, 'bootstrap imported eagerly'\n"
+        "from zeroth.core.service import bootstrap_app, bootstrap_service, create_app\n"
+        "from zeroth.core.service import DeploymentBootstrapError, ServiceBootstrap\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"lazy legacy service init broken:\n{result.stderr}"
+
+
 def test_legacy_service_modules_import_in_a_cold_interpreter() -> None:
     """Legacy-first: the shims must not re-enter a partially initialized canonical module."""
     legacy = [pair[1] for pair in RELOCATED_SERVICE_MODULES]
