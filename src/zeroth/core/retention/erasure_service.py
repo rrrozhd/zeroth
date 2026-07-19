@@ -18,7 +18,6 @@ service refuses and raises :class:`LegalHoldError`.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -38,6 +37,7 @@ from zeroth.core.retention.cleanup_state_repository import (
 from zeroth.core.retention.coordination import RetentionCoordinator
 from zeroth.core.retention.models import ErasureResult
 from zeroth.governance.retention.claims import CleanupClaims
+from zeroth.governance.retention.compatibility import CompatibilityLog, result_detail
 
 # Re-exported: both exceptions are protected legacy capabilities recorded at this
 # module path. Their definitions moved because the collaborators that raise them
@@ -48,6 +48,7 @@ from zeroth.governance.retention.errors import (
 from zeroth.governance.retention.errors import (
     StaleCleanupClaimError as StaleCleanupClaimError,
 )
+from zeroth.governance.retention.executor import CleanupExecutor
 from zeroth.governance.retention.manifests import (
     build_cleanup_manifest,
     manifest_complete,
@@ -125,6 +126,27 @@ class RetentionErasureService:
             cleanup_state=self._cleanup_state,
             lease_seconds=self._cleanup_lease_seconds,
             replay=self._replay_cleanup_state,
+        )
+
+    @property
+    def _compatibility(self) -> CompatibilityLog:
+        """The legacy-log collaborator, rebuilt per access (see :attr:`_claims`)."""
+        return CompatibilityLog(log=self._log)
+
+    @property
+    def _executor(self) -> CleanupExecutor:
+        """The external-cleanup collaborator, rebuilt per access (see :attr:`_claims`).
+
+        ``_artifact_store`` and ``_econ_eraser`` are reassigned after construction
+        by several callers, so capturing them once would run cleanup against the
+        surfaces the service was built with rather than the ones it now has.
+        """
+        return CleanupExecutor(
+            claims=self._claims,
+            compatibility=self._compatibility,
+            artifact_store=self._artifact_store,
+            econ_eraser=self._econ_eraser,
+            lease_seconds=self._cleanup_lease_seconds,
         )
 
     async def erase_run(
@@ -547,85 +569,16 @@ class RetentionErasureService:
         manifest: CleanupManifest,
     ) -> str:
         """Run all unfinished manifest operations under the claim; return the terminal log id."""
-        terminal_log_id = ""
-        for index, operation in enumerate(manifest.operations):
-            if operation.status in {"completed", "skipped"}:
-                continue
-            manifest.operations[index] = operation.model_copy(
-                update={"status": "in_progress", "error": None}
-            )
-            await self._record_operation_delta(
-                authorization_log_id,
-                claim_id,
-                generation,
-                manifest.operations[index],
-            )
-            try:
-                deleted = await self._execute_operation_with_heartbeat(
-                    authorization_log_id,
-                    claim_id,
-                    generation,
-                    manifest.operations[index],
-                )
-            except Exception as exc:
-                logger.exception("external cleanup operation %s failed", operation.operation_id)
-                manifest.operations[index] = manifest.operations[index].model_copy(
-                    update={"status": "failed", "error": str(exc)}
-                )
-            else:
-                manifest.operations[index] = manifest.operations[index].model_copy(
-                    update={"status": "completed", "deleted_count": deleted, "error": None}
-                )
-            await self._record_operation_delta(
-                authorization_log_id,
-                claim_id,
-                generation,
-                manifest.operations[index],
-            )
-        failed = any(operation.status == "failed" for operation in manifest.operations)
-        terminal_log_id = await self._record_terminal_fenced(
-            authorization_log_id,
-            claim_id,
-            generation,
-            manifest,
-            failed=failed,
-        )
-        result = self._result_from_manifest(
-            manifest,
+        return await self._executor.execute_claimed(
             authorization_log_id=authorization_log_id,
-            retry_log_id=terminal_log_id,
+            claim_id=claim_id,
+            generation=generation,
+            manifest=manifest,
         )
-        await self._record_external_compatibility_steps(result, manifest, failed=failed)
-        return terminal_log_id
 
     async def _execute_operation(self, operation: CleanupOperation) -> int:
         """Dispatch one operation to its external surface; return the deleted-item count."""
-        if operation.kind == "artifact_prefix":
-            return int(
-                await self._call_with_idempotency(
-                    self._artifact_store.cleanup_run,
-                    operation.run_id,
-                    idempotency_key=operation.operation_id,
-                )
-                or 0
-            )
-        if operation.kind == "artifact_key":
-            return int(
-                bool(
-                    await self._call_with_idempotency(
-                        self._artifact_store.delete,
-                        operation.artifact_key,
-                        idempotency_key=operation.operation_id,
-                    )
-                )
-            )
-        return int(
-            await self._econ_eraser.delete_events_for_run(
-                operation.tenant_id,
-                operation.join_keys,
-                idempotency_key=operation.operation_id,
-            )
-        )
+        return await self._executor.execute_operation(operation)
 
     async def _execute_operation_with_heartbeat(
         self,
@@ -635,25 +588,12 @@ class RetentionErasureService:
         operation: CleanupOperation,
     ) -> int:
         """Run one operation while heartbeating the claim lease every third of its window."""
-        task = asyncio.create_task(self._execute_operation(operation))
-        interval = max(self._cleanup_lease_seconds / 3, 0.01)
-        try:
-            while True:
-                done, _ = await asyncio.wait({task}, timeout=interval)
-                if done:
-                    return await task
-                await self._record_claim_heartbeat(
-                    authorization_log_id,
-                    claim_id,
-                    generation,
-                    operation.tenant_id,
-                    operation.run_id,
-                )
-        except BaseException:
-            if not task.done():
-                task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-            raise
+        return await self._executor.execute_operation_with_heartbeat(
+            authorization_log_id,
+            claim_id,
+            generation,
+            operation,
+        )
 
     async def _record_claim_heartbeat(
         self,
@@ -679,7 +619,9 @@ class RetentionErasureService:
         idempotency_key: str,
     ) -> Any:
         """Await ``method`` with the operation's idempotency key forwarded."""
-        return await method(*args, idempotency_key=idempotency_key)
+        return await CleanupExecutor.call_with_idempotency(
+            method, *args, idempotency_key=idempotency_key
+        )
 
     async def _record_operation_delta(
         self,
@@ -761,21 +703,7 @@ class RetentionErasureService:
 
     async def _record_database_compatibility_steps(self, result: ErasureResult) -> None:
         """Emit legacy per-step database log entries (best-effort; failures only logged)."""
-        for action, detail in (
-            ("crypto_erase_audits", {"count": result.audits_erased}),
-            ("erase_checkpoints", {"count": result.checkpoints_deleted}),
-            ("redact_run", {"redacted": result.run_redacted}),
-        ):
-            try:
-                await self._log.record(
-                    tenant_id=result.tenant_id,
-                    run_id=result.run_id,
-                    action=action,
-                    reason=result.reason,
-                    detail=detail,
-                )
-            except Exception:
-                logger.exception("best-effort compatibility log %s failed", action)
+        await self._compatibility.record_database_steps(result)
 
     async def _record_external_compatibility_steps(
         self,
@@ -785,42 +713,7 @@ class RetentionErasureService:
         failed: bool,
     ) -> None:
         """Emit legacy artifact/econ/completion log entries mirroring pre-manifest logging."""
-        await self._record_compatibility_log(
-            result,
-            "artifact_cleanup",
-            {"count": result.artifacts_deleted},
-        )
-        econ = next(
-            (operation for operation in manifest.operations if operation.kind == "econ"),
-            None,
-        )
-        if econ is None:
-            if not failed:
-                await self._record_compatibility_log(
-                    result,
-                    "erase_run_complete",
-                    self._result_detail(result),
-                )
-            return
-        econ_action = "econ_erase_skipped"
-        if econ.status == "completed":
-            econ_action = "econ_erase"
-        elif econ.status == "failed":
-            econ_action = "econ_erase_failed"
-        await self._record_compatibility_log(
-            result,
-            econ_action,
-            {
-                "count": result.econ_events_deleted,
-                "join_keys": econ.join_keys,
-            },
-        )
-        if not failed:
-            await self._record_compatibility_log(
-                result,
-                "erase_run_complete",
-                self._result_detail(result),
-            )
+        await self._compatibility.record_external_steps(result, manifest, failed=failed)
 
     async def _record_compatibility_log(
         self,
@@ -829,27 +722,9 @@ class RetentionErasureService:
         detail: dict[str, Any],
     ) -> None:
         """Write one best-effort compatibility log entry; failures are logged, never raised."""
-        try:
-            await self._log.record(
-                tenant_id=result.tenant_id,
-                run_id=result.run_id,
-                action=action,
-                reason=result.reason,
-                detail=detail,
-            )
-        except Exception:
-            logger.exception("best-effort compatibility log %s failed", action)
+        await self._compatibility.record(result, action, detail)
 
     @staticmethod
     def _result_detail(result: ErasureResult) -> dict[str, Any]:
         """Serialize an :class:`ErasureResult` into the ``erase_run_complete`` detail payload."""
-        return {
-            "audits_erased": result.audits_erased,
-            "checkpoints_deleted": result.checkpoints_deleted,
-            "run_redacted": result.run_redacted,
-            "artifacts_deleted": result.artifacts_deleted,
-            "econ_events_deleted": result.econ_events_deleted,
-            "external_cleanup_status": result.external_cleanup_status,
-            "authorization_log_id": result.authorization_log_id,
-            "retry_log_id": result.retry_log_id,
-        }
+        return result_detail(result)
