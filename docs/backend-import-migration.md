@@ -237,6 +237,18 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.signing:signable_bytes` | `zeroth.platform.signing:signable_bytes` | Move signing to platform | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.signing:verify_digest` | `zeroth.platform.signing:verify_digest` | Move signing to platform | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.signing.provider:SigningConfigError` | `zeroth.platform.signing.provider:SigningConfigError` | Move signing to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts:ContractNotFoundError` | `zeroth.contracts.registry:ContractNotFoundError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts:ContractReference` | `zeroth.contracts.registry:ContractReference` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts:ContractRegistry` | `zeroth.contracts.registry:ContractRegistry` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts:ContractRegistryError` | `zeroth.contracts.registry:ContractRegistryError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts:ContractVersion` | `zeroth.contracts.registry:ContractVersion` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts:StepContractBinding` | `zeroth.contracts.registry:StepContractBinding` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts:ToolContractBinding` | `zeroth.contracts.registry:ToolContractBinding` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts:validate_artifact_reference` | `zeroth.contracts.registry:validate_artifact_reference` | Move registry contracts | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.contracts.errors:ContractNotFoundError` | `zeroth.contracts.registry.errors:ContractNotFoundError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts.errors:ContractRegistryError` | `zeroth.contracts.registry.errors:ContractRegistryError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts.errors:ContractTypeResolutionError` | `zeroth.contracts.registry.errors:ContractTypeResolutionError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.contracts.errors:ContractVersionExistsError` | `zeroth.contracts.registry.errors:ContractVersionExistsError` | Move registry contracts | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

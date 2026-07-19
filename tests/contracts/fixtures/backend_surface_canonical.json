@@ -2386,36 +2386,36 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.contracts",
+        "__all__:zeroth.contracts.registry",
         "docs:docs/reference/python-api/contracts.md",
-        "package_export:zeroth.core.contracts"
+        "package_export:zeroth.contracts.registry"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts:ContractNotFoundError"
       ],
-      "module": "zeroth.core.contracts",
+      "module": "zeroth.contracts.registry",
       "name": "ContractNotFoundError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.contracts",
+        "__all__:zeroth.contracts.registry",
         "docs:docs/how-to/contracts.md",
         "docs:docs/reference/python-api/contracts.md",
-        "package_export:zeroth.core.contracts"
+        "package_export:zeroth.contracts.registry"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts:ContractReference"
       ],
-      "module": "zeroth.core.contracts",
+      "module": "zeroth.contracts.registry",
       "name": "ContractReference",
       "signature": "(*, name: str, version: int | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.contracts",
+        "__all__:zeroth.contracts.registry",
         "docs:docs/how-to/contracts.md",
         "docs:docs/how-to/orchestrator.md",
         "docs:docs/reference/python-api/contracts.md",
@@ -2423,132 +2423,132 @@
         "examples:examples/20_approval_gate.py",
         "examples:examples/_common.py",
         "examples:examples/service/seed_deployment.py",
-        "package_export:zeroth.core.contracts"
+        "package_export:zeroth.contracts.registry"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts:ContractRegistry"
       ],
-      "module": "zeroth.core.contracts",
+      "module": "zeroth.contracts.registry",
       "name": "ContractRegistry",
       "signature": "(database: 'AsyncDatabase')"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.contracts",
+        "__all__:zeroth.contracts.registry",
         "docs:docs/reference/python-api/contracts.md",
-        "package_export:zeroth.core.contracts"
+        "package_export:zeroth.contracts.registry"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts:ContractRegistryError"
       ],
-      "module": "zeroth.core.contracts",
+      "module": "zeroth.contracts.registry",
       "name": "ContractRegistryError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.contracts",
+        "__all__:zeroth.contracts.registry",
         "docs:docs/reference/python-api/contracts.md",
-        "package_export:zeroth.core.contracts"
+        "package_export:zeroth.contracts.registry"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts:ContractVersion"
       ],
-      "module": "zeroth.core.contracts",
+      "module": "zeroth.contracts.registry",
       "name": "ContractVersion",
       "signature": "(*, name: str, version: int, model_path: str, json_schema: dict[str, typing.Any], metadata: dict[str, typing.Any] = <factory>, created_at: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.contracts",
+        "__all__:zeroth.contracts.registry",
         "docs:docs/how-to/contracts.md",
         "docs:docs/reference/python-api/contracts.md",
-        "package_export:zeroth.core.contracts"
+        "package_export:zeroth.contracts.registry"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts:StepContractBinding"
       ],
-      "module": "zeroth.core.contracts",
+      "module": "zeroth.contracts.registry",
       "name": "StepContractBinding",
-      "signature": "(*, flow_name: str | None = None, step_name: str, tool_name: str | None = None, agent_name: str | None = None, input_contract: zeroth.core.contracts.registry.ContractReference, output_contract: zeroth.core.contracts.registry.ContractReference, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, flow_name: str | None = None, step_name: str, tool_name: str | None = None, agent_name: str | None = None, input_contract: zeroth.contracts.registry.registry.ContractReference, output_contract: zeroth.contracts.registry.registry.ContractReference, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.contracts",
+        "__all__:zeroth.contracts.registry",
         "docs:docs/reference/python-api/contracts.md",
-        "package_export:zeroth.core.contracts"
+        "package_export:zeroth.contracts.registry"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts:ToolContractBinding"
       ],
-      "module": "zeroth.core.contracts",
+      "module": "zeroth.contracts.registry",
       "name": "ToolContractBinding",
-      "signature": "(*, tool_name: str, remote_name: str, description: str, input_contract: zeroth.core.contracts.registry.ContractReference, output_contract: zeroth.core.contracts.registry.ContractReference, executor_type: str, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'], capabilities: list[str] = <factory>, side_effect: bool = False, requires_approval: bool = False, timeout_seconds: float | None = None, tags: list[str] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, tool_name: str, remote_name: str, description: str, input_contract: zeroth.contracts.registry.registry.ContractReference, output_contract: zeroth.contracts.registry.registry.ContractReference, executor_type: str, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'], capabilities: list[str] = <factory>, side_effect: bool = False, requires_approval: bool = False, timeout_seconds: float | None = None, tags: list[str] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.contracts",
+        "__all__:zeroth.contracts.registry",
         "docs:docs/reference/python-api/contracts.md",
-        "package_export:zeroth.core.contracts"
+        "package_export:zeroth.contracts.registry"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.contracts:validate_artifact_reference"
       ],
-      "module": "zeroth.core.contracts",
+      "module": "zeroth.contracts.registry",
       "name": "validate_artifact_reference",
       "signature": "(data: 'dict[str, Any]') -> 'bool'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.contracts.errors"
+        "package_export:zeroth.contracts.registry.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts.errors:ContractNotFoundError"
       ],
-      "module": "zeroth.core.contracts.errors",
+      "module": "zeroth.contracts.registry.errors",
       "name": "ContractNotFoundError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.contracts.errors"
+        "package_export:zeroth.contracts.registry.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts.errors:ContractRegistryError"
       ],
-      "module": "zeroth.core.contracts.errors",
+      "module": "zeroth.contracts.registry.errors",
       "name": "ContractRegistryError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.contracts.errors"
+        "package_export:zeroth.contracts.registry.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts.errors:ContractTypeResolutionError"
       ],
-      "module": "zeroth.core.contracts.errors",
+      "module": "zeroth.contracts.registry.errors",
       "name": "ContractTypeResolutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.contracts.errors"
+        "package_export:zeroth.contracts.registry.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.contracts.errors:ContractVersionExistsError"
       ],
-      "module": "zeroth.core.contracts.errors",
+      "module": "zeroth.contracts.registry.errors",
       "name": "ContractVersionExistsError",
       "signature": "<not-inspectable>"
     },
