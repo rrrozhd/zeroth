@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from zeroth.core.conditions import (
+from zeroth.contracts.conditions import (
     BranchResolver,
     ConditionBinder,
     ConditionContext,

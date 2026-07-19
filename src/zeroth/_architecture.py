@@ -231,10 +231,18 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.conditions.branch", "zeroth.core.runs.models"),
-        ("zeroth.core.conditions.evaluator", "zeroth.core.runs.models"),
-        ("zeroth.core.conditions.models", "zeroth.core.runs.models"),
-        ("zeroth.core.conditions.recorder", "zeroth.core.runs.models"),
+        ("zeroth.core.conditions.recorder", "zeroth.runtime.runs.condition_recorder"),
+        reason=(
+            "zeroth.core.conditions:ConditionResultRecorder is a protected "
+            "legacy capability, but the recorder mutates Run objects and so "
+            "lives in the runtime run domain; the legacy conditions package "
+            "must keep republishing it. Resolution stays lazy: an eager "
+            "import would put the runtime run domain on the import path of "
+            "the legacy conditions package."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+    ),
+    **_exception_group(
         ("zeroth.core.graph", "zeroth.core.subgraph.models"),
         ("zeroth.core.graph.models", "zeroth.core.context_window.models"),
         ("zeroth.core.graph.models", "zeroth.core.parallel.models"),

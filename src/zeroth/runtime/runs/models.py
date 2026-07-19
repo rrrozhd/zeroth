@@ -6,10 +6,10 @@ These models are published here so runtime code depends on the run domain
 rather than on whichever package happens to persist it.
 """
 
+from zeroth.contracts.conditions.models import RunConditionResult
 from zeroth.core.governed import RunState
 from zeroth.core.runs.models import (
     Run,
-    RunConditionResult,
     RunFailureState,
     RunHistoryEntry,
     RunStatus,

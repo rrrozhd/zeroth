@@ -6,6 +6,7 @@ runtime executes against. Concrete persistence lives outside the runtime and
 is injected through these protocols.
 """
 
+from zeroth.runtime.runs.condition_recorder import ConditionResultRecorder
 from zeroth.runtime.runs.models import (
     Run,
     RunConditionResult,
@@ -26,6 +27,7 @@ from zeroth.runtime.runs.protocols import (
 
 __all__ = [
     "CheckpointStore",
+    "ConditionResultRecorder",
     "Run",
     "RunConditionResult",
     "RunFailureState",

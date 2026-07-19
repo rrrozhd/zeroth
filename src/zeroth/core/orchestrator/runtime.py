@@ -14,11 +14,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from zeroth.contracts.conditions import NextStepPlanner
 from zeroth.core.agent_runtime import AgentRunner, RepositoryThreadResolver
 from zeroth.core.approvals import ApprovalRecord, ApprovalService
 from zeroth.core.audit import AuditRepository
 from zeroth.core.audit.models import MemoryAccessRecord, ToolCallRecord
-from zeroth.core.conditions import NextStepPlanner
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.graph import (
     AgentNode,

@@ -14,6 +14,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+# Re-exported as zeroth.core.runs API: the conditions contracts own the
+# evaluation-outcome vocabulary; the run surface republishes it.
+from zeroth.contracts.conditions.models import RunConditionResult as RunConditionResult
 from zeroth.core.governed import RunState
 from zeroth.core.governed import RunStatus as RunStatus  # re-exported as zeroth.core.runs API
 from zeroth.core.identity import ActorIdentity
@@ -60,22 +63,6 @@ class RunHistoryEntry(BaseModel):
     # own history — the basis for the local per-run cost ceiling. ``None`` when
     # no cost estimator populated a cost for the node.
     cost_usd: float | None = None
-
-
-class RunConditionResult(BaseModel):
-    """A record of a condition (branching decision) that was evaluated during a run.
-
-    When a graph has conditional edges, this captures which condition was
-    checked, whether it matched, and which edge was selected.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    condition_id: str
-    selected_edge_id: str | None = None
-    matched: bool
-    evaluated_at: datetime = Field(default_factory=utc_now)
-    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class RunFailureState(BaseModel):

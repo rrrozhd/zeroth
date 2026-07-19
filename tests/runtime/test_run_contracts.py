@@ -95,17 +95,23 @@ def test_canonical_models_are_the_protected_model_objects(name: str) -> None:
 def test_canonical_models_are_republished_rather_than_redefined(name: str) -> None:
     """The canonical package must not shadow the models with new definitions.
 
-    ``inspect.signature`` renders annotations using each type's defining
-    module, so redefining these classes here would rewrite signature strings
-    such as ``list[zeroth.core.runs.models.RunHistoryEntry]`` — strings pinned
-    in the immutable legacy library surface. Asserting the defining module is
-    what keeps that failure mode out of the tree.
+    Pinning each defining module keeps accidental shadowing out of the tree:
+    a redefinition here would satisfy the identity-free checks while quietly
+    forking the type. The allowed set names every deliberate owner —
+    ``zeroth.core.runs.models`` for the run shapes, the governed bundle for
+    ``RunState``/``RunStatus``, and ``zeroth.contracts.conditions.models``
+    for ``RunConditionResult``, the conditions domain's evaluation-outcome
+    vocabulary that the run surface republishes (Task 12).
     """
     import zeroth.runtime.runs as canonical
 
     model = getattr(canonical, name)
 
-    assert model.__module__ in {"zeroth.core.runs.models", "zeroth.core.governed.models.common"}
+    assert model.__module__ in {
+        "zeroth.core.runs.models",
+        "zeroth.core.governed.models.common",
+        "zeroth.contracts.conditions.models",
+    }
 
 
 def _protocol_members(protocol: type) -> dict[str, inspect.Signature]:

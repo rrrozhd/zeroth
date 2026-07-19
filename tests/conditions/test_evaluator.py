@@ -4,10 +4,10 @@ from datetime import UTC
 
 import pytest
 
-import zeroth.core.conditions.models as condition_models
-from zeroth.core.conditions import ConditionContext, ConditionEvaluator
-from zeroth.core.conditions.errors import ConditionEvaluationError
-from zeroth.core.conditions.evaluator import _SafeEvaluator
+import zeroth.contracts.conditions.models as condition_models
+from zeroth.contracts.conditions import ConditionContext, ConditionEvaluator
+from zeroth.contracts.conditions.errors import ConditionEvaluationError
+from zeroth.contracts.conditions.evaluator import _SafeEvaluator
 from zeroth.core.graph.models import Condition as GraphCondition
 from zeroth.platform.primitives import utc_now
 

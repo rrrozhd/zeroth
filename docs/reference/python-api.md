@@ -9,7 +9,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 - [Orchestrator](python-api/orchestrator.md) — `zeroth.core.orchestrator`
 - [Agents](python-api/agents.md) — `zeroth.core.agent_runtime`
 - [Execution units](python-api/execution-units.md) — `zeroth.core.execution_units`
-- [Conditions](python-api/conditions.md) — `zeroth.core.conditions`
+- [Conditions](python-api/conditions.md) — `zeroth.contracts.conditions`
 
 ### Data & state
 - [Mappings](python-api/mappings.md) — `zeroth.core.mappings`

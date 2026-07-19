@@ -124,7 +124,7 @@ class MappingExecutor:
             case TransformMappingOperation():
                 # Lazy import to avoid circular dependency
                 # (mappings -> conditions -> graph.models -> mappings)
-                from zeroth.core.conditions.evaluator import _SafeEvaluator
+                from zeroth.contracts.conditions.evaluator import _SafeEvaluator
 
                 namespace = self._build_namespace(payload, context)
                 evaluator = _SafeEvaluator(namespace)
