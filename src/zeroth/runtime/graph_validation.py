@@ -25,7 +25,7 @@ from typing import Any
 
 from zeroth.contracts.graph.validation import ContractValidator
 from zeroth.contracts.graph.validation.issues import append_issue
-from zeroth.core.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.graph.models import AgentNode, ExecutableUnitNode, Graph, Node
 from zeroth.core.graph.validation_errors import (
     GraphValidationReport,

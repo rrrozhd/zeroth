@@ -13,7 +13,7 @@ from typing import Any
 
 from zeroth.core.approvals import ApprovalRecord, ApprovalRepository
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
-from zeroth.core.contracts import ContractNotFoundError, ContractRegistryError
+from zeroth.contracts.registry import ContractNotFoundError, ContractRegistryError
 from zeroth.core.graph.validation_errors import (
     GraphValidationError,
     GraphValidationReport,

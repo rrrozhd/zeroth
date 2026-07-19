@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from zeroth.contracts.registry import ContractRegistry
     from zeroth.core.approvals import ApprovalService
     from zeroth.core.audit import AuditRepository
-    from zeroth.core.contracts import ContractRegistry
     from zeroth.core.deployments import Deployment, DeploymentService
     from zeroth.core.econ.client import RegulusClient
     from zeroth.core.graph import Graph, GraphRepository

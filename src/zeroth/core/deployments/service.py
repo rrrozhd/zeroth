@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from zeroth.core.contracts import ContractReference, ContractRegistry
-from zeroth.core.contracts.errors import ContractNotFoundError
+from zeroth.contracts.registry import ContractReference, ContractRegistry
+from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.core.deployments.models import Deployment
 from zeroth.core.deployments.provenance import (
     build_attestation_payload,

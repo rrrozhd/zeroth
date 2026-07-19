@@ -9,8 +9,8 @@ from typing import Any, Protocol
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from zeroth.core.contracts import ContractReference
-from zeroth.core.contracts.errors import ContractNotFoundError
+from zeroth.contracts.registry import ContractReference
+from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.core.identity import ActorIdentity
 from zeroth.core.runs import Run, RunFailureState, RunRepository, RunStatus
 from zeroth.service.api.authorization import (

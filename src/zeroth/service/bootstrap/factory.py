@@ -6,10 +6,10 @@ from collections.abc import Mapping
 
 from fastapi import FastAPI
 
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.approvals import ApprovalRepository, ApprovalService
 from zeroth.core.audit import AuditRepository
-from zeroth.core.contracts import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.execution_units import ExecutableUnitRunner

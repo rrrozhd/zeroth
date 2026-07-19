@@ -10,7 +10,7 @@ Contracts let you register a Pydantic model as a named, versioned schema in a ce
 import asyncio
 from pydantic import BaseModel
 
-from zeroth.core.contracts import (
+from zeroth.contracts.registry import (
     ContractRegistry,
     ContractReference,
     StepContractBinding,
@@ -70,4 +70,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.contracts`](../reference/python-api/contracts.md).
+See the [Python API reference for `zeroth.contracts.registry`](../reference/python-api/contracts.md).

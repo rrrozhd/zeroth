@@ -1,14 +1,15 @@
-"""Contract registry exports.
+"""Legacy import path for the contract registry package.
 
-Think of contracts like shared agreements about what data looks like.
-This package lets you store, version, and retrieve those agreements so that
-different parts of the system can communicate with a well-defined data shape.
+The contract registry lives in :mod:`zeroth.contracts.registry`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.contracts.errors import ContractNotFoundError, ContractRegistryError
-from zeroth.core.contracts.registry import (
+from zeroth.contracts.registry import (
+    ContractNotFoundError,
     ContractReference,
     ContractRegistry,
+    ContractRegistryError,
     ContractVersion,
     StepContractBinding,
     ToolContractBinding,

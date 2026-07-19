@@ -16,11 +16,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from zeroth.contracts.registry import ContractReference, ContractRegistry
 from zeroth.core.agent_runtime.models import AgentConfig, ModelParams, PromptConfig, RetryPolicy
 from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter, ProviderAdapter
 from zeroth.core.agent_runtime.runner import AgentRunner
 from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
-from zeroth.core.contracts.registry import ContractReference, ContractRegistry
 from zeroth.core.graph.models import AgentNode, AgentToolBinding, ExecutableUnitNode, Graph, Node
 from zeroth.core.graph.serialization import deserialize_graph
 from zeroth.core.policy.models import Capability

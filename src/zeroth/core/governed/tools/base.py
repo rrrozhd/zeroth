@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from zeroth.contracts.registry.tooling import ExecutionPlacement
 
 InModelT = TypeVar("InModelT", bound=BaseModel)
 OutModelT = TypeVar("OutModelT", bound=BaseModel)
-ExecutionPlacement = Literal["local_only", "remote_only", "local_or_remote"]
 
 
 class ToolError(Exception):

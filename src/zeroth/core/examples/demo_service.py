@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from zeroth.core.contracts.registry import ContractRegistry, ContractVersionExistsError
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.contracts.registry.errors import ContractVersionExistsError
 from zeroth.core.deployments import Deployment, DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.graph.models import AgentNode, AgentNodeData, DisplayMetadata, Graph
 from zeroth.core.graph.repository import GraphRepository

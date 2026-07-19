@@ -43,13 +43,13 @@ import uvicorn
 from examples._common import DEMO_API_KEY, demo_auth_config
 from examples._contracts import ToolInput, ToolOutput, Topic
 from examples._tools import build_demo_tool_registry
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.contracts import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.graph import (

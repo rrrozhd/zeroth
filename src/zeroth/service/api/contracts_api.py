@@ -8,8 +8,8 @@ from typing import Any, Protocol
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.contracts import ContractReference
-from zeroth.core.contracts.errors import ContractNotFoundError
+from zeroth.contracts.registry import ContractReference
+from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.core.deployments import DeploymentStatus
 from zeroth.core.runs import RunFailureState
 from zeroth.service.api.authorization import (

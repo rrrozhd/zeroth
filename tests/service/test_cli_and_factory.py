@@ -10,7 +10,7 @@ from zeroth.core.agent_runtime.factory import (
     build_runners_for_deployment,
 )
 from zeroth.core.agent_runtime.mcp import MCPServerConfig
-from zeroth.core.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.examples.demo_service import (
     DEMO_GRAPH_ID,
     DEMO_INPUT_CONTRACT,

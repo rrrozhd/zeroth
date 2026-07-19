@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
-from zeroth.core.contracts import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.deployments.provenance import (
     build_attestation_payload,

@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from zeroth.core.contracts.registry import ContractVersion
+from zeroth.contracts.registry import ContractVersion
 from zeroth.core.graph.models import Graph
 from zeroth.core.graph.validation import GraphValidator
 from zeroth.core.graph.validation_errors import (

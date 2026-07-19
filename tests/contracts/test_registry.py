@@ -6,8 +6,8 @@ from zeroth.core.governed.app.spec import GovernedFlowSpec, GovernedStepSpec
 from zeroth.core.governed.tools.python_tool import tool
 from pydantic import BaseModel, Field
 
-from zeroth.core.contracts import ContractReference, ContractRegistry
-from zeroth.core.contracts.errors import ContractNotFoundError
+from zeroth.contracts.registry import ContractReference, ContractRegistry
+from zeroth.contracts.registry.errors import ContractNotFoundError
 
 
 class Address(BaseModel):

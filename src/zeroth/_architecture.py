@@ -235,7 +235,6 @@ TEMPORARY_EXCEPTIONS = {
         ("zeroth.core.conditions.evaluator", "zeroth.core.runs.models"),
         ("zeroth.core.conditions.models", "zeroth.core.runs.models"),
         ("zeroth.core.conditions.recorder", "zeroth.core.runs.models"),
-        ("zeroth.core.contracts.registry", "zeroth.core.governed.tools.base"),
         ("zeroth.core.graph", "zeroth.core.subgraph.models"),
         ("zeroth.core.graph.models", "zeroth.core.context_window.models"),
         ("zeroth.core.graph.models", "zeroth.core.parallel.models"),

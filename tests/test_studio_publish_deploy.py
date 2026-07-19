@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from zeroth.core.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.graph.repository import GraphRepository
 from zeroth.core.graph.validation import GraphValidator

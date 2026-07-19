@@ -23,7 +23,7 @@ from zeroth.core.audit.evidence import (
     resolve_artifact_references,
 )
 from zeroth.core.audit.models import NodeAuditRecord
-from zeroth.core.contracts.registry import validate_artifact_reference
+from zeroth.contracts.registry import validate_artifact_reference
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 
 
