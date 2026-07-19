@@ -187,6 +187,15 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.artifacts.errors:ArtifactTTLError` | `zeroth.platform.artifacts.errors:ArtifactTTLError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.artifacts.models:ArtifactReference` | `zeroth.platform.artifacts.models:ArtifactReference` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.artifacts.models:ArtifactStoreSettings` | `zeroth.platform.artifacts.models:ArtifactStoreSettings` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.dispatch:LeaseManager` | `zeroth.platform.dispatch:LeaseManager` | Move dispatch to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.dispatch:RunWorker` | `zeroth.runtime.orchestration.run_worker:RunWorker` | Move run worker to the runtime layer | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.dispatch:WAKEUP_TASK_NAME` | `zeroth.platform.dispatch:WAKEUP_TASK_NAME` | Move dispatch to platform | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.dispatch:arq_settings_from_zeroth` | `zeroth.platform.dispatch:arq_settings_from_zeroth` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.dispatch:create_arq_pool` | `zeroth.platform.dispatch:create_arq_pool` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.dispatch:enqueue_wakeup` | `zeroth.platform.dispatch:enqueue_wakeup` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.dispatch:run_arq_consumer` | `zeroth.platform.dispatch:run_arq_consumer` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.dispatch.arq_wakeup:create_arq_pool` | `zeroth.platform.dispatch.arq_wakeup:create_arq_pool` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.dispatch.arq_wakeup:enqueue_wakeup` | `zeroth.platform.dispatch.arq_wakeup:enqueue_wakeup` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

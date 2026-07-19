@@ -2665,126 +2665,126 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.dispatch",
+        "__all__:zeroth.platform.dispatch",
         "docs:docs/how-to/dispatch.md",
         "docs:docs/reference/python-api/dispatch.md",
-        "package_export:zeroth.core.dispatch"
+        "package_export:zeroth.platform.dispatch"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.dispatch:LeaseManager"
       ],
-      "module": "zeroth.core.dispatch",
+      "module": "zeroth.platform.dispatch",
       "name": "LeaseManager",
       "signature": "(database: 'AsyncDatabase', lease_duration_seconds: 'int' = 60) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.dispatch",
+        "__all__:zeroth.runtime.orchestration.run_worker",
         "docs:docs/how-to/dispatch.md",
         "docs:docs/reference/python-api/dispatch.md",
-        "package_export:zeroth.core.dispatch"
+        "package_export:zeroth.runtime.orchestration.run_worker"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.dispatch:RunWorker"
       ],
-      "module": "zeroth.core.dispatch",
+      "module": "zeroth.runtime.orchestration.run_worker",
       "name": "RunWorker",
       "signature": "(deployment_ref: 'str', run_repository: 'RunRepository', orchestrator: 'RuntimeOrchestrator', graph: 'Graph', lease_manager: 'LeaseManager', max_concurrency: 'int' = 8, poll_interval: 'float' = 0.5, worker_id: 'str' = <factory>, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, shutdown_timeout: 'float' = 30.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.dispatch",
+        "__all__:zeroth.platform.dispatch",
         "docs:docs/reference/python-api/dispatch.md"
       ],
       "kind": "value",
       "legacy_ids": [
         "zeroth.core.dispatch:WAKEUP_TASK_NAME"
       ],
-      "module": "zeroth.core.dispatch",
+      "module": "zeroth.platform.dispatch",
       "name": "WAKEUP_TASK_NAME",
       "signature": null
     },
     {
       "evidence": [
-        "__all__:zeroth.core.dispatch",
+        "__all__:zeroth.platform.dispatch",
         "docs:docs/reference/python-api/dispatch.md",
-        "package_export:zeroth.core.dispatch"
+        "package_export:zeroth.platform.dispatch"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.dispatch:arq_settings_from_zeroth"
       ],
-      "module": "zeroth.core.dispatch",
+      "module": "zeroth.platform.dispatch",
       "name": "arq_settings_from_zeroth",
       "signature": "(redis_settings: 'Any') -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.dispatch",
+        "__all__:zeroth.platform.dispatch",
         "docs:docs/how-to/dispatch.md",
         "docs:docs/reference/python-api/dispatch.md",
-        "package_export:zeroth.core.dispatch"
+        "package_export:zeroth.platform.dispatch"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.dispatch:create_arq_pool"
       ],
-      "module": "zeroth.core.dispatch",
+      "module": "zeroth.platform.dispatch",
       "name": "create_arq_pool",
       "signature": "(redis_settings: 'Any') -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.dispatch",
+        "__all__:zeroth.platform.dispatch",
         "docs:docs/how-to/dispatch.md",
         "docs:docs/reference/python-api/dispatch.md",
-        "package_export:zeroth.core.dispatch"
+        "package_export:zeroth.platform.dispatch"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.dispatch:enqueue_wakeup"
       ],
-      "module": "zeroth.core.dispatch",
+      "module": "zeroth.platform.dispatch",
       "name": "enqueue_wakeup",
       "signature": "(arq_pool: 'Any', run_id: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.dispatch",
+        "__all__:zeroth.platform.dispatch",
         "docs:docs/reference/python-api/dispatch.md",
-        "package_export:zeroth.core.dispatch"
+        "package_export:zeroth.platform.dispatch"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.dispatch:run_arq_consumer"
       ],
-      "module": "zeroth.core.dispatch",
+      "module": "zeroth.platform.dispatch",
       "name": "run_arq_consumer",
       "signature": "(redis_settings: 'Any', on_wakeup: 'Callable[[str], Awaitable[None]]') -> 'None'"
     },
     {
       "evidence": [
-        "optional_integration:zeroth.core.dispatch.arq_wakeup"
+        "optional_integration:zeroth.platform.dispatch.arq_wakeup"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.dispatch.arq_wakeup:create_arq_pool"
       ],
-      "module": "zeroth.core.dispatch.arq_wakeup",
+      "module": "zeroth.platform.dispatch.arq_wakeup",
       "name": "create_arq_pool",
       "signature": "(redis_settings: 'Any') -> 'Any'"
     },
     {
       "evidence": [
-        "optional_integration:zeroth.core.dispatch.arq_wakeup"
+        "optional_integration:zeroth.platform.dispatch.arq_wakeup"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.dispatch.arq_wakeup:enqueue_wakeup"
       ],
-      "module": "zeroth.core.dispatch.arq_wakeup",
+      "module": "zeroth.platform.dispatch.arq_wakeup",
       "name": "enqueue_wakeup",
       "signature": "(arq_pool: 'Any', run_id: 'str') -> 'None'"
     },
