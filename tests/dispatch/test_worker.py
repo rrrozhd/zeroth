@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from zeroth.core.dispatch.lease import LeaseManager
-from zeroth.core.dispatch.worker import RunWorker
+from zeroth.platform.dispatch.lease import LeaseManager
+from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.runs.models import Run
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase

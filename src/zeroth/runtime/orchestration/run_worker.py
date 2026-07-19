@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from zeroth.core.dispatch.lease import LeaseManager
 from zeroth.core.runs import RunFailureState, RunRepository, RunStatus
+from zeroth.platform.dispatch.lease import LeaseManager
 
 if TYPE_CHECKING:
     from zeroth.core.graph import Graph

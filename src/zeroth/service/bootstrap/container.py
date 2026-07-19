@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from zeroth.core.audit import AuditRepository
     from zeroth.core.contracts import ContractRegistry
     from zeroth.core.deployments import Deployment, DeploymentService
-    from zeroth.core.dispatch import LeaseManager, RunWorker
     from zeroth.core.econ.client import RegulusClient
     from zeroth.core.graph import Graph, GraphRepository
     from zeroth.core.guardrails.config import GuardrailConfig
@@ -24,7 +23,9 @@ if TYPE_CHECKING:
     from zeroth.core.secrets import SecretProvider
     from zeroth.core.signing import SigningKeyProvider
     from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+    from zeroth.platform.dispatch import LeaseManager
     from zeroth.platform.storage import AsyncDatabase
+    from zeroth.runtime.orchestration.run_worker import RunWorker
     from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
 
 

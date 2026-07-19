@@ -128,7 +128,7 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
         # Phase 16: ARQ wakeup notification for low-latency dispatch.
         arq_pool = getattr(bootstrap, "arq_pool", None)
         if arq_pool is not None:
-            from zeroth.core.dispatch.arq_wakeup import enqueue_wakeup
+            from zeroth.platform.dispatch.arq_wakeup import enqueue_wakeup
 
             await enqueue_wakeup(arq_pool, persisted.run_id)
 

@@ -146,7 +146,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                     # Phase 16: ARQ wakeup for approval continuation.
                     arq_pool = getattr(bootstrap, "arq_pool", None)
                     if arq_pool is not None:
-                        from zeroth.core.dispatch.arq_wakeup import enqueue_wakeup
+                        from zeroth.platform.dispatch.arq_wakeup import enqueue_wakeup
 
                         await enqueue_wakeup(arq_pool, run.run_id)
                     # Yield to the event loop so the worker can claim and drive the run.

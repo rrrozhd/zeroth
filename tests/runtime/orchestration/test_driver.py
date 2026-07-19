@@ -6,7 +6,7 @@ persists a checkpoint — plus the terminal transitions (completion, failure) an
 the pause points that return a run mid-flight.
 
 ``RuntimeOrchestrator`` keeps ``_drive`` and ``_entry_step`` as delegating
-methods because ``zeroth.core.dispatch.worker`` and
+methods because ``zeroth.runtime.orchestration.run_worker`` and
 ``zeroth.core.subgraph.executor`` call them on the orchestrator by name.
 
 End-to-end behavior is guarded by ``tests/runtime/orchestration/

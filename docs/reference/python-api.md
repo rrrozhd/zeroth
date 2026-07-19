@@ -27,7 +27,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 
 ### Platform
 - [Secrets](python-api/secrets.md) — `zeroth.core.secrets`
-- [Dispatch](python-api/dispatch.md) — `zeroth.core.dispatch`
+- [Dispatch](python-api/dispatch.md) — `zeroth.platform.dispatch`
 - [Economics](python-api/econ.md) — `zeroth.core.econ`
 - [Service](python-api/service.md) — `zeroth.core.service`
 - [Webhooks](python-api/webhooks.md) — `zeroth.core.webhooks`

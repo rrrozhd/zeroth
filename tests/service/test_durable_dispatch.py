@@ -6,7 +6,8 @@ import asyncio
 import contextlib
 
 from tests.service.helpers import agent_graph, deploy_service
-from zeroth.core.dispatch import LeaseManager, RunWorker
+from zeroth.platform.dispatch import LeaseManager
+from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.core.runs import RunStatus
 from zeroth.core.runs.models import Run
 

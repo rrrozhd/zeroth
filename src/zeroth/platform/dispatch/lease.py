@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from zeroth.core.runs import RunStatus
 from zeroth.platform.storage import AsyncDatabase
 
 try:
@@ -27,6 +26,14 @@ try:
     _HAS_PG = True
 except ImportError:
     _HAS_PG = False
+
+# The status-column vocabulary of the runs table this SQL claims from. These
+# are the persisted string values of the run domain's RunStatus enum; the
+# platform layer sits below the run domain, so it speaks the column contract
+# rather than importing the enum. tests/dispatch/test_lease.py pins the
+# values against RunStatus.
+_STATUS_PENDING = "PENDING"
+_STATUS_RUNNING = "RUNNING"
 
 
 def _utc_now() -> datetime:
@@ -90,7 +97,7 @@ class LeaseManager:
                 ORDER BY started_at ASC
                 LIMIT 1
                 """,
-                (deployment_ref, RunStatus.PENDING.value, now.isoformat()),
+                (deployment_ref, _STATUS_PENDING, now.isoformat()),
             )
             if row is None:
                 return None
@@ -140,7 +147,7 @@ class LeaseManager:
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
                 """,
-                (deployment_ref, RunStatus.PENDING.value, now.isoformat()),
+                (deployment_ref, _STATUS_PENDING, now.isoformat()),
             )
             if row is None:
                 return None
@@ -176,7 +183,7 @@ class LeaseManager:
                   AND lease_worker_id IS NOT NULL
                   AND lease_expires_at < ?
                 """,
-                (deployment_ref, RunStatus.RUNNING.value, now.isoformat()),
+                (deployment_ref, _STATUS_RUNNING, now.isoformat()),
             )
             for row in rows:
                 run_id = row["run_id"]

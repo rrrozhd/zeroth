@@ -11,7 +11,6 @@ from zeroth.core.approvals import ApprovalRepository, ApprovalService
 from zeroth.core.audit import AuditRepository
 from zeroth.core.contracts import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.dispatch import LeaseManager, RunWorker
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.graph import GraphRepository
@@ -33,8 +32,10 @@ from zeroth.core.secrets import SecretProvider, build_secret_provider
 from zeroth.core.signing import build_signing_provider_async
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.config.settings import get_settings
+from zeroth.platform.dispatch import LeaseManager
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.runtime.graph_validation import GraphValidator
+from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.service.api.authentication import (
     JWTBearerTokenVerifier,
     ServiceAuthConfig,
@@ -216,7 +217,7 @@ async def bootstrap_service(
     arq_pool = None
     if settings.dispatch.arq_enabled:
         try:
-            from zeroth.core.dispatch.arq_wakeup import create_arq_pool
+            from zeroth.platform.dispatch.arq_wakeup import create_arq_pool
 
             arq_pool = await create_arq_pool(settings.redis)
         except ImportError:

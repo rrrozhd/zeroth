@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.dispatch.worker import RunWorker
+from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.runs.models import Run
 
@@ -67,9 +67,9 @@ async def test_run_creation_enqueues_wakeup() -> None:
     mock_run_repo.get.return_value = persisted_run
 
     with patch(
-        "zeroth.core.dispatch.arq_wakeup.enqueue_wakeup", new_callable=AsyncMock
+        "zeroth.platform.dispatch.arq_wakeup.enqueue_wakeup", new_callable=AsyncMock
     ) as mock_enqueue:
-        from zeroth.core.dispatch.arq_wakeup import enqueue_wakeup
+        from zeroth.platform.dispatch.arq_wakeup import enqueue_wakeup
 
         # Simulate what run_api.py does after persisting.
         arq_pool = mock_pool
@@ -82,7 +82,7 @@ async def test_run_creation_enqueues_wakeup() -> None:
 @pytest.mark.asyncio
 async def test_run_creation_no_wakeup_when_arq_disabled() -> None:
     """When bootstrap has no arq_pool (None), no enqueue attempt should be made."""
-    from zeroth.core.dispatch.arq_wakeup import enqueue_wakeup
+    from zeroth.platform.dispatch.arq_wakeup import enqueue_wakeup
 
     mock_pool = None
     # enqueue_wakeup guards against None pool -- should be a no-op.
@@ -176,7 +176,7 @@ async def test_arq_consumer_started_when_pool_available() -> None:
         return task
 
     with patch("asyncio.create_task", side_effect=tracking_create_task), patch(
-        "zeroth.core.dispatch.arq_wakeup.run_arq_consumer",
+        "zeroth.platform.dispatch.arq_wakeup.run_arq_consumer",
         new_callable=AsyncMock,
         side_effect=asyncio.CancelledError,
     ):

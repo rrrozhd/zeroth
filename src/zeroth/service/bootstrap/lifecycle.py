@@ -121,8 +121,8 @@ async def service_lifespan(app: FastAPI):
     arq_pool = getattr(app.state.bootstrap, "arq_pool", None)
     if worker is not None and arq_pool is not None:
         try:
-            from zeroth.core.dispatch.arq_wakeup import run_arq_consumer
             from zeroth.platform.config.settings import get_settings
+            from zeroth.platform.dispatch.arq_wakeup import run_arq_consumer
 
             redis_settings = get_settings().redis
             arq_consumer_task = asyncio.create_task(

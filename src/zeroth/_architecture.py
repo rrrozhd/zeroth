@@ -195,15 +195,20 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.dispatch.lease", "zeroth.core.runs"),
-        ("zeroth.core.dispatch.worker", "zeroth.core.runs"),
-        ("zeroth.core.dispatch.worker", "zeroth.core.graph"),
-        ("zeroth.core.dispatch.worker", "zeroth.core.guardrails.dead_letter"),
-        ("zeroth.core.dispatch.worker", "zeroth.core.orchestrator"),
-        ("zeroth.core.dispatch.worker", "zeroth.core.approvals"),
         ("zeroth.core.secrets.provider", "zeroth.core.execution_units.models"),
         reason="Legacy infrastructure packages contain domain-aware wiring.",
         removal_task="Task 11: move platform packages and relocate domain-aware wiring.",
+    ),
+    **_exception_group(
+        ("zeroth.core.dispatch", "zeroth.runtime.orchestration.run_worker"),
+        reason=(
+            "zeroth.core.dispatch:RunWorker is a protected legacy capability, so "
+            "the legacy dispatch package must keep republishing the run worker "
+            "that now lives in the runtime layer. Resolution stays lazy: making "
+            "it eager would put the orchestrator on the import path of the "
+            "dispatch shim."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
         ("zeroth.core.storage.redis", "zeroth.integrations.persistence.governed_redis"),

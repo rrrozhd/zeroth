@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.dispatch.lease import _HAS_PG, LeaseManager
+from zeroth.platform.dispatch.lease import _HAS_PG, LeaseManager
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
@@ -274,3 +274,17 @@ async def test_claim_pending_pg_returns_run_id_on_success() -> None:
         call_args = mock_conn.execute.call_args
         assert "UPDATE runs" in call_args[0][0]
         assert "test-123" in call_args[0][1]
+
+
+def test_lease_status_literals_match_the_run_status_enum() -> None:
+    """The lease SQL speaks the runs-table column contract, not the enum.
+
+    The platform layer sits below the run domain, so ``lease.py`` carries the
+    persisted status strings as module constants; this pin fails if the run
+    domain ever changes the persisted vocabulary.
+    """
+    from zeroth.core.runs import RunStatus
+    from zeroth.platform.dispatch import lease
+
+    assert RunStatus.PENDING.value == lease._STATUS_PENDING
+    assert RunStatus.RUNNING.value == lease._STATUS_RUNNING
