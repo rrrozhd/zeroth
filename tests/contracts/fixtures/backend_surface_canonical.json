@@ -10211,143 +10211,143 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.signing:Ed25519Signer"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "Ed25519Signer",
       "signature": "(*, key_id: 'str', public_keys: 'Mapping[str, object]', private_key: 'object | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.signing:EnvHmacSigner"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "EnvHmacSigner",
       "signature": "(*, key_id: 'str', keys: 'Mapping[str, bytes]') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.signing:NullSigner"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "NullSigner",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.signing:SigningConfigError"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "SigningConfigError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.signing:SigningKeyProvider"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "SigningKeyProvider",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.signing:build_signing_provider"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "build_signing_provider",
       "signature": "(settings: 'ProvenanceSigningSettings', secret_provider: 'SecretProvider', *, tenant_id: 'str | None' = None) -> 'SigningKeyProvider | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.signing:build_signing_provider_async"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "build_signing_provider_async",
       "signature": "(settings: 'ProvenanceSigningSettings', secret_provider: 'SecretProvider', *, tenant_id: 'str | None' = None) -> 'SigningKeyProvider | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.signing:sign_digest"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "sign_digest",
       "signature": "(digest: 'str', signer: 'SigningKeyProvider | None') -> 'tuple[str | None, str | None, str | None]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.signing:signable_bytes"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "signable_bytes",
       "signature": "(digest: 'str', key_id: 'str', algorithm: 'str') -> 'bytes'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.signing",
-        "package_export:zeroth.core.signing"
+        "__all__:zeroth.platform.signing",
+        "package_export:zeroth.platform.signing"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.signing:verify_digest"
       ],
-      "module": "zeroth.core.signing",
+      "module": "zeroth.platform.signing",
       "name": "verify_digest",
       "signature": "(digest: 'str', signature_hex: 'str | None', key_id: 'str | None', algorithm: 'str | None', signer: 'SigningKeyProvider | None') -> 'bool'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.signing.provider"
+        "package_export:zeroth.platform.signing.provider"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.signing.provider:SigningConfigError"
       ],
-      "module": "zeroth.core.signing.provider",
+      "module": "zeroth.platform.signing.provider",
       "name": "SigningConfigError",
       "signature": "<not-inspectable>"
     },

@@ -226,6 +226,17 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.secrets.provider:resolve_secret_async` | `zeroth.platform.secrets.provider:resolve_secret_async` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.secrets.redaction:SecretRedactor` | `zeroth.platform.secrets.redaction:SecretRedactor` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.secrets.vault:VaultSecretProvider` | `zeroth.platform.secrets.vault:VaultSecretProvider` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.signing:Ed25519Signer` | `zeroth.platform.signing:Ed25519Signer` | Move signing to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.signing:EnvHmacSigner` | `zeroth.platform.signing:EnvHmacSigner` | Move signing to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.signing:NullSigner` | `zeroth.platform.signing:NullSigner` | Move signing to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.signing:SigningConfigError` | `zeroth.platform.signing:SigningConfigError` | Move signing to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.signing:SigningKeyProvider` | `zeroth.platform.signing:SigningKeyProvider` | Move signing to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.signing:build_signing_provider` | `zeroth.platform.signing:build_signing_provider` | Move signing to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.signing:build_signing_provider_async` | `zeroth.platform.signing:build_signing_provider_async` | Move signing to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.signing:sign_digest` | `zeroth.platform.signing:sign_digest` | Move signing to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.signing:signable_bytes` | `zeroth.platform.signing:signable_bytes` | Move signing to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.signing:verify_digest` | `zeroth.platform.signing:verify_digest` | Move signing to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.signing.provider:SigningConfigError` | `zeroth.platform.signing.provider:SigningConfigError` | Move signing to platform | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
