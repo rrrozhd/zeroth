@@ -40,6 +40,7 @@ RELOCATED_SERVICE_MODULES = [
     ("zeroth.service.api.rightsizing_api", "zeroth.core.service.rightsizing_api"),
     ("zeroth.service.api.template_api", "zeroth.core.service.template_api"),
     ("zeroth.service.api.deployment_api", "zeroth.core.service.deployment_api"),
+    ("zeroth.service.api.approval_api", "zeroth.core.service.approval_api"),
 ]
 
 
