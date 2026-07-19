@@ -25,7 +25,7 @@ from zeroth.core.graph.models import (
     Node,
 )
 from zeroth.core.graph.validation_errors import ValidationCode, ValidationIssue
-from zeroth.core.mappings import MappingValidator
+from zeroth.contracts.mappings import MappingValidator
 
 
 def _agent(node_id: str, bindings: list[AgentToolBinding] | None = None) -> AgentNode:

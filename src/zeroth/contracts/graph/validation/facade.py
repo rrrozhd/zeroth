@@ -15,12 +15,12 @@ from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation.nodes import validate_entrypoint, validate_nodes
 from zeroth.contracts.graph.validation.references import validate_graph_refs
 from zeroth.contracts.graph.validation.tools import validate_tool_attachments
+from zeroth.contracts.mappings import MappingValidator
 from zeroth.core.graph.validation_errors import (
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,
 )
-from zeroth.core.mappings import MappingValidator
 
 if TYPE_CHECKING:
     from zeroth.core.graph.models import Graph, Node

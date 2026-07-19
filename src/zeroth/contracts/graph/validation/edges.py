@@ -14,8 +14,8 @@ from zeroth.core.graph.validation_errors import (
 )
 
 if TYPE_CHECKING:
+    from zeroth.contracts.mappings import MappingValidator
     from zeroth.core.graph.models import Edge, Graph, Node
-    from zeroth.core.mappings import MappingValidator
 
 
 def validate_edges(

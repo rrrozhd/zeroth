@@ -25,6 +25,7 @@ from typing import Any
 
 from zeroth.contracts.graph.validation import ContractValidator
 from zeroth.contracts.graph.validation.issues import append_issue
+from zeroth.contracts.mappings import MappingValidator
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.graph.models import AgentNode, ExecutableUnitNode, Graph, Node
 from zeroth.core.graph.validation_errors import (
@@ -33,7 +34,6 @@ from zeroth.core.graph.validation_errors import (
     ValidationIssue,
     ValidationSeverity,
 )
-from zeroth.core.mappings import MappingValidator
 from zeroth.core.parallel.errors import ReducerRefValidationError
 from zeroth.core.parallel.reducers import resolve_reducer_ref
 from zeroth.core.policy.models import Capability

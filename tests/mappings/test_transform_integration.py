@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.mappings.errors import MappingExecutionError, MappingValidationError
-from zeroth.core.mappings.executor import MappingExecutor
-from zeroth.core.mappings.models import (
+from zeroth.contracts.mappings.errors import MappingExecutionError, MappingValidationError
+from zeroth.contracts.mappings.executor import MappingExecutor
+from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,
@@ -21,7 +21,7 @@ from zeroth.core.mappings.models import (
     RenameMappingOperation,
     TransformMappingOperation,
 )
-from zeroth.core.mappings.validator import MappingValidator
+from zeroth.contracts.mappings.validator import MappingValidator
 
 
 # ---------------------------------------------------------------------------

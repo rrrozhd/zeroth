@@ -6,16 +6,16 @@ from typing import TYPE_CHECKING
 
 from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation.references import validate_ref_list
+from zeroth.contracts.mappings import MappingValidationError
 from zeroth.core.graph.validation_errors import (
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,
 )
-from zeroth.core.mappings import MappingValidationError
 
 if TYPE_CHECKING:
+    from zeroth.contracts.mappings import MappingValidator
     from zeroth.core.graph.models import Edge
-    from zeroth.core.mappings import MappingValidator
 
 
 def validate_condition(

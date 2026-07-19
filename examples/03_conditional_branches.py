@@ -53,7 +53,7 @@ from zeroth.core.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.mappings.models import (
+from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
     EdgeMapping,
     PassthroughMappingOperation,

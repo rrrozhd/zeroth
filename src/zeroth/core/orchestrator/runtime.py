@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any
 
 from zeroth.contracts.conditions import NextStepPlanner
+from zeroth.contracts.mappings import MappingExecutor
 from zeroth.core.agent_runtime import AgentRunner, RepositoryThreadResolver
 from zeroth.core.approvals import ApprovalRecord, ApprovalService
 from zeroth.core.audit import AuditRepository
@@ -27,7 +28,6 @@ from zeroth.core.graph import (
     Node,
     RetrievalNode,
 )
-from zeroth.core.mappings import MappingExecutor
 from zeroth.core.parallel.executor import ParallelExecutor
 from zeroth.core.parallel.models import (
     BranchContext,

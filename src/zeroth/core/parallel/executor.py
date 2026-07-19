@@ -12,7 +12,7 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from zeroth.core.mappings.executor import _get_path, _set_path
+from zeroth.contracts.mappings.executor import _get_path, _set_path
 from zeroth.core.parallel.errors import (
     BranchApprovalPauseSignal,
     FanOutValidationError,

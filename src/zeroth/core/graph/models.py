@@ -13,6 +13,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.contracts.mappings.models import EdgeMapping
 from zeroth.core.context_window.models import ContextWindowSettings
 from zeroth.core.governed.app.spec import (
     GovernedFlowSpec,
@@ -23,7 +24,6 @@ from zeroth.core.governed.app.spec import (
     route_to,
     then,
 )
-from zeroth.core.mappings.models import EdgeMapping
 from zeroth.core.parallel.models import ParallelConfig
 from zeroth.core.policy.models import Capability
 from zeroth.core.subgraph.models import SubgraphNodeData

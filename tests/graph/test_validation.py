@@ -19,7 +19,7 @@ from zeroth.core.graph.validation_errors import (
     GraphValidationError,
     ValidationCode,
 )
-from zeroth.core.mappings.models import (
+from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,

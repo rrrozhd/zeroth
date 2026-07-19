@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.mappings.errors import MappingExecutionError
-from zeroth.core.mappings.executor import MappingExecutor
-from zeroth.core.mappings.models import (
+from zeroth.contracts.mappings.errors import MappingExecutionError
+from zeroth.contracts.mappings.executor import MappingExecutor
+from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,

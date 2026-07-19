@@ -12,7 +12,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 - [Conditions](python-api/conditions.md) — `zeroth.contracts.conditions`
 
 ### Data & state
-- [Mappings](python-api/mappings.md) — `zeroth.core.mappings`
+- [Mappings](python-api/mappings.md) — `zeroth.contracts.mappings`
 - [Memory](python-api/memory.md) — `zeroth.core.memory`
 - [Storage](python-api/storage.md) — `zeroth.platform.storage`
 - [Contracts](python-api/contracts.md) — `zeroth.contracts.registry`

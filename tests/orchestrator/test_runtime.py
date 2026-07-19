@@ -39,7 +39,7 @@ from zeroth.core.graph import (
     HumanApprovalNodeData,
 )
 from zeroth.core.identity import ActorIdentity, AuthMethod
-from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.policy import (
     Capability,

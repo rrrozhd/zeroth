@@ -49,7 +49,7 @@ from zeroth.core.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
 from zeroth.core.policy import (
     Capability,
     CapabilityRegistry,

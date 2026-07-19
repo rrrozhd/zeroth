@@ -21,7 +21,7 @@ from zeroth.core.graph.models import (
     HumanApprovalNodeData,
 )
 from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
-from zeroth.core.mappings.models import (
+from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,

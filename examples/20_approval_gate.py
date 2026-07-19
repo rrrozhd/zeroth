@@ -65,7 +65,7 @@ from zeroth.core.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
 from zeroth.core.service.app import create_app
 from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
 from zeroth.platform.storage import AsyncSQLiteDatabase
