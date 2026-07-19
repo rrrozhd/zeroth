@@ -249,7 +249,15 @@ def _discover_schema_models() -> set[str]:
         for path in zeroth_root.rglob("*.py")
         if path.name in {"models.py", "schemas.py"}
         or (
-            path.parent.name == "service"
+            # Schema-bearing service modules in both the legacy layout
+            # (zeroth/core/service/*) and the canonical one, where the route
+            # modules live in zeroth/service/api/ and the app composition
+            # directly in zeroth/service/. The legacy paths are re-export
+            # shims defining nothing, so scanning both cannot double-count.
+            (
+                path.parent.name == "service"
+                or (path.parent.name == "api" and path.parent.parent.name == "service")
+            )
             and (
                 path.name.endswith("_api.py")
                 or path.name in {"app.py", "health.py", "studio_schemas.py"}

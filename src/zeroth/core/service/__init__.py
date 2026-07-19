@@ -17,11 +17,11 @@ from __future__ import annotations
 import importlib
 
 _EXPORTS = {
-    "DeploymentBootstrapError": "zeroth.core.service.bootstrap",
-    "ServiceBootstrap": "zeroth.core.service.bootstrap",
-    "bootstrap_app": "zeroth.core.service.bootstrap",
-    "bootstrap_service": "zeroth.core.service.bootstrap",
-    "create_app": "zeroth.core.service.app",
+    "DeploymentBootstrapError": "zeroth.service.bootstrap.container",
+    "ServiceBootstrap": "zeroth.service.bootstrap.container",
+    "bootstrap_app": "zeroth.service.bootstrap.factory",
+    "bootstrap_service": "zeroth.service.bootstrap.factory",
+    "create_app": "zeroth.service.app",
 }
 
 __all__ = [
