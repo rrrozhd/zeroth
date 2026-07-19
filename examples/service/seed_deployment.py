@@ -23,9 +23,7 @@ import sys
 from pathlib import Path
 
 from examples._contracts import Answer, Question
-from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -33,6 +31,8 @@ from zeroth.core.graph import (
     Graph,
     GraphRepository,
 )
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.storage.factory import create_database

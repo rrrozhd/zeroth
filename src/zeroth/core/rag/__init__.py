@@ -1,6 +1,6 @@
 """Retrieval-augmented generation (RAG) helpers.
 
-The RetrievalNode itself lives in ``zeroth.core.graph`` (it is a graph node type);
+The RetrievalNode itself lives in ``zeroth.contracts.graph`` (it is a graph node type);
 this package provides the ingestion side — chunking documents and writing them to a
 memory connector for later retrieval.
 """

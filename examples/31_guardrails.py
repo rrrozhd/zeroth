@@ -34,7 +34,7 @@ from examples._common import (
     print_run_summary,
 )
 from examples._contracts import Answer, Question
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,

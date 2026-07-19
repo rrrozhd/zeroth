@@ -230,7 +230,7 @@ class TestHumanApprovalNodeDataSLA:
     """HumanApprovalNodeData SLA config fields."""
 
     def test_defaults_none(self):
-        from zeroth.core.graph.models import HumanApprovalNodeData
+        from zeroth.contracts.graph.models import HumanApprovalNodeData
 
         data = HumanApprovalNodeData()
         assert data.sla_timeout_seconds is None
@@ -238,7 +238,7 @@ class TestHumanApprovalNodeDataSLA:
         assert data.delegate_identity is None
 
     def test_with_values(self):
-        from zeroth.core.graph.models import HumanApprovalNodeData
+        from zeroth.contracts.graph.models import HumanApprovalNodeData
 
         data = HumanApprovalNodeData(
             sla_timeout_seconds=300,

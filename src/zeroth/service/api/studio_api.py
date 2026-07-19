@@ -14,9 +14,9 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import ValidationError
 
-from zeroth.core.graph import GraphRepository
-from zeroth.core.graph.errors import GraphLifecycleError
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph import GraphRepository
+from zeroth.contracts.graph.errors import GraphLifecycleError
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -34,7 +34,7 @@ from zeroth.core.graph.models import (
     RetrievalNodeData,
     SubgraphNode,
 )
-from zeroth.core.graph.validation_errors import GraphValidationError
+from zeroth.contracts.graph.validation_errors import GraphValidationError
 from zeroth.core.subgraph.models import SubgraphNodeData
 from zeroth.service.api.authorization import Permission, require_permission
 from zeroth.service.api.studio_schemas import (

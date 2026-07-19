@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from zeroth.contracts.graph import Graph, GraphRepository, GraphStatus, Node
+from zeroth.contracts.graph.serialization import serialize_graph
+from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.registry import ContractReference, ContractRegistry
 from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.core.deployments.models import Deployment
@@ -20,9 +23,6 @@ from zeroth.core.deployments.repository import (
     DeploymentRefLineageConflictError,
     SQLiteDeploymentRepository,
 )
-from zeroth.core.graph import Graph, GraphRepository, GraphStatus, Node
-from zeroth.core.graph.serialization import serialize_graph
-from zeroth.core.graph.versioning import graph_version_ref
 
 if TYPE_CHECKING:
     from zeroth.platform.signing import SigningKeyProvider

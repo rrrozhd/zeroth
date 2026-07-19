@@ -18,8 +18,8 @@ from zeroth.contracts.graph.validation.references import (
     validate_graph_refs,
     validate_ref_list,
 )
-from zeroth.core.graph.models import Graph
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.models import Graph
+from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,

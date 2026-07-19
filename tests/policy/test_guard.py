@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
+from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
 from zeroth.core.policy import (
     Capability,
     CapabilityRegistry,

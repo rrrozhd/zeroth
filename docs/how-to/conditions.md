@@ -9,7 +9,7 @@ This guide shows how to attach a condition to a graph edge so the [orchestrator]
 ```python
 import asyncio
 
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Condition,

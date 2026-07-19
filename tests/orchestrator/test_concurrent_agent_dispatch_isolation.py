@@ -24,7 +24,7 @@ from zeroth.core.audit.models import TokenUsage
 from zeroth.core.context_window import ContextWindowSettings
 from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 from zeroth.core.execution_units import ExecutableUnitRunResult
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     AgentToolBinding,

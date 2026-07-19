@@ -9,7 +9,7 @@ This guide shows how to build, persist, and publish a [graph](../concepts/graph.
 ```python
 import asyncio
 
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -73,4 +73,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.graph`](../reference/python-api/graph.md).
+See the [Python API reference for `zeroth.contracts.graph`](../reference/python-api/graph.md).

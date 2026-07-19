@@ -14,7 +14,7 @@ from zeroth.contracts.graph.validation.mappings import (
     validate_condition,
     validate_mapping,
 )
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -23,7 +23,7 @@ from zeroth.core.graph.models import (
     Graph,
     Node,
 )
-from zeroth.core.graph.validation_errors import ValidationCode, ValidationIssue
+from zeroth.contracts.graph.validation_errors import ValidationCode, ValidationIssue
 from zeroth.contracts.mappings import MappingValidator
 from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
 

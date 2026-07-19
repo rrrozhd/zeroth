@@ -33,6 +33,13 @@ import sys
 
 from examples._common import print_run_summary, running_service
 from examples._contracts import Answer, Question
+from zeroth.contracts.graph import (
+    AgentNode,
+    AgentNodeData,
+    DisplayMetadata,
+    ExecutionSettings,
+    Graph,
+)
 from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
@@ -40,13 +47,6 @@ from zeroth.core.agent_runtime import (
     ProviderResponse,
 )
 from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.graph import (
-    AgentNode,
-    AgentNodeData,
-    DisplayMetadata,
-    ExecutionSettings,
-    Graph,
-)
 from zeroth.core.memory import (
     ConnectorManifest,
     InMemoryConnectorRegistry,

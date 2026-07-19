@@ -7,14 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from zeroth.core.deployments.models import Deployment
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
     Graph,
     SubgraphNode,
 )
-from zeroth.core.graph.serialization import serialize_graph
+from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.core.runs.models import Run, RunStatus
 from zeroth.core.subgraph.errors import (
     SubgraphCycleError,

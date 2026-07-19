@@ -38,12 +38,7 @@ from examples._common import (
     running_service,
 )
 from examples._contracts import Article, Research, Topic
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    LiteLLMProviderAdapter,
-)
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -52,6 +47,11 @@ from zeroth.core.graph import (
     Graph,
 )
 from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.core.agent_runtime import (
+    AgentConfig,
+    AgentRunner,
+    LiteLLMProviderAdapter,
+)
 
 
 def build_graph(model_name: str) -> Graph:

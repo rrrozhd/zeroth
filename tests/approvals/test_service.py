@@ -12,7 +12,7 @@ from zeroth.core.approvals import (
     ApprovalStatus,
 )
 from zeroth.core.audit import AuditRepository
-from zeroth.core.graph import HumanApprovalNode, HumanApprovalNodeData
+from zeroth.contracts.graph import HumanApprovalNode, HumanApprovalNodeData
 from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.core.runs import Run, RunRepository
 from zeroth.platform.primitives import utc_now

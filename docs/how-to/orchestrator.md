@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 from zeroth.core.examples.quickstart import build_demo_graph
-from zeroth.core.graph import GraphRepository
+from zeroth.contracts.graph import GraphRepository
 from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository

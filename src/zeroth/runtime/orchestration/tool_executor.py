@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from zeroth.core.graph import ExecutableUnitNode, Graph, Node
+from zeroth.contracts.graph import ExecutableUnitNode, Graph, Node
 from zeroth.runtime.orchestration.errors import NodeDispatcherError
 
 

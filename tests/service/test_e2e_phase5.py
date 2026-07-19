@@ -32,7 +32,7 @@ from zeroth.core.execution_units import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Condition,

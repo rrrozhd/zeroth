@@ -14,7 +14,7 @@ from typing import Any
 from zeroth.core.approvals import ApprovalRecord, ApprovalRepository
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
 from zeroth.contracts.registry import ContractNotFoundError, ContractRegistryError
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.validation_errors import (
     GraphValidationError,
     GraphValidationReport,
     ValidationCode,
@@ -111,7 +111,9 @@ def _migration_revisions() -> list[dict[str, str | None]]:
     while revision:
         parent = revisions[revision]
         ordered.append({"revision": revision, "down_revision": parent})
-        children = [key for key, candidate_parent in revisions.items() if candidate_parent == revision]
+        children = [
+            key for key, candidate_parent in revisions.items() if candidate_parent == revision
+        ]
         if len(children) > 1:
             raise AssertionError(f"branching Alembic history at {revision}: {children}")
         revision = children[0] if children else ""
@@ -161,22 +163,17 @@ def current_database_schema(database_path: Path) -> dict[str, Any]:
                         "partial": bool(row["partial"]),
                         "columns": [
                             item["name"]
-                            for item in connection.execute(
-                                f'PRAGMA index_info("{escaped_index}")'
-                            )
+                            for item in connection.execute(f'PRAGMA index_info("{escaped_index}")')
                         ],
                     }
                 )
             foreign_keys = [
-                dict(row)
-                for row in connection.execute(f'PRAGMA foreign_key_list("{quoted}")')
+                dict(row) for row in connection.execute(f'PRAGMA foreign_key_list("{quoted}")')
             ]
             tables[table] = {
                 "columns": columns,
                 "indexes": sorted(indexes, key=lambda item: item["name"]),
-                "foreign_keys": sorted(
-                    foreign_keys, key=lambda item: (item["id"], item["seq"])
-                ),
+                "foreign_keys": sorted(foreign_keys, key=lambda item: (item["id"], item["seq"])),
                 # SQLite exposes CHECK/UNIQUE/FK constraint clauses most faithfully
                 # through sqlite_master; whitespace is removed as an unstable input.
                 "constraint_definition": _normalize_sql(table_row["sql"]),

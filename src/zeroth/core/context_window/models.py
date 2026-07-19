@@ -9,34 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-
-class ContextWindowSettings(BaseModel):
-    """Per-node context window configuration.
-
-    Controls when and how the tracker compacts messages to stay within
-    the model's context window limit.
-
-    Fields:
-        max_context_tokens: Maximum context window size in tokens.
-            Set to 0 to disable compaction entirely.
-        summary_trigger_ratio: Ratio of accumulated tokens to max that
-            triggers compaction. Must be > 0 and <= 1.
-        compaction_strategy: Name of the strategy to use for compaction.
-        preserve_recent_messages_count: Number of recent messages to keep
-            untouched during compaction.
-        archive_originals: When True, compaction strategies store the
-            original (dropped/modified) messages in CompactionResult.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_context_tokens: int = Field(default=128_000, ge=0)
-    summary_trigger_ratio: float = Field(default=0.8, gt=0.0, le=1.0)
-    compaction_strategy: str = "observation_masking"
-    preserve_recent_messages_count: int = Field(default=4, ge=0)
-    archive_originals: bool = False
+# Re-exported as zeroth.core.context_window API: the authored per-node settings
+# are graph contract vocabulary; the compaction result objects stay here.
+from zeroth.contracts.graph.models import ContextWindowSettings as ContextWindowSettings
 
 
 class CompactionResult(BaseModel):

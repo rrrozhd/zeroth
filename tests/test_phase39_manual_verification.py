@@ -21,7 +21,7 @@ from zeroth.core.deployments.repository import SQLiteDeploymentRepository
 from zeroth.core.deployments.service import DeploymentService
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -32,7 +32,7 @@ from zeroth.core.graph.models import (
     SubgraphNode,
     SubgraphNodeData,
 )
-from zeroth.core.graph.repository import GraphRepository
+from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.agent_runtime.models import AgentRunResult, PromptAssembly
 from zeroth.core.runs.models import RunStatus

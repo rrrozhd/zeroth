@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -29,7 +29,7 @@ from zeroth.core.graph.models import (
     HumanApprovalNodeData,
     SubgraphNode,
 )
-from zeroth.core.graph.serialization import serialize_graph
+from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.core.deployments.models import Deployment
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs.models import Run, RunStatus

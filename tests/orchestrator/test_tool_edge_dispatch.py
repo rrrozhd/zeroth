@@ -26,7 +26,7 @@ from zeroth.core.execution_units import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNodeData,
     AgentToolBinding,
     Edge,
@@ -34,7 +34,7 @@ from zeroth.core.graph import (
     Graph,
     ToolArgument,
 )
-from zeroth.core.graph.models import AgentNode, ExecutableUnitNode
+from zeroth.contracts.graph.models import AgentNode, ExecutableUnitNode
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import RunRepository, RunStatus
 

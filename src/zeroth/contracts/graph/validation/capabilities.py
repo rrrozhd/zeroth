@@ -17,8 +17,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from zeroth.core.graph.models import AgentNode, Graph, Node
-    from zeroth.core.graph.validation_errors import ValidationIssue
+    from zeroth.contracts.graph.models import AgentNode, Graph, Node
+    from zeroth.contracts.graph.validation_errors import ValidationIssue
 
 
 class CapabilityChecks(Protocol):

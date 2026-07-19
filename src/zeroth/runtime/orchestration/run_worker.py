@@ -23,7 +23,7 @@ from zeroth.core.runs import RunFailureState, RunRepository, RunStatus
 from zeroth.platform.dispatch.lease import LeaseManager
 
 if TYPE_CHECKING:
-    from zeroth.core.graph import Graph
+    from zeroth.contracts.graph import Graph
     from zeroth.core.guardrails.dead_letter import DeadLetterManager
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.platform.observability.metrics import MetricsCollector
@@ -215,8 +215,8 @@ class RunWorker:
 
     async def _drive_approval_resumed(self, run: object, approval_id: str) -> None:
         """Resume a run that was paused for an approval and is now resolved."""
+        from zeroth.contracts.graph import HumanApprovalNode
         from zeroth.core.approvals import ApprovalService
-        from zeroth.core.graph import HumanApprovalNode
 
         approval_service: ApprovalService | None = getattr(
             self.orchestrator, "approval_service", None

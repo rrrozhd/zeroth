@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from zeroth.contracts.graph.models import AgentNode, ExecutableUnitNode
 from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation.mappings import validate_condition, validate_mapping
-from zeroth.core.graph.models import AgentNode, ExecutableUnitNode
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,
 )
 
 if TYPE_CHECKING:
+    from zeroth.contracts.graph.models import Edge, Graph, Node
     from zeroth.contracts.mappings import MappingValidator
-    from zeroth.core.graph.models import Edge, Graph, Node
 
 
 def validate_edges(

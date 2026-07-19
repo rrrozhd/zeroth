@@ -16,7 +16,7 @@ class TestGraphRepositoryDualBackend:
 
     async def test_save_and_get_graph(self, dual_database):
         from tests.graph.test_models import build_graph
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.repository import GraphRepository
 
         repo = GraphRepository(dual_database)
         graph = build_graph()
@@ -29,8 +29,8 @@ class TestGraphRepositoryDualBackend:
 
     async def test_publish_graph(self, dual_database):
         from tests.graph.test_models import build_graph
-        from zeroth.core.graph.models import GraphStatus
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.models import GraphStatus
+        from zeroth.contracts.graph.repository import GraphRepository
 
         repo = GraphRepository(dual_database)
         graph = await repo.create(build_graph())

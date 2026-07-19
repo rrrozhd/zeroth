@@ -14,8 +14,8 @@ from zeroth.core.deployments import (
     DeploymentStatus,
     SQLiteDeploymentRepository,
 )
-from zeroth.core.graph import GraphRepository
-from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.contracts.graph import GraphRepository
+from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.platform.primitives import utc_now
 
 

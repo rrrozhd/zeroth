@@ -51,7 +51,7 @@ from zeroth.core.execution_units import (
     OutputMode,
     PythonModuleArtifactSource,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -65,8 +65,8 @@ from zeroth.core.graph import (
     RetrievalNode,
     RetrievalNodeData,
 )
-from zeroth.core.graph.models import SubgraphNode
-from zeroth.core.graph.serialization import serialize_graph
+from zeroth.contracts.graph.models import SubgraphNode
+from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.core.identity import ActorIdentity, AuthMethod
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver

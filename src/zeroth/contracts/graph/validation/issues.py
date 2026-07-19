@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,

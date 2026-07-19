@@ -14,7 +14,7 @@ contracts layer may not import.
   and fire at the positions they have always occupied.
 
 Composing here rather than in ``contracts`` is what lets the contracts package
-stay free of runtime and governance imports. ``zeroth.core.graph.validation``
+stay free of runtime and governance imports. ``zeroth.contracts.graph.validation``
 re-exports this class, resolved lazily.
 """
 
@@ -23,17 +23,17 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from zeroth.contracts.graph.models import AgentNode, ExecutableUnitNode, Graph, Node
 from zeroth.contracts.graph.validation import ContractValidator
 from zeroth.contracts.graph.validation.issues import append_issue
-from zeroth.contracts.mappings import MappingValidator
-from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.graph.models import AgentNode, ExecutableUnitNode, Graph, Node
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.validation_errors import (
     GraphValidationReport,
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,
 )
+from zeroth.contracts.mappings import MappingValidator
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.parallel.errors import ReducerRefValidationError
 from zeroth.core.parallel.reducers import resolve_reducer_ref
 from zeroth.core.policy.models import Capability

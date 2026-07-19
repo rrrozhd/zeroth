@@ -15,7 +15,7 @@ from zeroth.contracts.graph.validation.nodes import (
     validate_entrypoint,
     validate_nodes,
 )
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     EntrypointNode,
@@ -24,7 +24,7 @@ from zeroth.core.graph.models import (
     Graph,
     Node,
 )
-from zeroth.core.graph.validation_errors import ValidationCode, ValidationIssue
+from zeroth.contracts.graph.validation_errors import ValidationCode, ValidationIssue
 
 
 def _agent(node_id: str = "agent", **data: object) -> AgentNode:

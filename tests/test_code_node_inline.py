@@ -19,7 +19,7 @@ from zeroth.core.execution_units import (
     build_inline_manifest,
     inline_source_digest,
 )
-from zeroth.core.graph.models import ExecutableUnitNodeData
+from zeroth.contracts.graph.models import ExecutableUnitNodeData
 
 TRANSFORM_SOURCE = """
 import json

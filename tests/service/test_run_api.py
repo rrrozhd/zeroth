@@ -14,7 +14,7 @@ from tests.service.helpers import (
     operator_headers,
     wait_for,
 )
-from zeroth.core.graph import GraphRepository
+from zeroth.contracts.graph import GraphRepository
 from zeroth.core.runs import Run, RunFailureState, RunStatus
 from zeroth.core.service.bootstrap import bootstrap_app
 from zeroth.core.service.run_api import RunInvocationRequest, RunStatusResponse

@@ -6,14 +6,14 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from zeroth.contracts.graph.validation.issues import append_issue
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,
 )
 
 if TYPE_CHECKING:
-    from zeroth.core.graph.models import Graph
+    from zeroth.contracts.graph.models import Graph
 
 
 def is_ref_like(value: str) -> bool:

@@ -319,7 +319,7 @@ class TestNodeTypeValidation:
         self, executor: ParallelExecutor, basic_config: ParallelConfig
     ) -> None:
         """HumanApprovalNode should be rejected at fan-out validation time."""
-        from zeroth.core.graph.models import HumanApprovalNode, HumanApprovalNodeData
+        from zeroth.contracts.graph.models import HumanApprovalNode, HumanApprovalNodeData
 
         node = HumanApprovalNode(
             node_id="approval1",

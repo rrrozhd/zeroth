@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from zeroth.contracts.graph.models import AgentNode, AgentNodeData, DisplayMetadata, Graph
+from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.contracts.registry.errors import ContractVersionExistsError
 from zeroth.core.deployments import Deployment, DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph.models import AgentNode, AgentNodeData, DisplayMetadata, Graph
-from zeroth.core.graph.repository import GraphRepository
 from zeroth.runtime.graph_validation import GraphValidator
 
 if TYPE_CHECKING:

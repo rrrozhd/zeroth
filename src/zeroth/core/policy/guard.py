@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     # Imported for type hints only. Runtime imports here would create a cycle:
     # graph.models -> policy.models -> policy package __init__ -> guard -> graph.
     # The guard uses graph/node/run as values, never their classes at runtime.
-    from zeroth.core.graph import Graph, Node
+    from zeroth.contracts.graph import Graph, Node
     from zeroth.core.runs import Run
 
 

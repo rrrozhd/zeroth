@@ -3,6 +3,14 @@
 from __future__ import annotations
 
 from zeroth.contracts.graph.limits import INLINE_SOURCE_MAX_CHARS
+from zeroth.contracts.graph.models import (
+    AgentNode,
+    EntrypointNode,
+    ExecutableUnitNode,
+    Graph,
+    HumanApprovalNode,
+    Node,
+)
 from zeroth.contracts.graph.validation.capabilities import CapabilityChecks
 from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation.references import (
@@ -11,15 +19,7 @@ from zeroth.contracts.graph.validation.references import (
     require_ref,
     validate_ref_list,
 )
-from zeroth.core.graph.models import (
-    AgentNode,
-    EntrypointNode,
-    ExecutableUnitNode,
-    Graph,
-    HumanApprovalNode,
-    Node,
-)
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,

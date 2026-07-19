@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from zeroth.contracts.conditions.models import ConditionBinding
-from zeroth.core.graph.models import Edge, Graph
+from zeroth.contracts.graph.models import Edge, Graph
 
 
 class ConditionBinder:

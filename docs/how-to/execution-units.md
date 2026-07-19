@@ -11,7 +11,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     ExecutableUnitNode,
     ExecutableUnitNodeData,
 )

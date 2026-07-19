@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from zeroth.core.graph.models import AgentNode, AgentNodeData, Edge, Graph
+from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
 from zeroth.contracts.templates.models import TemplateReference
 
 

@@ -7,9 +7,9 @@ between the canonical package and ``zeroth.core`` is structurally invisible --
 it would pass the entire suite.
 
 The cycle is easy to reintroduce here: the contract validators import graph
-models and issue types, which live under ``zeroth.core.graph``, whose package
+models and issue types, which live under ``zeroth.contracts.graph``, whose package
 ``__init__`` exports ``GraphRepository``. If the repository ever imports the
-validator eagerly again, ``zeroth.core.graph``'s own init reaches back into a
+validator eagerly again, ``zeroth.contracts.graph``'s own init reaches back into a
 half-initialized validation package and the canonical import dies.
 """
 
@@ -32,6 +32,9 @@ COLD_IMPORTS = (
     # also proves the shim's deferred runtime import survives a cold start.
     "from zeroth.core.graph.validation import GraphValidator",
     # Package-init-first: the edge that closes the cycle if it goes eager.
+    "import zeroth.contracts.graph",
+    # Legacy package-init-first: the compatibility shell re-exports the same
+    # objects, so its init must survive a cold start too.
     "import zeroth.core.graph",
 )
 

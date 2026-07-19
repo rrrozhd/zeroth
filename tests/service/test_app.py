@@ -9,7 +9,7 @@ from tests.service.helpers import default_service_auth_config, operator_headers
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import GraphRepository
+from zeroth.contracts.graph import GraphRepository
 from zeroth.core.service.bootstrap import (
     DeploymentBootstrapError,
     bootstrap_app,

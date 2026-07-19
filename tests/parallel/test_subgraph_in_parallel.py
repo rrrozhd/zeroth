@@ -38,7 +38,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
     SubgraphNode,
@@ -263,7 +263,7 @@ class TestNamespaceSubgraphBranchIndex:
     """D-10: ``branch_index`` kwarg produces branch-prefixed audit IDs."""
 
     def test_no_branch_index_matches_phase_39(self) -> None:
-        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
         from zeroth.core.subgraph.resolver import namespace_subgraph
 
         node = AgentNode(
@@ -281,7 +281,7 @@ class TestNamespaceSubgraphBranchIndex:
         assert ns.entry_step == "subgraph:g:1:a1"
 
     def test_branch_index_produces_branch_prefix(self) -> None:
-        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
         from zeroth.core.subgraph.resolver import namespace_subgraph
 
         node = AgentNode(
@@ -300,7 +300,7 @@ class TestNamespaceSubgraphBranchIndex:
 
     def test_branch_index_idempotent_re_namespacing(self) -> None:
         """D-11 idempotency: re-namespacing with same branch_index is stable."""
-        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
         from zeroth.core.subgraph.resolver import namespace_subgraph
 
         node = AgentNode(
@@ -334,7 +334,7 @@ class TestScenario1SubgraphInFanOutBranch:
         from unittest.mock import AsyncMock, MagicMock
 
         from zeroth.core.execution_units import ExecutableUnitRunner
-        from zeroth.core.graph.models import (
+        from zeroth.contracts.graph.models import (
             AgentNode,
             AgentNodeData,
             Edge,
@@ -451,7 +451,7 @@ class TestScenario1SubgraphInFanOutBranch:
         from unittest.mock import AsyncMock, MagicMock
 
         from zeroth.core.execution_units import ExecutableUnitRunner
-        from zeroth.core.graph.models import (
+        from zeroth.contracts.graph.models import (
             AgentNode,
             AgentNodeData,
             Edge,

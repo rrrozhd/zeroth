@@ -34,6 +34,13 @@ import httpx
 
 from examples._common import print_run_summary, running_service
 from examples._contracts import Answer, Question
+from zeroth.contracts.graph import (
+    AgentNode,
+    AgentNodeData,
+    DisplayMetadata,
+    ExecutionSettings,
+    Graph,
+)
 from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
@@ -41,13 +48,6 @@ from zeroth.core.agent_runtime import (
     ProviderResponse,
 )
 from zeroth.core.econ import BudgetEnforcer, CostEstimator
-from zeroth.core.graph import (
-    AgentNode,
-    AgentNodeData,
-    DisplayMetadata,
-    ExecutionSettings,
-    Graph,
-)
 
 
 def build_graph() -> Graph:

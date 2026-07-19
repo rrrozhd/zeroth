@@ -7,7 +7,7 @@ the point of any given example — so it lives here.
 
 Every public helper in this module is a thin wrapper around the real
 library API (:mod:`zeroth.core.service.bootstrap`,
-:mod:`zeroth.core.graph`, :mod:`zeroth.contracts.registry`). There are no
+:mod:`zeroth.contracts.graph`, :mod:`zeroth.contracts.registry`). There are no
 stubs, no fake runners, no shortcuts. Read this file once and you'll
 know exactly what every ``00_…`` through ``33_…`` example is doing
 under the hood.
@@ -26,11 +26,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from zeroth.contracts.graph import Graph, GraphRepository
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import Graph, GraphRepository
 from zeroth.core.identity import ServiceRole
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import (

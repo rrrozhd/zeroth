@@ -20,7 +20,7 @@ from zeroth.core.agent_runtime import (
 )
 from zeroth.core.audit import AuditRepository
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
+from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import Run, RunRepository, RunStatus
 

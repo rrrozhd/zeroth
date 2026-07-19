@@ -6,8 +6,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.core.graph.models import Graph
-from zeroth.core.graph.repository import GraphRepository
+from zeroth.contracts.graph.models import Graph
+from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.service.studio_api import router as studio_router
 

@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from zeroth.core.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
+from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
 from zeroth.runtime.orchestration import (
     MemoryBindingResolutionError,
     NodeDispatcher,

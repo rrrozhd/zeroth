@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from zeroth.core.graph.models import Graph, SubgraphNode
+from zeroth.contracts.graph.models import Graph, SubgraphNode
 from zeroth.core.parallel.models import BranchContext, GlobalStepTracker
 from zeroth.core.runs.models import Run, RunStatus
 from zeroth.core.subgraph.errors import (

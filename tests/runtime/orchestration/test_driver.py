@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,

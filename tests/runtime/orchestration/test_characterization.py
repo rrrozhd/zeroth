@@ -34,7 +34,7 @@ from zeroth.core.agent_runtime.provider import CallableProviderAdapter, Provider
 from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
 from zeroth.core.audit import AuditRepository
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,

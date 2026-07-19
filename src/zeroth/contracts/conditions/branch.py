@@ -20,7 +20,7 @@ from zeroth.contracts.conditions.models import (
     RunConditionResult,
     TraversalState,
 )
-from zeroth.core.graph.models import Graph
+from zeroth.contracts.graph.models import Graph
 
 
 class BranchResolver:

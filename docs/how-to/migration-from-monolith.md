@@ -63,7 +63,7 @@ import zeroth.policy as policy
 
 ```python
 from zeroth.core.orchestrator import Orchestrator
-from zeroth.core.graph import Graph, Node
+from zeroth.contracts.graph import Graph, Node
 from zeroth.core.memory import EphemeralMemory
 import zeroth.core.policy as policy
 ```

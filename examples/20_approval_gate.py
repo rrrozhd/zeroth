@@ -43,16 +43,7 @@ import uvicorn
 from examples._common import DEMO_API_KEY, demo_auth_config
 from examples._contracts import ToolInput, ToolOutput, Topic
 from examples._tools import build_demo_tool_registry
-from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    DeterministicProviderAdapter,
-    ProviderResponse,
-)
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -66,6 +57,15 @@ from zeroth.core.graph import (
     HumanApprovalNodeData,
 )
 from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.core.agent_runtime import (
+    AgentConfig,
+    AgentRunner,
+    DeterministicProviderAdapter,
+    ProviderResponse,
+)
+from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.service.app import create_app
 from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
 from zeroth.platform.storage import AsyncSQLiteDatabase

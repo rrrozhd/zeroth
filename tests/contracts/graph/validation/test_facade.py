@@ -14,14 +14,14 @@ from __future__ import annotations
 import pytest
 
 from zeroth.contracts.graph.validation import ContractValidator
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.graph.validation_errors import ValidationCode, ValidationIssue
+from zeroth.contracts.graph.validation_errors import ValidationCode, ValidationIssue
 from zeroth.core.parallel.models import ParallelConfig
 
 

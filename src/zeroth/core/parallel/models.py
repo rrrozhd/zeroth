@@ -8,62 +8,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
+# Re-exported as zeroth.core.parallel API: the authored fan-out configuration
+# is graph contract vocabulary; the runtime execution objects stay here.
+from zeroth.contracts.graph.models import ParallelConfig as ParallelConfig
 from zeroth.core.parallel.errors import ParallelStepLimitError
-
-
-class ParallelConfig(BaseModel):
-    """Configuration for parallel fan-out on a node.
-
-    Specifies how to split output into branches, how to merge results,
-    what to do when a branch fails, and an optional cap on branch count.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    split_path: str
-    """Dot-path to the list in the node's output that should be split."""
-
-    merge_strategy: Literal["collect", "reduce", "merge", "custom"] = "collect"
-    """How branch outputs are combined (D-04 literal):
-    'collect' gathers into a list, 'reduce' applies the built-in
-    last-wins fold, 'merge' shallow-merges dicts in branch order, and
-    'custom' applies a user-supplied dotted-path reducer."""
-
-    reducer_ref: str | None = None
-    """Dotted import path to a user-supplied reducer callable. Only valid
-    with ``merge_strategy='custom'`` (D-04). The callable must accept two
-    positional arguments ``(accumulator, next_value)`` and return the new
-    accumulator. Rejected at publish time if the path cannot be resolved
-    to a callable."""
-
-    fail_mode: Literal["fail_fast", "best_effort"] = "fail_fast"
-    """Behavior on branch failure: 'fail_fast' cancels remaining branches
-    on the first error, 'best_effort' runs all branches and collects errors."""
-
-    max_branches: int | None = Field(default=None, ge=1)
-    """Optional cap on the number of parallel branches. None means unlimited."""
-
-    @model_validator(mode="after")
-    def _validate_reducer_ref_consistency(self) -> ParallelConfig:
-        """Enforce D-04 literal: only ``custom`` requires ``reducer_ref``.
-
-        ``reduce`` uses a built-in default fold and MUST NOT carry a
-        ``reducer_ref``. All other strategies (``collect``, ``merge``) also
-        reject ``reducer_ref``. This keeps ``reduce`` and ``custom``
-        semantically distinct.
-        """
-        if self.merge_strategy == "custom" and not self.reducer_ref:
-            raise ValueError("merge_strategy='custom' requires reducer_ref to be set")
-        if self.merge_strategy != "custom" and self.reducer_ref is not None:
-            raise ValueError(
-                "reducer_ref is only valid with merge_strategy='custom', "
-                f"got merge_strategy={self.merge_strategy!r}"
-            )
-        return self
 
 
 @dataclass(slots=True)

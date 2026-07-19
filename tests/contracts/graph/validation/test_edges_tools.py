@@ -13,7 +13,7 @@ from collections import defaultdict
 from zeroth.contracts.graph.validation.capabilities import NullCapabilityChecks
 from zeroth.contracts.graph.validation.edges import validate_edges
 from zeroth.contracts.graph.validation.tools import validate_tool_attachments
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     AgentToolBinding,
@@ -24,7 +24,7 @@ from zeroth.core.graph.models import (
     Graph,
     Node,
 )
-from zeroth.core.graph.validation_errors import ValidationCode, ValidationIssue
+from zeroth.contracts.graph.validation_errors import ValidationCode, ValidationIssue
 from zeroth.contracts.mappings import MappingValidator
 
 
@@ -65,7 +65,9 @@ def _graph(nodes: list[Node], edges: list[Edge]) -> Graph:
     )
 
 
-def _run_edges(graph: Graph, node_map: dict[str, Node] | None = None) -> tuple[
+def _run_edges(
+    graph: Graph, node_map: dict[str, Node] | None = None
+) -> tuple[
     list[ValidationIssue],
     dict[str, list[str]],
 ]:
@@ -169,7 +171,10 @@ def test_attached_tool_without_a_binding_is_reported() -> None:
 
 def test_binding_pointing_at_an_unattached_unit_is_reported() -> None:
     graph = _graph(
-        [_agent("a", [AgentToolBinding(target_node_id="u", name="t", description="d")]), _unit("u")],
+        [
+            _agent("a", [AgentToolBinding(target_node_id="u", name="t", description="d")]),
+            _unit("u"),
+        ],
         [],
     )
     (issue,) = _run_tools(graph)

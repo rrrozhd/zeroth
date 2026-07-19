@@ -14,7 +14,7 @@ from typing import Any
 
 from zeroth.contracts.conditions.errors import ConditionEvaluationError
 from zeroth.contracts.conditions.models import ConditionContext, RunConditionResult
-from zeroth.core.graph.models import Condition as GraphCondition
+from zeroth.contracts.graph.models import Condition as GraphCondition
 
 _SAFE_BUILTINS: frozenset[str] = frozenset(
     {

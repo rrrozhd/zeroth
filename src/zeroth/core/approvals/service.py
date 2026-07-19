@@ -11,6 +11,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from zeroth.contracts.graph import Graph, HumanApprovalNode
 from zeroth.core.approvals.models import (
     ApprovalDecision,
     ApprovalRecord,
@@ -25,7 +26,6 @@ from zeroth.core.audit import (
     NodeAuditRecord,
     PayloadSanitizer,
 )
-from zeroth.core.graph import Graph, HumanApprovalNode
 from zeroth.core.identity import ActorIdentity
 from zeroth.core.runs import Run, RunFailureState, RunRepository, RunStatus
 

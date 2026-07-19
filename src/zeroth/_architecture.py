@@ -243,13 +243,21 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.graph", "zeroth.core.subgraph.models"),
-        ("zeroth.core.graph.models", "zeroth.core.context_window.models"),
-        ("zeroth.core.graph.models", "zeroth.core.parallel.models"),
-        ("zeroth.core.graph.models", "zeroth.core.policy.models"),
-        ("zeroth.core.graph.models", "zeroth.core.subgraph.models"),
-        reason="Legacy contract packages embed runtime and governance-owned models.",
-        removal_task="Task 12: move contract packages and separate runtime-owned types.",
+        ("zeroth.contracts.graph.models", "zeroth.core.policy.models"),
+        reason=(
+            "AgentToolBinding's required_capabilities field is typed with the "
+            "Capability enum, which is the policy engine's own vocabulary and "
+            "is resolved against grants at enforcement time. Where the "
+            "contract-owned slice of the policy surface lives is a Task 13 "
+            "decision ('move governance packages behind contract-owned "
+            "interfaces'); relocating the enum out of the policy package "
+            "inside the graph move would preempt it. The other four Task 12 "
+            "graph edges were removed by defining the authored node models "
+            "(SubgraphNodeData, ParallelConfig, ContextWindowSettings) in the "
+            "graph contracts and republishing them from their legacy runtime "
+            "packages."
+        ),
+        removal_task="Task 13: move governance packages behind contract-owned interfaces.",
     ),
     **_exception_group(
         ("zeroth.core.approvals.service", "zeroth.core.runs"),

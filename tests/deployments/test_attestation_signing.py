@@ -11,7 +11,7 @@ from zeroth.core.deployments.provenance import (
     build_attestation_payload,
     verify_attestation_full,
 )
-from zeroth.core.graph import GraphRepository
+from zeroth.contracts.graph import GraphRepository
 from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider
 
 

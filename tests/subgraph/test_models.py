@@ -7,8 +7,8 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.graph.models import Graph, Node
-from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.contracts.graph.models import Graph, Node
+from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.core.runs.models import Run
 from zeroth.core.subgraph.errors import (
     SubgraphCycleError,
@@ -77,7 +77,7 @@ class TestSubgraphNode:
     """Tests for SubgraphNode in the Node union."""
 
     def test_subgraph_node_creation(self) -> None:
-        from zeroth.core.graph.models import SubgraphNode
+        from zeroth.contracts.graph.models import SubgraphNode
 
         node = SubgraphNode(
             node_id="sub-1",
@@ -88,12 +88,12 @@ class TestSubgraphNode:
         assert node.subgraph.graph_ref == "child-workflow"
 
     def test_subgraph_node_extends_node_base(self) -> None:
-        from zeroth.core.graph.models import NodeBase, SubgraphNode
+        from zeroth.contracts.graph.models import NodeBase, SubgraphNode
 
         assert issubclass(SubgraphNode, NodeBase)
 
     def test_to_governed_step_spec(self) -> None:
-        from zeroth.core.graph.models import SubgraphNode
+        from zeroth.contracts.graph.models import SubgraphNode
 
         node = SubgraphNode(
             node_id="sub-1",
@@ -108,7 +108,7 @@ class TestSubgraphNode:
 
     def test_node_union_accepts_subgraph(self) -> None:
         """SubgraphNode is part of the discriminated Node union."""
-        from zeroth.core.graph.models import SubgraphNode
+        from zeroth.contracts.graph.models import SubgraphNode
 
         # Validate via the Node discriminated union
         from pydantic import TypeAdapter
@@ -130,7 +130,7 @@ class TestSubgraphNode:
         removed unconditionally — SubgraphNode inside a parallel fan-out
         branch is supported composition.
         """
-        from zeroth.core.graph.models import SubgraphNode
+        from zeroth.contracts.graph.models import SubgraphNode
         from zeroth.core.parallel.models import ParallelConfig
 
         node = SubgraphNode(
@@ -152,7 +152,7 @@ class TestGraphSubgraphRoundTrip:
     """Tests for serializing/deserializing graphs containing SubgraphNode."""
 
     def test_graph_with_subgraph_node_roundtrip(self) -> None:
-        from zeroth.core.graph.models import SubgraphNode
+        from zeroth.contracts.graph.models import SubgraphNode
 
         node = SubgraphNode(
             node_id="sub-1",
@@ -174,7 +174,7 @@ class TestGraphSubgraphRoundTrip:
 
     def test_existing_agent_node_still_deserializes(self) -> None:
         """Ensure backward compatibility with AgentNode graphs."""
-        from zeroth.core.graph.models import AgentNode, AgentNodeData
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData
 
         node = AgentNode(
             node_id="a1",
@@ -196,7 +196,7 @@ class TestGraphSubgraphRoundTrip:
 
     def test_existing_eu_node_still_deserializes(self) -> None:
         """Ensure backward compatibility with ExecutableUnitNode graphs."""
-        from zeroth.core.graph.models import ExecutableUnitNode, ExecutableUnitNodeData
+        from zeroth.contracts.graph.models import ExecutableUnitNode, ExecutableUnitNodeData
 
         node = ExecutableUnitNode(
             node_id="eu1",
@@ -218,7 +218,7 @@ class TestGraphSubgraphRoundTrip:
 
     def test_existing_human_approval_node_still_deserializes(self) -> None:
         """Ensure backward compatibility with HumanApprovalNode graphs."""
-        from zeroth.core.graph.models import HumanApprovalNode, HumanApprovalNodeData
+        from zeroth.contracts.graph.models import HumanApprovalNode, HumanApprovalNodeData
 
         node = HumanApprovalNode(
             node_id="ha1",

@@ -10,10 +10,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from zeroth.contracts.graph.models import Graph
+from zeroth.contracts.graph.serialization import deserialize_graph
 from zeroth.core.deployments.models import Deployment
 from zeroth.core.deployments.service import DeploymentService
-from zeroth.core.graph.models import Graph
-from zeroth.core.graph.serialization import deserialize_graph
 from zeroth.core.subgraph.errors import SubgraphResolutionError
 
 

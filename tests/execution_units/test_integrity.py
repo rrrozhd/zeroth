@@ -20,7 +20,7 @@ from zeroth.core.execution_units import (
     WrappedCommandUnitManifest,
     compute_manifest_digest,
 )
-from zeroth.core.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
+from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import RunRepository, RunStatus
 

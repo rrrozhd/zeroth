@@ -11,7 +11,7 @@ from zeroth.core.examples.quickstart import (
     build_demo_graph,
     build_demo_graph_with_policy,
 )
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     Edge,
     ExecutableUnitNode,

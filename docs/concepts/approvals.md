@@ -22,7 +22,7 @@ A human (authenticated by [identity](identity.md) and scoped by role) later POST
 
 ## Key types
 
-- **`HumanApprovalNode`** — the graph node type that triggers a pause (declared in `zeroth.core.graph`).
+- **`HumanApprovalNode`** — the graph node type that triggers a pause (declared in `zeroth.contracts.graph`).
 - **`ApprovalRecord`** — the persistent pending-or-resolved request: `run_id`, `node_id`, `summary`, `rationale`, `proposed_payload`, `allowed_actions`, `sla_deadline`.
 - **`ApprovalStatus`** — `PENDING`, `RESOLVED`, `ESCALATED`.
 - **`ApprovalDecision`** — `APPROVE`, `REJECT`, `EDIT_AND_APPROVE` (the last lets a reviewer patch the payload before approving).

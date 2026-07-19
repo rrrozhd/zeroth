@@ -5,17 +5,17 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
+from zeroth.contracts.graph.models import AgentNode
 from zeroth.contracts.graph.validation.capabilities import CapabilityChecks
 from zeroth.contracts.graph.validation.issues import append_issue
-from zeroth.core.graph.models import AgentNode
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
     ValidationIssue,
     ValidationSeverity,
 )
 
 if TYPE_CHECKING:
-    from zeroth.core.graph.models import Graph, Node
+    from zeroth.contracts.graph.models import Graph, Node
 
 
 def validate_tool_attachments(

@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.graph.models import Condition as GraphCondition
+from zeroth.contracts.graph.models import Condition as GraphCondition
 from zeroth.platform.primitives import utc_now
 
 

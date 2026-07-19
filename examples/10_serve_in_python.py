@@ -45,14 +45,7 @@ import uvicorn
 
 from examples._common import DEMO_API_KEY, demo_auth_config, require_env
 from examples._contracts import Answer, Question
-from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    LiteLLMProviderAdapter,
-)
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -60,6 +53,13 @@ from zeroth.core.graph import (
     Graph,
     GraphRepository,
 )
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.core.agent_runtime import (
+    AgentConfig,
+    AgentRunner,
+    LiteLLMProviderAdapter,
+)
+from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.service.app import create_app
 from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
 from zeroth.platform.storage import AsyncSQLiteDatabase

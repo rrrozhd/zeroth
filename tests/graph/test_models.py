@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import zeroth.core.graph.models as graph_models
-import zeroth.core.graph.versioning as graph_versioning
+import zeroth.contracts.graph.models as graph_models
+import zeroth.contracts.graph.versioning as graph_versioning
 from zeroth.core.governed.app.spec import GovernedFlowSpec
 
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -20,7 +20,7 @@ from zeroth.core.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,

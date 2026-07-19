@@ -41,6 +41,13 @@ import sys
 from examples._common import print_run_summary, running_service
 from examples._contracts import ToolInput, ToolOutput, Topic
 from examples._tools import build_demo_tool_registry
+from zeroth.contracts.graph import (
+    AgentNode,
+    AgentNodeData,
+    DisplayMetadata,
+    ExecutionSettings,
+    Graph,
+)
 from zeroth.core.agent_runtime import (
     AgentConfig,
     AgentRunner,
@@ -51,13 +58,6 @@ from zeroth.core.agent_runtime import (
     ToolAttachmentRegistry,
 )
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import (
-    AgentNode,
-    AgentNodeData,
-    DisplayMetadata,
-    ExecutionSettings,
-    Graph,
-)
 
 
 def build_graph() -> Graph:

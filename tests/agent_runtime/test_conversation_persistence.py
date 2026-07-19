@@ -15,9 +15,9 @@ from zeroth.core.agent_runtime import (
 )
 from zeroth.core.agent_runtime.models import InMemoryThreadStateStore, PromptConfig
 from zeroth.core.agent_runtime.prompt import PromptAssembler
-from zeroth.core.graph.models import AgentNode, AgentNodeData
-from zeroth.core.graph.validation import GraphValidator
-from zeroth.core.graph.validation_errors import ValidationCode
+from zeroth.contracts.graph.models import AgentNode, AgentNodeData
+from zeroth.runtime.graph_validation import GraphValidator
+from zeroth.contracts.graph.validation_errors import ValidationCode
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import Run
 
@@ -198,7 +198,7 @@ class TestWiring:
         assert await orchestrator._resolve_thread(node, run) is None
 
     async def test_persist_without_messages_key_fails_validation(self) -> None:
-        from zeroth.core.graph.models import Graph
+        from zeroth.contracts.graph.models import Graph
 
         graph = Graph(
             graph_id="g",

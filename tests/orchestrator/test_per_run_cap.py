@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from zeroth.core.audit import AuditRepository
-from zeroth.core.graph import AgentNode, AgentNodeData, Edge, Graph
+from zeroth.contracts.graph import AgentNode, AgentNodeData, Edge, Graph
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs import RunRepository, RunStatus
 

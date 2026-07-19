@@ -22,7 +22,7 @@ from zeroth.core.agent_runtime.provider import CallableProviderAdapter, Provider
 from zeroth.core.audit import AuditRepository
 from zeroth.core.context_window.models import ContextWindowSettings
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -375,7 +375,7 @@ async def test_template_resolution_in_subgraph(sqlite_db) -> None:
     """SubgraphNode with template_ref on child graph's agent resolves template."""
     from unittest.mock import MagicMock
 
-    from zeroth.core.graph.serialization import serialize_graph
+    from zeroth.contracts.graph.serialization import serialize_graph
     from zeroth.core.runs.models import Run
 
     registry = TemplateRegistry()

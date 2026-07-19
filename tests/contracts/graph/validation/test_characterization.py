@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.graph.validation import GraphValidator
+from zeroth.runtime.graph_validation import GraphValidator
 
 from ._graphs import BUILDERS
 

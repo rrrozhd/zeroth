@@ -20,7 +20,7 @@ from zeroth.core.context_window import (
     ObservationMaskingStrategy,
     TruncationStrategy,
 )
-from zeroth.core.graph.models import AgentNode, AgentNodeData
+from zeroth.contracts.graph.models import AgentNode, AgentNodeData
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs import Run, RunRepository, RunStatus
 

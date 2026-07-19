@@ -17,7 +17,7 @@ from tests.service.helpers import (
 from zeroth.core.audit import NodeAuditRecord
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import GraphRepository
+from zeroth.contracts.graph import GraphRepository
 from zeroth.core.identity import ServiceRole
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import bootstrap_app, bootstrap_service

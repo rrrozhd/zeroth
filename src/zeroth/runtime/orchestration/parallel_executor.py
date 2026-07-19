@@ -25,8 +25,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from zeroth.contracts.graph import Graph, Node, SubgraphNode
 from zeroth.core.audit import NodeAuditRecord
-from zeroth.core.graph import Graph, Node, SubgraphNode
 from zeroth.core.parallel.errors import BranchApprovalPauseSignal, FanOutValidationError
 from zeroth.core.parallel.executor import ParallelExecutor
 from zeroth.core.parallel.models import (

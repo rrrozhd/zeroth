@@ -14,7 +14,7 @@ from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.audit import AuditRepository
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import ExecutionSettings, Graph, RetrievalNode, RetrievalNodeData
+from zeroth.contracts.graph import ExecutionSettings, Graph, RetrievalNode, RetrievalNodeData
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator

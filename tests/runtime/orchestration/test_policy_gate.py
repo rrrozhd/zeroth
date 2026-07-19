@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     ExecutionSettings,

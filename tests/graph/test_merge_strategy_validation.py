@@ -17,9 +17,9 @@ from unittest.mock import patch
 import pytest
 
 from zeroth.contracts.registry import ContractVersion
-from zeroth.core.graph.models import Graph
-from zeroth.core.graph.validation import GraphValidator
-from zeroth.core.graph.validation_errors import (
+from zeroth.contracts.graph.models import Graph
+from zeroth.runtime.graph_validation import GraphValidator
+from zeroth.contracts.graph.validation_errors import (
     GraphValidationError,
     ValidationCode,
     ValidationSeverity,
@@ -46,9 +46,7 @@ class StubContractRegistry:
     def __init__(self, contracts: dict[str, dict[str, Any]]) -> None:
         self._contracts = contracts
 
-    async def get(
-        self, name: str, version: int | None = None
-    ) -> ContractVersion:
+    async def get(self, name: str, version: int | None = None) -> ContractVersion:
         if name not in self._contracts:
             raise KeyError(f"contract {name!r} not in stub")
         return ContractVersion(
@@ -199,9 +197,7 @@ class TestMergeDictContractCheck:
         assert report.is_valid, f"unexpected issues: {report.issues}"
 
     async def test_merge_with_array_contract_fails(self) -> None:
-        registry = StubContractRegistry(
-            {"contract://agent.output": {"type": "array", "items": {}}}
-        )
+        registry = StubContractRegistry({"contract://agent.output": {"type": "array", "items": {}}})
         validator = GraphValidator(contract_registry=registry)  # type: ignore[arg-type]
         graph = _attach_parallel_config(
             build_valid_graph(),
@@ -234,9 +230,7 @@ class TestMergeDictContractCheck:
         nodes[0] = nodes[0].model_copy(
             update={
                 "output_contract_ref": None,
-                "parallel_config": ParallelConfig(
-                    split_path="items", merge_strategy="merge"
-                ),
+                "parallel_config": ParallelConfig(split_path="items", merge_strategy="merge"),
             }
         )
         graph = base.model_copy(update={"nodes": nodes})
@@ -260,12 +254,8 @@ class TestValidatorDegradation:
         report = await validator.validate(graph)
         # Warning emitted but report is still valid (no blocking errors).
         assert report.is_valid
-        warnings = [
-            i for i in report.issues if i.severity == ValidationSeverity.WARNING
-        ]
-        assert any(
-            i.code == ValidationCode.INVALID_MERGE_STRATEGY for i in warnings
-        )
+        warnings = [i for i in report.issues if i.severity == ValidationSeverity.WARNING]
+        assert any(i.code == ValidationCode.INVALID_MERGE_STRATEGY for i in warnings)
 
     async def test_reducer_ref_still_checked_without_registry(self) -> None:
         # Even without a ContractRegistry, reducer_ref validation still runs.
@@ -309,8 +299,8 @@ class TestPublishValidationHook:
 
     async def test_publish_with_valid_graph_succeeds(self, sqlite_db) -> None:
         from tests.graph.test_validation import build_valid_graph as build_graph
-        from zeroth.core.graph.models import GraphStatus
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.models import GraphStatus
+        from zeroth.contracts.graph.repository import GraphRepository
 
         validator = GraphValidator()  # no registry — accepts plain graphs
         repository = GraphRepository(sqlite_db, validator=validator)
@@ -318,12 +308,10 @@ class TestPublishValidationHook:
         published = await repository.publish(graph.graph_id, graph.version)
         assert published.status == GraphStatus.PUBLISHED
 
-    async def test_publish_with_invalid_reducer_ref_fails_and_stays_draft(
-        self, sqlite_db
-    ) -> None:
+    async def test_publish_with_invalid_reducer_ref_fails_and_stays_draft(self, sqlite_db) -> None:
         from tests.graph.test_validation import build_valid_graph as build_graph
-        from zeroth.core.graph.models import GraphStatus
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.models import GraphStatus
+        from zeroth.contracts.graph.repository import GraphRepository
 
         validator = GraphValidator()
         repository = GraphRepository(sqlite_db, validator=validator)
@@ -352,8 +340,8 @@ class TestPublishValidationHook:
 
     async def test_publish_with_merge_array_contract_fails(self, sqlite_db) -> None:
         from tests.graph.test_validation import build_valid_graph as build_graph
-        from zeroth.core.graph.models import GraphStatus
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.models import GraphStatus
+        from zeroth.contracts.graph.repository import GraphRepository
 
         registry = StubContractRegistry(
             {
@@ -373,11 +361,7 @@ class TestPublishValidationHook:
         repository = GraphRepository(sqlite_db, validator=validator)
         nodes = list(base.nodes)
         nodes[0] = nodes[0].model_copy(
-            update={
-                "parallel_config": ParallelConfig(
-                    split_path="items", merge_strategy="merge"
-                )
-            }
+            update={"parallel_config": ParallelConfig(split_path="items", merge_strategy="merge")}
         )
         broken = base.model_copy(update={"nodes": nodes})
         saved = await repository.save(broken)
@@ -392,8 +376,8 @@ class TestPublishValidationHook:
     async def test_publish_without_validator_still_works(self, sqlite_db) -> None:
         """Legacy construction path: no validator = no publish-time check."""
         from tests.graph.test_validation import build_valid_graph as build_graph
-        from zeroth.core.graph.models import GraphStatus
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.models import GraphStatus
+        from zeroth.contracts.graph.repository import GraphRepository
 
         repository = GraphRepository(sqlite_db)  # no validator kwarg
         graph = await repository.create(build_graph())
@@ -402,7 +386,7 @@ class TestPublishValidationHook:
 
     async def test_publish_calls_validator_exactly_once(self, sqlite_db) -> None:
         from tests.graph.test_validation import build_valid_graph as build_graph
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.repository import GraphRepository
 
         call_counter = {"count": 0}
 
@@ -417,13 +401,11 @@ class TestPublishValidationHook:
         await repository.publish(graph.graph_id, graph.version)
         assert call_counter["count"] == 1
 
-    async def test_publish_no_parallel_config_backward_compat(
-        self, sqlite_db
-    ) -> None:
+    async def test_publish_no_parallel_config_backward_compat(self, sqlite_db) -> None:
         """Graphs without any parallel_config publish normally."""
         from tests.graph.test_validation import build_valid_graph as build_graph
-        from zeroth.core.graph.models import GraphStatus
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.models import GraphStatus
+        from zeroth.contracts.graph.repository import GraphRepository
 
         validator = GraphValidator()
         repository = GraphRepository(sqlite_db, validator=validator)
@@ -431,9 +413,7 @@ class TestPublishValidationHook:
         published = await repository.publish(graph.graph_id, graph.version)
         assert published.status == GraphStatus.PUBLISHED
 
-    async def test_retroactive_rejection_of_previously_unvalidated_draft(
-        self, sqlite_db
-    ) -> None:
+    async def test_retroactive_rejection_of_previously_unvalidated_draft(self, sqlite_db) -> None:
         """A DRAFT saved without validation can now be rejected on re-publish.
 
         Documents the Phase 43-02 migration note: pre-existing DRAFT graphs
@@ -441,8 +421,8 @@ class TestPublishValidationHook:
         This is desirable — catches bugs — and is not auto-migrated.
         """
         from tests.graph.test_validation import build_valid_graph as build_graph
-        from zeroth.core.graph.models import GraphStatus
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.models import GraphStatus
+        from zeroth.contracts.graph.repository import GraphRepository
 
         # Save via a validator-less repository (simulating pre-Phase-43 state).
         legacy_repo = GraphRepository(sqlite_db)

@@ -33,15 +33,7 @@ import sys
 from examples._common import print_run_summary, running_service
 from examples._contracts import ToolInput, ToolOutput, Topic
 from examples._tools import build_demo_tool_registry
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    DeterministicProviderAdapter,
-    ProviderResponse,
-)
-from zeroth.core.audit import AuditQuery
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -52,6 +44,14 @@ from zeroth.core.graph import (
     Graph,
 )
 from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.core.agent_runtime import (
+    AgentConfig,
+    AgentRunner,
+    DeterministicProviderAdapter,
+    ProviderResponse,
+)
+from zeroth.core.audit import AuditQuery
+from zeroth.core.execution_units import ExecutableUnitRunner
 
 
 def build_graph() -> Graph:

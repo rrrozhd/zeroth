@@ -29,7 +29,7 @@ from zeroth.core.econ import (
     waste_gate,
 )
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import AgentNode, AgentNodeData, Condition, Edge, ExecutionSettings, Graph
+from zeroth.contracts.graph import AgentNode, AgentNodeData, Condition, Edge, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import RunRepository, RunStatus
 

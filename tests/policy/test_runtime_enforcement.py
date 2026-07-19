@@ -27,7 +27,7 @@ from zeroth.core.execution_units import (
     SandboxStrictnessMode,
     WrappedCommandUnitManifest,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,

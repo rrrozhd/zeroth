@@ -14,7 +14,7 @@ import pytest
 from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     AgentToolBinding,

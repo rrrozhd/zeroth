@@ -24,8 +24,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from zeroth.core.agent_runtime import AgentRunner
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     EntrypointNode,
     ExecutableUnitNode,
@@ -33,6 +32,7 @@ from zeroth.core.graph import (
     Node,
     RetrievalNode,
 )
+from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.runs import Run
 from zeroth.core.subgraph.resolver import base_node_id
 from zeroth.platform.observability import start_span

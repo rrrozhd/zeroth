@@ -5,13 +5,13 @@ cycle. See Phase 30 docs for context.
 
 These helpers give the Getting Started tutorial and the Governance
 Walkthrough a single, tested function that returns a minimal but valid
-:class:`~zeroth.core.graph.models.Graph`, so the example scripts on the
+:class:`~zeroth.contracts.graph.models.Graph`, so the example scripts on the
 docs site can stay around ten lines instead of eighty.
 """
 
 from __future__ import annotations
 
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -57,7 +57,7 @@ def build_demo_graph(
 
     Returns:
         A fully-validated :class:`Graph` ready to register with a
-        :class:`~zeroth.core.graph.repository.GraphRepository`.
+        :class:`~zeroth.contracts.graph.repository.GraphRepository`.
 
     Note:
         This helper is **not** a stable public API. It exists solely to keep

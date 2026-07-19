@@ -7,14 +7,14 @@ from zeroth.contracts.conditions import (
     NextStepPlanner,
     TraversalState,
 )
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     Condition as GraphCondition,
 )
 

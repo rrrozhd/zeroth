@@ -26,7 +26,7 @@ from zeroth.core.execution_units import (
     OutputMode,
     PythonModuleArtifactSource,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,
