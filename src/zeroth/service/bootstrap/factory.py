@@ -31,7 +31,6 @@ from zeroth.core.observability.tracing import configure_tracing
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.policy import PolicyGuard, PolicyRegistry, default_capability_registry
 from zeroth.core.secrets import SecretProvider, build_secret_provider
-from zeroth.core.service.app import create_app
 from zeroth.core.signing import build_signing_provider_async
 from zeroth.core.storage import AsyncDatabase
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
@@ -41,6 +40,7 @@ from zeroth.service.api.authentication import (
     ServiceAuthConfig,
     ServiceAuthenticator,
 )
+from zeroth.service.app import create_app
 from zeroth.service.bootstrap.container import DeploymentBootstrapError, ServiceBootstrap
 
 

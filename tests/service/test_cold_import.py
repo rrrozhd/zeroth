@@ -48,6 +48,8 @@ RELOCATED_SERVICE_MODULES = [
     ("zeroth.service.api.studio_api", "zeroth.core.service.studio_api"),
     ("zeroth.service.api.health", "zeroth.core.service.health"),
     ("zeroth.service.api.console_ui", "zeroth.core.service.console_ui"),
+    ("zeroth.service.bootstrap.lifecycle", "zeroth.core.service.app"),
+    ("zeroth.service.app", "zeroth.core.service.app"),
 ]
 
 
