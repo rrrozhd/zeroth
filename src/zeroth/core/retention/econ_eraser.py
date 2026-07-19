@@ -12,14 +12,23 @@ erasure service therefore passes the run id plus the explicit top-level economic
 ``join_key`` from audit ``execution_metadata``. Nested payload keys are never
 trusted as correlation authority. Every deletion is constrained by both tenant
 and join key; automatic, complete run->join_key resolution remains deferred.
+
+Only the protocol lives here. The concrete SQLAlchemy adapter moved to
+:mod:`zeroth.econ.plane.erasure` — it is econ-plane code, and its presence in
+this module was the only reason the governance domain imported
+``zeroth.econ_plane``. The re-export below resolves lazily so this module keeps
+no import edge into the econ domain.
 """
 
 from __future__ import annotations
 
-import asyncio
+import importlib
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
+
+_EXPORTS = {
+    "SqlAlchemyEconEventEraser": "zeroth.econ.plane.erasure",
+}
 
 
 @runtime_checkable
@@ -40,68 +49,16 @@ class EconEventEraser(Protocol):
         ...
 
 
-class SqlAlchemyEconEventEraser:
-    """Concrete :class:`EconEventEraser` over the econ_plane SQLAlchemy models.
+def __getattr__(name: str) -> object:
+    """Resolve the concrete econ-plane adapter from its own domain on first access."""
+    module = _EXPORTS.get(name)
+    if module is None:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    value = getattr(importlib.import_module(module), name)
+    globals()[name] = value
+    return value
 
-    Imports ``zeroth.econ_plane`` lazily so a plain ``zeroth-core`` install
-    without the ``regulus`` extra never pays for it. Not wired into the default
-    boot path (see bootstrap) — instantiate and pass it to
-    :class:`RetentionErasureService` when the econ plane is present.
-    """
 
-    async def delete_events_for_run(
-        self,
-        tenant_id: str,
-        join_keys: Sequence[str],
-        *,
-        idempotency_key: str,
-    ) -> int:
-        keys = [k for k in dict.fromkeys(join_keys) if k]
-        if not keys:
-            return 0
-        return await asyncio.to_thread(self._delete_sync, tenant_id, keys, idempotency_key)
-
-    def _delete_sync(
-        self,
-        tenant_id: str,
-        keys: list[str],
-        idempotency_key: str,
-    ) -> int:
-        # Lazy import: keeps the econ_plane dependency out of the base install.
-        from sqlalchemy import delete
-
-        from zeroth.econ_plane.database import SessionLocal
-        from zeroth.econ_plane.instrumentation.models import (
-            EconErasureReceipt,
-            ExecutionEvent,
-            OutcomeEvent,
-        )
-
-        deleted = 0
-        session = SessionLocal()
-        try:
-            receipt = session.get(EconErasureReceipt, idempotency_key)
-            if receipt is not None:
-                if receipt.tenant_id != tenant_id:
-                    raise ValueError("econ erasure idempotency key tenant mismatch")
-                return int(receipt.deleted_count)
-            for model in (ExecutionEvent, OutcomeEvent):
-                result = session.execute(
-                    delete(model).where(
-                        model.tenant_id == tenant_id,
-                        model.join_key.in_(keys),
-                    )
-                )
-                deleted += int(result.rowcount or 0)
-            session.add(
-                EconErasureReceipt(
-                    operation_id=idempotency_key,
-                    tenant_id=tenant_id,
-                    deleted_count=deleted,
-                    created_at=datetime.now(UTC),
-                )
-            )
-            session.commit()
-        finally:
-            session.close()
-        return deleted
+def __dir__() -> list[str]:
+    return sorted({"EconEventEraser", *_EXPORTS})

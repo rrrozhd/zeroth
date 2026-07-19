@@ -25,6 +25,8 @@ COLD_IMPORTS = (
     "from zeroth.governance.retention.manifests import build_cleanup_manifest",
     "from zeroth.governance.retention.replay import replay_cleanup_state",
     "import zeroth.governance.retention",
+    "from zeroth.governance.retention import RetentionErasureService",
+    "from zeroth.econ.plane.erasure import SqlAlchemyEconEventEraser",
     # Legacy-path-first: what every existing caller does.
     "import zeroth.core.retention.erasure_service",
     "from zeroth.core.retention import RetentionErasureService",

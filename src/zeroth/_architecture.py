@@ -182,14 +182,17 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 14: move runtime packages and inject owned protocols.",
     ),
     **_exception_group(
-        ("zeroth.core.retention.econ_eraser", "zeroth.econ_plane.database"),
-        (
-            "zeroth.core.retention.econ_eraser",
-            "zeroth.econ_plane.instrumentation.models",
-        ),
         ("zeroth.core.retention.erasure_service", "zeroth.integrations.persistence.runs"),
-        reason="Retention orchestration directly owns concrete persistence cleanup.",
-        removal_task="Task 9: decompose retention erasure behind injected cleanup adapters.",
+        reason=(
+            "RetentionErasureService's pinned __init__ names RunRepository in the "
+            "run_repository annotation, and the dependency scanner walks the AST, "
+            "so even the TYPE_CHECKING import records the edge. Narrowing to the "
+            "run persistence protocols changes the pinned annotation text -- the "
+            "same wall as RepositoryThreadStateStore. Task 9 removed the two "
+            "econ_plane edges by moving the concrete eraser into the econ domain; "
+            "this one outlives the decomposition and ends with the legacy surface."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
         ("zeroth.core.config.settings", "zeroth.core.econ.models"),
