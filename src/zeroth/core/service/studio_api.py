@@ -36,7 +36,8 @@ from zeroth.core.graph.models import (
 )
 from zeroth.core.graph.validation_errors import GraphValidationError
 from zeroth.core.service.authorization import Permission, require_permission
-from zeroth.core.service.studio_schemas import (
+from zeroth.core.subgraph.models import SubgraphNodeData
+from zeroth.service.api.studio_schemas import (
     CreateContractRequest,
     CreateWorkflowRequest,
     NodeTypeResponse,
@@ -50,7 +51,6 @@ from zeroth.core.service.studio_schemas import (
     WorkflowDetailResponse,
     WorkflowSummaryResponse,
 )
-from zeroth.core.subgraph.models import SubgraphNodeData
 
 router = APIRouter(prefix="/api/studio/v1", tags=["studio"])
 
