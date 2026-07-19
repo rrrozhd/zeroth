@@ -28,7 +28,7 @@ from zeroth.core.service.authorization import (
     require_permission,
     require_resource_scope,
 )
-from zeroth.core.service.contracts_api import (
+from zeroth.service.api.contracts_api import (
     DeploymentVersionMetadataResponse,
     serialize_deployment_metadata,
 )
