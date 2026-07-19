@@ -7168,184 +7168,184 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/how-to/mappings.md",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:ConstantMappingOperation"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "ConstantMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['constant'] = 'constant', value: Any) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/how-to/mappings.md",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:DefaultMappingOperation"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "DefaultMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['default'] = 'default', source_path: str | None = None, default_value: Any) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/how-to/mappings.md",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:EdgeMapping"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "EdgeMapping",
-      "signature": "(*, operations: list[typing.Annotated[zeroth.core.mappings.models.PassthroughMappingOperation | zeroth.core.mappings.models.RenameMappingOperation | zeroth.core.mappings.models.ConstantMappingOperation | zeroth.core.mappings.models.DefaultMappingOperation | zeroth.core.mappings.models.TransformMappingOperation, FieldInfo(annotation=NoneType, required=True, discriminator='operation')]] = <factory>) -> None"
+      "signature": "(*, operations: list[typing.Annotated[zeroth.contracts.mappings.models.PassthroughMappingOperation | zeroth.contracts.mappings.models.RenameMappingOperation | zeroth.contracts.mappings.models.ConstantMappingOperation | zeroth.contracts.mappings.models.DefaultMappingOperation | zeroth.contracts.mappings.models.TransformMappingOperation, FieldInfo(annotation=NoneType, required=True, discriminator='operation')]] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:MappingExecutionError"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "MappingExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/how-to/mappings.md",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:MappingExecutor"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "MappingExecutor",
       "signature": "(validator: 'MappingValidator | None' = None)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/reference/python-api/mappings.md"
       ],
       "kind": "callable",
       "legacy_ids": [
         "zeroth.core.mappings:MappingOperation"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "MappingOperation",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:MappingValidationError"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "MappingValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:MappingValidator"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "MappingValidator",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/how-to/mappings.md",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:PassthroughMappingOperation"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "PassthroughMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['passthrough'] = 'passthrough', source_path: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/how-to/mappings.md",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:RenameMappingOperation"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "RenameMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['rename'] = 'rename', source_path: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.mappings",
+        "__all__:zeroth.contracts.mappings",
         "docs:docs/reference/python-api/mappings.md",
-        "package_export:zeroth.core.mappings"
+        "package_export:zeroth.contracts.mappings"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings:TransformMappingOperation"
       ],
-      "module": "zeroth.core.mappings",
+      "module": "zeroth.contracts.mappings",
       "name": "TransformMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['transform'] = 'transform', expression: str) -> None"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.mappings.errors"
+        "package_export:zeroth.contracts.mappings.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.errors:MappingExecutionError"
       ],
-      "module": "zeroth.core.mappings.errors",
+      "module": "zeroth.contracts.mappings.errors",
       "name": "MappingExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.mappings.errors"
+        "package_export:zeroth.contracts.mappings.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.errors:MappingValidationError"
       ],
-      "module": "zeroth.core.mappings.errors",
+      "module": "zeroth.contracts.mappings.errors",
       "name": "MappingValidationError",
       "signature": "<not-inspectable>"
     },
@@ -7353,26 +7353,26 @@
       "evidence": [
         "examples:examples/03_conditional_branches.py",
         "examples:examples/30_contracts_and_mappings.py",
-        "schema_model:zeroth.core.mappings.models"
+        "schema_model:zeroth.contracts.mappings.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.models:ConstantMappingOperation"
       ],
-      "module": "zeroth.core.mappings.models",
+      "module": "zeroth.contracts.mappings.models",
       "name": "ConstantMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['constant'] = 'constant', value: Any) -> None"
     },
     {
       "evidence": [
         "examples:examples/30_contracts_and_mappings.py",
-        "schema_model:zeroth.core.mappings.models"
+        "schema_model:zeroth.contracts.mappings.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.models:DefaultMappingOperation"
       ],
-      "module": "zeroth.core.mappings.models",
+      "module": "zeroth.contracts.mappings.models",
       "name": "DefaultMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['default'] = 'default', source_path: str | None = None, default_value: Any) -> None"
     },
@@ -7385,25 +7385,25 @@
         "examples:examples/21_policy_block.py",
         "examples:examples/24_audit_query.py",
         "examples:examples/30_contracts_and_mappings.py",
-        "schema_model:zeroth.core.mappings.models"
+        "schema_model:zeroth.contracts.mappings.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.models:EdgeMapping"
       ],
-      "module": "zeroth.core.mappings.models",
+      "module": "zeroth.contracts.mappings.models",
       "name": "EdgeMapping",
-      "signature": "(*, operations: list[typing.Annotated[zeroth.core.mappings.models.PassthroughMappingOperation | zeroth.core.mappings.models.RenameMappingOperation | zeroth.core.mappings.models.ConstantMappingOperation | zeroth.core.mappings.models.DefaultMappingOperation | zeroth.core.mappings.models.TransformMappingOperation, FieldInfo(annotation=NoneType, required=True, discriminator='operation')]] = <factory>) -> None"
+      "signature": "(*, operations: list[typing.Annotated[zeroth.contracts.mappings.models.PassthroughMappingOperation | zeroth.contracts.mappings.models.RenameMappingOperation | zeroth.contracts.mappings.models.ConstantMappingOperation | zeroth.contracts.mappings.models.DefaultMappingOperation | zeroth.contracts.mappings.models.TransformMappingOperation, FieldInfo(annotation=NoneType, required=True, discriminator='operation')]] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.mappings.models"
+        "schema_model:zeroth.contracts.mappings.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.models:MappingOperationBase"
       ],
-      "module": "zeroth.core.mappings.models",
+      "module": "zeroth.contracts.mappings.models",
       "name": "MappingOperationBase",
       "signature": "(*, target_path: str) -> None"
     },
@@ -7416,38 +7416,38 @@
         "examples:examples/21_policy_block.py",
         "examples:examples/24_audit_query.py",
         "examples:examples/30_contracts_and_mappings.py",
-        "schema_model:zeroth.core.mappings.models"
+        "schema_model:zeroth.contracts.mappings.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.models:PassthroughMappingOperation"
       ],
-      "module": "zeroth.core.mappings.models",
+      "module": "zeroth.contracts.mappings.models",
       "name": "PassthroughMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['passthrough'] = 'passthrough', source_path: str) -> None"
     },
     {
       "evidence": [
         "examples:examples/30_contracts_and_mappings.py",
-        "schema_model:zeroth.core.mappings.models"
+        "schema_model:zeroth.contracts.mappings.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.models:RenameMappingOperation"
       ],
-      "module": "zeroth.core.mappings.models",
+      "module": "zeroth.contracts.mappings.models",
       "name": "RenameMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['rename'] = 'rename', source_path: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.mappings.models"
+        "schema_model:zeroth.contracts.mappings.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.mappings.models:TransformMappingOperation"
       ],
-      "module": "zeroth.core.mappings.models",
+      "module": "zeroth.contracts.mappings.models",
       "name": "TransformMappingOperation",
       "signature": "(*, target_path: str, operation: Literal['transform'] = 'transform', expression: str) -> None"
     },

@@ -269,6 +269,26 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.conditions.models:NextStepPlan` | `zeroth.contracts.conditions.models:NextStepPlan` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.conditions.models:TraversalState` | `zeroth.contracts.conditions.models:TraversalState` | Move condition contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.runs.models:RunConditionResult` | `zeroth.contracts.conditions.models:RunConditionResult` | Move condition-result definition to conditions contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:ConstantMappingOperation` | `zeroth.contracts.mappings:ConstantMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:DefaultMappingOperation` | `zeroth.contracts.mappings:DefaultMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:EdgeMapping` | `zeroth.contracts.mappings:EdgeMapping` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:MappingExecutionError` | `zeroth.contracts.mappings:MappingExecutionError` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:MappingExecutor` | `zeroth.contracts.mappings:MappingExecutor` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:MappingOperation` | `zeroth.contracts.mappings:MappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:MappingValidationError` | `zeroth.contracts.mappings:MappingValidationError` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:MappingValidator` | `zeroth.contracts.mappings:MappingValidator` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:PassthroughMappingOperation` | `zeroth.contracts.mappings:PassthroughMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:RenameMappingOperation` | `zeroth.contracts.mappings:RenameMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings:TransformMappingOperation` | `zeroth.contracts.mappings:TransformMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.errors:MappingExecutionError` | `zeroth.contracts.mappings.errors:MappingExecutionError` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.errors:MappingValidationError` | `zeroth.contracts.mappings.errors:MappingValidationError` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.models:ConstantMappingOperation` | `zeroth.contracts.mappings.models:ConstantMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.models:DefaultMappingOperation` | `zeroth.contracts.mappings.models:DefaultMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.models:EdgeMapping` | `zeroth.contracts.mappings.models:EdgeMapping` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.models:MappingOperationBase` | `zeroth.contracts.mappings.models:MappingOperationBase` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.models:PassthroughMappingOperation` | `zeroth.contracts.mappings.models:PassthroughMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.models:RenameMappingOperation` | `zeroth.contracts.mappings.models:RenameMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.mappings.models:TransformMappingOperation` | `zeroth.contracts.mappings.models:TransformMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
