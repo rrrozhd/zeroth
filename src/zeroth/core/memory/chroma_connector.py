@@ -46,7 +46,7 @@ class ChromaDBMemoryConnector:
         # config.settings, which forms a circular import (settings ↔ connector) that can
         # silently disable this backend depending on import order.
         if embedding_model is None:
-            from zeroth.core.config.settings import DEFAULT_EMBEDDING_MODEL
+            from zeroth.platform.config.settings import DEFAULT_EMBEDDING_MODEL
 
             embedding_model = DEFAULT_EMBEDDING_MODEL
         self._client = client

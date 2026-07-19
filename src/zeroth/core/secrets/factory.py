@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from zeroth.core.secrets.provider import EnvSecretProvider, SecretProvider
 
 if TYPE_CHECKING:
-    from zeroth.core.config.settings import SecretsSettings
+    from zeroth.platform.config.settings import SecretsSettings
 
 
 class SecretProviderConfigError(RuntimeError):

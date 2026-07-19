@@ -5,9 +5,11 @@ backoff with jitter, per-endpoint circuit breaking, in-memory rate limiting,
 connection pooling, and call-record auditing.
 
 Every export resolves lazily, for the same reason as
-:mod:`zeroth.core.econ`: ``zeroth.core.config.settings`` needs only
-``HttpClientSettings`` from :mod:`zeroth.core.http.models`, and eagerly
-importing the client package pulled its dependencies into the platform layer.
+:mod:`zeroth.core.econ`: ``zeroth.core.config.settings`` historically needed
+only ``HttpClientSettings`` (now defined in
+:mod:`zeroth.platform.config.models` and republished from
+:mod:`zeroth.core.http.models`), and eagerly importing the client package
+pulled its dependencies into the platform layer.
 ``from zeroth.core.http import X`` is unchanged.
 """
 

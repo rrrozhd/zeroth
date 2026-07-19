@@ -28,7 +28,7 @@ runtime → ship it as an API → governance → advanced.
 | ------------------------------------ | --------------------------------------------------------------------------- |
 | `10_serve_in_python.py`              | `bootstrap_service` → `create_app` → `uvicorn.run`. Prints the curl commands you need. |
 | `11_serve_via_entrypoint.md`         | The production path: `zeroth.yaml`, `ZEROTH_*` env vars, `python -m examples.service.entrypoint`. |
-| `service/zeroth.yaml`                | Base config file picked up by `zeroth.core.config.settings.get_settings`.   |
+| `service/zeroth.yaml`                | Base config file picked up by `zeroth.platform.config.settings.get_settings`.   |
 | `service/seed_deployment.py`         | One-shot: migrations → contracts → graph → publish → deploy.                |
 | `service/entrypoint.py`              | Drop-in extension of `zeroth.core.service.entrypoint` with your own agent runners. |
 

@@ -20,7 +20,7 @@ def arq_settings_from_zeroth(redis_settings: Any) -> Any:
     """Convert ZerothSettings.redis to ARQ RedisSettings.
 
     Args:
-        redis_settings: A RedisSettings instance from zeroth.core.config.settings.
+        redis_settings: A RedisSettings instance from zeroth.platform.config.settings.
 
     Returns:
         An arq.connections.RedisSettings instance.

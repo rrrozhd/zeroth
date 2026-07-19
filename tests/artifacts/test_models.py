@@ -230,14 +230,14 @@ class TestSettingsIntegration:
 
     def test_zeroth_settings_has_artifact_store(self) -> None:
         """ZerothSettings includes artifact_store field."""
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
 
         fields = ZerothSettings.model_fields
         assert "artifact_store" in fields
 
     def test_default_artifact_store_settings(self) -> None:
         """ZerothSettings default artifact_store is an ArtifactStoreSettings instance."""
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
 
         settings = ZerothSettings()
         assert isinstance(settings.artifact_store, ArtifactStoreSettings)

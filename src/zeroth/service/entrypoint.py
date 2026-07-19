@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     """Run migrations and start the Zeroth platform."""
     from zeroth.core.cli import ensure_schema
-    from zeroth.core.config.settings import get_settings
+    from zeroth.platform.config.settings import get_settings
 
     settings = get_settings()
 
@@ -58,8 +58,8 @@ async def _serve(settings) -> None:
 
 async def _bootstrap():
     """Create database, bootstrap service, and return the FastAPI app."""
-    from zeroth.core.config.settings import get_settings
     from zeroth.core.storage.factory import create_database
+    from zeroth.platform.config.settings import get_settings
     from zeroth.service.app import create_app
     from zeroth.service.bootstrap.factory import bootstrap_service
 

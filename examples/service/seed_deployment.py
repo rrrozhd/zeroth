@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 from examples._contracts import Answer, Question
-from zeroth.core.config.settings import get_settings
+from zeroth.platform.config.settings import get_settings
 from zeroth.core.contracts import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.graph import (

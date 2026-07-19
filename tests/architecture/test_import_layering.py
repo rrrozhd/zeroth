@@ -32,6 +32,7 @@ from zeroth._architecture import _canonical_domain
 PLATFORM_ROOTS = (
     "zeroth.core.storage",
     "zeroth.core.config",
+    "zeroth.platform.config",
     "zeroth.platform.primitives",
 )
 
@@ -39,20 +40,14 @@ PLATFORM_ROOTS = (
 # Like the dependency exceptions in zeroth._architecture, this must match the
 # real closure exactly, so nothing new slips in unnoticed.
 #
-# ``ZerothSettings`` composes these two settings models as fields. They are
-# leaf modules -- each imports nothing else from zeroth -- so they cost four
-# modules and no transitive fan-out. Relocating them into the platform layer
-# would change their ``__module__`` and therefore the pinned signature string
-# of ``ZerothSettings`` in the immutable legacy library surface, which is the
-# same constraint documented in docs/backend-import-migration.md.
-PERMITTED_NON_PLATFORM = frozenset(
-    {
-        "zeroth.core.econ",
-        "zeroth.core.econ.models",
-        "zeroth.core.http",
-        "zeroth.core.http.models",
-    }
-)
+# Empty since Task 11 moved the econ and http settings sections into
+# ``zeroth.platform.config.models``: signature comparison became
+# location-independent in 54378e7, so composing them as ``ZerothSettings``
+# fields no longer forces their definitions to stay outside the platform
+# layer. The legacy ``zeroth.core.econ.models`` and ``zeroth.core.http.models``
+# paths republish the platform-owned classes, which points the import in the
+# allowed direction.
+PERMITTED_NON_PLATFORM: frozenset[str] = frozenset()
 
 # Imported packages are free to print banners, warnings, or progress to stdout,
 # so the payload is fenced by a sentinel rather than assumed to be the last line.

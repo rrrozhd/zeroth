@@ -88,7 +88,7 @@ class TestRunRepositoryDualBackend:
 @requires_docker
 class TestDatabaseFactory:
     async def test_factory_creates_sqlite(self, tmp_path):
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
         from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
         from zeroth.core.storage.factory import create_database
 
@@ -100,7 +100,7 @@ class TestDatabaseFactory:
         await db.close()
 
     async def test_factory_creates_postgres(self, postgres_container):
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
         from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
         from zeroth.core.storage.factory import create_database
 

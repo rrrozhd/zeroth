@@ -14,7 +14,8 @@ import pytest
 
 from zeroth.core.http.client import ResilientHttpClient
 from zeroth.core.http.errors import HttpClientError, HttpRateLimitError
-from zeroth.core.http.models import AuthType, EndpointConfig, HttpClientSettings
+from zeroth.core.http.models import AuthType, EndpointConfig
+from zeroth.platform.config.models import HttpClientSettings
 from zeroth.core.policy.models import Capability
 
 
@@ -316,7 +317,7 @@ class TestBootstrapWiring:
     """HttpClientSettings is available on ZerothSettings."""
 
     def test_http_client_settings_in_zeroth_settings(self) -> None:
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
 
         settings = ZerothSettings()
         assert hasattr(settings, "http_client")

@@ -49,7 +49,7 @@ class PgvectorMemoryConnector:
         # Resolve the embedding defaults lazily. Importing config.settings at module load
         # forms a circular import (settings ↔ pgvector_connector) that, depending on import
         # order, silently disabled this connector; deferring to call time avoids it entirely.
-        from zeroth.core.config.settings import (
+        from zeroth.platform.config.settings import (
             DEFAULT_EMBEDDING_DIMENSIONS,
             DEFAULT_EMBEDDING_MODEL,
         )

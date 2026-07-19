@@ -450,8 +450,8 @@ async def test_real_bootstrap_builds_enforcer_by_default(sqlite_db) -> None:
     """G1 default flip: the REAL bootstrap wires a budget enforcer with NO env
     flags and NO monkeypatch of ``enabled`` — proving the bundled control plane is
     on out of the box, not just when a test forces it on."""
-    from zeroth.core.config.settings import get_settings
-    from zeroth.core.econ.models import RegulusSettings
+    from zeroth.platform.config.settings import get_settings
+    from zeroth.platform.config.models import RegulusSettings
 
     from tests.service.helpers import agent_graph, deploy_service
 
@@ -484,7 +484,7 @@ async def test_cap_trips_by_default_no_env_flags(monkeypatch) -> None:
     """
     from pydantic import BaseModel
 
-    from zeroth.core.econ.models import RegulusSettings
+    from zeroth.platform.config.models import RegulusSettings
     from zeroth.econ_plane.config import settings as ecp_settings
     from zeroth.econ_plane.main import app as econ_plane_app
 

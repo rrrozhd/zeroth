@@ -7,9 +7,10 @@ Public API:
 
 Every export resolves lazily. Economics analytics read runs, audit records, and
 provider adapters, so importing this package eagerly pulled the runtime and
-governance layers into anything that touched it -- including
-``zeroth.core.config.settings``, which only needs ``RegulusSettings`` from
-:mod:`zeroth.core.econ.models`. That made the platform layer transitively
+governance layers into anything that touched it -- historically including
+``zeroth.core.config.settings``, which only needed ``RegulusSettings`` (now
+defined in :mod:`zeroth.platform.config.models` and republished from
+:mod:`zeroth.core.econ.models`). That made the platform layer transitively
 import the run domain. Resolving on first attribute access keeps
 ``from zeroth.core.econ import X`` working unchanged while letting a submodule
 be imported on its own.

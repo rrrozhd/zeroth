@@ -2,7 +2,7 @@
 
 Every Zeroth setting is loaded from (in priority order): environment variables
 (`ZEROTH_` prefix, nested via `__`), a local `.env` file, then `zeroth.yaml`.
-This reference is auto-generated from `zeroth.core.config.settings` via
+This reference is auto-generated from `zeroth.platform.config.settings` via
 `scripts/dump_config.py` — **do not edit by hand**.
 
 CI runs `python scripts/dump_config.py --check` on every PR and fails if this

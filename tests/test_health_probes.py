@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.config.settings import TLSSettings
+from zeroth.platform.config.settings import TLSSettings
 from zeroth.core.service.health import (
     DependencyStatus,
     LivenessResponse,

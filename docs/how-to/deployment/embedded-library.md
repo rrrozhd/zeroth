@@ -32,7 +32,7 @@ pip install "zeroth-core[memory-pg]"
 ```python
 import asyncio
 
-from zeroth.core.config.settings import get_settings
+from zeroth.platform.config.settings import get_settings
 from zeroth.core.service.bootstrap import bootstrap_service
 from zeroth.core.storage.factory import create_database
 
@@ -75,7 +75,7 @@ from fastapi import FastAPI
 from zeroth.core.service.app import create_app
 from zeroth.core.service.bootstrap import bootstrap_service
 from zeroth.core.storage.factory import create_database
-from zeroth.core.config.settings import get_settings
+from zeroth.platform.config.settings import get_settings
 
 
 async def lifespan(app: FastAPI):

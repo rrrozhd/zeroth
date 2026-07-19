@@ -254,7 +254,7 @@ class TestWebhookSettings:
     """WebhookSettings defaults."""
 
     def test_defaults(self):
-        from zeroth.core.config.settings import WebhookSettings
+        from zeroth.platform.config.settings import WebhookSettings
 
         ws = WebhookSettings()
         assert ws.enabled is True
@@ -270,7 +270,7 @@ class TestApprovalSLASettings:
     """ApprovalSLASettings defaults."""
 
     def test_defaults(self):
-        from zeroth.core.config.settings import ApprovalSLASettings
+        from zeroth.platform.config.settings import ApprovalSLASettings
 
         sla = ApprovalSLASettings()
         assert sla.enabled is True
@@ -281,7 +281,7 @@ class TestZerothSettingsSubModels:
     """ZerothSettings includes webhook and approval_sla."""
 
     def test_has_webhook_and_approval_sla(self):
-        from zeroth.core.config.settings import ApprovalSLASettings, WebhookSettings, ZerothSettings
+        from zeroth.platform.config.settings import ApprovalSLASettings, WebhookSettings, ZerothSettings
 
         settings = ZerothSettings()
         assert isinstance(settings.webhook, WebhookSettings)

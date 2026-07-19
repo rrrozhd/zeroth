@@ -7,7 +7,7 @@ from decimal import Decimal
 
 def test_regulus_settings_defaults():
     """RegulusSettings has correct defaults: enabled=True (G1), base_url, budget_cache_ttl=30."""
-    from zeroth.core.econ.models import RegulusSettings
+    from zeroth.platform.config.models import RegulusSettings
 
     s = RegulusSettings()
     # G1: the bundled control plane is ON by default so per-tenant caps enforce
@@ -20,7 +20,7 @@ def test_regulus_settings_defaults():
 
 def test_regulus_settings_accessible_via_zeroth_settings():
     """RegulusSettings is accessible via ZerothSettings().regulus."""
-    from zeroth.core.config.settings import ZerothSettings
+    from zeroth.platform.config.settings import ZerothSettings
 
     settings = ZerothSettings()
     assert hasattr(settings, "regulus")

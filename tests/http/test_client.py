@@ -16,7 +16,8 @@ from zeroth.core.http.errors import (
     HttpRateLimitError,
     HttpRetryExhaustedError,
 )
-from zeroth.core.http.models import AuthType, EndpointConfig, HttpClientSettings
+from zeroth.core.http.models import AuthType, EndpointConfig
+from zeroth.platform.config.models import HttpClientSettings
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +445,7 @@ class TestSettingsIntegration:
     """HttpClientSettings wired into ZerothSettings."""
 
     def test_http_client_on_zeroth_settings(self) -> None:
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
 
         s = ZerothSettings()
         assert isinstance(s.http_client, HttpClientSettings)

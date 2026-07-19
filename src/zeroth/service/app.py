@@ -59,7 +59,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     # Regulus backend URL for cost API queries (per D-16).
     regulus_client = getattr(bootstrap, "regulus_client", None)
     if regulus_client is not None:
-        from zeroth.core.config.settings import get_settings
+        from zeroth.platform.config.settings import get_settings
 
         _regulus_settings = get_settings().regulus
         app.state.regulus_base_url = _regulus_settings.base_url

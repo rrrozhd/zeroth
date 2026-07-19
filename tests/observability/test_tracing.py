@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from zeroth.core.config.settings import TracingSettings
+from zeroth.platform.config.settings import TracingSettings
 from zeroth.core.observability import configure_tracing, start_span
 from zeroth.core.observability.correlation import set_correlation_id
 

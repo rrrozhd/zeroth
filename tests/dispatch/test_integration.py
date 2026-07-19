@@ -194,7 +194,7 @@ async def test_arq_consumer_started_when_pool_available() -> None:
 @pytest.mark.asyncio
 async def test_worker_uses_dispatch_settings() -> None:
     """RunWorker created by bootstrap should use dispatch settings for timeouts."""
-    with patch("zeroth.core.config.settings._settings_singleton", None), patch.dict(
+    with patch("zeroth.platform.config.settings._settings_singleton", None), patch.dict(
         "os.environ",
         {
             "ZEROTH_DISPATCH__ARQ_ENABLED": "false",
@@ -202,7 +202,7 @@ async def test_worker_uses_dispatch_settings() -> None:
             "ZEROTH_DISPATCH__POLL_INTERVAL": "1.5",
         },
     ):
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
 
         settings = ZerothSettings()
 

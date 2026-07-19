@@ -16,7 +16,7 @@ from zeroth.core.dispatch.arq_wakeup import (
 
 
 class _FakeRedisSettings:
-    """Minimal stand-in for zeroth.core.config.settings.RedisSettings."""
+    """Minimal stand-in for zeroth.platform.config.settings.RedisSettings."""
 
     def __init__(
         self,

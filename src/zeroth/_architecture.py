@@ -195,8 +195,6 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.config.settings", "zeroth.core.econ.models"),
-        ("zeroth.core.config.settings", "zeroth.core.http.models"),
         ("zeroth.core.dispatch.lease", "zeroth.core.runs"),
         ("zeroth.core.dispatch.worker", "zeroth.core.runs"),
         ("zeroth.core.dispatch.worker", "zeroth.core.graph"),

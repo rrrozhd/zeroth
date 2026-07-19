@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from zeroth.core.config.settings import ProvenanceSigningSettings
+from zeroth.platform.config.settings import ProvenanceSigningSettings
 from zeroth.core.secrets import EnvSecretProvider
 from zeroth.core.signing import (
     Ed25519Signer,

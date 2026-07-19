@@ -50,7 +50,7 @@ from zeroth.core.agent_runtime import (
     AgentRunner,
     LiteLLMProviderAdapter,
 )
-from zeroth.core.config.settings import get_settings
+from zeroth.platform.config.settings import get_settings
 from zeroth.core.identity import ServiceRole
 from zeroth.core.service.app import create_app
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential

@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover - exercised only without the otel extra
     _OTEL_AVAILABLE = False
 
 if TYPE_CHECKING:
-    from zeroth.core.config.settings import TracingSettings
+    from zeroth.platform.config.settings import TracingSettings
 
 _TRACING_ENABLED = False
 _TRACER_NAME = "zeroth.core"

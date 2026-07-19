@@ -124,7 +124,7 @@ def test_policy_rejects_fractional_ttls() -> None:
 
 @pytest.mark.parametrize("bad_ttl", [0, -1, 1.5])
 def test_settings_reject_invalid_default_ttls(bad_ttl: float) -> None:
-    from zeroth.core.config.settings import RetentionSettings
+    from zeroth.platform.config.settings import RetentionSettings
 
     with pytest.raises(ValidationError):
         RetentionSettings(default_audit_ttl_seconds=bad_ttl)
@@ -133,7 +133,7 @@ def test_settings_reject_invalid_default_ttls(bad_ttl: float) -> None:
 
 
 def test_settings_worker_poll_interval_stays_float() -> None:
-    from zeroth.core.config.settings import RetentionSettings
+    from zeroth.platform.config.settings import RetentionSettings
 
     assert RetentionSettings(worker_poll_interval=0.5).worker_poll_interval == 0.5
 

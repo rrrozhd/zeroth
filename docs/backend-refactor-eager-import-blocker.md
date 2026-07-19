@@ -143,13 +143,18 @@ probe failed — `econ/__init__.py` eagerly imported `quality`, `opportunities`,
 ### What stayed, and why
 
 Four leaf modules — `zeroth.core.econ`, `.econ.models`, `zeroth.core.http`,
-`.http.models` — are still loaded by the platform layer, listed explicitly in
-`PERMITTED_NON_PLATFORM` with a test that fails if one stops being needed.
-`ZerothSettings` composes `RegulusSettings` and `HttpClientSettings` as fields,
-and its signature string — which embeds their module paths — is pinned in the
-immutable legacy surface. Relocating them hits the same wall documented in
-`docs/backend-import-migration.md`. They are leaves that import nothing else
-from `zeroth`, so they cost four modules and no fan-out.
+`.http.models` — were still loaded by the platform layer at the time of this
+analysis, listed explicitly in `PERMITTED_NON_PLATFORM` with a test that fails
+if one stops being needed. `ZerothSettings` composes `RegulusSettings` and
+`HttpClientSettings` as fields, and its signature string — which embedded their
+module paths — is pinned in the immutable legacy surface, which at the time
+forbade relocating them.
+
+**Resolved by Task 11.** Signature comparison became location-independent in
+54378e7 (Task 10), so the two settings sections moved into
+`zeroth.platform.config.models` with the config package; the legacy
+`zeroth.core.econ.models` and `zeroth.core.http.models` paths republish the
+platform-owned classes. `PERMITTED_NON_PLATFORM` is empty again.
 
 ### One Python subtlety worth knowing before touching these files
 

@@ -23,8 +23,8 @@ from pathlib import Path
 
 def ensure_schema() -> None:
     """Run Alembic migrations for the configured backend (SQLite or Postgres)."""
-    from zeroth.core.config.settings import get_settings
     from zeroth.core.service.bootstrap import run_migrations
+    from zeroth.platform.config.settings import get_settings
 
     settings = get_settings()
     if settings.database.backend == "postgres" and settings.database.postgres_dsn:
@@ -44,9 +44,9 @@ def _cmd_migrate(_args: argparse.Namespace) -> int:
 
 def _cmd_seed_demo(args: argparse.Namespace) -> int:
     async def _run() -> None:
-        from zeroth.core.config.settings import get_settings
         from zeroth.core.examples.demo_service import seed_demo
         from zeroth.core.storage.factory import create_database
+        from zeroth.platform.config.settings import get_settings
 
         ensure_schema()
         database = await create_database(get_settings())

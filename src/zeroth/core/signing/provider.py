@@ -30,8 +30,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from zeroth.core.signing.canonical import signable_bytes
 
 if TYPE_CHECKING:
-    from zeroth.core.config.settings import ProvenanceSigningSettings
     from zeroth.core.secrets import SecretProvider
+    from zeroth.platform.config.settings import ProvenanceSigningSettings
 
 
 class SigningConfigError(RuntimeError):

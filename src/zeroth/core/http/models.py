@@ -5,7 +5,20 @@ from __future__ import annotations
 from enum import StrEnum
 from urllib.parse import urlparse, urlunparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
+# HttpClientSettings is composed into ZerothSettings as a field, so its
+# definition lives in the platform layer; this legacy path republishes the
+# same class.
+from zeroth.platform.config.models import HttpClientSettings
+
+__all__ = [
+    "AuthType",
+    "EndpointConfig",
+    "HttpCallRecord",
+    "HttpClientSettings",
+    "redact_url",
+]
 
 
 class AuthType(StrEnum):
@@ -14,30 +27,6 @@ class AuthType(StrEnum):
     BEARER = "bearer"
     API_KEY = "api_key"
     CUSTOM_HEADER = "custom_header"
-
-
-class HttpClientSettings(BaseModel):
-    """Global resilient-HTTP-client configuration.
-
-    Every field has a sensible default so the client works out of the box.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_retries: int = 3
-    retry_backoff_base: float = 0.5
-    retry_max_delay: float = 60.0
-    retryable_status_codes: set[int] = Field(
-        default_factory=lambda: {408, 429, 500, 502, 503, 504},
-    )
-    circuit_breaker_threshold: int = 5
-    circuit_breaker_reset_timeout: float = 30.0
-    pool_max_connections: int = 100
-    pool_max_keepalive: int = 20
-    pool_keepalive_expiry: float = 5.0
-    default_timeout: float = 30.0
-    default_rate_limit_rate: float = 10.0
-    default_rate_limit_burst: int = 20
 
 
 class EndpointConfig(BaseModel):

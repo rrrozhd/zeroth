@@ -72,7 +72,7 @@ class TestDatabaseFactory:
 
     async def test_factory_creates_sqlite_by_default(self, tmp_path):
         """create_database() should return AsyncSQLiteDatabase when backend='sqlite'."""
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
         from zeroth.core.storage.factory import create_database
 
         settings = ZerothSettings(

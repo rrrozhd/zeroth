@@ -19,7 +19,7 @@ tools you can skip this page.
 ## Settings
 
 Configure the sandbox via `DockerSandboxSettings` (see
-`zeroth.core.config.settings`):
+`zeroth.platform.config.settings`):
 
 | Setting | Env var | Default | Meaning |
 |---|---|---|---|

@@ -6,8 +6,17 @@ on the ZerothSettings.database.backend value.
 
 from __future__ import annotations
 
-from zeroth.core.config.settings import ZerothSettings
+from typing import TYPE_CHECKING
+
 from zeroth.core.storage.database import AsyncDatabase
+
+if TYPE_CHECKING:
+    # Annotation-only. An eager import would re-enter the config package while
+    # zeroth.platform.config.settings is still initializing: settings imports
+    # the artifact-store section, whose parent package init loads the storage
+    # closure, which lands back here. The warm-cache suite cannot see that
+    # cycle; tests/platform/test_config_surface.py probes it from subprocesses.
+    from zeroth.platform.config.settings import ZerothSettings
 
 
 async def create_database(settings: ZerothSettings) -> AsyncDatabase:

@@ -133,7 +133,7 @@ def register_health_routes(app: FastAPI) -> None:
         # Build Redis URL from settings if available.
         redis_url: str | None = None
         try:
-            from zeroth.core.config.settings import get_settings
+            from zeroth.platform.config.settings import get_settings
 
             settings = get_settings()
             rs = settings.redis

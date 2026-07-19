@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from tests.service.helpers import agent_graph, deploy_service
-from zeroth.core.config.settings import get_settings
+from zeroth.platform.config.settings import get_settings
 
 
 @pytest.mark.asyncio

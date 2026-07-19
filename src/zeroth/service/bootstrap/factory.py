@@ -9,7 +9,6 @@ from fastapi import FastAPI
 from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.approvals import ApprovalRepository, ApprovalService
 from zeroth.core.audit import AuditRepository
-from zeroth.core.config.settings import get_settings
 from zeroth.core.contracts import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.dispatch import LeaseManager, RunWorker
@@ -34,6 +33,7 @@ from zeroth.core.secrets import SecretProvider, build_secret_provider
 from zeroth.core.signing import build_signing_provider_async
 from zeroth.core.storage import AsyncDatabase
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from zeroth.platform.config.settings import get_settings
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.api.authentication import (
     JWTBearerTokenVerifier,

@@ -36,7 +36,7 @@ in-process:
 import asyncio
 from zeroth.core.service import bootstrap_service, create_app
 from zeroth.core.storage.factory import create_database
-from zeroth.core.config.settings import get_settings
+from zeroth.platform.config.settings import get_settings
 
 async def make_app():
     settings = get_settings()
