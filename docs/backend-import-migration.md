@@ -202,6 +202,30 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.observability:new_correlation_id` | `zeroth.platform.observability:new_correlation_id` | Move observability to platform | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.observability:set_correlation_id` | `zeroth.platform.observability:set_correlation_id` | Move observability to platform | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.observability:start_span` | `zeroth.platform.observability:start_span` | Move observability to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets:EnvSecretProvider` | `zeroth.platform.secrets:EnvSecretProvider` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets:SecretProvider` | `zeroth.platform.secrets:SecretProvider` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets:SecretProviderConfigError` | `zeroth.platform.secrets:SecretProviderConfigError` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets:SecretRedactor` | `zeroth.platform.secrets:SecretRedactor` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets:SecretResolutionError` | `zeroth.platform.secrets:SecretResolutionError` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets:SecretResolver` | `zeroth.platform.secrets:SecretResolver` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets:VaultSecretProvider` | `zeroth.platform.secrets:VaultSecretProvider` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets:build_secret_provider` | `zeroth.platform.secrets:build_secret_provider` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets:normalize_secret_name` | `zeroth.platform.secrets:normalize_secret_name` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets:resolve_async` | `zeroth.platform.secrets:resolve_async` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets:resolve_many_async` | `zeroth.platform.secrets:resolve_many_async` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets:resolve_secret_async` | `zeroth.platform.secrets:resolve_secret_async` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets.factory:SecretProviderConfigError` | `zeroth.platform.secrets.factory:SecretProviderConfigError` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets.factory:build_secret_provider` | `zeroth.platform.secrets.factory:build_secret_provider` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets.provider:EnvSecretProvider` | `zeroth.platform.secrets.provider:EnvSecretProvider` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets.provider:SecretProvider` | `zeroth.platform.secrets.provider:SecretProvider` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets.provider:SecretResolutionError` | `zeroth.platform.secrets.provider:SecretResolutionError` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets.provider:SecretResolver` | `zeroth.platform.secrets.provider:SecretResolver` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets.provider:normalize_secret_name` | `zeroth.platform.secrets.provider:normalize_secret_name` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets.provider:resolve_async` | `zeroth.platform.secrets.provider:resolve_async` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets.provider:resolve_many_async` | `zeroth.platform.secrets.provider:resolve_many_async` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets.provider:resolve_secret_async` | `zeroth.platform.secrets.provider:resolve_secret_async` | Move secrets to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.secrets.redaction:SecretRedactor` | `zeroth.platform.secrets.redaction:SecretRedactor` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.secrets.vault:VaultSecretProvider` | `zeroth.platform.secrets.vault:VaultSecretProvider` | Move secrets to platform | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

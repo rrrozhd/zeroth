@@ -8926,320 +8926,320 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/how-to/secrets.md",
         "docs:docs/reference/python-api/secrets.md",
         "examples:examples/23_secrets_and_sandbox.py",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets:EnvSecretProvider"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "EnvSecretProvider",
       "signature": "(environment: 'Mapping[str, str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets:SecretProvider"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "SecretProvider",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets:SecretProviderConfigError"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "SecretProviderConfigError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/how-to/secrets.md",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets:SecretRedactor"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "SecretRedactor",
       "signature": "(known_secrets: 'Mapping[str, str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets:SecretResolutionError"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "SecretResolutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/how-to/secrets.md",
         "docs:docs/reference/python-api/secrets.md",
         "examples:examples/23_secrets_and_sandbox.py",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets:SecretResolver"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "SecretResolver",
       "signature": "(provider: 'SecretProvider') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets:VaultSecretProvider"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "VaultSecretProvider",
       "signature": "(*, addr: 'str', mount: 'str' = 'secret', token: 'str | None' = None, role_id: 'str | None' = None, secret_id: 'str | None' = None, cache_ttl: 'float' = 300.0, transport: 'httpx.BaseTransport | None' = None, async_transport: 'httpx.AsyncBaseTransport | None' = None, timeout: 'float' = 10.0) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets:build_secret_provider"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "build_secret_provider",
       "signature": "(settings: 'SecretsSettings') -> 'SecretProvider'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets:normalize_secret_name"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "normalize_secret_name",
       "signature": "(name: 'str') -> 'str'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets:resolve_async"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "resolve_async",
       "signature": "(provider: 'SecretProvider', secret_ref: 'str', *, tenant_id: 'str | None' = None) -> 'str | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets:resolve_many_async"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "resolve_many_async",
       "signature": "(provider: 'SecretProvider', refs: 'list[str]', *, tenant_id: 'str | None' = None) -> 'dict[str, str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets",
+        "__all__:zeroth.platform.secrets",
         "docs:docs/reference/python-api/secrets.md",
-        "package_export:zeroth.core.secrets"
+        "package_export:zeroth.platform.secrets"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets:resolve_secret_async"
       ],
-      "module": "zeroth.core.secrets",
+      "module": "zeroth.platform.secrets",
       "name": "resolve_secret_async",
       "signature": "(provider: 'SecretProvider', logical_name: 'str', *, tenant_id: 'str | None' = None, deployment_ref: 'str | None' = None) -> 'str | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.factory",
-        "package_export:zeroth.core.secrets.factory"
+        "__all__:zeroth.platform.secrets.factory",
+        "package_export:zeroth.platform.secrets.factory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets.factory:SecretProviderConfigError"
       ],
-      "module": "zeroth.core.secrets.factory",
+      "module": "zeroth.platform.secrets.factory",
       "name": "SecretProviderConfigError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.factory"
+        "__all__:zeroth.platform.secrets.factory"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets.factory:build_secret_provider"
       ],
-      "module": "zeroth.core.secrets.factory",
+      "module": "zeroth.platform.secrets.factory",
       "name": "build_secret_provider",
       "signature": "(settings: 'SecretsSettings') -> 'SecretProvider'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.provider"
+        "__all__:zeroth.platform.secrets.provider"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets.provider:EnvSecretProvider"
       ],
-      "module": "zeroth.core.secrets.provider",
+      "module": "zeroth.platform.secrets.provider",
       "name": "EnvSecretProvider",
       "signature": "(environment: 'Mapping[str, str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.provider"
+        "__all__:zeroth.platform.secrets.provider"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets.provider:SecretProvider"
       ],
-      "module": "zeroth.core.secrets.provider",
+      "module": "zeroth.platform.secrets.provider",
       "name": "SecretProvider",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.provider",
-        "package_export:zeroth.core.secrets.provider"
+        "__all__:zeroth.platform.secrets.provider",
+        "package_export:zeroth.platform.secrets.provider"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets.provider:SecretResolutionError"
       ],
-      "module": "zeroth.core.secrets.provider",
+      "module": "zeroth.platform.secrets.provider",
       "name": "SecretResolutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.provider"
+        "__all__:zeroth.platform.secrets.provider"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets.provider:SecretResolver"
       ],
-      "module": "zeroth.core.secrets.provider",
+      "module": "zeroth.platform.secrets.provider",
       "name": "SecretResolver",
       "signature": "(provider: 'SecretProvider') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.provider"
+        "__all__:zeroth.platform.secrets.provider"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets.provider:normalize_secret_name"
       ],
-      "module": "zeroth.core.secrets.provider",
+      "module": "zeroth.platform.secrets.provider",
       "name": "normalize_secret_name",
       "signature": "(name: 'str') -> 'str'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.provider"
+        "__all__:zeroth.platform.secrets.provider"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets.provider:resolve_async"
       ],
-      "module": "zeroth.core.secrets.provider",
+      "module": "zeroth.platform.secrets.provider",
       "name": "resolve_async",
       "signature": "(provider: 'SecretProvider', secret_ref: 'str', *, tenant_id: 'str | None' = None) -> 'str | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.provider"
+        "__all__:zeroth.platform.secrets.provider"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets.provider:resolve_many_async"
       ],
-      "module": "zeroth.core.secrets.provider",
+      "module": "zeroth.platform.secrets.provider",
       "name": "resolve_many_async",
       "signature": "(provider: 'SecretProvider', refs: 'list[str]', *, tenant_id: 'str | None' = None) -> 'dict[str, str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.provider"
+        "__all__:zeroth.platform.secrets.provider"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.secrets.provider:resolve_secret_async"
       ],
-      "module": "zeroth.core.secrets.provider",
+      "module": "zeroth.platform.secrets.provider",
       "name": "resolve_secret_async",
       "signature": "(provider: 'SecretProvider', logical_name: 'str', *, tenant_id: 'str | None' = None, deployment_ref: 'str | None' = None) -> 'str | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.redaction"
+        "__all__:zeroth.platform.secrets.redaction"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets.redaction:SecretRedactor"
       ],
-      "module": "zeroth.core.secrets.redaction",
+      "module": "zeroth.platform.secrets.redaction",
       "name": "SecretRedactor",
       "signature": "(known_secrets: 'Mapping[str, str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.secrets.vault"
+        "__all__:zeroth.platform.secrets.vault"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.secrets.vault:VaultSecretProvider"
       ],
-      "module": "zeroth.core.secrets.vault",
+      "module": "zeroth.platform.secrets.vault",
       "name": "VaultSecretProvider",
       "signature": "(*, addr: 'str', mount: 'str' = 'secret', token: 'str | None' = None, role_id: 'str | None' = None, secret_id: 'str | None' = None, cache_ttl: 'float' = 300.0, transport: 'httpx.BaseTransport | None' = None, async_transport: 'httpx.AsyncBaseTransport | None' = None, timeout: 'float' = 10.0) -> 'None'"
     },
