@@ -26,6 +26,8 @@ RELOCATED_SERVICE_MODULES = [
     ("zeroth.service.api.studio_schemas", "zeroth.core.service.studio_schemas"),
     ("zeroth.service.bootstrap.configuration", "zeroth.core.service.bootstrap"),
     ("zeroth.service.bootstrap.migrations", "zeroth.core.service.bootstrap"),
+    ("zeroth.service.bootstrap.container", "zeroth.core.service.bootstrap"),
+    ("zeroth.service.bootstrap.factory", "zeroth.core.service.bootstrap"),
 ]
 
 
