@@ -310,6 +310,57 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.templates.models:PromptTemplate` | `zeroth.contracts.templates.models:PromptTemplate` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.templates.models:TemplateReference` | `zeroth.contracts.templates.models:TemplateReference` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.templates.models:TemplateRenderResult` | `zeroth.contracts.templates.models:TemplateRenderResult` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:AgentNode` | `zeroth.contracts.graph:AgentNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:AgentNodeData` | `zeroth.contracts.graph:AgentNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:AgentToolBinding` | `zeroth.contracts.graph:AgentToolBinding` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:Condition` | `zeroth.contracts.graph:Condition` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:DisplayMetadata` | `zeroth.contracts.graph:DisplayMetadata` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:Edge` | `zeroth.contracts.graph:Edge` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:EntrypointNode` | `zeroth.contracts.graph:EntrypointNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:EntrypointNodeData` | `zeroth.contracts.graph:EntrypointNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:ExecutableUnitNode` | `zeroth.contracts.graph:ExecutableUnitNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:ExecutableUnitNodeData` | `zeroth.contracts.graph:ExecutableUnitNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:ExecutionSettings` | `zeroth.contracts.graph:ExecutionSettings` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:Graph` | `zeroth.contracts.graph:Graph` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:GraphRepository` | `zeroth.contracts.graph:GraphRepository` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:GraphStatus` | `zeroth.contracts.graph:GraphStatus` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:HumanApprovalNode` | `zeroth.contracts.graph:HumanApprovalNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:HumanApprovalNodeData` | `zeroth.contracts.graph:HumanApprovalNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:Node` | `zeroth.contracts.graph:Node` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:RetrievalNode` | `zeroth.contracts.graph:RetrievalNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:RetrievalNodeData` | `zeroth.contracts.graph:RetrievalNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:SubgraphNode` | `zeroth.contracts.graph:SubgraphNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:SubgraphNodeData` | `zeroth.contracts.graph:SubgraphNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:TemplateMemoryBinding` | `zeroth.contracts.graph:TemplateMemoryBinding` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph:ToolArgument` | `zeroth.contracts.graph:ToolArgument` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.errors:GraphLifecycleError` | `zeroth.contracts.graph.errors:GraphLifecycleError` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:AgentNode` | `zeroth.contracts.graph.models:AgentNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:AgentNodeData` | `zeroth.contracts.graph.models:AgentNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:AgentToolBinding` | `zeroth.contracts.graph.models:AgentToolBinding` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:Condition` | `zeroth.contracts.graph.models:Condition` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:DisplayMetadata` | `zeroth.contracts.graph.models:DisplayMetadata` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:Edge` | `zeroth.contracts.graph.models:Edge` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:EntrypointNode` | `zeroth.contracts.graph.models:EntrypointNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:EntrypointNodeData` | `zeroth.contracts.graph.models:EntrypointNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:ExecutableUnitNode` | `zeroth.contracts.graph.models:ExecutableUnitNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:ExecutableUnitNodeData` | `zeroth.contracts.graph.models:ExecutableUnitNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:ExecutionSettings` | `zeroth.contracts.graph.models:ExecutionSettings` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:Graph` | `zeroth.contracts.graph.models:Graph` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:HumanApprovalNode` | `zeroth.contracts.graph.models:HumanApprovalNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:HumanApprovalNodeData` | `zeroth.contracts.graph.models:HumanApprovalNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:NodeBase` | `zeroth.contracts.graph.models:NodeBase` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:RetrievalNode` | `zeroth.contracts.graph.models:RetrievalNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:RetrievalNodeData` | `zeroth.contracts.graph.models:RetrievalNodeData` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:SubgraphNode` | `zeroth.contracts.graph.models:SubgraphNode` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:TemplateMemoryBinding` | `zeroth.contracts.graph.models:TemplateMemoryBinding` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.models:ToolArgument` | `zeroth.contracts.graph.models:ToolArgument` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.graph.validation_errors:GraphValidationError` | `zeroth.contracts.graph.validation_errors:GraphValidationError` | Move graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph:SubgraphNodeData` | `zeroth.contracts.graph:SubgraphNodeData` | Move subgraph node data to graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph.models:SubgraphNodeData` | `zeroth.contracts.graph.models:SubgraphNodeData` | Move subgraph node data to graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:ParallelConfig` | `zeroth.contracts.graph.models:ParallelConfig` | Move parallel fan-out config to graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.models:ParallelConfig` | `zeroth.contracts.graph.models:ParallelConfig` | Move parallel fan-out config to graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:ContextWindowSettings` | `zeroth.contracts.graph.models:ContextWindowSettings` | Move context window settings to graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window.models:ContextWindowSettings` | `zeroth.contracts.graph.models:ContextWindowSettings` | Move context window settings to graph contracts | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
