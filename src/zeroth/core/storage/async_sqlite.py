@@ -6,7 +6,9 @@ WAL mode, and foreign key enforcement.
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
+import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -204,6 +206,30 @@ class AsyncSQLiteDatabase:
             EncryptedField(encryption_key) if encryption_key is not None else None
         )
 
+    async def _enter_wal_mode(self, conn: aiosqlite.Connection) -> None:
+        """Run ``PRAGMA journal_mode = WAL``, retrying racing conversions.
+
+        Converting a rollback-journal database to WAL needs a brief exclusive
+        lock. When several fresh connections race the first conversion, each
+        holds SHARED while upgrading, so SQLite's deadlock-avoidance path
+        returns SQLITE_BUSY immediately WITHOUT invoking the busy handler —
+        the connect-time busy timeout cannot cover this pragma. The competing
+        conversion completes in milliseconds, so retry within the same
+        coordination budget instead.
+        """
+        deadline = time.monotonic() + self.coordination_timeout_seconds
+        while True:
+            try:
+                await conn.execute("PRAGMA journal_mode = WAL")
+                return
+            except sqlite3.OperationalError as exc:
+                message = str(exc).lower()
+                if "locked" not in message and "busy" not in message:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise
+                await asyncio.sleep(0.005)
+
     @asynccontextmanager
     async def transaction(
         self, *, write_lock: bool = False
@@ -216,7 +242,7 @@ class AsyncSQLiteDatabase:
         conn.row_factory = aiosqlite.Row
         try:
             await conn.execute("PRAGMA foreign_keys = ON")
-            await conn.execute("PRAGMA journal_mode = WAL")
+            await self._enter_wal_mode(conn)
             await conn.execute("PRAGMA synchronous = NORMAL")
             timeout_ms = max(1, round(self.coordination_timeout_seconds * 1000))
             await conn.execute(f"PRAGMA busy_timeout = {timeout_ms}")

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0.1] - 2026-07-19
+
+### Fixed
+
+- `AsyncSQLiteDatabase.transaction()` no longer fails with a spurious
+  `CoordinationTimeoutError` when several fresh connections race the one-time
+  delete→WAL journal-mode conversion on a new database. SQLite's
+  deadlock-avoidance path returns `SQLITE_BUSY` from
+  `PRAGMA journal_mode = WAL` without consulting the busy timeout, so the
+  pragma is now retried within the coordination-timeout budget. Coordination
+  semantics (`BEGIN IMMEDIATE` write lock, `CoordinationTimeoutError`
+  contract) are unchanged.
+
 ## [0.10.0.0.1] - 2026-07-13
 
 ### Changed
