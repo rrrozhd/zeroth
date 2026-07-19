@@ -171,6 +171,22 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.storage.async_sqlite:AsyncSQLiteDatabase` | `zeroth.platform.storage.async_sqlite:AsyncSQLiteDatabase` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.storage.database:CoordinationTimeoutError` | `zeroth.platform.storage.database:CoordinationTimeoutError` | Move storage to platform | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.storage.factory:create_database` | `zeroth.platform.storage.factory:create_database` | Move storage to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.artifacts:ArtifactNotFoundError` | `zeroth.platform.artifacts:ArtifactNotFoundError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:ArtifactReference` | `zeroth.platform.artifacts:ArtifactReference` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:ArtifactStorageError` | `zeroth.platform.artifacts:ArtifactStorageError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:ArtifactStore` | `zeroth.platform.artifacts:ArtifactStore` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:ArtifactStoreError` | `zeroth.platform.artifacts:ArtifactStoreError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:ArtifactStoreSettings` | `zeroth.platform.artifacts:ArtifactStoreSettings` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:ArtifactTTLError` | `zeroth.platform.artifacts:ArtifactTTLError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:FilesystemArtifactStore` | `zeroth.platform.artifacts:FilesystemArtifactStore` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:RedisArtifactStore` | `zeroth.platform.artifacts:RedisArtifactStore` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts:generate_artifact_key` | `zeroth.platform.artifacts:generate_artifact_key` | Move artifacts to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.artifacts.errors:ArtifactNotFoundError` | `zeroth.platform.artifacts.errors:ArtifactNotFoundError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts.errors:ArtifactStorageError` | `zeroth.platform.artifacts.errors:ArtifactStorageError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts.errors:ArtifactStoreError` | `zeroth.platform.artifacts.errors:ArtifactStoreError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts.errors:ArtifactTTLError` | `zeroth.platform.artifacts.errors:ArtifactTTLError` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts.models:ArtifactReference` | `zeroth.platform.artifacts.models:ArtifactReference` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.artifacts.models:ArtifactStoreSettings` | `zeroth.platform.artifacts.models:ArtifactStoreSettings` | Move artifacts to platform | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
