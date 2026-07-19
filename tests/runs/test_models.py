@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC
 
 import zeroth.core.runs.models as run_models
-from zeroth.core.governed import RunStatus
+from zeroth.contracts.governed import RunStatus
 
 from zeroth.core.runs.models import (
     Run,

@@ -17,6 +17,7 @@ from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from zeroth.contracts.governed.app.spec import GovernedStepSpec
 from zeroth.contracts.registry.errors import (
     ContractNotFoundError,
     ContractTypeResolutionError,
@@ -24,7 +25,6 @@ from zeroth.contracts.registry.errors import (
 )
 from zeroth.contracts.registry.schema_model import check_json_schema, model_from_json_schema
 from zeroth.contracts.registry.tooling import ExecutionPlacement, RegistrableTool
-from zeroth.core.governed.app.spec import GovernedStepSpec
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.platform.storage.json import from_json_value, to_json_value
 

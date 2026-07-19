@@ -7,9 +7,9 @@ cold-importable from a fresh interpreter in either order.
 
 The third cold-import pairing pins the deliberate cycle-free seam with the
 vendored governed bundle: ``zeroth.core.governed.tools.base`` imports
-``ExecutionPlacement`` from ``zeroth.contracts.registry.tooling`` while
-``zeroth.contracts.registry.registry`` imports ``GovernedStepSpec`` from
-``zeroth.core.governed.app.spec``. Both orders must initialize cleanly.
+``ExecutionPlacement`` from ``zeroth.contracts.registry.tooling``, so
+importing the legacy governed aggregator pulls in the canonical registry
+package mid-initialization. Both orders must initialize cleanly.
 """
 
 from __future__ import annotations

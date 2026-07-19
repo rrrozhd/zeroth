@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 import zeroth.integrations.persistence.runs.thread_repository as thread_repository_module
-from zeroth.core.governed import RunStatus
+from zeroth.contracts.governed import RunStatus
 
 from zeroth.core.runs.models import (
     Run,

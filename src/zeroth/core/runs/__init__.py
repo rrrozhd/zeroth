@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING
 
-from zeroth.core.governed import RunState
+from zeroth.contracts.governed import RunState
 from zeroth.core.runs.models import (
     Run,
     RunConditionResult,

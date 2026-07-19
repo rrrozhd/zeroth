@@ -4,8 +4,8 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
-from zeroth.core.governed.models.audit import AuditEvent, AuditExtension
-from zeroth.core.governed.models.common import EventType
+from zeroth.contracts.governed.models.audit import AuditEvent, AuditExtension
+from zeroth.contracts.governed.models.common import EventType
 
 
 class AuditEmitter(ABC):

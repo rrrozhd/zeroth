@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
-from zeroth.core.governed.models.common import JSONValue
+from zeroth.contracts.governed.models.common import JSONValue
 
 
 @runtime_checkable

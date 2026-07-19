@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Re-exported as zeroth.core.runs API: the conditions contracts own the
 # evaluation-outcome vocabulary; the run surface republishes it.
 from zeroth.contracts.conditions.models import RunConditionResult as RunConditionResult
-from zeroth.core.governed import RunState
-from zeroth.core.governed import RunStatus as RunStatus  # re-exported as zeroth.core.runs API
+from zeroth.contracts.governed import RunState
+from zeroth.contracts.governed import RunStatus as RunStatus  # re-exported as zeroth.core.runs API
 from zeroth.core.identity import ActorIdentity
 from zeroth.platform.primitives import utc_now
 

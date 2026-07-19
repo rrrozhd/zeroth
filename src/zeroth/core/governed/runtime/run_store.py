@@ -5,7 +5,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Protocol, runtime_checkable
 
-from zeroth.core.governed.models.run_state import RunState
+from zeroth.contracts.governed.models.run_state import RunState
 
 try:
     from redis.exceptions import WatchError
@@ -21,7 +21,7 @@ class StateConcurrencyError(RuntimeError):
 
 def _validate_state(state: RunState) -> None:
     """Validate state consistency before persistence (PERS-03)."""
-    from zeroth.core.governed.models.common import RunStatus
+    from zeroth.contracts.governed.models.common import RunStatus
 
     if state.status == RunStatus.WAITING_INTERRUPT and state.pending_interrupt_id is None:
         raise ValueError(

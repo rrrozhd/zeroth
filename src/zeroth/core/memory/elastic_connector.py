@@ -14,8 +14,8 @@ from typing import Any
 
 from elasticsearch import AsyncElasticsearch, NotFoundError
 
+from zeroth.contracts.governed.models.common import JSONValue
 from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
-from zeroth.core.governed.models.common import JSONValue
 
 
 class ElasticsearchMemoryConnector:

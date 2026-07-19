@@ -13,9 +13,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from zeroth.contracts.mappings.models import EdgeMapping
-from zeroth.contracts.templates.models import TemplateReference
-from zeroth.core.governed.app.spec import (
+from zeroth.contracts.governed.app.spec import (
     GovernedFlowSpec,
     GovernedStepSpec,
     TransitionSpec,
@@ -24,6 +22,8 @@ from zeroth.core.governed.app.spec import (
     route_to,
     then,
 )
+from zeroth.contracts.mappings.models import EdgeMapping
+from zeroth.contracts.templates.models import TemplateReference
 from zeroth.core.policy.models import Capability
 from zeroth.platform.primitives import utc_now
 

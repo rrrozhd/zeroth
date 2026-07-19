@@ -7,7 +7,7 @@ rather than on whichever package happens to persist it.
 """
 
 from zeroth.contracts.conditions.models import RunConditionResult
-from zeroth.core.governed import RunState
+from zeroth.contracts.governed import RunState
 from zeroth.core.runs.models import (
     Run,
     RunFailureState,

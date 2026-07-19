@@ -109,7 +109,7 @@ def test_canonical_models_are_republished_rather_than_redefined(name: str) -> No
 
     assert model.__module__ in {
         "zeroth.core.runs.models",
-        "zeroth.core.governed.models.common",
+        "zeroth.contracts.governed.models.common",
         "zeroth.contracts.conditions.models",
     }
 

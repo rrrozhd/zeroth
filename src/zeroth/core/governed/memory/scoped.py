@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from zeroth.core.governed.memory.connector import MemoryConnector
 from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
-from zeroth.core.governed.models.common import JSONValue
+from zeroth.contracts.governed.models.common import JSONValue
 
 
 class ScopedMemoryConnector:

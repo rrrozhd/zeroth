@@ -7,7 +7,7 @@ from typing import Any
 from zeroth.core.governed.audit.emitter import AuditEmitter, emit_event
 from zeroth.core.governed.memory.connector import MemoryConnector
 from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
-from zeroth.core.governed.models.common import EventType, JSONValue
+from zeroth.contracts.governed.models.common import EventType, JSONValue
 
 
 class AuditingMemoryConnector:

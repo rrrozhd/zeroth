@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from zeroth.core.governed.audit.emitter import AuditEmitter
-from zeroth.core.governed.models.audit import AuditEvent
+from zeroth.contracts.governed.models.audit import AuditEvent
 
 
 class RedisAuditEmitter(AuditEmitter):

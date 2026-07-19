@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from zeroth.core.governed.models.common import JSONValue
+from zeroth.contracts.governed.models.common import JSONValue
 
 
 def _utcnow() -> datetime:

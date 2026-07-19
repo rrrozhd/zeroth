@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import zeroth.contracts.graph.models as graph_models
 import zeroth.contracts.graph.versioning as graph_versioning
-from zeroth.core.governed.app.spec import GovernedFlowSpec
+from zeroth.contracts.governed.app.spec import GovernedFlowSpec
 
 from zeroth.contracts.graph.models import (
     AgentNode,

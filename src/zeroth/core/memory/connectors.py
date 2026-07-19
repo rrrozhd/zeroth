@@ -10,8 +10,8 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
+from zeroth.contracts.governed.models.common import JSONValue
 from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
-from zeroth.core.governed.models.common import JSONValue
 
 
 def _utcnow() -> datetime:
