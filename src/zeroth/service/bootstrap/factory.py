@@ -287,7 +287,7 @@ async def bootstrap_service(
     artifact_store: object | None = None
     artifact_settings = settings.artifact_store
     if artifact_settings.backend == "filesystem":
-        from zeroth.core.artifacts.store import FilesystemArtifactStore
+        from zeroth.platform.artifacts.store import FilesystemArtifactStore
 
         artifact_store = FilesystemArtifactStore(
             base_dir=artifact_settings.filesystem_base_dir,
@@ -295,7 +295,7 @@ async def bootstrap_service(
             max_size=artifact_settings.max_artifact_size_bytes,
         )
     elif artifact_settings.backend == "redis" and redis_client is not None:
-        from zeroth.core.artifacts.store import RedisArtifactStore
+        from zeroth.platform.artifacts.store import RedisArtifactStore
 
         artifact_store = RedisArtifactStore(
             redis_url="",  # not used when client is provided

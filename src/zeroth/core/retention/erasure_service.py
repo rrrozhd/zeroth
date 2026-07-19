@@ -24,7 +24,6 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from zeroth.core.artifacts.helpers import extract_artifact_refs
 from zeroth.core.audit.erasure_schema import AUDIT_CLEANUP_PAYLOAD_FIELDS
 from zeroth.core.retention.cleanup_manifest import (
     CleanupManifest,
@@ -55,6 +54,7 @@ from zeroth.governance.retention.manifests import (
     result_from_manifest,
 )
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
+from zeroth.platform.artifacts.helpers import extract_artifact_refs
 
 if TYPE_CHECKING:
     from zeroth.core.audit.repository import AuditRepository

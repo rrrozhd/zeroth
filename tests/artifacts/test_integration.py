@@ -14,10 +14,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.artifacts.errors import ArtifactTTLError
-from zeroth.core.artifacts.helpers import extract_artifact_refs, refresh_artifact_ttls
-from zeroth.core.artifacts.models import ArtifactReference, ArtifactStoreSettings
-from zeroth.core.artifacts.store import FilesystemArtifactStore
+from zeroth.platform.artifacts.errors import ArtifactTTLError
+from zeroth.platform.artifacts.helpers import extract_artifact_refs, refresh_artifact_ttls
+from zeroth.platform.artifacts.models import ArtifactReference, ArtifactStoreSettings
+from zeroth.platform.artifacts.store import FilesystemArtifactStore
 from zeroth.core.audit.evidence import (
     build_summary,
     resolve_artifact_references,

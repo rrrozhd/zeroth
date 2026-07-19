@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from fastapi.responses import Response
 
-from zeroth.core.artifacts.errors import ArtifactNotFoundError
+from zeroth.platform.artifacts.errors import ArtifactNotFoundError
 from zeroth.service.api.authorization import Permission, require_permission
 
 

@@ -87,7 +87,7 @@ class GraphDriver:
         if self.artifact_store is None:
             return
         try:
-            from zeroth.core.artifacts.helpers import refresh_artifact_ttls
+            from zeroth.platform.artifacts.helpers import refresh_artifact_ttls
 
             combined: dict[str, Any] = {}
             for i, entry in enumerate(run.execution_history):

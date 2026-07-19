@@ -11,11 +11,12 @@ from typing import TYPE_CHECKING
 from zeroth.platform.storage.database import AsyncDatabase
 
 if TYPE_CHECKING:
-    # Annotation-only. An eager import would re-enter the config package while
-    # zeroth.platform.config.settings is still initializing: settings imports
-    # the artifact-store section, whose parent package init loads the storage
-    # closure, which lands back here. The warm-cache suite cannot see that
-    # cycle; tests/platform/test_config_surface.py probes it from subprocesses.
+    # Annotation-only, so importing storage does not execute the config
+    # package. While the artifact-store settings section still lived under
+    # zeroth.core, an eager import here closed a partial-initialization cycle
+    # (settings -> artifacts -> zeroth.core -> storage -> factory); keeping it
+    # lazy also keeps the storage closure minimal.
+    # tests/platform/test_config_surface.py probes both cold-import directions.
     from zeroth.platform.config.settings import ZerothSettings
 
 

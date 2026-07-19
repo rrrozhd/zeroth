@@ -18,7 +18,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from zeroth.core.artifacts.models import ArtifactStoreSettings
+from zeroth.platform.artifacts.models import ArtifactStoreSettings
 from zeroth.platform.config.models import HttpClientSettings, RegulusSettings
 
 # Default embedding model used across memory connectors. Centralized here so a

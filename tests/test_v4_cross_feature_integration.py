@@ -161,7 +161,7 @@ def _make_orchestrator(
 @pytest.mark.asyncio
 async def test_parallel_branches_with_artifact_store(sqlite_db, tmp_path) -> None:
     """Parallel fan-out with artifact_store set completes without error."""
-    from zeroth.core.artifacts.store import FilesystemArtifactStore
+    from zeroth.platform.artifacts.store import FilesystemArtifactStore
 
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
