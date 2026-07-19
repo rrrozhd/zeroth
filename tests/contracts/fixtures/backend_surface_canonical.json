@@ -9317,15 +9317,15 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.admin_api"
+        "schema_model:zeroth.service.api.admin_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.admin_api:AdminRunListResponse"
       ],
-      "module": "zeroth.core.service.admin_api",
+      "module": "zeroth.service.api.admin_api",
       "name": "AdminRunListResponse",
-      "signature": "(*, runs: list[zeroth.core.service.run_api.RunStatusResponse], total: int) -> None"
+      "signature": "(*, runs: list[zeroth.service.api.run_api.RunStatusResponse], total: int) -> None"
     },
     {
       "evidence": [
@@ -9376,7 +9376,7 @@
       ],
       "module": "zeroth.core.service.approval_api",
       "name": "ApprovalResolutionResponse",
-      "signature": "(*, approval: zeroth.core.approvals.models.ApprovalRecord, run: zeroth.core.service.run_api.RunStatusResponse) -> None"
+      "signature": "(*, approval: zeroth.core.approvals.models.ApprovalRecord, run: zeroth.service.api.run_api.RunStatusResponse) -> None"
     },
     {
       "evidence": [
@@ -9448,7 +9448,7 @@
       ],
       "module": "zeroth.core.service.audit_api",
       "name": "DeploymentEvidenceResponse",
-      "signature": "(*, deployment: zeroth.core.service.contracts_api.DeploymentVersionMetadataResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, run_ids: list[str] = <factory>, summary: zeroth.core.service.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+      "signature": "(*, deployment: zeroth.service.api.contracts_api.DeploymentVersionMetadataResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, run_ids: list[str] = <factory>, summary: zeroth.core.service.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -9472,7 +9472,7 @@
       ],
       "module": "zeroth.core.service.audit_api",
       "name": "RunEvidenceResponse",
-      "signature": "(*, run: zeroth.core.service.run_api.RunStatusResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, summary: zeroth.core.service.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+      "signature": "(*, run: zeroth.service.api.run_api.RunStatusResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, summary: zeroth.core.service.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -9494,7 +9494,7 @@
       "legacy_ids": [
         "zeroth.core.service.auth:AuthenticationError"
       ],
-      "module": "zeroth.core.service.auth",
+      "module": "zeroth.service.api.authentication",
       "name": "AuthenticationError",
       "signature": "<not-inspectable>"
     },
@@ -9506,7 +9506,7 @@
       "legacy_ids": [
         "zeroth.core.service.auth:BearerTokenConfig"
       ],
-      "module": "zeroth.core.service.auth",
+      "module": "zeroth.service.api.authentication",
       "name": "BearerTokenConfig",
       "signature": "(*, issuer: str, audience: str, jwks_url: str | None = None, jwks: dict[str, typing.Any] | None = None, algorithms: list[str] = <factory>) -> None"
     },
@@ -9520,9 +9520,9 @@
       "legacy_ids": [
         "zeroth.core.service.auth:ServiceAuthConfig"
       ],
-      "module": "zeroth.core.service.auth",
+      "module": "zeroth.service.api.authentication",
       "name": "ServiceAuthConfig",
-      "signature": "(*, api_keys: list[zeroth.core.service.auth.StaticApiKeyCredential] = <factory>, bearer: zeroth.core.service.auth.BearerTokenConfig | None = None) -> None"
+      "signature": "(*, api_keys: list[zeroth.service.api.authentication.StaticApiKeyCredential] = <factory>, bearer: zeroth.service.api.authentication.BearerTokenConfig | None = None) -> None"
     },
     {
       "evidence": [
@@ -9534,7 +9534,7 @@
       "legacy_ids": [
         "zeroth.core.service.auth:StaticApiKeyCredential"
       ],
-      "module": "zeroth.core.service.auth",
+      "module": "zeroth.service.api.authentication",
       "name": "StaticApiKeyCredential",
       "signature": "(*, credential_id: str, secret: str, subject: str, roles: list[zeroth.core.identity.models.ServiceRole] = <factory>, tenant_id: str = 'default', workspace_id: str | None = None) -> None"
     },
@@ -9647,37 +9647,37 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.contracts_api"
+        "schema_model:zeroth.service.api.contracts_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.contracts_api:DeploymentResultErrorStateSchemaResponse"
       ],
-      "module": "zeroth.core.service.contracts_api",
+      "module": "zeroth.service.api.contracts_api",
       "name": "DeploymentResultErrorStateSchemaResponse",
-      "signature": "(*, deployment_ref: str, deployment_version: int, graph_version_ref: str, result_contract: zeroth.core.service.contracts_api.PublicContractSchemaResponse, result_state_schema: dict[str, typing.Any] = <factory>, error_state_schema: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, deployment_ref: str, deployment_version: int, graph_version_ref: str, result_contract: zeroth.service.api.contracts_api.PublicContractSchemaResponse, result_state_schema: dict[str, typing.Any] = <factory>, error_state_schema: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.contracts_api"
+        "schema_model:zeroth.service.api.contracts_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.contracts_api:DeploymentVersionMetadataResponse"
       ],
-      "module": "zeroth.core.service.contracts_api",
+      "module": "zeroth.service.api.contracts_api",
       "name": "DeploymentVersionMetadataResponse",
       "signature": "(*, deployment_ref: str, deployment_version: int, graph_id: str, graph_version: int, graph_version_ref: str, entry_input_contract_ref: str | None = None, entry_input_contract_version: int | None = None, entry_output_contract_ref: str | None = None, entry_output_contract_version: int | None = None, deployment_settings_snapshot: dict[str, typing.Any] = <factory>, status: zeroth.core.deployments.models.DeploymentStatus, created_at: datetime.datetime, updated_at: datetime.datetime, audit_ref: str | None = None, timeline_ref: str | None = None, evidence_ref: str | None = None, attestation_ref: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.contracts_api"
+        "schema_model:zeroth.service.api.contracts_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.contracts_api:PublicContractSchemaResponse"
       ],
-      "module": "zeroth.core.service.contracts_api",
+      "module": "zeroth.service.api.contracts_api",
       "name": "PublicContractSchemaResponse",
       "signature": "(*, name: str, version: int, json_schema: dict[str, typing.Any] = <factory>) -> None"
     },
@@ -9755,13 +9755,13 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.econ_analytics_api"
+        "schema_model:zeroth.service.api.econ_analytics_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.econ_analytics_api:QualityVerdictRequest"
       ],
-      "module": "zeroth.core.service.econ_analytics_api",
+      "module": "zeroth.service.api.econ_analytics_api",
       "name": "QualityVerdictRequest",
       "signature": "(*, run_id: Annotated[str, MinLen(min_length=1)], verdict: Literal['good', 'bad', 'unknown'], source: Annotated[str, MinLen(min_length=1)], score: float | None = None, rubric_id: str | None = None, detail: str = '', expected_output: str | None = None) -> None"
     },
@@ -9803,13 +9803,13 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.manifest_api"
+        "schema_model:zeroth.service.api.manifest_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.manifest_api:ManifestSummaryResponse"
       ],
-      "module": "zeroth.core.service.manifest_api",
+      "module": "zeroth.service.api.manifest_api",
       "name": "ManifestSummaryResponse",
       "signature": "(*, manifest_ref: str, kind: str, runtime: str | None = None, description: str | None = None) -> None"
     },
@@ -9923,51 +9923,51 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.run_api"
+        "schema_model:zeroth.service.api.run_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.run_api:ApprovalPausedState"
       ],
-      "module": "zeroth.core.service.run_api",
+      "module": "zeroth.service.api.run_api",
       "name": "ApprovalPausedState",
       "signature": "(*, approval_id: str | None = None, node_id: str, input_payload: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.run_api"
+        "schema_model:zeroth.service.api.run_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.run_api:RunInvocationRequest"
       ],
-      "module": "zeroth.core.service.run_api",
+      "module": "zeroth.service.api.run_api",
       "name": "RunInvocationRequest",
       "signature": "(*, input_payload: dict[str, typing.Any] = <factory>, thread_id: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.run_api"
+        "schema_model:zeroth.service.api.run_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.run_api:RunInvocationResponse"
       ],
-      "module": "zeroth.core.service.run_api",
+      "module": "zeroth.service.api.run_api",
       "name": "RunInvocationResponse",
-      "signature": "(*, run_id: str, status: zeroth.core.service.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.core.service.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
+      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.service.api.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.run_api"
+        "schema_model:zeroth.service.api.run_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.run_api:RunStatusResponse"
       ],
-      "module": "zeroth.core.service.run_api",
+      "module": "zeroth.service.api.run_api",
       "name": "RunStatusResponse",
-      "signature": "(*, run_id: str, status: zeroth.core.service.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.core.service.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
+      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.service.api.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
     },
     {
       "evidence": [

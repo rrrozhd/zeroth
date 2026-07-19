@@ -92,6 +92,20 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.service.bootstrap:DeploymentBootstrapError` | `zeroth.service.bootstrap.container:DeploymentBootstrapError` | Decompose service bootstrap | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.service.bootstrap:bootstrap_service` | `zeroth.service.bootstrap.factory:bootstrap_service` | Decompose service bootstrap | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.service.bootstrap:bootstrap_app` | `zeroth.service.bootstrap.factory:bootstrap_app` | Decompose service bootstrap | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.service.admin_api:AdminRunListResponse` | `zeroth.service.api.admin_api:AdminRunListResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.auth:AuthenticationError` | `zeroth.service.api.authentication:AuthenticationError` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.auth:BearerTokenConfig` | `zeroth.service.api.authentication:BearerTokenConfig` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.auth:ServiceAuthConfig` | `zeroth.service.api.authentication:ServiceAuthConfig` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.auth:StaticApiKeyCredential` | `zeroth.service.api.authentication:StaticApiKeyCredential` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.contracts_api:DeploymentResultErrorStateSchemaResponse` | `zeroth.service.api.contracts_api:DeploymentResultErrorStateSchemaResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.contracts_api:DeploymentVersionMetadataResponse` | `zeroth.service.api.contracts_api:DeploymentVersionMetadataResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.contracts_api:PublicContractSchemaResponse` | `zeroth.service.api.contracts_api:PublicContractSchemaResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.econ_analytics_api:QualityVerdictRequest` | `zeroth.service.api.econ_analytics_api:QualityVerdictRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.manifest_api:ManifestSummaryResponse` | `zeroth.service.api.manifest_api:ManifestSummaryResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.run_api:ApprovalPausedState` | `zeroth.service.api.run_api:ApprovalPausedState` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.run_api:RunInvocationRequest` | `zeroth.service.api.run_api:RunInvocationRequest` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.run_api:RunInvocationResponse` | `zeroth.service.api.run_api:RunInvocationResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.service.run_api:RunStatusResponse` | `zeroth.service.api.run_api:RunStatusResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
