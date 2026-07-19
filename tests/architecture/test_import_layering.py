@@ -37,6 +37,7 @@ PLATFORM_ROOTS = (
     "zeroth.platform.artifacts",
     "zeroth.platform.dispatch",
     "zeroth.platform.observability",
+    "zeroth.platform.secrets",
     "zeroth.platform.primitives",
 )
 

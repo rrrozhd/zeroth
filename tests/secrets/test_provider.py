@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from zeroth.core.execution_units import EnvironmentVariable
-from zeroth.core.secrets import EnvSecretProvider, SecretRedactor, SecretResolver
+from zeroth.platform.secrets import EnvSecretProvider, SecretRedactor, SecretResolver
 
 
 def test_env_secret_provider_resolves_refs_from_environment() -> None:
@@ -103,7 +103,7 @@ class _BlockingSyncProvider:
 
 @pytest.mark.asyncio
 async def test_async_helpers_await_native_async_provider() -> None:
-    from zeroth.core.secrets.provider import (
+    from zeroth.platform.secrets.provider import (
         resolve_async,
         resolve_many_async,
         resolve_secret_async,
@@ -119,7 +119,7 @@ async def test_async_helpers_await_native_async_provider() -> None:
 
 @pytest.mark.asyncio
 async def test_env_provider_resolves_natively_async() -> None:
-    from zeroth.core.secrets.provider import resolve_async, resolve_secret_async
+    from zeroth.platform.secrets.provider import resolve_async, resolve_secret_async
 
     provider = EnvSecretProvider({"OPENAI_API_KEY": "sk-1", "LLM_OPENAI": "sk-2"})
     assert await provider.resolve_async("OPENAI_API_KEY") == "sk-1"
@@ -132,7 +132,7 @@ async def test_env_provider_resolves_natively_async() -> None:
 async def test_sync_only_provider_does_not_block_event_loop() -> None:
     import asyncio
 
-    from zeroth.core.secrets.provider import resolve_secret_async
+    from zeroth.platform.secrets.provider import resolve_secret_async
 
     heartbeats = 0
 

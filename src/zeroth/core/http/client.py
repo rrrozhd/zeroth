@@ -37,7 +37,7 @@ from zeroth.core.http.models import (
 
 if TYPE_CHECKING:
     from zeroth.core.policy.models import Capability
-    from zeroth.core.secrets.provider import SecretProvider
+    from zeroth.platform.secrets.provider import SecretProvider
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ class ResilientHttpClient:
         """
         if not config.secret_key or self._secret_provider is None:
             return {}
-        from zeroth.core.secrets.provider import resolve_async  # noqa: PLC0415
+        from zeroth.platform.secrets.provider import resolve_async  # noqa: PLC0415
 
         value = await resolve_async(self._secret_provider, config.secret_key)
         if value is None:

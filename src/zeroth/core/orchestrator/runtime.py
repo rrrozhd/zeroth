@@ -36,8 +36,8 @@ from zeroth.core.parallel.models import (
 )
 from zeroth.core.policy import Capability, PolicyGuard
 from zeroth.core.runs import Run, RunRepository, RunStatus
-from zeroth.core.secrets import SecretResolver
 from zeroth.platform.observability import start_span
+from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.driver import GraphDriver

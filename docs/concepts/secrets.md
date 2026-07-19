@@ -2,7 +2,7 @@
 
 ## What it is
 
-The `zeroth.core.secrets` subsystem is Zeroth's abstraction for turning symbolic
+The `zeroth.platform.secrets` subsystem is Zeroth's abstraction for turning symbolic
 **secret references** (e.g. `OPENAI_API_KEY`, `STRIPE_WEBHOOK_SECRET`) into
 concrete string values at execution time — plus a matching **redactor** that
 strips those values out of logs and traces.

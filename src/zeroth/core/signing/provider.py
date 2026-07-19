@@ -30,8 +30,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from zeroth.core.signing.canonical import signable_bytes
 
 if TYPE_CHECKING:
-    from zeroth.core.secrets import SecretProvider
     from zeroth.platform.config.settings import ProvenanceSigningSettings
+    from zeroth.platform.secrets import SecretProvider
 
 
 class SigningConfigError(RuntimeError):
@@ -291,7 +291,7 @@ async def build_signing_provider_async(
     provider cannot block the loop during service bootstrap; signer selection
     is identical to the sync builder.
     """
-    from zeroth.core.secrets.provider import resolve_secret_async
+    from zeroth.platform.secrets.provider import resolve_secret_async
 
     mode = (settings.mode or "env").lower()
     logical_name = settings.signing_key_ref or "signing.deployment"

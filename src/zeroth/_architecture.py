@@ -195,9 +195,17 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.secrets.provider", "zeroth.core.execution_units.models"),
-        reason="Legacy infrastructure packages contain domain-aware wiring.",
-        removal_task="Task 11: move platform packages and relocate domain-aware wiring.",
+        ("zeroth.platform.secrets.provider", "zeroth.core.execution_units.models"),
+        reason=(
+            "SecretResolver's pinned legacy signatures name EnvironmentVariable "
+            "in their annotations, and the dependency scanner walks the AST, so "
+            "even the TYPE_CHECKING import records the edge. The resolver cannot "
+            "move to the integrations layer: runtime code (the orchestrator and "
+            "audit recorder) consumes it, and runtime may not import "
+            "integrations. Same wall as RepositoryThreadStateStore in "
+            "docs/backend-import-migration.md."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
         ("zeroth.core.dispatch", "zeroth.runtime.orchestration.run_worker"),

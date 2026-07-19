@@ -11,7 +11,7 @@ provider, how the resolver is called, and how to keep values out of logs.
 ## Minimal example
 
 ```python
-from zeroth.core.secrets import (
+from zeroth.platform.secrets import (
     EnvSecretProvider,
     SecretRedactor,
     SecretResolver,
@@ -61,6 +61,6 @@ print(redactor.redact("calling LLM with sk-test-123"))  # -> "calling LLM with *
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.secrets`](../reference/python-api/secrets.md).
+See the [Python API reference for `zeroth.platform.secrets`](../reference/python-api/secrets.md).
 
 Related guides: [service how-to](service.md) · [concepts/secrets](../concepts/secrets.md).

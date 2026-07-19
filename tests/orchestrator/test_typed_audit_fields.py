@@ -121,7 +121,7 @@ def test_redaction_before_mapping_removes_secrets_from_typed_fields() -> None:
     # The completed/failed/branch audit sites redact the record BEFORE mapping it
     # into typed columns. Prove a resolved secret in tool args/outcome + memory
     # value does not survive redact-then-map (the invariant the branch fix relies on).
-    from zeroth.core.secrets.redaction import SecretRedactor
+    from zeroth.platform.secrets.redaction import SecretRedactor
 
     secret = "sk-SUPERSECRET"  # noqa: S105 — test fixture
     record = {

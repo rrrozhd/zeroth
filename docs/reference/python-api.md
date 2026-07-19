@@ -26,7 +26,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 - [Identity](python-api/identity.md) — `zeroth.core.identity`
 
 ### Platform
-- [Secrets](python-api/secrets.md) — `zeroth.core.secrets`
+- [Secrets](python-api/secrets.md) — `zeroth.platform.secrets`
 - [Dispatch](python-api/dispatch.md) — `zeroth.platform.dispatch`
 - [Economics](python-api/econ.md) — `zeroth.core.econ`
 - [Service](python-api/service.md) — `zeroth.core.service`

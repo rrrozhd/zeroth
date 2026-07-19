@@ -17,7 +17,7 @@ import httpx
 import pytest
 
 from zeroth.platform.config.settings import SecretsSettings
-from zeroth.core.secrets import (
+from zeroth.platform.secrets import (
     SecretProviderConfigError,
     VaultSecretProvider,
     build_secret_provider,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from zeroth.platform.config.settings import SecretsSettings
-from zeroth.core.secrets import (
+from zeroth.platform.secrets import (
     EnvSecretProvider,
     SecretProviderConfigError,
     VaultSecretProvider,

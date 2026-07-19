@@ -26,7 +26,7 @@ from zeroth.core.graph.serialization import deserialize_graph
 from zeroth.core.policy.models import Capability
 
 if TYPE_CHECKING:
-    from zeroth.core.secrets import SecretProvider
+    from zeroth.platform.secrets import SecretProvider
     from zeroth.platform.storage.database import AsyncDatabase
 
 

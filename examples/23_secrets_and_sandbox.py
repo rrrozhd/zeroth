@@ -37,7 +37,7 @@ from zeroth.core.execution_units import (
     SandboxConfig,
     SandboxManager,
 )
-from zeroth.core.secrets import EnvSecretProvider, SecretResolver
+from zeroth.platform.secrets import EnvSecretProvider, SecretResolver
 
 
 def main() -> int:

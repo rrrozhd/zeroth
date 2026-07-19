@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter
-from zeroth.core.secrets import SecretResolutionError
+from zeroth.platform.secrets import SecretResolutionError
 
 
 class _FakeSecretProvider:

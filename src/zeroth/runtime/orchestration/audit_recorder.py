@@ -25,7 +25,7 @@ from zeroth.core.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRec
 from zeroth.core.graph import Node
 from zeroth.core.parallel.models import BranchContext
 from zeroth.core.runs import Run, RunHistoryEntry
-from zeroth.core.secrets import SecretResolver
+from zeroth.platform.secrets import SecretResolver
 
 logger = logging.getLogger(__name__)
 

@@ -72,7 +72,7 @@ async def _bootstrap():
     # auth, the WS-D signing key, and execution-unit env resolution. Built here
     # (before runners) so the runners resolve their keys through it; the same
     # instance is handed to bootstrap_service so nothing builds a second one.
-    from zeroth.core.secrets import build_secret_provider
+    from zeroth.platform.secrets import build_secret_provider
 
     secret_provider = build_secret_provider(settings.secrets)
     warm = getattr(secret_provider, "warm", None)

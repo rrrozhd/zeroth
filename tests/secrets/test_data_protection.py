@@ -12,7 +12,7 @@ from zeroth.core.execution_units import EnvironmentVariable
 from zeroth.core.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.runs import RunRepository, RunStatus, ThreadRepository
-from zeroth.core.secrets import EnvSecretProvider, SecretResolver
+from zeroth.platform.secrets import EnvSecretProvider, SecretResolver
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.platform.storage import EncryptedField
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase

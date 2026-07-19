@@ -41,7 +41,7 @@ from zeroth.core.execution_units.sandbox import (
 )
 from zeroth.core.governed.tools.python_tool import PythonHandler
 from zeroth.core.policy import Capability, apply_secret_policy
-from zeroth.core.secrets import SecretResolver
+from zeroth.platform.secrets import SecretResolver
 
 _DEFAULT_ALLOWED_ENV_KEYS = ("PATH", "PYTHONPATH", "HOME", "TMPDIR", "TMP", "TEMP")
 
