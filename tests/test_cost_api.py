@@ -73,7 +73,7 @@ class TestTenantCostEndpoint:
             response_json={"total_cost_usd": 50.0, "budget_cap_usd": 100.0}
         )
 
-        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/tenants/t1/cost")
 
@@ -88,7 +88,7 @@ class TestTenantCostEndpoint:
         app = _make_app()
         mock_client = _mock_httpx_client(error=httpx.ConnectError("connection refused"))
 
-        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/tenants/t1/cost")
 
@@ -110,7 +110,7 @@ class TestDeploymentCostEndpoint:
         app = _make_app()
         mock_client = _mock_httpx_client(response_json={"total_cost_usd": 25.0})
 
-        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/deployments/d1/cost")
 
@@ -124,7 +124,7 @@ class TestDeploymentCostEndpoint:
         app = _make_app()
         mock_client = _mock_httpx_client(error=httpx.ConnectError("connection refused"))
 
-        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/deployments/d1/cost")
 
@@ -164,7 +164,7 @@ class TestCostAuthorization:
     def test_admin_allowed_on_tenant_cost(self) -> None:
         app = _make_app(roles=[ServiceRole.ADMIN])
         mock_client = _mock_httpx_client(response_json={"total_cost_usd": 1.0})
-        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.get("/v1/tenants/t1/cost")
         assert resp.status_code == 200
@@ -180,7 +180,7 @@ class TestTenantBudgetEndpoint:
         )
         mock_client.put = mock_client.get  # same canned-response AsyncMock shape
 
-        with patch("zeroth.core.service.cost_api.httpx.AsyncClient", return_value=mock_client):
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
             resp = client.put("/v1/tenants/t1/budget", json={"budget_cap_usd": 10.0})
 
