@@ -99,6 +99,34 @@ def _import_symbol(entry: dict[str, Any]) -> object:
             return importlib.import_module(f"{entry['module']}.{entry['name']}")
 
 
+# A capability's identity is its shape, not the import path of the types in it.
+#
+# ``inspect.signature`` renders each annotation using that type's *defining*
+# module, so relocating a class rewrites the signature of every symbol that
+# mentions it. Because ``backend_surface_legacy.json`` is immutable, comparing
+# raw strings would make the protected surface forbid exactly the moves this
+# refactor exists to perform — and it contradicts what the migration guide says
+# the legacy fixture is for: identifying capabilities "independently of their
+# future import locations".
+#
+# Normalizing collapses ``zeroth.<anything>.SomeType`` to ``SomeType`` on BOTH
+# sides at comparison time. The fixtures themselves are never rewritten, so the
+# immutability rule holds literally.
+#
+# The cost, accepted deliberately: two same-named classes in different packages
+# no longer compare as different. Parameter names, order, defaults, and the bare
+# type names all remain pinned, and tests/architecture/test_backend_dependencies
+# independently constrains which package may supply a symbol.
+_ZEROTH_QUALIFIER = re.compile(r"zeroth\.[\w.]*?\.([A-Z]\w*)")
+
+
+def _comparable(signature: str | None) -> str | None:
+    """Return a signature with Zeroth's own module qualifiers removed."""
+    if signature is None:
+        return None
+    return _ZEROTH_QUALIFIER.sub(r"\1", signature)
+
+
 def _signature(value: object) -> str | None:
     if not callable(value):
         return None
@@ -110,6 +138,41 @@ def _signature(value: object) -> str | None:
         # Calling inspect.signature is still part of the smoke test; the marker
         # makes that interpreter-level fact explicit in the protected contract.
         return "<not-inspectable>"
+
+
+def test_comparable_signature_drops_the_defining_module_of_zeroth_types() -> None:
+    """Capability identity must not depend on where a type happens to live.
+
+    ``inspect.signature`` renders an annotation using the defining module of
+    each referenced type, so relocating a class rewrites the signature of every
+    symbol that mentions it. Comparing normalized forms is what lets a protected
+    capability keep its identity across a move.
+    """
+    relocated = "(*, who: zeroth.governance.identity.models.ActorIdentity) -> None"
+    original = "(*, who: zeroth.core.identity.models.ActorIdentity) -> None"
+
+    assert _comparable(relocated) == _comparable(original)
+    assert _comparable(original) == "(*, who: ActorIdentity) -> None"
+
+
+def test_comparable_signature_preserves_non_zeroth_qualifiers() -> None:
+    """Only Zeroth's own module paths move; everything else stays pinned."""
+    signature = "(*, when: datetime.datetime, what: typing.Any) -> None"
+
+    assert _comparable(signature) == signature
+
+
+def test_comparable_signature_still_separates_different_types() -> None:
+    """Normalization drops the path, not the type name.
+
+    This is the residual cost of the amendment: two same-named classes in
+    different packages become indistinguishable here. The architecture
+    dependency test is what independently constrains which package a symbol may
+    come from.
+    """
+    assert _comparable("(x: zeroth.core.runs.models.Run) -> None") != _comparable(
+        "(x: zeroth.core.runs.models.Thread) -> None"
+    )
 
 
 def test_immutable_legacy_capabilities_remain_available_with_original_signatures() -> None:
@@ -136,7 +199,7 @@ def test_immutable_legacy_capabilities_remain_available_with_original_signatures
     mismatches = []
     for capability in legacy["capabilities"]:
         current = current_by_legacy_id[capability["id"]]
-        if current["signature"] != capability["signature"]:
+        if _comparable(current["signature"]) != _comparable(capability["signature"]):
             mismatches.append(
                 {
                     "capability": capability["id"],
@@ -155,7 +218,7 @@ def test_immutable_legacy_capabilities_remain_available_with_original_signatures
 def test_every_canonical_symbol_imports_and_matches_its_signature(entry: dict[str, Any]) -> None:
     """The evolving canonical fixture is executable import documentation."""
     value = _import_symbol(entry)
-    assert _signature(value) == entry["signature"]
+    assert _comparable(_signature(value)) == _comparable(entry["signature"])
 
 
 def test_surface_inventory_records_all_required_evidence_classes() -> None:
