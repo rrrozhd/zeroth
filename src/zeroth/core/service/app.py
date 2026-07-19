@@ -31,10 +31,10 @@ from zeroth.core.service.cost_api import register_cost_routes
 from zeroth.core.service.econ_analytics_api import register_econ_analytics_routes
 from zeroth.core.service.retention_api import register_retention_routes
 from zeroth.core.service.rightsizing_api import register_rightsizing_routes
-from zeroth.core.service.run_api import register_run_routes
 from zeroth.core.service.template_api import register_template_routes
 from zeroth.core.service.webhook_api import register_webhook_routes
 from zeroth.service.api.artifact_api import register_artifact_routes
+from zeroth.service.api.run_api import register_run_routes
 
 logger = logging.getLogger(__name__)
 

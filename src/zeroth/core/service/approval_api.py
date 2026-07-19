@@ -15,7 +15,7 @@ from zeroth.core.service.authorization import (
     require_permission,
     require_resource_scope,
 )
-from zeroth.core.service.run_api import RunStatusResponse, _serialize_run
+from zeroth.service.api.run_api import RunStatusResponse, _serialize_run
 
 
 class ApprovalApiBootstrapLike(Protocol):

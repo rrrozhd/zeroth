@@ -32,7 +32,7 @@ from zeroth.core.service.contracts_api import (
     DeploymentVersionMetadataResponse,
     serialize_deployment_metadata,
 )
-from zeroth.core.service.run_api import RunStatusResponse, _serialize_run
+from zeroth.service.api.run_api import RunStatusResponse, _serialize_run
 
 _REDACTOR = PayloadSanitizer(
     AuditRedactionConfig(redact_keys={"authorization", "api_key", "password", "secret", "token"})

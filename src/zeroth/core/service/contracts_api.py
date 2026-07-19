@@ -17,7 +17,7 @@ from zeroth.core.service.authorization import (
     require_deployment_scope,
     require_permission,
 )
-from zeroth.core.service.run_api import RunStatusResponse
+from zeroth.service.api.run_api import RunStatusResponse
 
 
 class ContractApiBootstrapLike(Protocol):
