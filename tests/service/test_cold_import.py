@@ -37,6 +37,7 @@ RELOCATED_SERVICE_MODULES = [
     ("zeroth.service.api.econ_analytics_api", "zeroth.core.service.econ_analytics_api"),
     ("zeroth.service.api.admin_api", "zeroth.core.service.admin_api"),
     ("zeroth.service.api.cost_api", "zeroth.core.service.cost_api"),
+    ("zeroth.service.api.rightsizing_api", "zeroth.core.service.rightsizing_api"),
 ]
 
 

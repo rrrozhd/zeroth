@@ -27,13 +27,13 @@ from zeroth.core.service.audit_api import register_audit_routes
 from zeroth.core.service.auth import AuthenticationError, record_service_denial
 from zeroth.core.service.console_ui import console_cors_origins, mount_console
 from zeroth.core.service.retention_api import register_retention_routes
-from zeroth.core.service.rightsizing_api import register_rightsizing_routes
 from zeroth.core.service.template_api import register_template_routes
 from zeroth.core.service.webhook_api import register_webhook_routes
 from zeroth.service.api.artifact_api import register_artifact_routes
 from zeroth.service.api.contracts_api import register_contract_routes
 from zeroth.service.api.cost_api import register_cost_routes
 from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
+from zeroth.service.api.rightsizing_api import register_rightsizing_routes
 from zeroth.service.api.run_api import register_run_routes
 
 logger = logging.getLogger(__name__)
