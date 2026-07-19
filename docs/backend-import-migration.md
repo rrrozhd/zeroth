@@ -149,6 +149,11 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.service.webhook_api:WebhookDeadLetterResponse` | `zeroth.service.api.webhook_api:WebhookDeadLetterResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.service.webhook_api:WebhookSubscriptionListResponse` | `zeroth.service.api.webhook_api:WebhookSubscriptionListResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.service.webhook_api:WebhookSubscriptionResponse` | `zeroth.service.api.webhook_api:WebhookSubscriptionResponse` | Move service API to the canonical package | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.config:ZerothSettings` | `zeroth.platform.config:ZerothSettings` | Move config to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.config:get_settings` | `zeroth.platform.config:get_settings` | Move config to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.config.settings:get_settings` | `zeroth.platform.config.settings:get_settings` | Move config to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.models:RegulusSettings` | `zeroth.platform.config.models:RegulusSettings` | Move composed settings section into platform config | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.models:HttpClientSettings` | `zeroth.platform.config.models:HttpClientSettings` | Move composed settings section into platform config | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

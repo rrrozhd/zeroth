@@ -2130,27 +2130,27 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.config",
-        "package_export:zeroth.core.config"
+        "__all__:zeroth.platform.config",
+        "package_export:zeroth.platform.config"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.config:ZerothSettings"
       ],
-      "module": "zeroth.core.config",
+      "module": "zeroth.platform.config",
       "name": "ZerothSettings",
-      "signature": "(_case_sensitive: 'bool | None' = None, _nested_model_default_partial_update: 'bool | None' = None, _env_prefix: 'str | None' = None, _env_prefix_target: 'EnvPrefixTarget | None' = None, _env_file: 'DotenvType | None' = PosixPath('.'), _env_file_encoding: 'str | None' = None, _env_ignore_empty: 'bool | None' = None, _env_nested_delimiter: 'str | None' = None, _env_nested_max_split: 'int | None' = None, _env_parse_none_str: 'str | None' = None, _env_parse_enums: 'bool | None' = None, _cli_prog_name: 'str | None' = None, _cli_parse_args: 'bool | list[str] | tuple[str, ...] | None' = None, _cli_settings_source: 'CliSettingsSource[Any] | None' = None, _cli_parse_none_str: 'str | None' = None, _cli_hide_none_type: 'bool | None' = None, _cli_avoid_json: 'bool | None' = None, _cli_enforce_required: 'bool | None' = None, _cli_use_class_docs_for_groups: 'bool | None' = None, _cli_exit_on_error: 'bool | None' = None, _cli_prefix: 'str | None' = None, _cli_flag_prefix_char: 'str | None' = None, _cli_implicit_flags: \"bool | Literal['dual', 'toggle'] | None\" = None, _cli_ignore_unknown_args: 'bool | None' = None, _cli_kebab_case: \"bool | Literal['all', 'no_enums'] | None\" = None, _cli_shortcuts: 'Mapping[str, str | list[str]] | None' = None, _secrets_dir: 'PathType | None' = None, _build_sources: 'tuple[tuple[PydanticBaseSettingsSource, ...], dict[str, Any]] | None' = None, *, database: zeroth.core.config.settings.DatabaseSettings = <factory>, redis: zeroth.core.config.settings.RedisSettings = <factory>, auth: zeroth.core.config.settings.AuthSettings = <factory>, regulus: zeroth.core.econ.models.RegulusSettings = <factory>, memory: zeroth.core.config.settings.MemorySettings = <factory>, pgvector: zeroth.core.config.settings.PgvectorSettings = <factory>, chroma: zeroth.core.config.settings.ChromaSettings = <factory>, elasticsearch: zeroth.core.config.settings.ElasticsearchSettings = <factory>, sandbox: zeroth.core.config.settings.SandboxSettings = <factory>, webhook: zeroth.core.config.settings.WebhookSettings = <factory>, approval_sla: zeroth.core.config.settings.ApprovalSLASettings = <factory>, dispatch: zeroth.core.config.settings.DispatchSettings = <factory>, tls: zeroth.core.config.settings.TLSSettings = <factory>, artifact_store: zeroth.core.artifacts.models.ArtifactStoreSettings = <factory>, http_client: zeroth.core.http.models.HttpClientSettings = <factory>, tracing: zeroth.core.config.settings.TracingSettings = <factory>, secrets: zeroth.core.config.settings.SecretsSettings = <factory>, provenance: zeroth.core.config.settings.ProvenanceSigningSettings = <factory>, policy: zeroth.core.config.settings.PolicySettings = <factory>, retention: zeroth.core.config.settings.RetentionSettings = <factory>) -> None"
+      "signature": "(_case_sensitive: 'bool | None' = None, _nested_model_default_partial_update: 'bool | None' = None, _env_prefix: 'str | None' = None, _env_prefix_target: 'EnvPrefixTarget | None' = None, _env_file: 'DotenvType | None' = PosixPath('.'), _env_file_encoding: 'str | None' = None, _env_ignore_empty: 'bool | None' = None, _env_nested_delimiter: 'str | None' = None, _env_nested_max_split: 'int | None' = None, _env_parse_none_str: 'str | None' = None, _env_parse_enums: 'bool | None' = None, _cli_prog_name: 'str | None' = None, _cli_parse_args: 'bool | list[str] | tuple[str, ...] | None' = None, _cli_settings_source: 'CliSettingsSource[Any] | None' = None, _cli_parse_none_str: 'str | None' = None, _cli_hide_none_type: 'bool | None' = None, _cli_avoid_json: 'bool | None' = None, _cli_enforce_required: 'bool | None' = None, _cli_use_class_docs_for_groups: 'bool | None' = None, _cli_exit_on_error: 'bool | None' = None, _cli_prefix: 'str | None' = None, _cli_flag_prefix_char: 'str | None' = None, _cli_implicit_flags: \"bool | Literal['dual', 'toggle'] | None\" = None, _cli_ignore_unknown_args: 'bool | None' = None, _cli_kebab_case: \"bool | Literal['all', 'no_enums'] | None\" = None, _cli_shortcuts: 'Mapping[str, str | list[str]] | None' = None, _secrets_dir: 'PathType | None' = None, _build_sources: 'tuple[tuple[PydanticBaseSettingsSource, ...], dict[str, Any]] | None' = None, *, database: zeroth.platform.config.settings.DatabaseSettings = <factory>, redis: zeroth.platform.config.settings.RedisSettings = <factory>, auth: zeroth.platform.config.settings.AuthSettings = <factory>, regulus: zeroth.platform.config.models.RegulusSettings = <factory>, memory: zeroth.platform.config.settings.MemorySettings = <factory>, pgvector: zeroth.platform.config.settings.PgvectorSettings = <factory>, chroma: zeroth.platform.config.settings.ChromaSettings = <factory>, elasticsearch: zeroth.platform.config.settings.ElasticsearchSettings = <factory>, sandbox: zeroth.platform.config.settings.SandboxSettings = <factory>, webhook: zeroth.platform.config.settings.WebhookSettings = <factory>, approval_sla: zeroth.platform.config.settings.ApprovalSLASettings = <factory>, dispatch: zeroth.platform.config.settings.DispatchSettings = <factory>, tls: zeroth.platform.config.settings.TLSSettings = <factory>, artifact_store: zeroth.core.artifacts.models.ArtifactStoreSettings = <factory>, http_client: zeroth.platform.config.models.HttpClientSettings = <factory>, tracing: zeroth.platform.config.settings.TracingSettings = <factory>, secrets: zeroth.platform.config.settings.SecretsSettings = <factory>, provenance: zeroth.platform.config.settings.ProvenanceSigningSettings = <factory>, policy: zeroth.platform.config.settings.PolicySettings = <factory>, retention: zeroth.platform.config.settings.RetentionSettings = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.config",
-        "package_export:zeroth.core.config"
+        "__all__:zeroth.platform.config",
+        "package_export:zeroth.platform.config"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.config:get_settings"
       ],
-      "module": "zeroth.core.config",
+      "module": "zeroth.platform.config",
       "name": "get_settings",
       "signature": "() -> 'ZerothSettings'"
     },
@@ -2165,7 +2165,7 @@
       "legacy_ids": [
         "zeroth.core.config.settings:get_settings"
       ],
-      "module": "zeroth.core.config.settings",
+      "module": "zeroth.platform.config.settings",
       "name": "get_settings",
       "signature": "() -> 'ZerothSettings'"
     },
@@ -3805,7 +3805,7 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.econ.models"
+        "schema_model:zeroth.platform.config.models"
       ],
       "kind": "class",
       "legacy_ids": [
@@ -3817,13 +3817,13 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.econ.models"
+        "schema_model:zeroth.platform.config.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.models:RegulusSettings"
       ],
-      "module": "zeroth.core.econ.models",
+      "module": "zeroth.platform.config.models",
       "name": "RegulusSettings",
       "signature": "(*, enabled: bool = True, base_url: str = 'http://localhost:8000/v1', api_key: pydantic.types.SecretStr | None = None, budget_cache_ttl: int = 30, request_timeout: float = 5.0, fail_closed: bool = False, per_run_cap_usd: float | None = None) -> None"
     },
@@ -7023,7 +7023,7 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.http.models"
+        "schema_model:zeroth.platform.config.models"
       ],
       "kind": "class",
       "legacy_ids": [
@@ -7035,7 +7035,7 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.http.models"
+        "schema_model:zeroth.platform.config.models"
       ],
       "kind": "class",
       "legacy_ids": [
@@ -7047,13 +7047,13 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.http.models"
+        "schema_model:zeroth.platform.config.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http.models:HttpClientSettings"
       ],
-      "module": "zeroth.core.http.models",
+      "module": "zeroth.platform.config.models",
       "name": "HttpClientSettings",
       "signature": "(*, max_retries: int = 3, retry_backoff_base: float = 0.5, retry_max_delay: float = 60.0, retryable_status_codes: set[int] = <factory>, circuit_breaker_threshold: int = 5, circuit_breaker_reset_timeout: float = 30.0, pool_max_connections: int = 100, pool_max_keepalive: int = 20, pool_keepalive_expiry: float = 5.0, default_timeout: float = 30.0, default_rate_limit_rate: float = 10.0, default_rate_limit_burst: int = 20) -> None"
     },
