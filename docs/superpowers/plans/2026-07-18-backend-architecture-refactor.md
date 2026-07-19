@@ -223,11 +223,11 @@ guard as it is published, since the warm-cache suite cannot see the failure.
 - Replace: `src/zeroth/core/retention/erasure_service.py`
 - Modify: retention imports in production slices; migration guide only in separate follow-up commits
 
-- [ ] Add characterization tests for claim fencing, heartbeat loss, replay, idempotency, cleanup ordering, manifest completion, and compatibility logs; confirm they pass against legacy behavior.
-- [ ] Add failing imports for `manifests`/`replay`, extract minimally, run their new tests plus `tests/retention`, Ruff, and commit `refactor: extract retention cleanup replay`.
-- [ ] Add failing imports/injection tests for `claims`, extract minimally, run `uv run pytest tests/governance/retention/test_claims.py tests/retention/test_coordination.py -q`, Ruff, and commit `refactor: extract retention claim coordination`.
-- [ ] Add failing imports/injection tests for `executor`/`compatibility`, extract minimally, run their new tests plus `tests/retention`, Ruff, and commit `refactor: extract retention cleanup execution`.
-- [ ] Keep `RetentionErasureService` as facade; run `uv run pytest tests/retention tests/governance/retention tests/contracts/test_refactor_contract_snapshots.py -q`, Ruff the retention packages, and commit `refactor: compose retention erasure service`.
+- [x] Add characterization tests for claim fencing, heartbeat loss, replay, idempotency, cleanup ordering, manifest completion, and compatibility logs; confirm they pass against legacy behavior.
+- [x] Add failing imports for `manifests`/`replay`, extract minimally, run their new tests plus `tests/retention`, Ruff, and commit `refactor: extract retention cleanup replay`.
+- [x] Add failing imports/injection tests for `claims`, extract minimally, run `uv run pytest tests/governance/retention/test_claims.py tests/retention/test_coordination.py -q`, Ruff, and commit `refactor: extract retention claim coordination`.
+- [x] Add failing imports/injection tests for `executor`/`compatibility`, extract minimally, run their new tests plus `tests/retention`, Ruff, and commit `refactor: extract retention cleanup execution`.
+- [x] Keep `RetentionErasureService` as facade; run `uv run pytest tests/retention tests/governance/retention tests/contracts/test_refactor_contract_snapshots.py -q`, Ruff the retention packages, and commit `refactor: compose retention erasure service`.
 
 ### Task 10: Decompose service bootstrap and API ownership
 
