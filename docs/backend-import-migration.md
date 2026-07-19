@@ -289,6 +289,27 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.mappings.models:PassthroughMappingOperation` | `zeroth.contracts.mappings.models:PassthroughMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.mappings.models:RenameMappingOperation` | `zeroth.contracts.mappings.models:RenameMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.mappings.models:TransformMappingOperation` | `zeroth.contracts.mappings.models:TransformMappingOperation` | Move mappings contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:DEFAULT_SECRET_PATTERNS` | `zeroth.contracts.templates:DEFAULT_SECRET_PATTERNS` | Move template contracts | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.templates:PromptTemplate` | `zeroth.contracts.templates:PromptTemplate` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateError` | `zeroth.contracts.templates:TemplateError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateNotFoundError` | `zeroth.contracts.templates:TemplateNotFoundError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateReference` | `zeroth.contracts.templates:TemplateReference` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateRegistry` | `zeroth.contracts.templates:TemplateRegistry` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateRenderError` | `zeroth.contracts.templates:TemplateRenderError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateRenderResult` | `zeroth.contracts.templates:TemplateRenderResult` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateRenderer` | `zeroth.contracts.templates:TemplateRenderer` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateSyntaxValidationError` | `zeroth.contracts.templates:TemplateSyntaxValidationError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:TemplateVersionExistsError` | `zeroth.contracts.templates:TemplateVersionExistsError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates:identify_secret_variables` | `zeroth.contracts.templates:identify_secret_variables` | Move template contracts | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.templates:redact_rendered_prompt` | `zeroth.contracts.templates:redact_rendered_prompt` | Move template contracts | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.templates.errors:TemplateError` | `zeroth.contracts.templates.errors:TemplateError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates.errors:TemplateNotFoundError` | `zeroth.contracts.templates.errors:TemplateNotFoundError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates.errors:TemplateRenderError` | `zeroth.contracts.templates.errors:TemplateRenderError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates.errors:TemplateSyntaxValidationError` | `zeroth.contracts.templates.errors:TemplateSyntaxValidationError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates.errors:TemplateVersionExistsError` | `zeroth.contracts.templates.errors:TemplateVersionExistsError` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates.models:PromptTemplate` | `zeroth.contracts.templates.models:PromptTemplate` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates.models:TemplateReference` | `zeroth.contracts.templates.models:TemplateReference` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.templates.models:TemplateRenderResult` | `zeroth.contracts.templates.models:TemplateRenderResult` | Move template contracts | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

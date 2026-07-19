@@ -10758,265 +10758,265 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates"
       ],
       "kind": "value",
       "legacy_ids": [
         "zeroth.core.templates:DEFAULT_SECRET_PATTERNS"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "DEFAULT_SECRET_PATTERNS",
       "signature": null
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:PromptTemplate"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "PromptTemplate",
       "signature": "(*, name: str, version: int, template_str: str, variables: list[str] = <factory>, metadata: dict[str, typing.Any] = <factory>, created_at: datetime.datetime) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateError"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateNotFoundError"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateNotFoundError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateReference"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateReference",
       "signature": "(*, name: str, version: int | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateRegistry"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateRegistry",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateRenderError"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateRenderError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateRenderResult"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateRenderResult",
       "signature": "(*, rendered: str, template_name: str, template_version: int, variables_used: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateRenderer"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateRenderer",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateSyntaxValidationError"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateSyntaxValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates:TemplateVersionExistsError"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "TemplateVersionExistsError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.templates:identify_secret_variables"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "identify_secret_variables",
       "signature": "(variable_names: 'list[str]', secret_patterns: 'tuple[str, ...]' = ('secret', 'token', 'key', 'password', 'api_key')) -> 'set[str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.templates",
-        "package_export:zeroth.core.templates"
+        "__all__:zeroth.contracts.templates",
+        "package_export:zeroth.contracts.templates"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.templates:redact_rendered_prompt"
       ],
-      "module": "zeroth.core.templates",
+      "module": "zeroth.contracts.templates",
       "name": "redact_rendered_prompt",
       "signature": "(rendered: 'str', variables: 'dict[str, object]', secret_variable_names: 'set[str]') -> 'str'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.templates.errors"
+        "package_export:zeroth.contracts.templates.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates.errors:TemplateError"
       ],
-      "module": "zeroth.core.templates.errors",
+      "module": "zeroth.contracts.templates.errors",
       "name": "TemplateError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.templates.errors"
+        "package_export:zeroth.contracts.templates.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates.errors:TemplateNotFoundError"
       ],
-      "module": "zeroth.core.templates.errors",
+      "module": "zeroth.contracts.templates.errors",
       "name": "TemplateNotFoundError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.templates.errors"
+        "package_export:zeroth.contracts.templates.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates.errors:TemplateRenderError"
       ],
-      "module": "zeroth.core.templates.errors",
+      "module": "zeroth.contracts.templates.errors",
       "name": "TemplateRenderError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.templates.errors"
+        "package_export:zeroth.contracts.templates.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates.errors:TemplateSyntaxValidationError"
       ],
-      "module": "zeroth.core.templates.errors",
+      "module": "zeroth.contracts.templates.errors",
       "name": "TemplateSyntaxValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.templates.errors"
+        "package_export:zeroth.contracts.templates.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates.errors:TemplateVersionExistsError"
       ],
-      "module": "zeroth.core.templates.errors",
+      "module": "zeroth.contracts.templates.errors",
       "name": "TemplateVersionExistsError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.templates.models"
+        "schema_model:zeroth.contracts.templates.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates.models:PromptTemplate"
       ],
-      "module": "zeroth.core.templates.models",
+      "module": "zeroth.contracts.templates.models",
       "name": "PromptTemplate",
       "signature": "(*, name: str, version: int, template_str: str, variables: list[str] = <factory>, metadata: dict[str, typing.Any] = <factory>, created_at: datetime.datetime) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.templates.models"
+        "schema_model:zeroth.contracts.templates.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates.models:TemplateReference"
       ],
-      "module": "zeroth.core.templates.models",
+      "module": "zeroth.contracts.templates.models",
       "name": "TemplateReference",
       "signature": "(*, name: str, version: int | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.templates.models"
+        "schema_model:zeroth.contracts.templates.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.templates.models:TemplateRenderResult"
       ],
-      "module": "zeroth.core.templates.models",
+      "module": "zeroth.contracts.templates.models",
       "name": "TemplateRenderResult",
       "signature": "(*, rendered: str, template_name: str, template_version: int, variables_used: dict[str, typing.Any] = <factory>) -> None"
     },
