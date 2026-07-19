@@ -275,6 +275,18 @@ guard as it is published, since the warm-cache suite cannot see the failure.
 - [ ] Add failing imports for configuration/migrations, extract, run their new tests plus `tests/service/test_app.py`, Ruff, and commit `refactor: extract service configuration`.
 - [ ] Add a failing container import/injection test, extract dependency construction, run its test plus `tests/service/test_app.py`, Ruff, and commit `refactor: extract service dependency container`.
 - [ ] Add failing lifecycle/factory imports, extract and move one API module at a time, running the exact command in its disposition row plus OpenAPI snapshot before each atomic `refactor: move <name> service API` commit. **In progress: 1 of 22 modules done** (`studio_schemas`, commits `a752c90` + `64ecd83`). Relocating a schema-bearing service module needs a specific three-commit order; the mechanism, why the two obvious orderings fail, and why the discovery extension must be the final commit of this task are documented under "Relocating a schema-bearing service module" in `docs/backend-import-migration.md`. Remaining modules follow that cycle unchanged.
+- Blast radius of `zeroth.core.service.*`, enumerated before the remaining moves
+  (`rg -n "zeroth\.core\.service\." src tests examples docs -g '*.py'`): in `src/`, the
+  only importer outside the package is `src/zeroth/core/cli.py` (two function-local
+  imports, of `bootstrap.run_migrations` and `entrypoint.main`). **No non-service
+  production domain imports the service package**, so constraint 6 needs no
+  untangling and no `TEMPORARY_EXCEPTIONS` entry is keyed on a service path. In
+  tests the load is concentrated in `bootstrap` (46 sites, including the
+  collection-time import at `tests/conftest.py:34`), then `auth` (9), `app` (9),
+  and `studio_api` (7); every other API module has one or two sites. Note
+  `tests/conftest.py:34` imports `run_migrations` from `zeroth.core.service.bootstrap`
+  at collection time — if the bootstrap decomposition stops re-exporting it from
+  that exact path, the entire suite fails to collect rather than failing one test.
 - [ ] Final Task 10 commit: extend `_discover_schema_models` in `tests/architecture/test_library_surface.py` to cover `zeroth/service/api/`, then delete `tests/architecture/test_service_schema_relocation.py`. Until this lands, the reverse-coverage test does not see relocated service models and that transitional guard is what keeps them covered.
 - [ ] For each non-API row in the disposition table, add a failing canonical import/boundary test, move minimally, run its exact focused gate and Ruff, commit production code, then separately update the canonical fixture/migration row and commit the passing docs/fixture change.
 - [ ] Run `uv run pytest tests/service tests/contracts/test_refactor_contract_snapshots.py -q`, `uv run ruff check src/zeroth/service tests/service`, and the frontend guard; commit `refactor: compose service bootstrap`.
