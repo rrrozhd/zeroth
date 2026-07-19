@@ -9329,13 +9329,13 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.app"
+        "schema_model:zeroth.service.app"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.app:HealthResponse"
       ],
-      "module": "zeroth.core.service.app",
+      "module": "zeroth.service.api.health",
       "name": "HealthResponse",
       "signature": "(*, status: str = 'ok', deployment_ref: str, deployment_version: int, graph_version_ref: str) -> None"
     },
@@ -9350,7 +9350,7 @@
       "legacy_ids": [
         "zeroth.core.service.app:create_app"
       ],
-      "module": "zeroth.core.service.app",
+      "module": "zeroth.service.app",
       "name": "create_app",
       "signature": "(bootstrap: 'ServiceBootstrapLike') -> 'FastAPI'"
     },
@@ -9380,109 +9380,109 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:AttestationVerificationResponse"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "AttestationVerificationResponse",
       "signature": "(*, verified: bool, mismatches: list[str] = <factory>, digest_verified: bool = False, signature_verified: bool | None = None, signing_key_id: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:AuditRecordListResponse"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "AuditRecordListResponse",
       "signature": "(*, deployment_ref: str, records: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:AuditTimelineResponse"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "AuditTimelineResponse",
       "signature": "(*, deployment_ref: str, run_id: str | None = None, entries: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:AuditVerificationResponse"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "AuditVerificationResponse",
       "signature": "(*, scope: str, verified: bool, record_count: int = 0, failed_audit_id: str | None = None, error: str | None = None, signature_verified: bool | None = None, signing_key_id: str | None = None, unsigned_record_count: int = 0) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:DeploymentAttestationResponse"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "DeploymentAttestationResponse",
       "signature": "(*, deployment_ref: str, deployment_version: int, graph_id: str, graph_version: int, graph_version_ref: str, entry_input_contract_ref: str | None = None, entry_input_contract_version: int | None = None, entry_output_contract_ref: str | None = None, entry_output_contract_version: int | None = None, graph_snapshot_digest: str, contract_snapshot_digest: str, settings_snapshot_digest: str, created_at: str, attestation_digest: str, attestation_signature: str | None = None, attestation_signing_key_id: str | None = None, attestation_algorithm: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:DeploymentEvidenceResponse"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "DeploymentEvidenceResponse",
-      "signature": "(*, deployment: zeroth.service.api.contracts_api.DeploymentVersionMetadataResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, run_ids: list[str] = <factory>, summary: zeroth.core.service.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+      "signature": "(*, deployment: zeroth.service.api.contracts_api.DeploymentVersionMetadataResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, run_ids: list[str] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:EvidenceSummaryResponse"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "EvidenceSummaryResponse",
       "signature": "(*, audit_count: int = 0, approval_count: int = 0, tool_call_count: int = 0, memory_interaction_count: int = 0) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:RunEvidenceResponse"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "RunEvidenceResponse",
-      "signature": "(*, run: zeroth.service.api.run_api.RunStatusResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, summary: zeroth.core.service.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+      "signature": "(*, run: zeroth.service.api.run_api.RunStatusResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.audit_api"
+        "schema_model:zeroth.service.api.audit_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.audit_api:VerifyChainRequest"
       ],
-      "module": "zeroth.core.service.audit_api",
+      "module": "zeroth.service.api.audit_api",
       "name": "VerifyChainRequest",
       "signature": "(*, expected_head_digest: str | None = None) -> None"
     },
@@ -9767,39 +9767,39 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.health"
+        "schema_model:zeroth.service.api.health"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.health:DependencyStatus"
       ],
-      "module": "zeroth.core.service.health",
+      "module": "zeroth.service.api.health",
       "name": "DependencyStatus",
       "signature": "(*, status: str, latency_ms: float | None = None, detail: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.health"
+        "schema_model:zeroth.service.api.health"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.health:LivenessResponse"
       ],
-      "module": "zeroth.core.service.health",
+      "module": "zeroth.service.api.health",
       "name": "LivenessResponse",
       "signature": "(*, status: str = 'ok') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.health"
+        "schema_model:zeroth.service.api.health"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.health:ReadinessResponse"
       ],
-      "module": "zeroth.core.service.health",
+      "module": "zeroth.service.api.health",
       "name": "ReadinessResponse",
-      "signature": "(*, status: str, checks: dict[str, zeroth.core.service.health.DependencyStatus] = <factory>) -> None"
+      "signature": "(*, status: str, checks: dict[str, zeroth.service.api.health.DependencyStatus] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -9815,85 +9815,85 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.retention_api"
+        "schema_model:zeroth.service.api.retention_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.retention_api:ErasureRequestBody"
       ],
-      "module": "zeroth.core.service.retention_api",
+      "module": "zeroth.service.api.retention_api",
       "name": "ErasureRequestBody",
       "signature": "(*, run_id: str | None = None, tenant_id: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.retention_api"
+        "schema_model:zeroth.service.api.retention_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.retention_api:ErasureResponse"
       ],
-      "module": "zeroth.core.service.retention_api",
+      "module": "zeroth.service.api.retention_api",
       "name": "ErasureResponse",
-      "signature": "(*, reason: str, runs: list[zeroth.core.service.retention_api.ErasureRunResult] = <factory>) -> None"
+      "signature": "(*, reason: str, runs: list[zeroth.service.api.retention_api.ErasureRunResult] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.retention_api"
+        "schema_model:zeroth.service.api.retention_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.retention_api:ErasureRunResult"
       ],
-      "module": "zeroth.core.service.retention_api",
+      "module": "zeroth.service.api.retention_api",
       "name": "ErasureRunResult",
       "signature": "(*, run_id: str, audits_erased: int = 0, checkpoints_deleted: int = 0, run_redacted: bool = False, artifacts_deleted: int = 0, econ_events_deleted: int | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.retention_api"
+        "schema_model:zeroth.service.api.retention_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.retention_api:LegalHoldBody"
       ],
-      "module": "zeroth.core.service.retention_api",
+      "module": "zeroth.service.api.retention_api",
       "name": "LegalHoldBody",
       "signature": "(*, run_id: str | None = None, reason: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.retention_api"
+        "schema_model:zeroth.service.api.retention_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.retention_api:LegalHoldResponse"
       ],
-      "module": "zeroth.core.service.retention_api",
+      "module": "zeroth.service.api.retention_api",
       "name": "LegalHoldResponse",
       "signature": "(*, hold_id: str, tenant_id: str, run_id: str | None = None, reason: str | None = None, active: bool = True, placed_by: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.retention_api"
+        "schema_model:zeroth.service.api.retention_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.retention_api:RetentionPolicyBody"
       ],
-      "module": "zeroth.core.service.retention_api",
+      "module": "zeroth.service.api.retention_api",
       "name": "RetentionPolicyBody",
       "signature": "(*, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, enabled: bool = True) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.retention_api"
+        "schema_model:zeroth.service.api.retention_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.retention_api:RetentionPolicyResponse"
       ],
-      "module": "zeroth.core.service.retention_api",
+      "module": "zeroth.service.api.retention_api",
       "name": "RetentionPolicyResponse",
       "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, enabled: bool = True) -> None"
     },
@@ -10151,61 +10151,61 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.webhook_api"
+        "schema_model:zeroth.service.api.webhook_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.webhook_api:CreateSubscriptionRequest"
       ],
-      "module": "zeroth.core.service.webhook_api",
+      "module": "zeroth.service.api.webhook_api",
       "name": "CreateSubscriptionRequest",
       "signature": "(*, deployment_ref: str, target_url: str, event_types: list[str], tenant_id: str = 'default') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.webhook_api"
+        "schema_model:zeroth.service.api.webhook_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.webhook_api:WebhookDeadLetterListResponse"
       ],
-      "module": "zeroth.core.service.webhook_api",
+      "module": "zeroth.service.api.webhook_api",
       "name": "WebhookDeadLetterListResponse",
-      "signature": "(*, dead_letters: list[zeroth.core.service.webhook_api.WebhookDeadLetterResponse], total: int) -> None"
+      "signature": "(*, dead_letters: list[zeroth.service.api.webhook_api.WebhookDeadLetterResponse], total: int) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.webhook_api"
+        "schema_model:zeroth.service.api.webhook_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.webhook_api:WebhookDeadLetterResponse"
       ],
-      "module": "zeroth.core.service.webhook_api",
+      "module": "zeroth.service.api.webhook_api",
       "name": "WebhookDeadLetterResponse",
       "signature": "(*, dead_letter_id: str, delivery_id: str, subscription_id: str, event_type: str, event_id: str, attempt_count: int, last_error: str | None, last_status_code: int | None, created_at: str, dead_lettered_at: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.webhook_api"
+        "schema_model:zeroth.service.api.webhook_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.webhook_api:WebhookSubscriptionListResponse"
       ],
-      "module": "zeroth.core.service.webhook_api",
+      "module": "zeroth.service.api.webhook_api",
       "name": "WebhookSubscriptionListResponse",
-      "signature": "(*, subscriptions: list[zeroth.core.service.webhook_api.WebhookSubscriptionResponse], total: int) -> None"
+      "signature": "(*, subscriptions: list[zeroth.service.api.webhook_api.WebhookSubscriptionResponse], total: int) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.service.webhook_api"
+        "schema_model:zeroth.service.api.webhook_api"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.service.webhook_api:WebhookSubscriptionResponse"
       ],
-      "module": "zeroth.core.service.webhook_api",
+      "module": "zeroth.service.api.webhook_api",
       "name": "WebhookSubscriptionResponse",
       "signature": "(*, subscription_id: str, deployment_ref: str, tenant_id: str, target_url: str, secret: str, event_types: list[str], active: bool, created_at: str, updated_at: str) -> None"
     },
