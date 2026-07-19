@@ -30,6 +30,7 @@ RELOCATED_SERVICE_MODULES = [
     ("zeroth.service.bootstrap.factory", "zeroth.core.service.bootstrap"),
     ("zeroth.service.api.authorization", "zeroth.core.service.authorization"),
     ("zeroth.service.api.authentication", "zeroth.core.service.auth"),
+    ("zeroth.service.api.artifact_api", "zeroth.core.service.artifact_api"),
 ]
 
 

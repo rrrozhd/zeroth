@@ -23,7 +23,6 @@ from zeroth.core.observability.correlation import (
     set_correlation_id,
 )
 from zeroth.core.service.approval_api import register_approval_routes
-from zeroth.core.service.artifact_api import register_artifact_routes
 from zeroth.core.service.audit_api import register_audit_routes
 from zeroth.core.service.auth import AuthenticationError, record_service_denial
 from zeroth.core.service.console_ui import console_cors_origins, mount_console
@@ -35,6 +34,7 @@ from zeroth.core.service.rightsizing_api import register_rightsizing_routes
 from zeroth.core.service.run_api import register_run_routes
 from zeroth.core.service.template_api import register_template_routes
 from zeroth.core.service.webhook_api import register_webhook_routes
+from zeroth.service.api.artifact_api import register_artifact_routes
 
 logger = logging.getLogger(__name__)
 
