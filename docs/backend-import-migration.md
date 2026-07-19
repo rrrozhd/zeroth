@@ -549,10 +549,11 @@ The order that works, verified on `studio_schemas`:
    `zeroth/service/api/` and delete
    `tests/architecture/test_service_schema_relocation.py`.
 
-Step 3 must come last. Once discovery covers the new layout, every *subsequent*
-module move is discovered under its new path before its fixture is repointed,
-which reinstates the deadlock. Until then
-`tests/architecture/test_service_schema_relocation.py` keeps the coverage alive:
-it pins the 64 service schema models by `<module stem>:<model>`, which is
-invariant under relocation but still fails on a dropped, renamed, or duplicated
-model.
+Step 3 had to come last: once discovery covers the new layout, every
+*subsequent* module move is discovered under its new path before its fixture is
+repointed, which reinstates the deadlock. Task 10 completed this sequence for
+all 22 modules; the discovery extension landed in `refactor: compose service
+bootstrap`, restoring the reverse-coverage total to the exact pre-refactor 234
+models (64 under `zeroth.service`), and the transitional guard was retired in
+the same commit. The sequence above remains the template for any future
+schema-bearing module relocation.
