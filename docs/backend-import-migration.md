@@ -454,3 +454,43 @@ entry's `legacy_ids`, change only the canonical `module` and `name`, add the
 migration row above, and run both backend contract test modules. Multiple old
 IDs may map to one canonical symbol only when the implementations are proven
 semantically equivalent.
+
+### Relocating a schema-bearing service module
+
+Service API modules need a specific three-commit order, because
+`_discover_schema_models` in `tests/architecture/test_library_surface.py`
+selects schema modules by *directory name* — a file counts only when its parent
+directory is literally `service`. Moving a module to `zeroth/service/api/`
+therefore takes it out of discovery.
+
+The two obvious orderings both fail:
+
+- **Fixture first** is impossible. Canonical rejects duplicate `legacy_ids`, so
+  the old and new entry cannot coexist, and
+  `test_every_canonical_symbol_imports_and_matches_its_signature` imports every
+  entry, so canonical cannot name a module that does not exist yet.
+- **Move plus discovery extension in one commit** would repoint discovery to the
+  new module path while canonical still records the old one, so the production
+  commit fails its own hook unless it also edits the golden fixture.
+
+The order that works, verified on `studio_schemas`:
+
+1. **Production move.** `git mv` the module under `zeroth/service/api/`, leave a
+   re-export shim at the legacy path holding no definitions of its own, and
+   point in-tree importers at the canonical location. Both paths stay
+   importable, so every pinned legacy signature still resolves. Run the module's
+   focused gate, the route inventory, the OpenAPI snapshot, and `tests/architecture`.
+2. **Docs commit.** Repoint the canonical `module`, plus any `signature` and
+   `evidence` strings embedding the old path. Leave `legacy_ids` alone — they
+   name the legacy path by definition. Add the migration rows above.
+3. **Final Task 10 commit only.** Extend `_discover_schema_models` to cover
+   `zeroth/service/api/` and delete
+   `tests/architecture/test_service_schema_relocation.py`.
+
+Step 3 must come last. Once discovery covers the new layout, every *subsequent*
+module move is discovered under its new path before its fixture is repointed,
+which reinstates the deadlock. Until then
+`tests/architecture/test_service_schema_relocation.py` keeps the coverage alive:
+it pins the 64 service schema models by `<module stem>:<model>`, which is
+invariant under relocation but still fails on a dropped, renamed, or duplicated
+model.
