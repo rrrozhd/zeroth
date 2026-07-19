@@ -361,6 +361,29 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.parallel.models:ParallelConfig` | `zeroth.contracts.graph.models:ParallelConfig` | Move parallel fan-out config to graph contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.context_window:ContextWindowSettings` | `zeroth.contracts.graph.models:ContextWindowSettings` | Move context window settings to graph contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.context_window.models:ContextWindowSettings` | `zeroth.contracts.graph.models:ContextWindowSettings` | Move context window settings to graph contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed:RunState` | `zeroth.contracts.governed:RunState` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed:RunStatus` | `zeroth.contracts.governed:RunStatus` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.app.spec:ChannelSpec` | `zeroth.contracts.governed.app.spec:ChannelSpec` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.app.spec:GovernedFlowSpec` | `zeroth.contracts.governed.app.spec:GovernedFlowSpec` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.app.spec:GovernedStepSpec` | `zeroth.contracts.governed.app.spec:GovernedStepSpec` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.app.spec:InterruptContract` | `zeroth.contracts.governed.app.spec:InterruptContract` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.app.spec:TransitionSpec` | `zeroth.contracts.governed.app.spec:TransitionSpec` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.app.spec:branch` | `zeroth.contracts.governed.app.spec:branch` | Move governed contracts | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.governed.app.spec:end` | `zeroth.contracts.governed.app.spec:end` | Move governed contracts | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.governed.app.spec:route_to` | `zeroth.contracts.governed.app.spec:route_to` | Move governed contracts | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.governed.app.spec:then` | `zeroth.contracts.governed.app.spec:then` | Move governed contracts | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.governed.models.approval:ApprovalDecision` | `zeroth.contracts.governed.models.approval:ApprovalDecision` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.models.approval:ApprovalDecisionType` | `zeroth.contracts.governed.models.approval:ApprovalDecisionType` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.models.approval:ApprovalRequest` | `zeroth.contracts.governed.models.approval:ApprovalRequest` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.models.audit:AuditEvent` | `zeroth.contracts.governed.models.audit:AuditEvent` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.models.audit:AuditExtension` | `zeroth.contracts.governed.models.audit:AuditExtension` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.models.common:DeterminismMode` | `zeroth.contracts.governed.models.common:DeterminismMode` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.models.common:END_STEP` | `zeroth.contracts.governed.models.common:END_STEP` | Move governed contracts | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.governed.models.common:EventType` | `zeroth.contracts.governed.models.common:EventType` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.models.common:JSONValue` | `zeroth.contracts.governed.models.common:JSONValue` | Move governed contracts | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.governed.models.common:RunStatus` | `zeroth.contracts.governed.models.common:RunStatus` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.models.common:normalize_step_ref` | `zeroth.contracts.governed.models.common:normalize_step_ref` | Move governed contracts | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.governed.models.run_state:RunState` | `zeroth.contracts.governed.models.run_state:RunState` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
