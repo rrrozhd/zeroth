@@ -7680,82 +7680,82 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.observability",
+        "__all__:zeroth.platform.observability",
         "examples:examples/32_observability.py",
-        "package_export:zeroth.core.observability"
+        "package_export:zeroth.platform.observability"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.observability:MetricsCollector"
       ],
-      "module": "zeroth.core.observability",
+      "module": "zeroth.platform.observability",
       "name": "MetricsCollector",
       "signature": "() -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.observability",
-        "package_export:zeroth.core.observability"
+        "__all__:zeroth.platform.observability",
+        "package_export:zeroth.platform.observability"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.observability:configure_tracing"
       ],
-      "module": "zeroth.core.observability",
+      "module": "zeroth.platform.observability",
       "name": "configure_tracing",
       "signature": "(settings: 'TracingSettings') -> 'bool'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.observability",
-        "package_export:zeroth.core.observability"
+        "__all__:zeroth.platform.observability",
+        "package_export:zeroth.platform.observability"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.observability:get_correlation_id"
       ],
-      "module": "zeroth.core.observability",
+      "module": "zeroth.platform.observability",
       "name": "get_correlation_id",
       "signature": "() -> 'str'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.observability",
+        "__all__:zeroth.platform.observability",
         "examples:examples/32_observability.py",
-        "package_export:zeroth.core.observability"
+        "package_export:zeroth.platform.observability"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.observability:new_correlation_id"
       ],
-      "module": "zeroth.core.observability",
+      "module": "zeroth.platform.observability",
       "name": "new_correlation_id",
       "signature": "() -> 'str'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.observability",
+        "__all__:zeroth.platform.observability",
         "examples:examples/32_observability.py",
-        "package_export:zeroth.core.observability"
+        "package_export:zeroth.platform.observability"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.observability:set_correlation_id"
       ],
-      "module": "zeroth.core.observability",
+      "module": "zeroth.platform.observability",
       "name": "set_correlation_id",
       "signature": "(cid: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.observability",
-        "package_export:zeroth.core.observability"
+        "__all__:zeroth.platform.observability",
+        "package_export:zeroth.platform.observability"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.observability:start_span"
       ],
-      "module": "zeroth.core.observability",
+      "module": "zeroth.platform.observability",
       "name": "start_span",
       "signature": "(name: 'str', attributes: 'Mapping[str, Any] | None' = None) -> 'Iterator[None]'"
     },

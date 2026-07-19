@@ -196,6 +196,12 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.dispatch:run_arq_consumer` | `zeroth.platform.dispatch:run_arq_consumer` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.dispatch.arq_wakeup:create_arq_pool` | `zeroth.platform.dispatch.arq_wakeup:create_arq_pool` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.dispatch.arq_wakeup:enqueue_wakeup` | `zeroth.platform.dispatch.arq_wakeup:enqueue_wakeup` | Move dispatch to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.observability:MetricsCollector` | `zeroth.platform.observability:MetricsCollector` | Move observability to platform | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.observability:configure_tracing` | `zeroth.platform.observability:configure_tracing` | Move observability to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.observability:get_correlation_id` | `zeroth.platform.observability:get_correlation_id` | Move observability to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.observability:new_correlation_id` | `zeroth.platform.observability:new_correlation_id` | Move observability to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.observability:set_correlation_id` | `zeroth.platform.observability:set_correlation_id` | Move observability to platform | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.observability:start_span` | `zeroth.platform.observability:start_span` | Move observability to platform | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
