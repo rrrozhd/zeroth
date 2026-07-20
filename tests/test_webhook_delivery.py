@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from zeroth.core.webhooks.delivery import WebhookDeliveryWorker, next_retry_delay
-from zeroth.core.webhooks.models import (
+from zeroth.service.webhooks.delivery import WebhookDeliveryWorker, next_retry_delay
+from zeroth.service.webhooks.models import (
     WebhookDelivery,
     WebhookEventType,
     WebhookSubscription,
 )
-from zeroth.core.webhooks.repository import WebhookRepository
+from zeroth.service.webhooks.repository import WebhookRepository
 
 
 @pytest.fixture
@@ -202,7 +202,7 @@ class TestRetryBackoffWindow:
         # assertion checks the top edge of the window -- exactly where the old
         # double-compute overshot.
         before = datetime.now(UTC)
-        with patch("zeroth.core.webhooks.delivery.random.uniform", lambda _low, high: high):
+        with patch("zeroth.service.webhooks.delivery.random.uniform", lambda _low, high: high):
             await worker._deliver(delivery)
         after = datetime.now(UTC)
 

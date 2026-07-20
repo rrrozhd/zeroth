@@ -382,8 +382,8 @@ async def bootstrap_service(
 
     if settings.webhook.enabled:
         try:
-            from zeroth.core.webhooks.repository import WebhookRepository
-            from zeroth.core.webhooks.service import WebhookService
+            from zeroth.service.webhooks.repository import WebhookRepository
+            from zeroth.service.webhooks.service import WebhookService
 
             webhook_repository = WebhookRepository(database)
             webhook_service_obj = WebhookService(
@@ -396,7 +396,7 @@ async def bootstrap_service(
 
             import httpx
 
-            from zeroth.core.webhooks.delivery import WebhookDeliveryWorker
+            from zeroth.service.webhooks.delivery import WebhookDeliveryWorker
 
             webhook_http_client = httpx.AsyncClient(
                 limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),

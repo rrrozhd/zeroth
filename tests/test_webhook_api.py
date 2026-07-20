@@ -10,13 +10,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from zeroth.core.service.webhook_api import register_webhook_routes
-from zeroth.core.webhooks.models import (
+from zeroth.service.webhooks.models import (
     WebhookDeadLetter,
     WebhookDelivery,
     WebhookEventType,
     WebhookSubscription,
 )
-from zeroth.core.webhooks.service import WebhookService
+from zeroth.service.webhooks.service import WebhookService
 
 
 def _make_app(webhook_service: WebhookService | None = None) -> FastAPI:

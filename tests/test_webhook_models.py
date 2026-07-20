@@ -6,7 +6,7 @@ import hashlib
 import hmac
 from datetime import UTC, datetime
 
-import zeroth.core.webhooks.models as webhook_models
+import zeroth.service.webhooks.models as webhook_models
 from zeroth.platform.primitives import utc_now
 
 
@@ -42,7 +42,7 @@ class TestWebhookEventType:
     """WebhookEventType enum values."""
 
     def test_event_types(self):
-        from zeroth.core.webhooks.models import WebhookEventType
+        from zeroth.service.webhooks.models import WebhookEventType
 
         assert WebhookEventType.RUN_COMPLETED == "run.completed"
         assert WebhookEventType.RUN_FAILED == "run.failed"
@@ -55,7 +55,7 @@ class TestDeliveryStatus:
     """DeliveryStatus enum values."""
 
     def test_delivery_status_values(self):
-        from zeroth.core.webhooks.models import DeliveryStatus
+        from zeroth.service.webhooks.models import DeliveryStatus
 
         assert DeliveryStatus.PENDING == "pending"
         assert DeliveryStatus.DELIVERED == "delivered"
@@ -67,7 +67,7 @@ class TestEscalationAction:
     """EscalationAction enum values."""
 
     def test_escalation_action_values(self):
-        from zeroth.core.webhooks.models import EscalationAction
+        from zeroth.service.webhooks.models import EscalationAction
 
         assert EscalationAction.DELEGATE == "delegate"
         assert EscalationAction.AUTO_REJECT == "auto_reject"
@@ -78,7 +78,7 @@ class TestWebhookSubscription:
     """WebhookSubscription model instantiation."""
 
     def test_instantiation_with_required_fields(self):
-        from zeroth.core.webhooks.models import WebhookEventType, WebhookSubscription
+        from zeroth.service.webhooks.models import WebhookEventType, WebhookSubscription
 
         sub = WebhookSubscription(
             deployment_ref="deploy-1",
@@ -94,7 +94,7 @@ class TestWebhookSubscription:
         assert sub.tenant_id == "default"
 
     def test_auto_generates_subscription_id_and_secret(self):
-        from zeroth.core.webhooks.models import WebhookEventType, WebhookSubscription
+        from zeroth.service.webhooks.models import WebhookEventType, WebhookSubscription
 
         sub1 = WebhookSubscription(
             deployment_ref="d", target_url="https://x.com", event_types=[WebhookEventType.RUN_FAILED]
@@ -110,7 +110,7 @@ class TestWebhookDelivery:
     """WebhookDelivery model instantiation."""
 
     def test_instantiation_defaults(self):
-        from zeroth.core.webhooks.models import DeliveryStatus, WebhookDelivery, WebhookEventType
+        from zeroth.service.webhooks.models import DeliveryStatus, WebhookDelivery, WebhookEventType
 
         delivery = WebhookDelivery(
             subscription_id="sub-1",
@@ -128,7 +128,7 @@ class TestWebhookDeadLetter:
     """WebhookDeadLetter model instantiation."""
 
     def test_instantiation_from_delivery_fields(self):
-        from zeroth.core.webhooks.models import WebhookDeadLetter, WebhookEventType
+        from zeroth.service.webhooks.models import WebhookDeadLetter, WebhookEventType
 
         dl = WebhookDeadLetter(
             delivery_id="del-1",
@@ -149,7 +149,7 @@ class TestSignPayload:
     """HMAC-SHA256 signing utility."""
 
     def test_returns_hex_string(self):
-        from zeroth.core.webhooks.signing import sign_payload
+        from zeroth.service.webhooks.signing import sign_payload
 
         result = sign_payload(b"hello", "secret")
         assert isinstance(result, str)
@@ -157,21 +157,21 @@ class TestSignPayload:
         assert len(result) == 64
 
     def test_deterministic(self):
-        from zeroth.core.webhooks.signing import sign_payload
+        from zeroth.service.webhooks.signing import sign_payload
 
         a = sign_payload(b"payload", "key")
         b = sign_payload(b"payload", "key")
         assert a == b
 
     def test_different_secret_different_output(self):
-        from zeroth.core.webhooks.signing import sign_payload
+        from zeroth.service.webhooks.signing import sign_payload
 
         a = sign_payload(b"payload", "key1")
         b = sign_payload(b"payload", "key2")
         assert a != b
 
     def test_matches_manual_hmac(self):
-        from zeroth.core.webhooks.signing import sign_payload
+        from zeroth.service.webhooks.signing import sign_payload
 
         payload = b"test-payload-data"
         secret = "my-secret-key"

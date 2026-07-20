@@ -30,7 +30,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 - [Dispatch](python-api/dispatch.md) — `zeroth.platform.dispatch`
 - [Economics](python-api/econ.md) — `zeroth.econ.analytics`
 - [Service](python-api/service.md) — `zeroth.core.service`
-- [Webhooks](python-api/webhooks.md) — `zeroth.core.webhooks`
+- [Webhooks](python-api/webhooks.md) — `zeroth.service.webhooks`
 
 ## How this is generated
 

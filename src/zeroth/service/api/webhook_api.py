@@ -16,8 +16,8 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.core.webhooks.models import WebhookEventType, WebhookSubscription
 from zeroth.service.api.authorization import Permission, require_permission
+from zeroth.service.webhooks.models import WebhookEventType, WebhookSubscription
 
 
 class CreateSubscriptionRequest(BaseModel):
