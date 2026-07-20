@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-07-20
+
+### Fixed
+
+Tenant-isolation audit fixes ported from the public main line (main versions
+v0.10.1.2–v0.10.1.4, v0.10.1.7, v0.10.1.9, v0.10.1.13):
+
+- **F4 — cross-tenant IDOR in the tenant cost/budget API.**
+  `GET /v1/tenants/{id}/cost` and `PUT /v1/tenants/{id}/budget` now enforce
+  `require_resource_scope`: a principal may only read its own tenant's spend or
+  set its own tenant's cap (previously any tenant admin could read or zero-out
+  another tenant's budget by path id). Follow-up: `GET
+  /v1/deployments/{ref}/cost` is scoped to the served deployment.
+- **F8 — cross-tenant IDOR in the webhook API.** Subscriptions are bound to
+  the served deployment + tenant (body `deployment_ref`/`tenant_id` are no
+  longer trusted); list/get/delete are scoped to the served deployment;
+  dead-letter list/replay are scoped via the deployment's own subscription
+  set **in the query** (LIMIT applies after the tenant scope), and replay
+  carries an ownership guard so a foreign dead-letter reads as 404.
+  `WebhookRepository.list_dead_letters` gains a `subscription_ids` IN-clause
+  filter; `WebhookService.get_dead_letter` is exposed for the guard.
+- **F7 — missing RBAC gate on the econ-plane costing router.** Pricing
+  catalog and cost-profile writes are Admin-only; reads require any econ role
+  — matching every sibling econ router (previously the router carried no auth
+  dependency at all).
+
 ## [0.10.1] - 2026-07-20
 
 ### Added

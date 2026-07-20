@@ -16,7 +16,11 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.service.api.authorization import Permission, require_permission
+from zeroth.service.api.authorization import (
+    Permission,
+    require_deployment_scope,
+    require_permission,
+)
 from zeroth.service.webhooks.models import WebhookEventType, WebhookSubscription
 
 
@@ -123,10 +127,16 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         payload: CreateSubscriptionRequest,
     ) -> WebhookSubscriptionResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        # Tenant isolation (audit F8): only the served deployment's owner may
+        # subscribe, and the subscription is BOUND to that deployment + tenant.
+        # The body's deployment_ref/tenant_id are NOT trusted — accepting them
+        # let any tenant admin subscribe to another tenant's run events.
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
         sub = WebhookSubscription(
-            deployment_ref=payload.deployment_ref,
-            tenant_id=payload.tenant_id,
+            deployment_ref=deployment.deployment_ref,
+            tenant_id=deployment.tenant_id,
             target_url=payload.target_url,
             event_types=[WebhookEventType(e) for e in payload.event_types],
         )
@@ -143,10 +153,14 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         tenant_id: str | None = None,
     ) -> WebhookSubscriptionListResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
+        # Scope to the served deployment's tenant; client-supplied filters are
+        # ignored so one tenant cannot enumerate another's subscriptions (F8).
         subs = await webhook_service.list_subscriptions(
-            deployment_ref=deployment_ref,
-            tenant_id=tenant_id,
+            deployment_ref=deployment.deployment_ref,
+            tenant_id=deployment.tenant_id,
         )
         return WebhookSubscriptionListResponse(
             subscriptions=[_serialize_subscription(s) for s in subs],
@@ -162,9 +176,13 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         subscription_id: str,
     ) -> WebhookSubscriptionResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
         sub = await webhook_service.get_subscription(subscription_id)
-        if sub is None:
+        # Cross-scope read guard (F8): a subscription outside the served
+        # deployment (foreign tenant OR foreign deployment_ref) reads as absent.
+        if _foreign_subscription(sub, deployment):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="subscription not found",
@@ -180,7 +198,17 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         subscription_id: str,
     ) -> None:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
+        # Cross-scope delete guard (F8): can't deactivate a subscription outside
+        # the served deployment (foreign tenant or foreign deployment_ref).
+        sub = await webhook_service.get_subscription(subscription_id)
+        if _foreign_subscription(sub, deployment):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="subscription not found",
+            )
         await webhook_service.deactivate_subscription(subscription_id)
 
     @app.get(
@@ -193,10 +221,27 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         limit: int = 50,
     ) -> WebhookDeadLetterListResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
-        dead_letters = await webhook_service.list_dead_letters(
-            subscription_id=subscription_id, limit=limit
-        )
+        # Scope to the served deployment's own subscriptions (F8 re-audit): the
+        # dead-letters table has no tenant column, so filter by subscription set
+        # IN THE QUERY — a Python post-filter after a global LIMIT would silently
+        # hide the deployment's own rows behind newer foreign ones.
+        allowed = await _served_subscription_ids(request, deployment)
+        if subscription_id is not None:
+            if subscription_id not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="subscription not found",
+                )
+            dead_letters = await webhook_service.list_dead_letters(
+                subscription_id=subscription_id, limit=limit
+            )
+        else:
+            dead_letters = await webhook_service.list_dead_letters(
+                subscription_ids=sorted(allowed), limit=limit
+            )
         items = [
             WebhookDeadLetterResponse(
                 dead_letter_id=dl.dead_letter_id,
@@ -226,7 +271,19 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         dead_letter_id: str,
     ) -> dict[str, Any]:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
+        # Ownership guard (F8 re-audit): the dead-letter must belong to one of the
+        # served deployment's subscriptions, else a cross-tenant caller could force
+        # redelivery of another tenant's event (and get an existence oracle).
+        dead_letter = await webhook_service.get_dead_letter(dead_letter_id)
+        allowed = await _served_subscription_ids(request, deployment)
+        if dead_letter is None or dead_letter.subscription_id not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="dead letter not found",
+            )
         try:
             delivery = await webhook_service.replay_dead_letter(dead_letter_id)
         except KeyError as exc:
@@ -252,3 +309,44 @@ def _webhook_service(request: Request) -> Any:
             detail="webhook service not available",
         )
     return webhook_service
+
+
+def _served_deployment(request: Request) -> Any:
+    """Return this service's own (single) served deployment for tenant scoping."""
+    bootstrap = getattr(request.app.state, "bootstrap", None)
+    deployment = getattr(bootstrap, "deployment", None) if bootstrap is not None else None
+    if deployment is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="service bootstrap is not configured",
+        )
+    return deployment
+
+
+async def _served_subscription_ids(request: Request, deployment: Any) -> set[str]:
+    """Subscription ids owned by the served deployment.
+
+    The ``webhook_dead_letters`` table carries no tenant/deployment column, so
+    dead-letter routes are scoped via the deployment's own subscriptions rather
+    than by a row predicate — ``require_deployment_scope`` only gates the caller,
+    not which rows return (audit F8 re-audit).
+    """
+    webhook_service = _webhook_service(request)
+    subs = await webhook_service.list_subscriptions(
+        deployment_ref=deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+    )
+    return {s.subscription_id for s in subs}
+
+
+def _foreign_subscription(sub: Any, deployment: Any) -> bool:
+    """Whether a subscription is outside the served deployment.
+
+    True when absent, foreign tenant, or foreign deployment_ref — so the by-id
+    routes treat it as not-found, matching the list route's scope (F8 re-audit).
+    """
+    return (
+        sub is None
+        or sub.tenant_id != deployment.tenant_id
+        or sub.deployment_ref != deployment.deployment_ref
+    )
