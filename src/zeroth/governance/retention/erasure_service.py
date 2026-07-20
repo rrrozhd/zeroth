@@ -6,6 +6,7 @@ append-only audit hash-chain:
 * node audits    -> crypto-erased (plaintext nulled, commitment digest kept, so
                     the chain still verifies)
 * run checkpoints -> deleted (the richest plaintext snapshot; the missing cascade)
+* token snapshots -> deleted after their payload and artifact refs are harvested
 * runs row       -> redacted in place (output columns nulled, row kept)
 * artifacts      -> cleaned up by run prefix + per-key delete of references found
                     in the (pre-erasure) output snapshots
@@ -267,6 +268,10 @@ class RetentionErasureService:
                         transaction.connection,
                         run_id,
                     )
+                )
+                await self._runs.erase_token_snapshot_for_run_in_transaction(
+                    transaction.connection,
+                    run_id,
                 )
                 result.run_redacted = await self._runs.redact_run_in_transaction(
                     transaction.connection,

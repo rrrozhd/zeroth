@@ -8,6 +8,7 @@ import migration guide when ownership changes.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
 import json
@@ -82,6 +83,25 @@ def _load(name: str) -> dict[str, Any]:
 def test_every_canonical_package_imports(module_name: str) -> None:
     """The authoritative backend package tree must remain importable."""
     importlib.import_module(module_name)
+
+
+def test_lazy_orchestration_surface_retains_static_type_bindings() -> None:
+    """Lazy runtime exports remain concrete names to static analyzers."""
+    path = REPO_ROOT / "src/zeroth/runtime/orchestration/__init__.py"
+    tree = ast.parse(path.read_text())
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported.update(alias.asname or alias.name for alias in node.names)
+    assert {
+        "GraphDriver",
+        "NodeDispatcher",
+        "RuntimePolicyGate",
+        "TokenSnapshotStore",
+        "TokenSnapshotConcurrencyError",
+        "TokenSnapshotCorruptionError",
+        "TokenSnapshotTransitionError",
+    } <= imported
 
 
 def _import_symbol(entry: dict[str, Any]) -> object:

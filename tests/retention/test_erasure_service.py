@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from tests.retention.conftest import make_audit_record
+from tests.retention.conftest import make_audit_record, seed_token_snapshot
 from zeroth.governance.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.governance.retention.erasure_service import LegalHoldError
 from zeroth.platform.storage.json import to_json_value
@@ -39,6 +39,13 @@ async def test_erasure_succeeds_on_encrypted_deployment(encrypted_env) -> None:
     """
     ssn = "555-11-2222"
     await encrypted_env.seed_run("run-enc", n_audits=2, ssn=ssn)
+    artifact_key = "run-enc/token/blob"
+    await seed_token_snapshot(
+        encrypted_env,
+        "run-enc",
+        artifact_key=artifact_key,
+        ssn=ssn,
+    )
 
     # The checkpoint really is encrypted at rest — the raw column holds neither
     # the plaintext PII nor parseable JSON.
@@ -48,15 +55,26 @@ async def test_erasure_succeeds_on_encrypted_deployment(encrypted_env) -> None:
         )
     assert rows
     assert ssn not in rows[0]["state_json"]
+    async with encrypted_env.database.transaction() as connection:
+        token_row = await connection.fetch_one(
+            "SELECT snapshot_json FROM token_engine_snapshots WHERE run_id = ?",
+            ("run-enc",),
+        )
+    assert token_row is not None and ssn not in token_row["snapshot_json"]
 
     result = await encrypted_env.service.erase_run("run-enc", "rte")
     assert result.run_redacted is True
     assert result.checkpoints_deleted >= 1
+    assert await encrypted_env.run_repo.get_token_snapshot("run-enc") is None
+    assert artifact_key not in encrypted_env.artifact_store.blobs
+    assert artifact_key in encrypted_env.artifact_store.deleted_keys
 
 
 async def test_full_surface_erasure(env) -> None:
     ssn = "999-88-7777"
     await env.seed_run("run-full", n_audits=3, artifact_key="run-full/n0/blob", ssn=ssn)
+    token_artifact = "run-full/token/blob"
+    await seed_token_snapshot(env, "run-full", artifact_key=token_artifact, ssn=ssn)
 
     # Pre-condition: PII is everywhere.
     before = await _pii_present(env.database, ssn)
@@ -94,6 +112,9 @@ async def test_full_surface_erasure(env) -> None:
     assert run_row is not None  # continuity: row kept
     assert run_row["artifacts"] == "{}" and run_row["metadata"] == "{}"
     assert "run-full/n0/blob" not in env.artifact_store.blobs
+    assert token_artifact not in env.artifact_store.blobs
+    assert token_artifact in env.artifact_store.deleted_keys
+    assert await env.run_repo.get_token_snapshot("run-full") is None
     assert env.artifact_store.cleanup_calls == ["run-full"]
 
 

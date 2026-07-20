@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
 from zeroth.integrations.persistence.runs import retention_queries
 from zeroth.integrations.persistence.runs.checkpoint_store import (
     CheckpointRowStore,
@@ -36,6 +37,7 @@ from zeroth.integrations.persistence.runs.serialization import (
     row_to_run,
     row_to_thread,
 )
+from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.json import to_json_value
@@ -549,6 +551,7 @@ class RunRepository:
 
     def __init__(self, database: AsyncDatabase):
         self._store = _RunThreadStore(database)
+        self._token_snapshots = TokenSnapshotRowStore(database)
 
     @property
     def database(self) -> AsyncDatabase:
@@ -575,6 +578,24 @@ class RunRepository:
     async def delete(self, run_id: str) -> None:
         """Remove a run from the database."""
         await self._store.delete_run(run_id)
+
+    async def get_token_snapshot(self, run_id: str) -> TokenEngineSnapshot | None:
+        """Load the exact durable token-engine state for a run."""
+        return await self._token_snapshots.get(run_id)
+
+    async def compare_and_swap_token_snapshot(
+        self,
+        run_id: str,
+        *,
+        expected_revision: int | None,
+        snapshot: TokenEngineSnapshot,
+    ) -> TokenEngineSnapshot:
+        """Publish one coherent next token-engine revision atomically."""
+        return await self._token_snapshots.compare_and_swap(
+            run_id,
+            expected_revision=expected_revision,
+            snapshot=snapshot,
+        )
 
     async def write_checkpoint(self, run: Run) -> str:
         """Save a snapshot of the run and return the checkpoint ID."""
@@ -726,6 +747,14 @@ class RunRepository:
         """Delete checkpoints through an existing transaction."""
         return await retention_queries.erase_checkpoints_for_run(connection, run_id)
 
+    async def erase_token_snapshot_for_run_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> int:
+        """Delete token-engine state through an existing erasure transaction."""
+        return await retention_queries.erase_token_snapshot_for_run(connection, run_id)
+
     async def redact_run(self, run_id: str) -> bool:
         """WS-E: null a run's PII-bearing output columns, keeping the row.
 
@@ -751,7 +780,7 @@ class RunRepository:
         connection: AsyncConnection,
         run_id: str,
     ) -> list[Any]:
-        """Load database-resident run/checkpoint payloads before erasure."""
+        """Load database-resident run/checkpoint/token payloads before erasure."""
         return await retention_queries.erasure_payloads(
             connection,
             run_id,

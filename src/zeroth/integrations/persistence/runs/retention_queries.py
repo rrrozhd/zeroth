@@ -41,6 +41,20 @@ async def erase_checkpoints_for_run(connection: AsyncConnection, run_id: str) ->
     return len(rows)
 
 
+async def erase_token_snapshot_for_run(connection: AsyncConnection, run_id: str) -> int:
+    """Delete the token-engine payload retained for a redacted run."""
+    row = await connection.fetch_one(
+        "SELECT run_id FROM token_engine_snapshots WHERE run_id = ?",
+        (run_id,),
+    )
+    if row is not None:
+        await connection.execute(
+            "DELETE FROM token_engine_snapshots WHERE run_id = ?",
+            (run_id,),
+        )
+    return int(row is not None)
+
+
 async def redact_run(connection: AsyncConnection, run_id: str) -> bool:
     """Null a run's PII-bearing output columns while keeping the row.
 
@@ -108,6 +122,13 @@ async def erasure_payloads(
         from_json_value(decrypt(row["state_json"]) if decrypt is not None else row["state_json"])
         for row in checkpoints
     )
+    token_snapshot = await connection.fetch_one(
+        "SELECT snapshot_json FROM token_engine_snapshots WHERE run_id = ?",
+        (run_id,),
+    )
+    if token_snapshot is not None:
+        raw = token_snapshot["snapshot_json"]
+        payloads.append(from_json_value(decrypt(raw) if decrypt is not None else raw))
     return payloads
 
 

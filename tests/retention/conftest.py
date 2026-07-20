@@ -7,6 +7,14 @@ from datetime import UTC, datetime
 
 import pytest
 
+from zeroth.contracts.graph import (
+    CancellationFence,
+    SchedulingState,
+    TokenEngineSnapshot,
+    TokenEngineSnapshotState,
+    TokenEnvelope,
+    TokenLifecycleState,
+)
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.retention import (
     LegalHoldRepository,
@@ -18,6 +26,41 @@ from zeroth.contracts.governed.models.approval import ApprovalRequest
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.signing import EnvHmacSigner
+
+
+async def seed_token_snapshot(env, run_id: str, *, artifact_key: str, ssn: str) -> None:
+    """Persist representative PII and an artifact ref in token-engine state."""
+    token = TokenEnvelope(
+        token_id=f"{run_id}-token",
+        current_node_id="node-a",
+        payload={
+            "ssn": ssn,
+            "artifact": {
+                "store": "filesystem",
+                "key": artifact_key,
+                "content_type": "application/octet-stream",
+                "size": 3,
+            },
+        },
+        lifecycle_state=TokenLifecycleState.ACTIVE,
+        scheduling_state=SchedulingState.QUEUED,
+        state_revision=0,
+    )
+    snapshot = TokenEngineSnapshot(
+        run_id=run_id,
+        revision=0,
+        state=TokenEngineSnapshotState.RUNNING,
+        next_token_ordinal=1,
+        queue=(token,),
+        tokens=(token,),
+        cancellation_fence=CancellationFence(generation=0, state_revision=0),
+    )
+    env.artifact_store.blobs[artifact_key] = b"pii"
+    await env.run_repo.compare_and_swap_token_snapshot(
+        run_id,
+        expected_revision=None,
+        snapshot=snapshot,
+    )
 
 
 class FakeArtifactStore:

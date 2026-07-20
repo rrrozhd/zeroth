@@ -144,9 +144,10 @@ async def test_erase_run_orders_every_side_effect_of_a_full_erasure(env, journal
         "audits.list_by_run_in_transaction",
         "runs.erasure_payloads_in_transaction",
         "audits.crypto_erase_in_transaction",
-        "audits.crypto_erase_in_transaction",
-        "runs.erase_checkpoints_for_run_in_transaction",
-        "runs.redact_run_in_transaction",
+            "audits.crypto_erase_in_transaction",
+            "runs.erase_checkpoints_for_run_in_transaction",
+            "runs.erase_token_snapshot_for_run_in_transaction",
+            "runs.redact_run_in_transaction",
         "log.record_in_transaction:erasure_authorized",
         "state.initialize_in_transaction",
         # Claim the external cleanup in its own transaction.

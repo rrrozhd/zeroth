@@ -47,6 +47,10 @@
     {
       "down_revision": "011",
       "revision": "012"
+    },
+    {
+      "down_revision": "012",
+      "revision": "013"
     }
   ],
   "tables": {
@@ -2397,6 +2401,88 @@
             "thread_id"
           ],
           "name": "sqlite_autoindex_threads_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "token_engine_snapshots": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "revision",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "schema_version",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "next_token_ordinal",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "snapshot_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE token_engine_snapshots ( run_id TEXT PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE, revision INTEGER NOT NULL CHECK (revision >= 0), schema_version INTEGER NOT NULL CHECK (schema_version >= 1), next_token_ordinal INTEGER NOT NULL CHECK (next_token_ordinal >= 0), snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "foreign_keys": [
+        {
+          "from": "run_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "CASCADE",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "runs",
+          "to": "run_id"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "run_id"
+          ],
+          "name": "sqlite_autoindex_token_engine_snapshots_1",
           "origin": "pk",
           "partial": false,
           "unique": true
