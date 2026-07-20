@@ -138,7 +138,7 @@ def _require_revision_window(created: int, updated: int) -> None:
 
 def _freeze_json(value: JsonValue) -> JsonValue:
     if isinstance(value, dict):
-        frozen = MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
+        frozen = MappingProxyType({key: _freeze_json(value[key]) for key in sorted(value)})
         return cast(JsonValue, frozen)
     if isinstance(value, list):
         return cast(JsonValue, tuple(_freeze_json(item) for item in value))
@@ -281,6 +281,11 @@ class TokenEnvelope(_FrozenContract):
             self.scheduling_state is not SchedulingState.EXECUTING
         ):
             raise ValueError("a CANCELLING token must remain in EXECUTING scheduling state")
+        if (
+            self.lifecycle_state is TokenLifecycleState.CANCELLING
+            and self.cancellation_generation == 0
+        ):
+            raise ValueError("a CANCELLING token requires a positive cancellation_generation")
         if settled != (self.settled_revision is not None):
             raise ValueError("settled_revision is required exactly when a token is SETTLED")
         if self.settled_revision is not None and self.settled_revision > self.state_revision:
@@ -288,9 +293,13 @@ class TokenEnvelope(_FrozenContract):
 
         acknowledged = self.cancellation_acknowledged_generation
         if acknowledged is not None:
-            if acknowledged > self.cancellation_generation:
+            if acknowledged == 0 or self.cancellation_generation == 0:
                 raise ValueError(
-                    "cancellation_acknowledged_generation cannot exceed the current generation"
+                    "cancellation acknowledgement requires a positive cancellation_generation"
+                )
+            if acknowledged != self.cancellation_generation:
+                raise ValueError(
+                    "cancellation_acknowledged_generation must equal the current generation"
                 )
             if not settled:
                 raise ValueError("only a settled token may acknowledge cancellation")
@@ -446,6 +455,9 @@ class JoinInstance(_FrozenContract):
         )
         if len(token_edge_pairs) != len(set(token_edge_pairs)):
             raise ValueError("join obligations must name unique token/edge resolutions")
+        source_token_ids = tuple(item.source_token_id for item in self.obligations)
+        if len(source_token_ids) != len(set(source_token_ids)):
+            raise ValueError("join obligations must use unique source_token_id values")
         ordinals = tuple(item.child_ordinal for item in self.obligations)
         if ordinals != tuple(sorted(ordinals)) or len(ordinals) != len(set(ordinals)):
             raise ValueError("join obligations must use unique canonical child ordinals")
@@ -459,6 +471,10 @@ class JoinInstance(_FrozenContract):
 
         all_settled = all(item.outcome is not None for item in self.obligations)
         any_delivered = self.delivered_obligation_count > 0
+        if len(self.consumed_parent_token_ids) != len(set(self.consumed_parent_token_ids)):
+            raise ValueError("consumed_parent_token_ids must be unique")
+        if self.continuation_token_id in self.consumed_parent_token_ids:
+            raise ValueError("a continuation token cannot reuse a consumed parent token ID")
         if self.lifecycle_state is JoinLifecycleState.OPEN:
             if all_settled:
                 raise ValueError("an OPEN join must have an unsettled obligation")
@@ -601,6 +617,14 @@ class IterationFrame(_FrozenContract):
             raise ValueError(
                 "continuation deliveries must exactly match BACK_EDGE_CONTINUATION members"
             )
+        members_by_token = {member.token_id: member for member in self.members}
+        if any(
+            item.settled_revision != members_by_token[item.token_id].settled_revision
+            for item in self.continuation_deliveries
+        ):
+            raise ValueError(
+                "continuation settled_revision must equal its matching member settled_revision"
+            )
         if any(
             item.canonical_order.iteration_index != self.iteration_index
             for item in self.continuation_deliveries
@@ -686,13 +710,23 @@ class LoopExit(_FrozenContract):
         return self
 
 
+class LoopEnclosingOwner(_FrozenContract):
+    """The durable outer owner resumed when a loop instance settles."""
+
+    token_id: TokenId
+    iteration_frame_id: IterationFrameId | None = None
+
+
 class LoopInstance(_FrozenContract):
     loop_instance_id: LoopInstanceId
     loop_header_node_id: NodeId
+    enclosing_owner: LoopEnclosingOwner
     outer_provenance_tag: tuple[ProvenanceFrame, ...] = ()
     frames: tuple[IterationFrame, ...] = ()
     live_child_token_ids: tuple[TokenId, ...]
+    owned_token_ids: tuple[TokenId, ...]
     exits: tuple[LoopExit, ...] = ()
+    emitted_continuation_token_ids: tuple[TokenId, ...] = ()
     lifecycle_state: LoopLifecycleState
     created_revision: StateRevision
     updated_revision: StateRevision
@@ -753,6 +787,25 @@ class LoopInstance(_FrozenContract):
             for frame in self.frames
         }
         all_records = tuple(record for exit_state in self.exits for record in exit_state.records)
+        owned_ids = self.owned_token_ids
+        if owned_ids != tuple(sorted(owned_ids)) or len(owned_ids) != len(set(owned_ids)):
+            raise ValueError("owned_token_ids must be unique and sorted")
+        required_owned_ids = {
+            self.enclosing_owner.token_id,
+            *(member.token_id for member in all_members),
+            *(record.token_id for record in all_records),
+        }
+        if not required_owned_ids <= set(owned_ids):
+            raise ValueError(
+                "owned_token_ids must include the enclosing owner and every retained token ID"
+            )
+        emitted_ids = self.emitted_continuation_token_ids
+        if emitted_ids != tuple(sorted(emitted_ids)) or len(emitted_ids) != len(set(emitted_ids)):
+            raise ValueError("emitted_continuation_token_ids must be unique and sorted")
+        if set(owned_ids).intersection(emitted_ids):
+            raise ValueError(
+                "an emitted continuation token ID must be new within the loop instance"
+            )
         if self.frames:
             for record in all_records:
                 iteration = record.canonical_order.iteration_index
@@ -777,6 +830,11 @@ class LoopInstance(_FrozenContract):
                 ):
                     raise ValueError(
                         "loop-exit records must exactly match their retained frame member outcome"
+                    )
+                if record.settled_revision != member.settled_revision:
+                    raise ValueError(
+                        "loop-exit record settled_revision must equal its matching member "
+                        "settled_revision"
                     )
             expected_records = {
                 (
@@ -828,11 +886,21 @@ class LoopInstance(_FrozenContract):
                 raise ValueError("a COMPLETED loop cannot retain a live iteration frame")
             if any(item.resolution_outcome is None for item in self.exits):
                 raise ValueError("a COMPLETED loop must resolve every owned exit")
+            delivered_exit_count = sum(
+                item.resolution_outcome is LoopExitResolutionOutcome.DELIVERED
+                for item in self.exits
+            )
+            if len(emitted_ids) != delivered_exit_count:
+                raise ValueError(
+                    "a COMPLETED loop must record one emitted continuation per delivered exit"
+                )
         else:
             if not nonsettled:
                 raise ValueError("a RUNNING or STOPPING loop must retain its current frame")
             if any(item.resolution_outcome is not None for item in self.exits):
                 raise ValueError("a RUNNING or STOPPING loop cannot resolve exits early")
+            if emitted_ids:
+                raise ValueError("only a COMPLETED loop may record emitted continuation tokens")
         if self.completed_revision is not None and not (
             self.created_revision <= self.completed_revision <= self.updated_revision
         ):
@@ -952,6 +1020,7 @@ __all__ = [
     "JoinObligation",
     "JoinObligationOutcome",
     "LoopExit",
+    "LoopEnclosingOwner",
     "LoopExitRecord",
     "LoopExitResolutionOutcome",
     "LoopInstance",
