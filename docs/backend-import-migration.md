@@ -518,6 +518,21 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.retention.legal_hold_repository:LegalHoldRepository` | `zeroth.governance.retention.legal_hold_repository:LegalHoldRepository` | Move retention governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.retention.policy_repository:RetentionPolicyRepository` | `zeroth.governance.retention.policy_repository:RetentionPolicyRepository` | Move retention governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.retention.worker:RetentionPurgeWorker` | `zeroth.governance.retention.worker:RetentionPurgeWorker` | Move retention governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:CompactionError` | `zeroth.runtime.context:CompactionError` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:CompactionResult` | `zeroth.runtime.context:CompactionResult` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:CompactionState` | `zeroth.runtime.context:CompactionState` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:CompactionStrategy` | `zeroth.runtime.context:CompactionStrategy` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:ContextWindowError` | `zeroth.runtime.context:ContextWindowError` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:ContextWindowTracker` | `zeroth.runtime.context:ContextWindowTracker` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:LLMSummarizationStrategy` | `zeroth.runtime.context:LLMSummarizationStrategy` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:ObservationMaskingStrategy` | `zeroth.runtime.context:ObservationMaskingStrategy` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:TokenCountError` | `zeroth.runtime.context:TokenCountError` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window:TruncationStrategy` | `zeroth.runtime.context:TruncationStrategy` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window.errors:CompactionError` | `zeroth.runtime.context.errors:CompactionError` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window.errors:ContextWindowError` | `zeroth.runtime.context.errors:ContextWindowError` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window.errors:TokenCountError` | `zeroth.runtime.context.errors:TokenCountError` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window.models:CompactionResult` | `zeroth.runtime.context.models:CompactionResult` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.context_window.models:CompactionState` | `zeroth.runtime.context.models:CompactionState` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

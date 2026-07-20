@@ -2171,66 +2171,66 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:CompactionError"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "CompactionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:CompactionResult"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "CompactionResult",
       "signature": "(*, messages: list[typing.Any], original_count: int, compacted_count: int, tokens_before: int, tokens_after: int, strategy_name: str, archived_messages: list[typing.Any] | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:CompactionState"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "CompactionState",
       "signature": "(*, accumulated_tokens: int = 0, max_tokens: int = 0, compaction_count: int = 0, last_compaction_strategy: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:CompactionStrategy"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "CompactionStrategy",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:ContextWindowError"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "ContextWindowError",
       "signature": "<not-inspectable>"
     },
@@ -2249,126 +2249,126 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:ContextWindowTracker"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "ContextWindowTracker",
       "signature": "(settings: 'ContextWindowSettings', strategy: 'CompactionStrategy') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:LLMSummarizationStrategy"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "LLMSummarizationStrategy",
       "signature": "(provider: 'Any') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:ObservationMaskingStrategy"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "ObservationMaskingStrategy",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:TokenCountError"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "TokenCountError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.context_window",
-        "package_export:zeroth.core.context_window"
+        "__all__:zeroth.runtime.context",
+        "package_export:zeroth.runtime.context"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window:TruncationStrategy"
       ],
-      "module": "zeroth.core.context_window",
+      "module": "zeroth.runtime.context",
       "name": "TruncationStrategy",
       "signature": "()"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.context_window.errors"
+        "package_export:zeroth.runtime.context.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window.errors:CompactionError"
       ],
-      "module": "zeroth.core.context_window.errors",
+      "module": "zeroth.runtime.context.errors",
       "name": "CompactionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.context_window.errors"
+        "package_export:zeroth.runtime.context.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window.errors:ContextWindowError"
       ],
-      "module": "zeroth.core.context_window.errors",
+      "module": "zeroth.runtime.context.errors",
       "name": "ContextWindowError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.context_window.errors"
+        "package_export:zeroth.runtime.context.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window.errors:TokenCountError"
       ],
-      "module": "zeroth.core.context_window.errors",
+      "module": "zeroth.runtime.context.errors",
       "name": "TokenCountError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.context_window.models"
+        "schema_model:zeroth.runtime.context.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window.models:CompactionResult"
       ],
-      "module": "zeroth.core.context_window.models",
+      "module": "zeroth.runtime.context.models",
       "name": "CompactionResult",
       "signature": "(*, messages: list[typing.Any], original_count: int, compacted_count: int, tokens_before: int, tokens_after: int, strategy_name: str, archived_messages: list[typing.Any] | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.context_window.models"
+        "schema_model:zeroth.runtime.context.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.context_window.models:CompactionState"
       ],
-      "module": "zeroth.core.context_window.models",
+      "module": "zeroth.runtime.context.models",
       "name": "CompactionState",
       "signature": "(*, accumulated_tokens: int = 0, max_tokens: int = 0, compaction_count: int = 0, last_compaction_strategy: str | None = None) -> None"
     },
