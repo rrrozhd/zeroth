@@ -5079,7 +5079,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph",
       "legacy_name": "AgentNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['agent'] = 'agent', agent: zeroth.core.graph.models.AgentNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['agent'] = 'agent', agent: zeroth.contracts.graph.models.AgentNodeData) -> None"
     },
     {
       "evidence": [
@@ -5198,7 +5198,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph",
       "legacy_name": "EntrypointNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['entrypoint'] = 'entrypoint', entrypoint: zeroth.core.graph.models.EntrypointNodeData = <factory>) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['entrypoint'] = 'entrypoint', entrypoint: zeroth.contracts.graph.models.EntrypointNodeData = <factory>) -> None"
     },
     {
       "evidence": [
@@ -5229,7 +5229,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph",
       "legacy_name": "ExecutableUnitNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['executable_unit'] = 'executable_unit', executable_unit: zeroth.core.graph.models.ExecutableUnitNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['executable_unit'] = 'executable_unit', executable_unit: zeroth.contracts.graph.models.ExecutableUnitNodeData) -> None"
     },
     {
       "evidence": [
@@ -5277,7 +5277,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph",
       "legacy_name": "ExecutionSettings",
-      "signature": "(*, max_total_steps: Annotated[int, Ge(ge=1)] = 1000, max_total_runtime_seconds: Annotated[int | None, Ge(ge=1)] = None, max_visits_per_node: Annotated[int, Ge(ge=1)] = 10, max_visits_per_edge: Annotated[int | None, Ge(ge=1)] = None, default_timeout_seconds: Annotated[int | None, Ge(ge=1)] = None, failure_policy: str = 'fail_fast', audit_enabled: bool = True) -> None"
+      "signature": "(*, max_total_steps: Annotated[int, Ge(ge=1)] = 1000, max_total_runtime_seconds: Annotated[int | None, Ge(ge=1)] = None, max_visits_per_node: Annotated[int, Ge(ge=1)] = 10, max_visits_per_edge: Annotated[int | None, Ge(ge=1)] = None, default_timeout_seconds: Annotated[int | None, Ge(ge=1)] = None, failure_policy: str = 'fail_fast', audit_enabled: bool = True, sequential_join_enabled: bool = False) -> None"
     },
     {
       "evidence": [
@@ -5355,7 +5355,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph",
       "legacy_name": "HumanApprovalNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['human_approval'] = 'human_approval', human_approval: zeroth.core.graph.models.HumanApprovalNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['human_approval'] = 'human_approval', human_approval: zeroth.contracts.graph.models.HumanApprovalNodeData) -> None"
     },
     {
       "evidence": [
@@ -5392,7 +5392,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph",
       "legacy_name": "RetrievalNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['retrieval'] = 'retrieval', retrieval: zeroth.core.graph.models.RetrievalNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['retrieval'] = 'retrieval', retrieval: zeroth.contracts.graph.models.RetrievalNodeData) -> None"
     },
     {
       "evidence": [
@@ -5416,7 +5416,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph",
       "legacy_name": "SubgraphNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['subgraph'] = 'subgraph', subgraph: zeroth.core.subgraph.models.SubgraphNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['subgraph'] = 'subgraph', subgraph: zeroth.contracts.graph.models.SubgraphNodeData) -> None"
     },
     {
       "evidence": [
@@ -5472,7 +5472,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "AgentNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['agent'] = 'agent', agent: zeroth.core.graph.models.AgentNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['agent'] = 'agent', agent: zeroth.contracts.graph.models.AgentNodeData) -> None"
     },
     {
       "evidence": [
@@ -5532,7 +5532,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "EntrypointNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['entrypoint'] = 'entrypoint', entrypoint: zeroth.core.graph.models.EntrypointNodeData = <factory>) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['entrypoint'] = 'entrypoint', entrypoint: zeroth.contracts.graph.models.EntrypointNodeData = <factory>) -> None"
     },
     {
       "evidence": [
@@ -5552,7 +5552,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "ExecutableUnitNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['executable_unit'] = 'executable_unit', executable_unit: zeroth.core.graph.models.ExecutableUnitNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['executable_unit'] = 'executable_unit', executable_unit: zeroth.contracts.graph.models.ExecutableUnitNodeData) -> None"
     },
     {
       "evidence": [
@@ -5572,7 +5572,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "ExecutionSettings",
-      "signature": "(*, max_total_steps: Annotated[int, Ge(ge=1)] = 1000, max_total_runtime_seconds: Annotated[int | None, Ge(ge=1)] = None, max_visits_per_node: Annotated[int, Ge(ge=1)] = 10, max_visits_per_edge: Annotated[int | None, Ge(ge=1)] = None, default_timeout_seconds: Annotated[int | None, Ge(ge=1)] = None, failure_policy: str = 'fail_fast', audit_enabled: bool = True) -> None"
+      "signature": "(*, max_total_steps: Annotated[int, Ge(ge=1)] = 1000, max_total_runtime_seconds: Annotated[int | None, Ge(ge=1)] = None, max_visits_per_node: Annotated[int, Ge(ge=1)] = 10, max_visits_per_edge: Annotated[int | None, Ge(ge=1)] = None, default_timeout_seconds: Annotated[int | None, Ge(ge=1)] = None, failure_policy: str = 'fail_fast', audit_enabled: bool = True, sequential_join_enabled: bool = False) -> None"
     },
     {
       "evidence": [
@@ -5592,7 +5592,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "HumanApprovalNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['human_approval'] = 'human_approval', human_approval: zeroth.core.graph.models.HumanApprovalNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['human_approval'] = 'human_approval', human_approval: zeroth.contracts.graph.models.HumanApprovalNodeData) -> None"
     },
     {
       "evidence": [
@@ -5612,7 +5612,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "NodeBase",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None) -> None"
     },
     {
       "evidence": [
@@ -5622,7 +5622,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "RetrievalNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['retrieval'] = 'retrieval', retrieval: zeroth.core.graph.models.RetrievalNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['retrieval'] = 'retrieval', retrieval: zeroth.contracts.graph.models.RetrievalNodeData) -> None"
     },
     {
       "evidence": [
@@ -5642,7 +5642,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "SubgraphNode",
-      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.core.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.core.parallel.models.ParallelConfig | None = None, node_type: Literal['subgraph'] = 'subgraph', subgraph: zeroth.core.subgraph.models.SubgraphNodeData) -> None"
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['subgraph'] = 'subgraph', subgraph: zeroth.contracts.graph.models.SubgraphNodeData) -> None"
     },
     {
       "evidence": [
@@ -10144,6 +10144,16 @@
       "legacy_module": "zeroth.econ_plane.statistics.schemas",
       "legacy_name": "IntervalEstimate",
       "signature": "(*, mean: float, low: float, high: float) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.graph.models"
+      ],
+      "id": "zeroth.core.graph.models:JoinConfig",
+      "kind": "class",
+      "legacy_module": "zeroth.core.graph.models",
+      "legacy_name": "JoinConfig",
+      "signature": "(*, merge_strategy: Literal['collect', 'reduce', 'merge', 'custom'] = 'merge', reducer_ref: str | None = None) -> None"
     }
   ],
   "immutable": true,

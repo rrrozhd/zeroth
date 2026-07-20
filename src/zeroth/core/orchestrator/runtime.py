@@ -435,8 +435,7 @@ class RuntimeOrchestrator:
             audit_record,
         )
         self._increment_node_visit(run, node.node_id)
-        next_node_ids = self._plan_next_nodes(graph, run, node.node_id, output_payload)
-        self._queue_next_nodes(graph, run, node.node_id, output_payload, next_node_ids)
+        self._driver.advance_downstream(graph, run, node.node_id, output_payload)
         run.metadata["last_output"] = dict(output_payload)
         run.current_node_ids = []
         run.pending_approval = None

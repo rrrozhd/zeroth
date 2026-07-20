@@ -12,6 +12,7 @@ from typing import Any
 
 # Re-exported as zeroth.runtime.parallel API: the authored fan-out configuration
 # is graph contract vocabulary; the runtime execution objects stay here.
+from zeroth.contracts.graph.models import JoinConfig as JoinConfig
 from zeroth.contracts.graph.models import ParallelConfig as ParallelConfig
 from zeroth.runtime.parallel.errors import ParallelStepLimitError
 

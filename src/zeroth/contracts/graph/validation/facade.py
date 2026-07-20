@@ -12,6 +12,7 @@ from zeroth.contracts.graph.validation.capabilities import (
 from zeroth.contracts.graph.validation.cycles import validate_cycles
 from zeroth.contracts.graph.validation.edges import validate_edges
 from zeroth.contracts.graph.validation.issues import append_issue
+from zeroth.contracts.graph.validation.joins import validate_join_configs
 from zeroth.contracts.graph.validation.nodes import validate_entrypoint, validate_nodes
 from zeroth.contracts.graph.validation.references import validate_graph_refs
 from zeroth.contracts.graph.validation.tools import validate_tool_attachments
@@ -79,3 +80,4 @@ class ContractValidator:
             capability_checks=self._capability_checks,
         )
         validate_cycles(graph, node_map, adjacency, issues)
+        validate_join_configs(graph, node_map, adjacency, issues)

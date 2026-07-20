@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11] - 2026-07-20
+
+### Added
+
+- **B9 — sequential join barrier (feature-flagged, default OFF), ported from
+  the public main line** (main v0.11 `924ab54` + v0.11.0.1 deadlock guard
+  `d012200`), reimplemented on the decomposed runtime. An opt-in dispatch
+  subsystem fixing diamond payload corruption: an unconditional convergent
+  node previously executed twice and clobbered its merged input. Gated by
+  `ExecutionSettings.sequential_join_enabled` (default False — flag-off
+  behavior byte-identical, verified by the unchanged characterization pins).
+  - New `JoinConfig` model (same merge vocabulary + reducer registry as
+    `ParallelConfig`) and `NodeBase.join_config`
+    (`contracts/graph/models.py`).
+  - Publish validation: `MISSING_JOIN_CONFIG` on genuine concurrent delivery
+    without a merge policy; `JOIN_ON_CYCLE` rejects convergent-on-cycle
+    graphs (new `contracts/graph/validation/joins.py`, wired into the
+    contract validator after cycle checks).
+  - `GraphDriver` gains the barrier: `run_branch_planner` (full plan with
+    suppressed edges), `edge_payload` (shared payload/mapping computation),
+    `advance_downstream` (single sequential post-node entry point), and the
+    join worklist (delivered/suppressed edge resolution, skip cascade,
+    `join_state` checkpoint round-trip, JoinConfig merge, cyclic-edge
+    defense). The approval-resolution path advances through the same entry
+    point.
+  - Deadlock guard: leftover `join_state` at completion fails the run loudly
+    (`join_deadlock`) instead of silently completing past a join waiting on
+    an unreachable inbound edge.
+  - Test suites ported: `tests/orchestrator/test_join_barrier.py` (24 tests,
+    incl. the documented shared-schema merge-clobber xfail) and
+    `test_join_barrier_stress.py`.
+  - **Surface fixture amendment (first use of the additive-amendment policy,
+    now documented in `docs/backend-library-surface.md`):**
+    `ExecutionSettings` and `NodeBase` (+ its six node subclasses) gain the
+    new optional fields in both surface fixtures — 32 signature updates plus
+    the `JoinConfig` registration on both surfaces; the legacy shim
+    `zeroth.core.graph.models` re-exports `JoinConfig`.
+
 ## [0.10.6] - 2026-07-20
 
 ### Fixed

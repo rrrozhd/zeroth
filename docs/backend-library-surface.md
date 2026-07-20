@@ -76,6 +76,19 @@ may have more than one evidence source.
 - Canonical fixture changes require a matching row in
   `docs/backend-import-migration.md` and an isolated documentation commit.
 - A symbol is not removable merely because service call counts are zero.
+- **Additive amendments (added 2026-07-20, first applied for B9).** "Immutable"
+  protects against *silent* change, not against the surface ever evolving. A
+  pinned capability's signature may change only by a **deliberate additive
+  amendment**: new optional fields/parameters with defaults, never a removal,
+  rename, type change, or default change of an existing parameter. An amendment
+  commit must (a) update the affected signature strings in BOTH fixtures in the
+  same commit as the model change, (b) list every amended capability id in the
+  commit/CHANGELOG, and (c) leave every untouched entry byte-identical. New
+  symbols register on both surfaces (a canonical entry plus a legacy capability
+  for the shim path), mirroring how `ParallelConfig` is recorded. First
+  amendment: B9 adds `ExecutionSettings.sequential_join_enabled` and
+  `NodeBase.join_config` (propagating to the node subclasses' signatures) and
+  registers the new `JoinConfig` model.
 
 ## Optional integrations
 
