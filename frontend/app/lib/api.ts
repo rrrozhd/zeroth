@@ -37,6 +37,10 @@ export type StudioViewport = S["StudioViewport"];
 export type StudioContract = S["StudioContractResponse"];
 export type CreateContractRequest = S["CreateContractRequest"];
 export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
+export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
+export type QualityVerdictRequest = S["QualityVerdictRequest"];
+export type RunQualityVerdict = S["RunQualityVerdict"];
+export type ContractSchema = S["PublicContractSchemaResponse"];
 export type AuditVerification = S["AuditVerificationResponse"];
 export type DeploymentAttestation = S["DeploymentAttestationResponse"];
 export type AttestationVerification = S["AttestationVerificationResponse"];
@@ -370,6 +374,38 @@ export function getRunTimeline(runId: string): Promise<AuditTimeline> {
   return apiFetch<AuditTimeline>(`/v1/runs/${encodeURIComponent(runId)}/timeline`);
 }
 
+// ---- Run operator controls (RUN_ADMIN) ----
+
+/** Forcibly fail a run (operator_cancelled) and clear its lease. */
+export function cancelRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+  });
+}
+
+/** Reset a failed / dead-letter run to PENDING for replay. */
+export function replayRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/replay`, {
+    method: "POST",
+  });
+}
+
+/** Interrupt a RUNNING run (transition to WAITING_INTERRUPT). */
+export function interruptRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/interrupt`, {
+    method: "POST",
+  });
+}
+
+/** The deployment's pinned input contract (name + version + JSON Schema), used to
+    guide and validate run submission. Deployment-scoped (DEPLOYMENT_READ). */
+export async function getInputContract(): Promise<ContractSchema> {
+  const ref = await deploymentRef();
+  return apiFetch<ContractSchema>(
+    `/v1/deployments/${encodeURIComponent(ref)}/input-contract`,
+  );
+}
+
 // ---- Approvals (deployment-scoped) ----
 
 export async function listApprovals(): Promise<ApprovalRecord[]> {
@@ -409,6 +445,30 @@ export async function listNodeAudits(
   return (res.records ?? []).slice(-limit).reverse();
 }
 
+export type RunEvidence = S["RunEvidenceResponse"];
+export type DeploymentEvidence = S["DeploymentEvidenceResponse"];
+
+/** Verify the audit digest chain + signatures across every run of the
+    deployment (WS-D three-state), for a deployment-wide tamper-evidence badge. */
+export async function getDeploymentAuditVerification(): Promise<AuditVerification> {
+  const ref = await deploymentRef();
+  return apiFetch<AuditVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/audit-verification`,
+  );
+}
+
+/** Full compliance evidence bundle for the deployment (runs + audits + approvals
+    + summary + policy events), for export. */
+export async function getDeploymentEvidence(): Promise<DeploymentEvidence> {
+  const ref = await deploymentRef();
+  return apiFetch<DeploymentEvidence>(`/v1/deployments/${encodeURIComponent(ref)}/evidence`);
+}
+
+/** Compliance evidence bundle for a single run, for export. */
+export function getRunEvidence(runId: string): Promise<RunEvidence> {
+  return apiFetch<RunEvidence>(`/v1/runs/${encodeURIComponent(runId)}/evidence`);
+}
+
 // ---- Deployments ----
 
 /** All persisted deployment versions; `serving` marks this service's own. */
@@ -423,6 +483,19 @@ export function createDeployment(body: CreateDeploymentRequest): Promise<Deploym
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/** Roll a deployment back to an earlier graph version — creates a new deployment
+    version pinned to `targetGraphVersion` (DEPLOYMENT_ADMIN). Serving it still
+    requires a restart with ZEROTH_DEPLOYMENT_REF set. */
+export function rollbackDeployment(
+  ref: string,
+  targetGraphVersion: number,
+): Promise<DeploymentSummary> {
+  return apiFetch<DeploymentSummary>(
+    `/v1/deployments/${encodeURIComponent(ref)}/rollback`,
+    { method: "POST", body: JSON.stringify({ target_graph_version: targetGraphVersion }) },
+  );
 }
 
 /** Verify the audit digest chain + signatures for one run (WS-D three-state). */
@@ -496,11 +569,150 @@ export function listManifests(): Promise<ManifestSummary[]> {
   return apiFetch<ManifestSummary[]>("/v1/manifests");
 }
 
+// ---- Prompt templates ----
+
+export type PromptTemplate = S["TemplateResponse"];
+export type PromptTemplateList = S["TemplateListResponse"];
+export type CreateTemplateRequest = S["CreateTemplateRequest"];
+
+/** Registered prompt templates (name + version + body + variables). */
+export function listTemplates(): Promise<PromptTemplateList> {
+  return apiFetch<PromptTemplateList>("/v1/templates");
+}
+
+/** Register a prompt template; re-posting a name creates the next version
+    (TEMPLATE_ADMIN). */
+export function createTemplate(body: CreateTemplateRequest): Promise<PromptTemplate> {
+  return apiFetch<PromptTemplate>("/v1/templates", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Delete one version of a prompt template (TEMPLATE_ADMIN). */
+export function deleteTemplate(name: string, version: number): Promise<void> {
+  return apiFetch<void>(
+    `/v1/templates/${encodeURIComponent(name)}/${version}`,
+    { method: "DELETE" },
+  );
+}
+
+// ---- Webhooks / integrations (WEBHOOK_ADMIN) ----
+
+export type WebhookSubscription = S["WebhookSubscriptionResponse"];
+export type WebhookSubscriptionList = S["WebhookSubscriptionListResponse"];
+export type WebhookDeadLetter = S["WebhookDeadLetterResponse"];
+export type WebhookDeadLetterList = S["WebhookDeadLetterListResponse"];
+
+/** Active webhook subscriptions for this deployment. */
+export function listWebhookSubscriptions(): Promise<WebhookSubscriptionList> {
+  return apiFetch<WebhookSubscriptionList>("/v1/webhooks/subscriptions");
+}
+
+/** Create a webhook subscription. The response `secret` is shown once — it signs
+    delivery payloads (HMAC) and can't be retrieved again. */
+export async function createWebhookSubscription(
+  targetUrl: string,
+  eventTypes: string[],
+): Promise<WebhookSubscription> {
+  const ref = await deploymentRef();
+  return apiFetch<WebhookSubscription>("/v1/webhooks/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      deployment_ref: ref,
+      target_url: targetUrl,
+      event_types: eventTypes,
+    }),
+  });
+}
+
+/** Deactivate (soft-delete) a webhook subscription. */
+export function deleteWebhookSubscription(id: string): Promise<void> {
+  return apiFetch<void>(`/v1/webhooks/subscriptions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Dead-lettered webhook deliveries (exhausted retries). */
+export function listWebhookDeadLetters(): Promise<WebhookDeadLetterList> {
+  return apiFetch<WebhookDeadLetterList>("/v1/webhooks/dead-letters");
+}
+
+/** Re-enqueue a dead-lettered delivery for another attempt. */
+export function replayWebhookDeadLetter(id: string): Promise<unknown> {
+  return apiFetch<unknown>(
+    `/v1/webhooks/dead-letters/${encodeURIComponent(id)}/replay`,
+    { method: "POST" },
+  );
+}
+
+// ---- Retention & compliance (RETENTION_ADMIN) ----
+
+export type RetentionPolicy = S["RetentionPolicyResponse"];
+export type RetentionPolicyBody = S["RetentionPolicyBody"];
+export type LegalHold = S["LegalHoldResponse"];
+export type LegalHoldBody = S["LegalHoldBody"];
+export type ErasureRequestBody = S["ErasureRequestBody"];
+export type ErasureResult = S["ErasureResponse"];
+
+/** The tenant's retention policy — TTLs for runs/audits and whether purge is on. */
+export function getRetentionPolicy(): Promise<RetentionPolicy> {
+  return apiFetch<RetentionPolicy>("/v1/retention/policy");
+}
+
+/** Update the tenant's retention policy (enable purge, set run/audit TTLs). */
+export function updateRetentionPolicy(body: RetentionPolicyBody): Promise<RetentionPolicy> {
+  return apiFetch<RetentionPolicy>("/v1/retention/policy", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Place a legal hold (blocks erasure/purge) over a run or the whole tenant. */
+export function placeLegalHold(body: LegalHoldBody): Promise<LegalHold> {
+  return apiFetch<LegalHold>("/v1/retention/legal-holds", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Release a legal hold by id. */
+export function releaseLegalHold(holdId: string): Promise<LegalHold> {
+  return apiFetch<LegalHold>(`/v1/retention/legal-holds/${encodeURIComponent(holdId)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Right-to-erasure: redact a run (or all of a tenant's runs). 409 if a legal
+    hold blocks it. Returns per-run deletion counts. */
+export function requestErasure(body: ErasureRequestBody): Promise<ErasureResult> {
+  return apiFetch<ErasureResult>("/v1/retention/erasure-requests", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 // ---- Cost (deployment-scoped) ----
 
 export async function getCost(): Promise<DeploymentCost> {
   const ref = await deploymentRef();
   return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
+}
+
+export type TenantCost = S["TenantCostResponse"];
+
+/** Month-to-date spend and budget cap for a tenant (METRICS_READ). Proxies to
+    the Regulus budget backend; 503 when it isn't configured. */
+export function getTenantCost(tenantId: string): Promise<TenantCost> {
+  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/cost`);
+}
+
+/** Set the tenant spend cap enforced before LLM calls and fan-out (METRICS_ADMIN). */
+export function setTenantBudget(tenantId: string, budgetCapUsd: number): Promise<TenantCost> {
+  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/budget`, {
+    method: "PUT",
+    body: JSON.stringify({ budget_cap_usd: budgetCapUsd }),
+  });
 }
 
 // ---- Model right-sizing (authoring-time nudge) ----
@@ -535,6 +747,53 @@ export function getUnitEconomics(): Promise<UnitEconomicsReport> {
 /** Deployment-wide structural-waste rollup (paid-for-failed, loops, retries) over the last N runs. */
 export function getWaste(): Promise<WasteRollup> {
   return apiFetch<WasteRollup>("/v1/econ/waste");
+}
+
+// ---- Econ portfolio dashboard (bundled Regulus, via /v1/econ/dashboard/* proxy) ----
+// These come from the bundled control plane, whose shapes aren't in the core
+// OpenAPI (the proxy forwards raw JSON), so they're hand-declared here — the
+// econ_plane-owned contract, mirrored like PublishIssue / GraphDiff above.
+
+export type EconKpis = {
+  total_ai_spend_usd: number;
+  total_ai_value_usd: number;
+  net_ai_margin_usd: number;
+  portfolio_confidence_score: number;
+  efficiency_index: number;
+};
+
+export type EconCapabilityValue = {
+  capability_id: string;
+  net_margin_usd: number;
+  confidence: number;
+};
+
+/** Portfolio KPIs (spend, value, net margin, confidence, efficiency) from the
+    bundled Regulus control plane. 503 when Regulus isn't configured. */
+export function getEconKpis(): Promise<EconKpis> {
+  return apiFetch<EconKpis>("/v1/econ/dashboard/kpis");
+}
+
+/** Capabilities creating the most net value. */
+export function getEconTopCreators(): Promise<EconCapabilityValue[]> {
+  return apiFetch<EconCapabilityValue[]>("/v1/econ/dashboard/top-creators");
+}
+
+/** Capabilities destroying the most value (negative net margin). */
+export function getEconCapitalDestroyers(): Promise<EconCapabilityValue[]> {
+  return apiFetch<EconCapabilityValue[]>("/v1/econ/dashboard/capital-destroyers");
+}
+
+/** Attach an external good/bad quality verdict to a terminal run (METRICS_ADMIN).
+    Feeds quality-aware unit economics — cost per *good* outcome. 409 if the run
+    isn't terminal yet. */
+export function attachQualityVerdict(
+  body: QualityVerdictRequest,
+): Promise<RunQualityVerdict> {
+  return apiFetch<RunQualityVerdict>("/v1/econ/quality-verdict", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 /** Measured right-sizing: replays the node's real inputs through cheaper models and

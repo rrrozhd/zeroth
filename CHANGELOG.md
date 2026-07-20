@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-20
+
+### Added
+
+- **Console F-series wave + econ portfolio dashboard, ported from the public
+  main line** (main versions v0.10.0.0.4–v0.10.1.1). The frontend adopts the
+  console audit wave wholesale: attestation panel + deployment rollback
+  (F12/F6), run controls + quality-verdict + contract form (F3/F5/F11),
+  tenant budget card (F4), evidence export + deployment chain verify (F2),
+  Retention & Compliance page (F1), Integrations/webhooks page (F8), and
+  Prompt templates page (F9). All backend endpoints these pages call already
+  exist on this line; `openapi.json` and `api-types.ts` were regenerated from
+  this tree's app and the frontend typechecks clean.
+- **Console-reachable econ portfolio dashboard via proxy (F7).** New
+  `zeroth.service.api.econ_dashboard_api` proxies the bundled Regulus
+  read-only dashboard views under `/v1/econ/dashboard/*` behind
+  `METRICS_READ`, using the same server-side self-auth bridge as `cost_api`.
+  Registered on both the `/v1` and compat routers; covered by
+  `tests/service/test_econ_dashboard_api.py`. The refactor-era contract
+  snapshots (`backend_openapi.json`, `backend_route_inventory.json`) are
+  regenerated for the 9 additive routes — a deliberate surface extension, not
+  drift.
+
+### Removed
+
+- Dead econ-plane statistics router (F14, main v0.10.0.1.1): the 3-line
+  `statistics/api.py` stub and its two `main.py` registration lines. The
+  `statistics.schemas` models (pinned surface) are untouched.
+
 ## [0.10.0.1] - 2026-07-19
 
 ### Fixed

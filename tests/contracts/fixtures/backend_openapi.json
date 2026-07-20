@@ -5495,6 +5495,150 @@
         ]
       }
     },
+    "/v1/econ/dashboard/action-suppression": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/calibration-trend": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/capability-ranking": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/capital-destroyers": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/confidence-trend": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/data-quality-mix": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/efficiency-trend": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/kpis": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/top-creators": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/econ/quality-verdict": {
       "post": {
         "requestBody": {

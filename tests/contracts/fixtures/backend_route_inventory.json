@@ -421,6 +421,78 @@
   },
   {
     "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/kpis",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_kpis"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/top-creators",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_top_creators"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/capital-destroyers",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_capital_destroyers"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/capability-ranking",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_capability_ranking"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/confidence-trend",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_confidence_trend"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/efficiency-trend",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_efficiency_trend"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/calibration-trend",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_calibration_trend"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/action-suppression",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_action_suppression"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/v1/econ/dashboard/data-quality-mix",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_data_quality_mix"
+  },
+  {
+    "kind": "APIRoute",
     "path": "/v1/webhooks/subscriptions",
     "methods": [
       "POST"
@@ -890,6 +962,78 @@
       "POST"
     ],
     "name": "attach_quality_verdict"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/kpis",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_kpis"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/top-creators",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_top_creators"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/capital-destroyers",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_capital_destroyers"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/capability-ranking",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_capability_ranking"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/confidence-trend",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_confidence_trend"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/efficiency-trend",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_efficiency_trend"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/calibration-trend",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_calibration_trend"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/action-suppression",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_action_suppression"
+  },
+  {
+    "kind": "APIRoute",
+    "path": "/econ/dashboard/data-quality-mix",
+    "methods": [
+      "GET"
+    ],
+    "name": "econ_dashboard_data_quality_mix"
   },
   {
     "kind": "APIRoute",
