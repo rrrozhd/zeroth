@@ -47,14 +47,14 @@ from zeroth.core.agent_runtime.tools import ToolAttachmentBridge
 from zeroth.core.agent_runtime.validation import OutputValidator
 from zeroth.core.governed.integrations.tool_calls import build_tool_message
 from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.guardrails.content import (
+from zeroth.core.memory import MemoryConnectorResolver
+from zeroth.governance.audit import MemoryAccessRecord
+from zeroth.governance.guardrails.content import (
     BlocklistFilter,
     ContentFilter,
     ContentGuardrail,
     PIIFilter,
 )
-from zeroth.core.memory import MemoryConnectorResolver
-from zeroth.governance.audit import MemoryAccessRecord
 from zeroth.governance.policy.errors import parse_effective_capabilities, require_capabilities
 from zeroth.governance.policy.models import Capability
 from zeroth.platform.observability import start_span
@@ -112,7 +112,7 @@ class AgentRunner:
             screening_mode=safety.screening_mode,
         )
         # Content safety: optional PII/blocklist policy on agent input/output
-        # (opt-in via AgentConfig.content_safety; see zeroth.core.guardrails.content).
+        # (opt-in via AgentConfig.content_safety; see zeroth.governance.guardrails.content).
         content_safety = config.content_safety
         if content_guardrail is not None:
             self.content_guardrail: ContentGuardrail | None = content_guardrail

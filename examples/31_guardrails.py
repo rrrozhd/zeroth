@@ -41,8 +41,8 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.guardrails import GuardrailConfig
 from zeroth.core.runs import RunStatus
+from zeroth.governance.guardrails import GuardrailConfig
 
 
 def build_graph() -> Graph:

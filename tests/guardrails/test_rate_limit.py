@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 
-import zeroth.core.guardrails.rate_limit as rate_limit
-from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+import zeroth.governance.guardrails.rate_limit as rate_limit
+from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 
 BUCKET = "tenant:default:deployment:test"
 

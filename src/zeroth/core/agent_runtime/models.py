@@ -115,7 +115,7 @@ class ContentSafetyConfig(BaseModel):
     (``enabled=False`` by default): unlike model-boundary sanitization, this
     imposes a content policy on the application's own typed data, which is
     high-blast-radius, so it is off until explicitly configured. See
-    ``zeroth.core.guardrails.content``.
+    ``zeroth.governance.guardrails.content``.
     """
 
     model_config = ConfigDict(extra="forbid")

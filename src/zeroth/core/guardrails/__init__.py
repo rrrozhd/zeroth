@@ -1,16 +1,22 @@
-"""Guardrails: operational (rate limiting, quotas, dead-letter) and content safety."""
+"""Legacy import path for the governance guardrails package.
 
-from zeroth.core.guardrails.config import GuardrailConfig
-from zeroth.core.guardrails.content import (
+The guardrails subsystem lives in :mod:`zeroth.governance.guardrails`; this
+package republishes the same objects for compatibility. Import from the
+canonical location instead (see docs/backend-import-migration.md).
+"""
+
+from zeroth.governance.guardrails import (
     BlocklistFilter,
     ContentFilter,
     ContentFinding,
     ContentGuardrail,
+    DeadLetterManager,
+    GuardrailConfig,
     GuardrailOutcome,
     PIIFilter,
+    QuotaEnforcer,
+    TokenBucketRateLimiter,
 )
-from zeroth.core.guardrails.dead_letter import DeadLetterManager
-from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 
 __all__ = [
     "BlocklistFilter",

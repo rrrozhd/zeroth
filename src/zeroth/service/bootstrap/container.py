@@ -10,14 +10,14 @@ if TYPE_CHECKING:
     from zeroth.contracts.registry import ContractRegistry
     from zeroth.core.deployments import Deployment, DeploymentService
     from zeroth.core.econ.client import RegulusClient
-    from zeroth.core.guardrails.config import GuardrailConfig
-    from zeroth.core.guardrails.dead_letter import DeadLetterManager
-    from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
     from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
     from zeroth.core.memory.registry import InMemoryConnectorRegistry
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.governance.approvals import ApprovalService
     from zeroth.governance.audit import AuditRepository
+    from zeroth.governance.guardrails.config import GuardrailConfig
+    from zeroth.governance.guardrails.dead_letter import DeadLetterManager
+    from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
     from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
     from zeroth.platform.dispatch import LeaseManager
     from zeroth.platform.observability.metrics import MetricsCollector

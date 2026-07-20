@@ -14,9 +14,6 @@ from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.guardrails.config import GuardrailConfig
-from zeroth.core.guardrails.dead_letter import DeadLetterManager
-from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.core.memory.factory import register_memory_connectors
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
@@ -24,6 +21,9 @@ from zeroth.core.memory.runtime_configs import load_persisted_connectors
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.audit import AuditRepository
+from zeroth.governance.guardrails.config import GuardrailConfig
+from zeroth.governance.guardrails.dead_letter import DeadLetterManager
+from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.governance.policy import PolicyGuard, PolicyRegistry, default_capability_registry
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.config.settings import get_settings

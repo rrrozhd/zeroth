@@ -256,13 +256,20 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.guardrails.dead_letter", "zeroth.core.runs"),
-        (
-            "zeroth.core.guardrails.dead_letter",
-            "zeroth.integrations.persistence.runs.run_repository",
+        ("zeroth.governance.guardrails.dead_letter", "zeroth.core.runs"),
+        reason=(
+            "DeadLetterManager's pinned dataclass signature names RunRepository "
+            "in the run_repository annotation, and the immutable legacy fixture "
+            "pins that signature text, so the field cannot be re-annotated with "
+            "a governance-owned protocol -- the same wall as "
+            "RetentionErasureService. RunFailureState is also constructed at "
+            "runtime when a run is dead-lettered. The RunStatus import moved to "
+            "its contract-owned definition in zeroth.contracts.governed, and "
+            "the dead-letter reason literal is pinned locally instead of "
+            "imported from the persistence module, so this edge carries only "
+            "the run bookkeeping objects."
         ),
-        reason="Legacy governance services depend directly on runtime implementations.",
-        removal_task="Task 13: move governance packages behind contract-owned interfaces.",
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
         ("zeroth.core.agent_runtime.factory", "zeroth.core.deployments"),
