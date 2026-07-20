@@ -9,7 +9,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from zeroth.runtime.parallel.errors import (
+    BranchApprovalPauseSignal,
     FanOutValidationError,
+    MultipleBranchPauseError,
     ParallelExecutionError,
 )
 from zeroth.runtime.parallel.executor import ParallelExecutor
@@ -217,6 +219,62 @@ class TestExecuteBranches:
         results = await executor.execute_branches(contexts, branch_coro, config)
         assert all(r.error is None for r in results)
         assert [r.output for r in results] == [{"val": 0}, {"val": 1}, {"val": 2}]
+
+    @pytest.mark.asyncio
+    async def test_best_effort_multiple_pauses_fail_loud(
+        self, executor: ParallelExecutor
+    ) -> None:
+        # B10: best_effort runs every branch to completion, so >1 branch can hit
+        # an approval gate. The old code kept only the LAST pause signal, orphaning
+        # the earlier paused branch's child run. It must now fail loudly.
+        config = ParallelConfig(split_path="items", fail_mode="best_effort")
+        contexts = [
+            BranchContext(branch_index=i, branch_id=f"r:branch:{i}", input_payload={})
+            for i in range(3)
+        ]
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            if ctx.branch_index in (0, 2):
+                raise BranchApprovalPauseSignal(
+                    branch_index=ctx.branch_index,
+                    child_run_id=f"child-{ctx.branch_index}",
+                    graph_ref="child-wf",
+                    version=1,
+                    node_id="sub",
+                )
+            return {"ok": ctx.branch_index}
+
+        with pytest.raises(MultipleBranchPauseError, match="2 branches paused"):
+            await executor.execute_branches(contexts, branch_coro, config)
+
+    @pytest.mark.asyncio
+    async def test_best_effort_single_pause_still_propagates(
+        self, executor: ParallelExecutor
+    ) -> None:
+        # A single pause is the supported case: re-raised as BranchApprovalPauseSignal
+        # with the completed sibling attached (unchanged behavior).
+        config = ParallelConfig(split_path="items", fail_mode="best_effort")
+        contexts = [
+            BranchContext(branch_index=i, branch_id=f"r:branch:{i}", input_payload={})
+            for i in range(2)
+        ]
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            if ctx.branch_index == 1:
+                raise BranchApprovalPauseSignal(
+                    branch_index=1,
+                    child_run_id="child-1",
+                    graph_ref="child-wf",
+                    version=1,
+                    node_id="sub",
+                )
+            return {"ok": 0}
+
+        with pytest.raises(BranchApprovalPauseSignal) as exc_info:
+            await executor.execute_branches(contexts, branch_coro, config)
+        assert exc_info.value.branch_index == 1
+        completed = getattr(exc_info.value, "completed_branch_results", [])
+        assert [br.branch_index for br in completed] == [0]
 
 
 # ---------------------------------------------------------------------------

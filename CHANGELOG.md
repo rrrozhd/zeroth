@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-07-20
+
+### Fixed
+
+B-series orchestrator/infra fixes ported from the public main line (main
+v0.10.1.17, v0.10.1.19, v0.10.1.20, v0.10.1.23, v0.10.1.24, v0.10.1.25.1) —
+this completes the port of main's entire 29-release `0.10.1.x` audit series:
+
+- **B5/B6/B7 — econ-plane query 500s + dollar-denominated counterfactual**
+  (`econ/plane/{capabilities,counterfactual,performance}/service.py`), with
+  the new `tests/econ_plane/test_service_query_fixes.py` suite.
+- **B11 — sidecar no longer double-applies network config**
+  (`integrations/sandbox/executor.py`).
+- **B12 — Vault token refresh** on expiry with single-flight re-login
+  (`platform/secrets/vault.py`).
+- **B13 — signal handling left to uvicorn.** The lifespan's
+  `loop.add_signal_handler` block overrode uvicorn's own SIGTERM/SIGINT
+  handlers, so `should_exit` never set and the process hung until SIGKILL
+  (`service/bootstrap/lifecycle.py`).
+- **B1/B3 — prompt no longer re-renders audit; context tracker counts tool
+  calls** (`runtime/agents/prompt.py`, `runtime/context/tracker.py`).
+- **B8 — nested approval pause on a RESUMED fan-out branch persists
+  durably** via the same pause handler as the first pause, instead of an
+  in-memory re-queue that was lost on reload (`runtime/orchestration/
+  driver.py`).
+- **B10 — best_effort fan-out fails loud on multi-branch approval pause**
+  (new `MultipleBranchPauseError`) instead of silently orphaning all but the
+  last paused branch (`runtime/parallel/{errors,executor}.py`).
+
 ## [0.10.5] - 2026-07-20
 
 ### Fixed

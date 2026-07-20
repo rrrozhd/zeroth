@@ -207,3 +207,65 @@ async def test_async_approle_login_single_flight() -> None:
     assert set(values) == {_SECRET_VALUE}
     assert logins == 1
     await provider.aclose()
+
+
+def test_approle_token_reauth_on_expiry_retries_and_refreshes() -> None:
+    # B12: when a cached AppRole token is rejected (403) on a secret GET, the
+    # provider must invalidate it, re-login, and retry the GET once — not reuse
+    # the stale token forever and return None.
+    state = {"logins": 0, "secret_gets": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth/approle/login"):
+            state["logins"] += 1
+            return httpx.Response(
+                200, json={"auth": {"client_token": f"token-{state['logins']}"}}
+            )
+        state["secret_gets"] += 1
+        token = request.headers.get("X-Vault-Token")
+        if state["secret_gets"] == 1:
+            return httpx.Response(200, json={"data": {"data": {"value": "s3cr3t"}}})
+        # The stale token-1 is now rejected; a retry with the refreshed token-2 works.
+        if token == "token-1":
+            return httpx.Response(403, json={"errors": ["permission denied"]})
+        return httpx.Response(200, json={"data": {"data": {"value": "s3cr3t-2"}}})
+
+    provider = VaultSecretProvider(
+        addr="https://vault.internal:8200",
+        role_id="role-1",
+        secret_id="secret-1",
+        cache_ttl=0.0,  # force a re-fetch on the second call
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert provider.resolve_secret("llm.openai", tenant_id="acme") == "s3cr3t"
+    assert provider._token == "token-1"
+
+    # Second fetch: token-1 -> 403 -> re-auth to token-2 -> retry succeeds.
+    assert provider.resolve_secret("llm.openai", tenant_id="acme") == "s3cr3t-2"
+    assert provider._token == "token-2"  # refreshed, not the stale token
+    assert state["logins"] == 2
+
+
+def test_static_token_auth_failure_is_not_cached() -> None:
+    # B12: a static injected token can't be refreshed, so a 403 yields None — but
+    # that None must NOT be cached, else a later (recovered) call is masked.
+    responses = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        responses["n"] += 1
+        if responses["n"] == 1:
+            return httpx.Response(403, json={"errors": ["permission denied"]})
+        return httpx.Response(200, json={"data": {"data": {"value": "recovered"}}})
+
+    provider = VaultSecretProvider(
+        addr="https://vault.internal:8200",
+        token="static-token",
+        cache_ttl=300.0,  # long TTL: proves the None was NOT cached
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert provider.resolve_secret("llm.openai", tenant_id="acme") is None
+    assert provider._token == "static-token"  # static token left intact
+    # A second call re-fetches (the auth-failure None was not cached) and succeeds.
+    assert provider.resolve_secret("llm.openai", tenant_id="acme") == "recovered"

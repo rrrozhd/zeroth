@@ -78,6 +78,18 @@ class PromptAssembler:
         thread_dump = _redact_value(dict(thread_state or {}), set(prompt_config.redact_keys))
         context_dump = _redact_value(dict(runtime_context or {}), set(prompt_config.redact_keys))
 
+        # Internal bookkeeping keys must never be RENDERED back into the prompt
+        # (audit B1). The persisted per-turn "audit" record embeds the prior
+        # turn's full rendered_prompt (which itself carries a thread-state block),
+        # so re-injecting it here made every turn nest the last — geometric prompt
+        # growth (~5x/turn, context-window blowup within a few turns). Strip these
+        # from the copy used for the "Thread state:" block and the audit metadata;
+        # the runner still reads the real thread_state (compacted_messages, etc.)
+        # directly from checkpoint state, so continuity is unaffected.
+        if isinstance(thread_dump, dict):
+            for _internal_key in ("audit", "compacted_messages", "archived_messages"):
+                thread_dump.pop(_internal_key, None)
+
         # Conversation input: the configured payload field is lifted out of the
         # input JSON block and rendered as real chat turns after the user
         # message. The audit metadata keeps the raw (redacted) list.

@@ -7,6 +7,7 @@ delegates to a CompactionStrategy to reduce message size.
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,9 @@ from zeroth.runtime.context.models import (
 
 if TYPE_CHECKING:
     from zeroth.runtime.context.strategies import CompactionStrategy
+
+# LangChain message ``type`` -> OpenAI ``role`` (litellm speaks OpenAI).
+_TYPE_TO_ROLE = {"ai": "assistant", "human": "user", "system": "system", "tool": "tool"}
 
 
 class ContextWindowTracker:
@@ -119,17 +123,52 @@ class ContextWindowTracker:
 
     @staticmethod
     def _normalize_messages(messages: list[Any]) -> list[dict[str, Any]]:
-        """Convert messages to dicts for litellm compatibility.
+        """Convert messages to the OpenAI dict shape litellm expects.
 
-        Handles Pydantic models (via model_dump), plain dicts, and
-        other objects by passing them through unchanged.
+        Handles Pydantic models (via model_dump), plain dicts, and other objects.
+        Crucially, tool-call messages are reshaped to the OpenAI form (audit B3):
+        LangChain/agent tool calls arrive as ``{"name", "args", "id"}`` (or a raw
+        ``{"role":"assistant","tool_calls":[...]}`` with no ``function`` key), and
+        ``litellm.token_counter`` rejects those with "must contain a function
+        key" — hard-failing every tool-using node at the unconditional
+        count_tokens call in ``maybe_compact``.
         """
         result: list[dict[str, Any]] = []
         for msg in messages:
             if hasattr(msg, "model_dump"):
-                result.append(msg.model_dump())
+                result.append(ContextWindowTracker._normalize_dict(msg.model_dump()))
             elif isinstance(msg, dict):
-                result.append(msg)
+                result.append(ContextWindowTracker._normalize_dict(msg))
             else:
                 result.append({"role": "user", "content": str(msg)})
         return result
+
+    @staticmethod
+    def _normalize_dict(data: dict[str, Any]) -> dict[str, Any]:
+        """Map a message dict to the OpenAI role/tool_call shape litellm accepts."""
+        out = dict(data)
+        # Derive an OpenAI role from a LangChain `type` when role is absent.
+        if not out.get("role") and out.get("type") in _TYPE_TO_ROLE:
+            out["role"] = _TYPE_TO_ROLE[out["type"]]
+        tool_calls = out.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            out["tool_calls"] = [
+                ContextWindowTracker._normalize_tool_call(tc) for tc in tool_calls
+            ]
+            # litellm requires the tool-call carrier to be an assistant turn.
+            out["role"] = "assistant"
+        return out
+
+    @staticmethod
+    def _normalize_tool_call(tool_call: Any) -> Any:
+        """Reshape a single tool call to OpenAI ``{id,type,function{name,arguments}}``."""
+        if not isinstance(tool_call, dict) or "function" in tool_call:
+            return tool_call  # already OpenAI-shaped (or not a dict) — leave as is
+        args = tool_call.get("args", tool_call.get("arguments", {}))
+        if not isinstance(args, str):
+            args = json.dumps(args)
+        return {
+            "id": tool_call.get("id", ""),
+            "type": "function",
+            "function": {"name": tool_call.get("name", ""), "arguments": args},
+        }

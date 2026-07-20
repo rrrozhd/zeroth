@@ -53,11 +53,16 @@ def calculate_snapshots(db: Session) -> list[PerformanceSnapshot]:
     snapshots: list[PerformanceSnapshot] = []
 
     for capability in capabilities:
+        # A capability accrues many ValueEstimates (one per valuation run); the
+        # order_by already selects the latest, so cap at one row. Without the
+        # LIMIT, scalar_one_or_none() raises MultipleResultsFound as soon as a
+        # second estimate exists — 500ing every performance read (audit B5).
         estimate = db.execute(
             select(ValueEstimate)
             .where(ValueEstimate.capability_id == capability.id)
             .order_by(ValueEstimate.id.desc())
-        ).scalar_one_or_none()
+            .limit(1)
+        ).scalars().first()
         if estimate is None:
             continue
 

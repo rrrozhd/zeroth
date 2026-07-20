@@ -130,6 +130,59 @@ async def test_graceful_shutdown_called_on_lifespan_exit() -> None:
     mock_worker.graceful_shutdown.assert_called()
 
 
+@pytest.mark.asyncio
+async def test_lifespan_does_not_override_signal_handlers() -> None:
+    """B13: uvicorn owns SIGTERM/SIGINT — the lifespan must not install its own.
+
+    uvicorn installs handle_exit via signal.signal() before the lifespan runs; a
+    loop.add_signal_handler() in the lifespan overrode it, so should_exit was
+    never set, main_loop() spun forever, and post-yield teardown never ran.
+    """
+    import signal
+
+    loop = asyncio.get_running_loop()
+    handlers = getattr(loop, "_signal_handlers", None)
+    if handlers is None:
+        pytest.skip("event loop does not expose _signal_handlers")
+
+    def _sentinel() -> None:  # stands in for uvicorn's pre-installed handler
+        ...
+
+    loop.add_signal_handler(signal.SIGTERM, _sentinel)
+    try:
+        before = handlers.get(signal.SIGTERM)
+
+        mock_worker = MagicMock()
+        mock_worker.start = AsyncMock()
+        mock_worker.poll_loop = AsyncMock(side_effect=asyncio.CancelledError)
+        mock_worker.graceful_shutdown = AsyncMock()
+
+        bootstrap = MagicMock()
+        bootstrap.worker = mock_worker
+        bootstrap.queue_gauge = None
+        bootstrap.delivery_worker = None
+        bootstrap.sla_checker = None
+        bootstrap.retention_worker = None
+        bootstrap.arq_pool = None
+        bootstrap.regulus_client = None
+        bootstrap.webhook_http_client = None
+        bootstrap.deployment = MagicMock()
+        bootstrap.deployment.deployment_ref = DEPLOYMENT
+        bootstrap.deployment.version = 1
+        bootstrap.deployment.graph_version_ref = "g:v1"
+        bootstrap.authenticator = MagicMock()
+
+        from zeroth.core.service.app import create_app
+
+        app = create_app(bootstrap)
+        async with app.router.lifespan_context(app):
+            # The lifespan must NOT have replaced the pre-installed handler.
+            assert handlers.get(signal.SIGTERM) is before
+        assert handlers.get(signal.SIGTERM) is before
+    finally:
+        loop.remove_signal_handler(signal.SIGTERM)
+
+
 # ---------------------------------------------------------------------------
 # Test: ARQ consumer started when pool available
 # ---------------------------------------------------------------------------

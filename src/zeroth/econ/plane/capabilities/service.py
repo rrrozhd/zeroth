@@ -209,5 +209,9 @@ def active_experiment(db: Session, capability_id: str, mode: str = "AB") -> Opti
         .where(Experiment.mode == mode)
         .where(Experiment.status == "ACTIVE")
         .order_by(Experiment.id.desc())
+        .limit(1)
     )
-    return db.execute(stmt).scalar_one_or_none()
+    # Nothing enforces a single ACTIVE experiment per (capability, mode), so cap
+    # at the newest row. scalar_one_or_none() would raise MultipleResultsFound —
+    # 500ing every execution ingest — the moment a second ACTIVE row exists (B7).
+    return db.execute(stmt).scalars().first()

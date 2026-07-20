@@ -218,9 +218,22 @@ class GraphDriver:
                     step_tracker=step_tracker,
                 )
                 if fan_in_resume.pause_state is not None:
-                    # Still waiting (nested approval in the resumed branch).
-                    run.pending_node_ids.insert(0, node_id)
-                    return run
+                    # Nested approval inside the resumed branch (audit B8). Persist
+                    # the pause durably via the SAME handler as the first pause,
+                    # not an in-memory re-queue. The fan-out node was already
+                    # popped from pending_node_ids and persisted above, and
+                    # worker.resume_graph does not capture the returned run — so a
+                    # bare insert+return is lost: the reloaded row has empty
+                    # pending_node_ids and the next drive marks the run COMPLETED
+                    # (false run.completed webhook, dropped sibling/paused outputs).
+                    return await self.parallel_runtime.handle_subgraph_pause(
+                        run,
+                        node,
+                        node_id,
+                        input_payload,
+                        pending_psg.get("split_input", dict(input_payload)),
+                        fan_in_resume,
+                    )
                 del run.metadata["pending_parallel_subgraph"]
                 run.status = RunStatus.RUNNING
                 # Merge branch state and continue post-fan-in flow.
