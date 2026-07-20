@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 from zeroth.governance.approvals.models import ApprovalDecision
-from zeroth.core.identity import ActorIdentity, AuthMethod
+from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs import Run, RunRepository, RunStatus
 

@@ -10,9 +10,9 @@ It is the single source of truth for subject, auth method, role set, and tenant/
 
 Every governance claim Zeroth makes ("this run was approved by operator X", "these audit records belong to tenant Y") needs a stable identity shape. If each subsystem rolled its own user model, you'd end up with mismatched fields and leaks at the seams.
 
-Instead, `zeroth.core.identity` defines one principal model that `service.auth` returns, `runs` records on each run, `approvals` stamps into every `ApprovalResolution`, and `audit` embeds in every `NodeAuditRecord.actor`. Changing roles once changes them everywhere — and the same model is used whether a caller authenticated via a static API key or a JWT bearer token.
+Instead, `zeroth.governance.identity` defines one principal model that `service.auth` returns, `runs` records on each run, `approvals` stamps into every `ApprovalResolution`, and `audit` embeds in every `NodeAuditRecord.actor`. Changing roles once changes them everywhere — and the same model is used whether a caller authenticated via a static API key or a JWT bearer token.
 
-Keeping the model tiny also keeps the identity package free of framework dependencies: anything that needs to *describe* an actor can depend on `zeroth.core.identity` without pulling in FastAPI or the auth stack.
+Keeping the model tiny also keeps the identity package free of framework dependencies: anything that needs to *describe* an actor can depend on `zeroth.governance.identity` without pulling in FastAPI or the auth stack.
 
 ## Where it fits
 

@@ -14,7 +14,6 @@ from typing import Any, Protocol
 
 from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import Graph, HumanApprovalNode
-from zeroth.core.identity import ActorIdentity
 from zeroth.core.runs import Run, RunFailureState, RunRepository
 from zeroth.governance.approvals.models import (
     ApprovalDecision,
@@ -30,6 +29,7 @@ from zeroth.governance.audit import (
     NodeAuditRecord,
     PayloadSanitizer,
 )
+from zeroth.governance.identity import ActorIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +231,7 @@ class ApprovalService:
             return record
 
         elif action == "auto_reject":
-            from zeroth.core.identity import AuthMethod
+            from zeroth.governance.identity import AuthMethod
 
             system_actor = ActorIdentity(
                 subject="sla_enforcer",

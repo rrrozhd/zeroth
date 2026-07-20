@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.identity import ActorIdentity
+from zeroth.governance.identity import ActorIdentity
 from zeroth.platform.primitives import utc_now
 
 

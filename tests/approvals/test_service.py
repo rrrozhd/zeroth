@@ -13,7 +13,7 @@ from zeroth.governance.approvals import (
 )
 from zeroth.governance.audit import AuditRepository
 from zeroth.contracts.graph import HumanApprovalNode, HumanApprovalNodeData
-from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.governance.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.core.runs import Run, RunRepository
 from zeroth.platform.primitives import utc_now
 

@@ -22,7 +22,7 @@ from zeroth.contracts.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.identity import ServiceRole
+from zeroth.governance.identity import ServiceRole
 from zeroth.core.runs import Run
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import bootstrap_app, bootstrap_service
@@ -45,7 +45,7 @@ TEST_API_KEYS = {
 
 
 def default_service_auth_config():
-    from zeroth.core.identity import ServiceRole
+    from zeroth.governance.identity import ServiceRole
     from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 
     return ServiceAuthConfig(

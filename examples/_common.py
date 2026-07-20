@@ -31,13 +31,13 @@ from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.identity import ServiceRole
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import (
     ServiceBootstrap,
     bootstrap_service,
     run_migrations,
 )
+from zeroth.governance.identity import ServiceRole
 from zeroth.platform.storage import AsyncSQLiteDatabase
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.service.cost_api import register_cost_routes
 
 

@@ -50,10 +50,10 @@ from zeroth.core.agent_runtime import (
     AgentRunner,
     LiteLLMProviderAdapter,
 )
-from zeroth.core.identity import ServiceRole
 from zeroth.core.service.app import create_app
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import bootstrap_service
+from zeroth.governance.identity import ServiceRole
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.storage.factory import create_database
 

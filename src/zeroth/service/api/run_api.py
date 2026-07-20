@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from zeroth.contracts.registry import ContractReference
 from zeroth.contracts.registry.errors import ContractNotFoundError
-from zeroth.core.identity import ActorIdentity
 from zeroth.core.runs import Run, RunFailureState, RunRepository, RunStatus
+from zeroth.governance.identity import ActorIdentity
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,

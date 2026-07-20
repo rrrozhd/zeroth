@@ -23,7 +23,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 - [Approvals](python-api/approvals.md) — `zeroth.governance.approvals`
 - [Audit](python-api/audit.md) — `zeroth.governance.audit`
 - [Guardrails](python-api/guardrails.md) — `zeroth.core.guardrails`
-- [Identity](python-api/identity.md) — `zeroth.core.identity`
+- [Identity](python-api/identity.md) — `zeroth.governance.identity`
 
 ### Platform
 - [Secrets](python-api/secrets.md) — `zeroth.platform.secrets`

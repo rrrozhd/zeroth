@@ -67,7 +67,7 @@ from zeroth.contracts.graph import (
 )
 from zeroth.contracts.graph.models import SubgraphNode
 from zeroth.contracts.graph.serialization import serialize_graph
-from zeroth.core.identity import ActorIdentity, AuthMethod
+from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator

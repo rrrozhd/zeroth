@@ -6,8 +6,8 @@ from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, Ap
 from zeroth.governance.approvals.models import ApprovalRecord
 from zeroth.governance.audit import AuditRepository
 from zeroth.platform.dispatch.lease import LeaseManager
-from zeroth.core.identity import ActorIdentity
-from zeroth.core.identity.models import AuthMethod
+from zeroth.governance.identity import ActorIdentity
+from zeroth.governance.identity.models import AuthMethod
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.runs.models import Run
 

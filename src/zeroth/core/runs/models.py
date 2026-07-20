@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from zeroth.contracts.conditions.models import RunConditionResult as RunConditionResult
 from zeroth.contracts.governed import RunState
 from zeroth.contracts.governed import RunStatus as RunStatus  # re-exported as zeroth.core.runs API
-from zeroth.core.identity import ActorIdentity
+from zeroth.governance.identity import ActorIdentity
 from zeroth.platform.primitives import utc_now
 
 

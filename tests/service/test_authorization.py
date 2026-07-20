@@ -15,7 +15,7 @@ def test_authorization_is_the_same_surface_through_both_paths() -> None:
 
 
 def test_every_service_role_has_a_permission_set() -> None:
-    from zeroth.core.identity import ServiceRole
+    from zeroth.governance.identity import ServiceRole
     from zeroth.service.api.authorization import ROLE_PERMISSIONS, Permission
 
     for role in ServiceRole:

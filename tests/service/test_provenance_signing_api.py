@@ -18,7 +18,7 @@ from zeroth.governance.audit import NodeAuditRecord
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.contracts.graph import GraphRepository
-from zeroth.core.identity import ServiceRole
+from zeroth.governance.identity import ServiceRole
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import bootstrap_app, bootstrap_service
 from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider

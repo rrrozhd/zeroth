@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.service.rightsizing_api import register_rightsizing_routes
 
 

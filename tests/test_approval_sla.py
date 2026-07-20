@@ -15,7 +15,7 @@ from zeroth.governance.approvals.models import (
 )
 from zeroth.governance.approvals.repository import ApprovalRepository
 from zeroth.governance.approvals.service import ApprovalService
-from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.governance.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.core.runs import RunRepository
 
 # ---------------------------------------------------------------------------

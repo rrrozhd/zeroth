@@ -16,7 +16,7 @@ from tests.service.helpers import (
 )
 
 from zeroth.governance.audit import NodeAuditRecord
-from zeroth.core.identity import ServiceRole
+from zeroth.governance.identity import ServiceRole
 from zeroth.core.runs import Run
 from zeroth.core.service.bootstrap import bootstrap_app
 

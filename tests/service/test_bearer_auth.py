@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import approval_resume_graph, deploy_service
-from zeroth.core.identity import ServiceRole
+from zeroth.governance.identity import ServiceRole
 from zeroth.core.service.auth import BearerTokenConfig, ServiceAuthConfig
 from zeroth.core.service.bootstrap import bootstrap_app
 

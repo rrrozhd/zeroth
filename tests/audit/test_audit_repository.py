@@ -17,7 +17,7 @@ from zeroth.governance.audit import (
     PayloadSanitizer,
     ToolCallRecord,
 )
-from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.governance.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.platform.primitives import utc_now
 
 

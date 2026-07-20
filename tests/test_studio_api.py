@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from zeroth.contracts.graph.repository import GraphRepository
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.core.service.studio_api import router as studio_router
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase

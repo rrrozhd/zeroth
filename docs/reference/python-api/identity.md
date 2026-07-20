@@ -1,6 +1,6 @@
 # Identity
 
-::: zeroth.core.identity
+::: zeroth.governance.identity
     options:
       show_root_heading: true
       members_order: source
