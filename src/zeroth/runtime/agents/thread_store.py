@@ -207,13 +207,6 @@ class RepositoryThreadStateStore:
         """
         await self._run_repository.write_checkpoint(run)
 
-    async def _checkpoint_order(self, thread_id: str) -> int:
-        """Return the next sequential order number for checkpoints on this thread."""
-        thread = await self._thread_repository.get(thread_id)
-        if thread is None:
-            return 0
-        return len(thread.checkpoint_refs)
-
     def _is_thread_state_checkpoint(self, checkpoint: Run) -> bool:
         """Check whether a checkpoint record is a thread state checkpoint."""
         return checkpoint.metadata.get(THREAD_STATE_KIND_KEY) == THREAD_STATE_CHECKPOINT_KIND

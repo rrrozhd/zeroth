@@ -413,29 +413,6 @@ class _RunThreadStore:
             raise KeyError(thread_id)
         return thread
 
-    async def _ensure_thread_from_run(self, run: Run) -> Thread:
-        """Get or create a thread for a run, validating identity fields match."""
-        thread = await self.get_thread(run.thread_id)
-        if thread is None:
-            thread = Thread(
-                thread_id=run.thread_id,
-                graph_version_ref=run.graph_version_ref,
-                deployment_ref=run.deployment_ref,
-                tenant_id=run.tenant_id,
-                workspace_id=run.workspace_id,
-                status=ThreadStatus.ACTIVE,
-                run_ids=[run.run_id],
-                last_run_id=run.run_id,
-            )
-        else:
-            if thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id:
-                raise ValueError("thread identity mismatch")
-            if run.run_id not in thread.run_ids:
-                thread.run_ids.append(run.run_id)
-            thread.last_run_id = run.run_id
-            thread.updated_at = utc_now()
-        return thread
-
     async def _record_thread_run(
         self,
         thread_id: str,
