@@ -404,13 +404,13 @@ guard as it is published, since the warm-cache suite cannot see the failure.
 - Modify: architecture exception map; it must contain no undocumented temporary entries
 - Modify: any stale backend imports in docs/examples/tests
 
-- [ ] Run `uv sync --all-extras`.
-- [ ] Run `uv run pytest tests/architecture tests/contracts -v`.
-- [ ] Run `uv run pytest -v` and record the complete result.
-- [ ] Run `uv run ruff check src/`.
-- [ ] Run `uv run ruff format --check src/`.
-- [ ] Run `git diff --exit-code 01b36a9 -- frontend/`.
-- [ ] Refresh the code graph and run large-file, dead-code, affected-flow, and dependency audits.
-- [ ] Confirm the inventory imports, signatures, OpenAPI snapshot, schema/migration snapshot, serialization round trips, and exception fixtures all pass.
-- [ ] Commit documentation and final exception cleanup: `docs: complete backend architecture migration`.
-- [ ] Report exact test totals, warnings, remaining large files, retained dead-code candidates, commits, and import migrations.
+- [x] Run `uv sync --all-extras`.
+- [x] Run `uv run pytest tests/architecture tests/contracts -v`.
+- [x] Run `uv run pytest -v` and record the complete result.
+- [x] Run `uv run ruff check src/`.
+- [x] Run `uv run ruff format --check src/`.
+- [x] Run `git diff --exit-code 01b36a9 -- frontend/`.
+- [x] Refresh the code graph and run large-file, dead-code, affected-flow, and dependency audits.
+- [x] Confirm the inventory imports, signatures, OpenAPI snapshot, schema/migration snapshot, serialization round trips, and exception fixtures all pass.
+- [x] Commit documentation and final exception cleanup: `docs: complete backend architecture migration`.
+- [x] Report exact test totals, warnings, remaining large files, retained dead-code candidates, commits, and import migrations.
