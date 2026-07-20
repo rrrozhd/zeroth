@@ -672,7 +672,7 @@
       ],
       "module": "zeroth.core.agent_runtime",
       "name": "ProviderResponse",
-      "signature": "(*, content: Any = None, raw: Any = None, tool_calls: list[zeroth.core.governed.integrations.tool_calls.NormalizedToolCall] = <factory>, token_usage: zeroth.core.audit.models.TokenUsage | None = None, metadata: dict[str, typing.Any] = <factory>, cost_usd: float | None = None, cost_event_id: str | None = None) -> None"
+      "signature": "(*, content: Any = None, raw: Any = None, tool_calls: list[zeroth.core.governed.integrations.tool_calls.NormalizedToolCall] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, metadata: dict[str, typing.Any] = <factory>, cost_usd: float | None = None, cost_event_id: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -1535,334 +1535,334 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:ApprovalActionRecord"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "ApprovalActionRecord",
       "signature": "(*, approval_id: str, action: str, actor: zeroth.core.identity.models.ActorIdentity | None = None, metadata: dict[str, typing.Any] = <factory>, occurred_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:AuditContinuityReport"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "AuditContinuityReport",
       "signature": "(*, scope: str, verified: bool, record_count: int = 0, failed_audit_id: str | None = None, error: str | None = None, signature_verified: bool | None = None, unsigned_record_count: int = 0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:AuditContinuityVerifier"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "AuditContinuityVerifier",
       "signature": "(repository, signer: 'SigningKeyProvider | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/how-to/audit.md",
         "docs:docs/reference/python-api/audit.md",
         "examples:examples/24_audit_query.py",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:AuditQuery"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "AuditQuery",
       "signature": "(*, run_id: str | None = None, thread_id: str | None = None, node_id: str | None = None, graph_version_ref: str | None = None, deployment_ref: str | None = None, tenant_id: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:AuditRedactionConfig"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "AuditRedactionConfig",
       "signature": "(*, redact_keys: set[str] = <factory>, omit_paths: set[tuple[str, ...]] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/how-to/audit.md",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:AuditRepository"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "AuditRepository",
       "signature": "(database: 'AsyncDatabase', signer: 'SigningKeyProvider | None' = None)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:AuditTimeline"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "AuditTimeline",
-      "signature": "(*, run_id: str | None = None, entries: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>) -> None"
+      "signature": "(*, run_id: str | None = None, entries: list[zeroth.governance.audit.models.NodeAuditRecord] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:AuditTimelineAssembler"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "AuditTimelineAssembler",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:MemoryAccessRecord"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "MemoryAccessRecord",
       "signature": "(*, memory_ref: str, connector_type: str, scope: str, operation: str, key: str, value: typing.Any | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:NodeAuditRecord"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "NodeAuditRecord",
-      "signature": "(*, audit_id: str, run_id: str, thread_id: str | None = None, node_id: str, node_version: int = 1, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, attempt: int = 1, status: str, actor: zeroth.core.identity.models.ActorIdentity | None = None, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, validation_results: dict[str, typing.Any] = <factory>, execution_metadata: dict[str, typing.Any] = <factory>, token_usage: zeroth.core.audit.models.TokenUsage | None = None, cost_usd: float | None = None, cost_event_id: str | None = None, error: str | None = None, condition_results: list[dict[str, typing.Any]] = <factory>, memory_interactions: list[zeroth.core.audit.models.MemoryAccessRecord] = <factory>, tool_calls: list[zeroth.core.audit.models.ToolCallRecord] = <factory>, approval_actions: list[zeroth.core.audit.models.ApprovalActionRecord] = <factory>, stdout: str | None = None, stderr: str | None = None, supersedes_audit_id: str | None = None, chain_sequence: int | None = None, previous_record_digest: str | None = None, record_digest: str | None = None, record_signature: str | None = None, signing_key_id: str | None = None, signing_algorithm: str | None = None, erased: bool = False, erased_at: datetime.datetime | None = None, erasure_reason: str | None = None, digest_version: int = 1, pii_commitments: dict[str, str] | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None) -> None"
+      "signature": "(*, audit_id: str, run_id: str, thread_id: str | None = None, node_id: str, node_version: int = 1, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, attempt: int = 1, status: str, actor: zeroth.core.identity.models.ActorIdentity | None = None, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, validation_results: dict[str, typing.Any] = <factory>, execution_metadata: dict[str, typing.Any] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, cost_usd: float | None = None, cost_event_id: str | None = None, error: str | None = None, condition_results: list[dict[str, typing.Any]] = <factory>, memory_interactions: list[zeroth.governance.audit.models.MemoryAccessRecord] = <factory>, tool_calls: list[zeroth.governance.audit.models.ToolCallRecord] = <factory>, approval_actions: list[zeroth.governance.audit.models.ApprovalActionRecord] = <factory>, stdout: str | None = None, stderr: str | None = None, supersedes_audit_id: str | None = None, chain_sequence: int | None = None, previous_record_digest: str | None = None, record_digest: str | None = None, record_signature: str | None = None, signing_key_id: str | None = None, signing_algorithm: str | None = None, erased: bool = False, erased_at: datetime.datetime | None = None, erasure_reason: str | None = None, digest_version: int = 1, pii_commitments: dict[str, str] | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:PayloadSanitizer"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "PayloadSanitizer",
       "signature": "(config: 'AuditRedactionConfig | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit:ToolCallRecord"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "ToolCallRecord",
       "signature": "(*, tool_ref: str, alias: str, arguments: dict[str, typing.Any] = <factory>, outcome: dict[str, typing.Any] | None = None, error: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.audit:build_summary"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "build_summary",
       "signature": "(audits: 'list[NodeAuditRecord]', approvals: 'list[object]', *, resolve_artifacts: 'bool' = False, artifact_store: 'Any | None' = None) -> 'dict[str, int | bool]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.audit:collect_policy_events"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "collect_policy_events",
       "signature": "(audits: 'list[NodeAuditRecord]') -> 'list[str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.audit",
+        "__all__:zeroth.governance.audit",
         "docs:docs/reference/python-api/audit.md",
-        "package_export:zeroth.core.audit"
+        "package_export:zeroth.governance.audit"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.audit:compute_chained_record"
       ],
-      "module": "zeroth.core.audit",
+      "module": "zeroth.governance.audit",
       "name": "compute_chained_record",
       "signature": "(record: 'NodeAuditRecord', previous_digest: 'str | None', signer: 'SigningKeyProvider | None' = None) -> 'NodeAuditRecord'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.audit.coordination"
+        "package_export:zeroth.governance.audit.coordination"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.coordination:AuditChainOrderingError"
       ],
-      "module": "zeroth.core.audit.coordination",
+      "module": "zeroth.governance.audit.coordination",
       "name": "AuditChainOrderingError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:ApprovalActionRecord"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "ApprovalActionRecord",
       "signature": "(*, approval_id: str, action: str, actor: zeroth.core.identity.models.ActorIdentity | None = None, metadata: dict[str, typing.Any] = <factory>, occurred_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:AuditContinuityReport"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "AuditContinuityReport",
       "signature": "(*, scope: str, verified: bool, record_count: int = 0, failed_audit_id: str | None = None, error: str | None = None, signature_verified: bool | None = None, unsigned_record_count: int = 0) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:AuditQuery"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "AuditQuery",
       "signature": "(*, run_id: str | None = None, thread_id: str | None = None, node_id: str | None = None, graph_version_ref: str | None = None, deployment_ref: str | None = None, tenant_id: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:AuditRedactionConfig"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "AuditRedactionConfig",
       "signature": "(*, redact_keys: set[str] = <factory>, omit_paths: set[tuple[str, ...]] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:AuditTimeline"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "AuditTimeline",
-      "signature": "(*, run_id: str | None = None, entries: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>) -> None"
+      "signature": "(*, run_id: str | None = None, entries: list[zeroth.governance.audit.models.NodeAuditRecord] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:MemoryAccessRecord"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "MemoryAccessRecord",
       "signature": "(*, memory_ref: str, connector_type: str, scope: str, operation: str, key: str, value: typing.Any | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:NodeAuditRecord"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "NodeAuditRecord",
-      "signature": "(*, audit_id: str, run_id: str, thread_id: str | None = None, node_id: str, node_version: int = 1, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, attempt: int = 1, status: str, actor: zeroth.core.identity.models.ActorIdentity | None = None, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, validation_results: dict[str, typing.Any] = <factory>, execution_metadata: dict[str, typing.Any] = <factory>, token_usage: zeroth.core.audit.models.TokenUsage | None = None, cost_usd: float | None = None, cost_event_id: str | None = None, error: str | None = None, condition_results: list[dict[str, typing.Any]] = <factory>, memory_interactions: list[zeroth.core.audit.models.MemoryAccessRecord] = <factory>, tool_calls: list[zeroth.core.audit.models.ToolCallRecord] = <factory>, approval_actions: list[zeroth.core.audit.models.ApprovalActionRecord] = <factory>, stdout: str | None = None, stderr: str | None = None, supersedes_audit_id: str | None = None, chain_sequence: int | None = None, previous_record_digest: str | None = None, record_digest: str | None = None, record_signature: str | None = None, signing_key_id: str | None = None, signing_algorithm: str | None = None, erased: bool = False, erased_at: datetime.datetime | None = None, erasure_reason: str | None = None, digest_version: int = 1, pii_commitments: dict[str, str] | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None) -> None"
+      "signature": "(*, audit_id: str, run_id: str, thread_id: str | None = None, node_id: str, node_version: int = 1, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, attempt: int = 1, status: str, actor: zeroth.core.identity.models.ActorIdentity | None = None, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, validation_results: dict[str, typing.Any] = <factory>, execution_metadata: dict[str, typing.Any] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, cost_usd: float | None = None, cost_event_id: str | None = None, error: str | None = None, condition_results: list[dict[str, typing.Any]] = <factory>, memory_interactions: list[zeroth.governance.audit.models.MemoryAccessRecord] = <factory>, tool_calls: list[zeroth.governance.audit.models.ToolCallRecord] = <factory>, approval_actions: list[zeroth.governance.audit.models.ApprovalActionRecord] = <factory>, stdout: str | None = None, stderr: str | None = None, supersedes_audit_id: str | None = None, chain_sequence: int | None = None, previous_record_digest: str | None = None, record_digest: str | None = None, record_signature: str | None = None, signing_key_id: str | None = None, signing_algorithm: str | None = None, erased: bool = False, erased_at: datetime.datetime | None = None, erasure_reason: str | None = None, digest_version: int = 1, pii_commitments: dict[str, str] | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:TokenUsage"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "TokenUsage",
       "signature": "(*, input_tokens: int = 0, output_tokens: int = 0, total_tokens: int = 0, model_name: str = '') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.audit.models"
+        "schema_model:zeroth.governance.audit.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.audit.models:ToolCallRecord"
       ],
-      "module": "zeroth.core.audit.models",
+      "module": "zeroth.governance.audit.models",
       "name": "ToolCallRecord",
       "signature": "(*, tool_ref: str, alias: str, arguments: dict[str, typing.Any] = <factory>, outcome: dict[str, typing.Any] | None = None, error: str | None = None) -> None"
     },
@@ -9400,7 +9400,7 @@
       ],
       "module": "zeroth.service.api.audit_api",
       "name": "AuditRecordListResponse",
-      "signature": "(*, deployment_ref: str, records: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>) -> None"
+      "signature": "(*, deployment_ref: str, records: list[zeroth.governance.audit.models.NodeAuditRecord] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -9412,7 +9412,7 @@
       ],
       "module": "zeroth.service.api.audit_api",
       "name": "AuditTimelineResponse",
-      "signature": "(*, deployment_ref: str, run_id: str | None = None, entries: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>) -> None"
+      "signature": "(*, deployment_ref: str, run_id: str | None = None, entries: list[zeroth.governance.audit.models.NodeAuditRecord] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -9448,7 +9448,7 @@
       ],
       "module": "zeroth.service.api.audit_api",
       "name": "DeploymentEvidenceResponse",
-      "signature": "(*, deployment: zeroth.service.api.contracts_api.DeploymentVersionMetadataResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.governance.approvals.models.ApprovalRecord] = <factory>, run_ids: list[str] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+      "signature": "(*, deployment: zeroth.service.api.contracts_api.DeploymentVersionMetadataResponse, audits: list[zeroth.governance.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.governance.approvals.models.ApprovalRecord] = <factory>, run_ids: list[str] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -9472,7 +9472,7 @@
       ],
       "module": "zeroth.service.api.audit_api",
       "name": "RunEvidenceResponse",
-      "signature": "(*, run: zeroth.service.api.run_api.RunStatusResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.governance.approvals.models.ApprovalRecord] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+      "signature": "(*, run: zeroth.service.api.run_api.RunStatusResponse, audits: list[zeroth.governance.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.governance.approvals.models.ApprovalRecord] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
     },
     {
       "evidence": [

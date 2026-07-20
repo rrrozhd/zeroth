@@ -394,6 +394,43 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.approvals.models:ApprovalRecord` | `zeroth.governance.approvals.models:ApprovalRecord` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.approvals.models:ApprovalResolution` | `zeroth.governance.approvals.models:ApprovalResolution` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.approvals.sla_checker:ApprovalSLAChecker` | `zeroth.governance.approvals.sla_checker:ApprovalSLAChecker` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:ApprovalActionRecord` | `zeroth.governance.audit:ApprovalActionRecord` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:AuditContinuityReport` | `zeroth.governance.audit:AuditContinuityReport` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:AuditContinuityVerifier` | `zeroth.governance.audit:AuditContinuityVerifier` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:AuditQuery` | `zeroth.governance.audit:AuditQuery` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:AuditRedactionConfig` | `zeroth.governance.audit:AuditRedactionConfig` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:AuditRepository` | `zeroth.governance.audit:AuditRepository` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:AuditTimeline` | `zeroth.governance.audit:AuditTimeline` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:AuditTimelineAssembler` | `zeroth.governance.audit:AuditTimelineAssembler` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:MemoryAccessRecord` | `zeroth.governance.audit:MemoryAccessRecord` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:NodeAuditRecord` | `zeroth.governance.audit:NodeAuditRecord` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:PayloadSanitizer` | `zeroth.governance.audit:PayloadSanitizer` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:ToolCallRecord` | `zeroth.governance.audit:ToolCallRecord` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit:build_summary` | `zeroth.governance.audit:build_summary` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.audit:collect_policy_events` | `zeroth.governance.audit:collect_policy_events` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.audit:compute_chained_record` | `zeroth.governance.audit:compute_chained_record` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.audit.coordination:AuditChainOrderingError` | `zeroth.governance.audit.coordination:AuditChainOrderingError` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:ApprovalActionRecord` | `zeroth.governance.audit.models:ApprovalActionRecord` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:AuditContinuityReport` | `zeroth.governance.audit.models:AuditContinuityReport` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:AuditQuery` | `zeroth.governance.audit.models:AuditQuery` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:AuditRedactionConfig` | `zeroth.governance.audit.models:AuditRedactionConfig` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:AuditTimeline` | `zeroth.governance.audit.models:AuditTimeline` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:MemoryAccessRecord` | `zeroth.governance.audit.models:MemoryAccessRecord` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:NodeAuditRecord` | `zeroth.governance.audit.models:NodeAuditRecord` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:TokenUsage` | `zeroth.governance.audit.models:TokenUsage` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.models:ToolCallRecord` | `zeroth.governance.audit.models:ToolCallRecord` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.audit.evidence:build_summary` | `zeroth.governance.audit.evidence:build_summary` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.audit.evidence:collect_policy_events` | `zeroth.governance.audit.evidence:collect_policy_events` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.audit.erasure_schema:AUDIT_CLEANUP_PAYLOAD_FIELDS` | `zeroth.governance.audit.erasure_schema:AUDIT_CLEANUP_PAYLOAD_FIELDS` | Consolidate audit governance | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.audit.erasure_schema:ERASED_PII_VALUES` | `zeroth.governance.audit.erasure_schema:ERASED_PII_VALUES` | Consolidate audit governance | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.audit.erasure_schema:LATEST_DIGEST_VERSION` | `zeroth.governance.audit.erasure_schema:LATEST_DIGEST_VERSION` | Consolidate audit governance | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.audit.erasure_schema:pii_commitment_fields` | `zeroth.governance.audit.erasure_schema:pii_commitment_fields` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.audit.verifier:compute_chained_record` | `zeroth.governance.audit.verifier:compute_chained_record` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.audit.verifier:_compute_pii_commitments` | `zeroth.governance.audit.verifier:_compute_pii_commitments` | Consolidate audit governance | Legacy path still re-exports (private with cross-package consumers) | Same function object | Not removed |
+| `zeroth.core.audit.verifier:_compute_record_digest` | `zeroth.governance.audit.verifier:_compute_record_digest` | Consolidate audit governance | Legacy path still re-exports (private with cross-package consumers) | Same function object | Not removed |
+| `zeroth.core.governed.audit.emitter:AuditEmitter` | `zeroth.governance.audit.emitter:AuditEmitter` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.governed.audit.emitter:emit_event` | `zeroth.governance.audit.emitter:emit_event` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.governed.audit.redis:RedisAuditEmitter` | `zeroth.governance.audit.redis:RedisAuditEmitter` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
