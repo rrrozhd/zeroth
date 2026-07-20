@@ -6794,230 +6794,230 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:AuthType"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "AuthType",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:CircuitBreaker"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "CircuitBreaker",
       "signature": "(failure_threshold: 'int' = 5, reset_timeout: 'float' = 30.0) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:CircuitBreakerRegistry"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "CircuitBreakerRegistry",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:CircuitOpenError"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "CircuitOpenError",
       "signature": "(endpoint_key: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:CircuitState"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "CircuitState",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:EndpointConfig"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "EndpointConfig",
-      "signature": "(*, max_retries: int | None = None, retryable_status_codes: set[int] | None = None, timeout: float | None = None, secret_key: str | None = None, auth_type: zeroth.core.http.models.AuthType | None = None, auth_header_name: str = 'Authorization', rate_limit_rate: float | None = None, rate_limit_burst: int | None = None) -> None"
+      "signature": "(*, max_retries: int | None = None, retryable_status_codes: set[int] | None = None, timeout: float | None = None, secret_key: str | None = None, auth_type: zeroth.integrations.http.models.AuthType | None = None, auth_header_name: str = 'Authorization', rate_limit_rate: float | None = None, rate_limit_burst: int | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:HttpCallRecord"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "HttpCallRecord",
       "signature": "(*, url: str, method: str, status_code: int | None = None, latency_ms: float, response_size_bytes: int | None = None, retry_count: int = 0, circuit_breaker_state: str | None = None, error: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:HttpClientError"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "HttpClientError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:HttpClientSettings"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "HttpClientSettings",
       "signature": "(*, max_retries: int = 3, retry_backoff_base: float = 0.5, retry_max_delay: float = 60.0, retryable_status_codes: set[int] = <factory>, circuit_breaker_threshold: int = 5, circuit_breaker_reset_timeout: float = 30.0, pool_max_connections: int = 100, pool_max_keepalive: int = 20, pool_keepalive_expiry: float = 5.0, default_timeout: float = 30.0, default_rate_limit_rate: float = 10.0, default_rate_limit_burst: int = 20) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:HttpRateLimitError"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "HttpRateLimitError",
       "signature": "(endpoint_key: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:HttpRetryExhaustedError"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "HttpRetryExhaustedError",
       "signature": "(attempts: 'int', last_error: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:InMemoryTokenBucket"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "InMemoryTokenBucket",
       "signature": "(rate: 'float', burst: 'int') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http"
+        "__all__:zeroth.integrations.http"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http:ResilientHttpClient"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "ResilientHttpClient",
       "signature": "(settings: 'HttpClientSettings', *, secret_provider: 'SecretProvider | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.http",
-        "package_export:zeroth.core.http"
+        "__all__:zeroth.integrations.http",
+        "package_export:zeroth.integrations.http"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.http:redact_url"
       ],
-      "module": "zeroth.core.http",
+      "module": "zeroth.integrations.http",
       "name": "redact_url",
       "signature": "(url: 'str') -> 'str'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.http.errors"
+        "package_export:zeroth.integrations.http.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http.errors:CircuitOpenError"
       ],
-      "module": "zeroth.core.http.errors",
+      "module": "zeroth.integrations.http.errors",
       "name": "CircuitOpenError",
       "signature": "(endpoint_key: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.http.errors"
+        "package_export:zeroth.integrations.http.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http.errors:HttpClientError"
       ],
-      "module": "zeroth.core.http.errors",
+      "module": "zeroth.integrations.http.errors",
       "name": "HttpClientError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.http.errors"
+        "package_export:zeroth.integrations.http.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http.errors:HttpRateLimitError"
       ],
-      "module": "zeroth.core.http.errors",
+      "module": "zeroth.integrations.http.errors",
       "name": "HttpRateLimitError",
       "signature": "(endpoint_key: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.http.errors"
+        "package_export:zeroth.integrations.http.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.http.errors:HttpRetryExhaustedError"
       ],
-      "module": "zeroth.core.http.errors",
+      "module": "zeroth.integrations.http.errors",
       "name": "HttpRetryExhaustedError",
       "signature": "(attempts: 'int', last_error: 'str') -> 'None'"
     },
@@ -7029,9 +7029,9 @@
       "legacy_ids": [
         "zeroth.core.http.models:EndpointConfig"
       ],
-      "module": "zeroth.core.http.models",
+      "module": "zeroth.integrations.http.models",
       "name": "EndpointConfig",
-      "signature": "(*, max_retries: int | None = None, retryable_status_codes: set[int] | None = None, timeout: float | None = None, secret_key: str | None = None, auth_type: zeroth.core.http.models.AuthType | None = None, auth_header_name: str = 'Authorization', rate_limit_rate: float | None = None, rate_limit_burst: int | None = None) -> None"
+      "signature": "(*, max_retries: int | None = None, retryable_status_codes: set[int] | None = None, timeout: float | None = None, secret_key: str | None = None, auth_type: zeroth.integrations.http.models.AuthType | None = None, auth_header_name: str = 'Authorization', rate_limit_rate: float | None = None, rate_limit_burst: int | None = None) -> None"
     },
     {
       "evidence": [
@@ -7041,7 +7041,7 @@
       "legacy_ids": [
         "zeroth.core.http.models:HttpCallRecord"
       ],
-      "module": "zeroth.core.http.models",
+      "module": "zeroth.integrations.http.models",
       "name": "HttpCallRecord",
       "signature": "(*, url: str, method: str, status_code: int | None = None, latency_ms: float, response_size_bytes: int | None = None, retry_count: int = 0, circuit_breaker_state: str | None = None, error: str | None = None) -> None"
     },

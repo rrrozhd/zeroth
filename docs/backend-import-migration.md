@@ -831,6 +831,34 @@ canonical-surface update that follows a verified production move.
 | `zeroth.econ_plane.statistics.schemas:CalibrationSummary` | `zeroth.econ.plane.statistics.schemas:CalibrationSummary` | Move economic control plane | Legacy submodule path retired; canonical import only | Same class object | Not removed |
 | `zeroth.econ_plane.statistics.schemas:IntervalEstimate` | `zeroth.econ.plane.statistics.schemas:IntervalEstimate` | Move economic control plane | Legacy submodule path retired; canonical import only | Same class object | Not removed |
 | `zeroth.econ_plane:main` | `zeroth.econ.plane:main` | Move economic control plane | Legacy path still re-exports, lazily | Same object | Not removed |
+| `zeroth.core.http:AuthType` | `zeroth.integrations.http:AuthType` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:CircuitBreaker` | `zeroth.integrations.http:CircuitBreaker` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:CircuitBreakerRegistry` | `zeroth.integrations.http:CircuitBreakerRegistry` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:CircuitOpenError` | `zeroth.integrations.http:CircuitOpenError` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:CircuitState` | `zeroth.integrations.http:CircuitState` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:EndpointConfig` | `zeroth.integrations.http:EndpointConfig` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:HttpCallRecord` | `zeroth.integrations.http:HttpCallRecord` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:HttpClientError` | `zeroth.integrations.http:HttpClientError` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:HttpClientSettings` | `zeroth.integrations.http:HttpClientSettings` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:HttpRateLimitError` | `zeroth.integrations.http:HttpRateLimitError` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:HttpRetryExhaustedError` | `zeroth.integrations.http:HttpRetryExhaustedError` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:InMemoryTokenBucket` | `zeroth.integrations.http:InMemoryTokenBucket` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:ResilientHttpClient` | `zeroth.integrations.http:ResilientHttpClient` | Move http integration | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.http:redact_url` | `zeroth.integrations.http:redact_url` | Move http integration | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.http.circuit_breaker:CircuitBreaker` | `zeroth.integrations.http.circuit_breaker:CircuitBreaker` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.circuit_breaker:CircuitBreakerRegistry` | `zeroth.integrations.http.circuit_breaker:CircuitBreakerRegistry` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.circuit_breaker:CircuitState` | `zeroth.integrations.http.circuit_breaker:CircuitState` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.circuit_breaker:InMemoryTokenBucket` | `zeroth.integrations.http.circuit_breaker:InMemoryTokenBucket` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.client:ResilientHttpClient` | `zeroth.integrations.http.client:ResilientHttpClient` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.errors:CircuitOpenError` | `zeroth.integrations.http.errors:CircuitOpenError` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.errors:HttpClientError` | `zeroth.integrations.http.errors:HttpClientError` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.errors:HttpRateLimitError` | `zeroth.integrations.http.errors:HttpRateLimitError` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.errors:HttpRetryExhaustedError` | `zeroth.integrations.http.errors:HttpRetryExhaustedError` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.models:AuthType` | `zeroth.integrations.http.models:AuthType` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.models:EndpointConfig` | `zeroth.integrations.http.models:EndpointConfig` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.models:HttpCallRecord` | `zeroth.integrations.http.models:HttpCallRecord` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.models:HttpClientSettings` | `zeroth.integrations.http.models:HttpClientSettings` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.http.models:redact_url` | `zeroth.integrations.http.models:redact_url` | Move http integration | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
