@@ -22,7 +22,7 @@ import json
 from typing import TYPE_CHECKING
 
 from zeroth.governance.audit.coordination import AuditChainOrderingError, order_audit_records
-from zeroth.governance.audit.erasure_schema import pii_commitment_fields
+from zeroth.governance.audit.erasure_schema import ERASED_PII_VALUES, pii_commitment_fields
 from zeroth.governance.audit.models import AuditContinuityReport, NodeAuditRecord
 from zeroth.platform.signing import sign_digest, verify_digest
 from zeroth.platform.storage.json import to_json_value
@@ -194,6 +194,22 @@ class AuditContinuityVerifier:
                     failed_audit_id=record.audit_id,
                     error="record digest mismatch",
                 )
+            # Erasure-forgery gate (WS-E integrity). `erased` is a digest-excluded
+            # field and an erased v2+ record's digest folds in the STORED
+            # commitments rather than live PII (see _compute_record_digest), so a
+            # DB-only attacker can flip erased=True and rewrite the PII payload
+            # without breaking the digest or its signature. Legitimate erasure
+            # always nulls PII to the erased sentinels (repository redact path);
+            # any populated PII field on a record claiming to be erased is a
+            # forgery, so refuse it here rather than trust the stored commitments.
+            if erased_field := _erased_record_carrying_pii(record):
+                return AuditContinuityReport(
+                    scope=scope,
+                    verified=False,
+                    record_count=len(records),
+                    failed_audit_id=record.audit_id,
+                    error=f"erased record carries PII in {erased_field}",
+                )
             # Signature axis: independent of digest continuity. A record counts as
             # "signed" iff it carries a key id; an unsigned-legacy record neither
             # passes nor fails — it is reported separately.
@@ -277,6 +293,25 @@ def _compute_pii_commitments(record: NodeAuditRecord) -> dict[str, str]:
         field: hashlib.sha256(_canonical(dumped[field]).encode("utf-8")).hexdigest()
         for field in pii_commitment_fields(record.digest_version or 1)
     }
+
+
+def _erased_record_carrying_pii(record: NodeAuditRecord) -> str | None:
+    """First PII field a record claims-erased yet still populates, else ``None``.
+
+    Only meaningful for ``digest_version >= 2`` (commitment digests): those are
+    the records whose digest is computed from stored commitments when erased, so
+    a flipped ``erased`` flag plus rewritten PII survives digest+signature
+    verification. A legitimately erased record has every commitment field reset
+    to its :data:`ERASED_PII_VALUES` sentinel; the first field that differs is
+    returned as evidence of forgery.
+    """
+    if not record.erased or (record.digest_version or 1) < 2:
+        return None
+    dumped = record.model_dump(mode="json")
+    for field in pii_commitment_fields(record.digest_version or 1):
+        if dumped.get(field) != ERASED_PII_VALUES[field]:
+            return field
+    return None
 
 
 def _compute_record_digest(record: NodeAuditRecord) -> str:

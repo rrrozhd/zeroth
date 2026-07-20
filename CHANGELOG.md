@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-07-20
+
+### Fixed
+
+Erasure + audit-integrity fixes ported from the public main line (main
+versions v0.10.1.5, v0.10.1.10, v0.10.1.14, v0.10.1.16):
+
+- **F1 — erasure left plaintext PII behind.** `redact_run` now clears every
+  free-form column that can hold PII: `execution_history` (per-node
+  input/output snapshots), `failure_state` (whose message re-derives `error`
+  on read, so nulling `error` alone resurfaced the plaintext),
+  `condition_results`, `channels`, and `pending_approval` (requester reason +
+  metadata). The pre-erasure payload harvest decrypts
+  `run_checkpoints.state_json` before parsing — previously every
+  at-rest-encrypted deployment hit `JSONDecodeError` and the erasure rolled
+  back to a silent no-op. On this tree the fix lands in
+  `integrations/persistence/runs/retention_queries.py` (with a `decrypt`
+  seam) and `run_repository.py` passes the checkpoint store's
+  `decrypt_state_json`.
+- **S1 — audit verifier accepted forged erasures.** `erased` is
+  digest-excluded and a v2+ erased record's digest folds in stored
+  commitments, so a DB-only attacker could flip `erased=True` and rewrite PII
+  without breaking digest or signature. The verifier now refuses any record
+  claiming to be erased while still carrying populated PII commitment fields
+  (`governance/audit/verifier.py`).
+
 ## [0.10.2] - 2026-07-20
 
 ### Fixed

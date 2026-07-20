@@ -752,7 +752,11 @@ class RunRepository:
         run_id: str,
     ) -> list[Any]:
         """Load database-resident run/checkpoint payloads before erasure."""
-        return await retention_queries.erasure_payloads(connection, run_id)
+        return await retention_queries.erasure_payloads(
+            connection,
+            run_id,
+            decrypt=self._store.checkpoints.decrypt_state_json,
+        )
 
     async def tenant_id_for_run_in_transaction(
         self,

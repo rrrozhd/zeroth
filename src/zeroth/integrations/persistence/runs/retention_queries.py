@@ -9,6 +9,7 @@ individual query.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -55,15 +56,38 @@ async def redact_run(connection: AsyncConnection, run_id: str) -> bool:
     if existing is None:
         return False
     await connection.execute(
+        # Clear every free-form column that can hold plaintext PII (audit F1 +
+        # re-audit). execution_history holds each node's input/output snapshot;
+        # failure_state holds the failure message/details (and `error` re-derives
+        # FROM failure_state.message on read, so nulling error alone was not
+        # enough — the plaintext resurfaced); condition_results.details and
+        # channels are free-form dicts; pending_approval carries the requester's
+        # free-form reason + metadata for an outstanding gate. NOT NULL columns
+        # reset to their empty default ('[]' / '{}'); nullable ones to NULL.
         "UPDATE runs SET final_output = NULL, artifacts = '{}', "
-        "metadata = '{}', error = NULL WHERE run_id = ?",
+        "metadata = '{}', error = NULL, execution_history = '[]', "
+        "failure_state = NULL, condition_results = '[]', channels = '{}', "
+        "pending_approval = NULL "
+        "WHERE run_id = ?",
         (run_id,),
     )
     return True
 
 
-async def erasure_payloads(connection: AsyncConnection, run_id: str) -> list[Any]:
-    """Load database-resident run and checkpoint payloads before erasure."""
+async def erasure_payloads(
+    connection: AsyncConnection,
+    run_id: str,
+    *,
+    decrypt: Callable[[str], str] | None = None,
+) -> list[Any]:
+    """Load database-resident run and checkpoint payloads before erasure.
+
+    ``decrypt`` reverses at-rest checkpoint encryption before parsing —
+    ``state_json`` is Fernet-encrypted when the database has an encryption key
+    (mirrors the checkpoint read path). Without it the harvest raised
+    ``JSONDecodeError`` and rolled the whole erasure back to a no-op on every
+    encrypted-at-rest deployment (audit F1).
+    """
     payloads: list[Any] = []
     run = await connection.fetch_one(
         "SELECT final_output, artifacts, metadata, error FROM runs WHERE run_id = ?",
@@ -80,7 +104,10 @@ async def erasure_payloads(connection: AsyncConnection, run_id: str) -> list[Any
         "SELECT state_json FROM run_checkpoints WHERE run_id = ?",
         (run_id,),
     )
-    payloads.extend(from_json_value(row["state_json"]) for row in checkpoints)
+    payloads.extend(
+        from_json_value(decrypt(row["state_json"]) if decrypt is not None else row["state_json"])
+        for row in checkpoints
+    )
     return payloads
 
 
