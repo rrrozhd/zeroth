@@ -1211,125 +1211,125 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.approvals",
+        "__all__:zeroth.governance.approvals",
         "docs:docs/reference/python-api/approvals.md",
-        "package_export:zeroth.core.approvals"
+        "package_export:zeroth.governance.approvals"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals:ApprovalDecision"
       ],
-      "module": "zeroth.core.approvals",
+      "module": "zeroth.governance.approvals",
       "name": "ApprovalDecision",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.approvals",
+        "__all__:zeroth.governance.approvals",
         "docs:docs/reference/python-api/approvals.md",
-        "package_export:zeroth.core.approvals"
+        "package_export:zeroth.governance.approvals"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals:ApprovalRecord"
       ],
-      "module": "zeroth.core.approvals",
+      "module": "zeroth.governance.approvals",
       "name": "ApprovalRecord",
-      "signature": "(*, approval_id: str = <factory>, run_id: str, thread_id: str | None = None, node_id: str, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, requested_by: zeroth.core.identity.models.ActorIdentity | None = None, interaction_type: zeroth.core.approvals.models.HumanInteractionType = <HumanInteractionType.APPROVAL: 'approval'>, status: zeroth.core.approvals.models.ApprovalStatus = <ApprovalStatus.PENDING: 'pending'>, requested_decision: zeroth.core.approvals.models.ApprovalDecision = <ApprovalDecision.APPROVE: 'approve'>, allowed_actions: list[zeroth.core.approvals.models.ApprovalDecision] = <factory>, summary: str, rationale: str, context_excerpt: dict[str, typing.Any] = <factory>, proposed_payload: dict[str, typing.Any] | None = None, urgency_metadata: dict[str, typing.Any] = <factory>, resolution_schema_ref: str | None = None, resolution: zeroth.core.approvals.models.ApprovalResolution | None = None, sla_deadline: datetime.datetime | None = None, escalation_action: str | None = None, escalated_from_id: str | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, approval_id: str = <factory>, run_id: str, thread_id: str | None = None, node_id: str, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, requested_by: zeroth.core.identity.models.ActorIdentity | None = None, interaction_type: zeroth.governance.approvals.models.HumanInteractionType = <HumanInteractionType.APPROVAL: 'approval'>, status: zeroth.governance.approvals.models.ApprovalStatus = <ApprovalStatus.PENDING: 'pending'>, requested_decision: zeroth.governance.approvals.models.ApprovalDecision = <ApprovalDecision.APPROVE: 'approve'>, allowed_actions: list[zeroth.governance.approvals.models.ApprovalDecision] = <factory>, summary: str, rationale: str, context_excerpt: dict[str, typing.Any] = <factory>, proposed_payload: dict[str, typing.Any] | None = None, urgency_metadata: dict[str, typing.Any] = <factory>, resolution_schema_ref: str | None = None, resolution: zeroth.governance.approvals.models.ApprovalResolution | None = None, sla_deadline: datetime.datetime | None = None, escalation_action: str | None = None, escalated_from_id: str | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.approvals",
+        "__all__:zeroth.governance.approvals",
         "docs:docs/reference/python-api/approvals.md",
-        "package_export:zeroth.core.approvals"
+        "package_export:zeroth.governance.approvals"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals:ApprovalRepository"
       ],
-      "module": "zeroth.core.approvals",
+      "module": "zeroth.governance.approvals",
       "name": "ApprovalRepository",
       "signature": "(database: 'AsyncDatabase')"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.approvals",
+        "__all__:zeroth.governance.approvals",
         "docs:docs/reference/python-api/approvals.md",
-        "package_export:zeroth.core.approvals"
+        "package_export:zeroth.governance.approvals"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals:ApprovalResolution"
       ],
-      "module": "zeroth.core.approvals",
+      "module": "zeroth.governance.approvals",
       "name": "ApprovalResolution",
-      "signature": "(*, decision: zeroth.core.approvals.models.ApprovalDecision, actor: zeroth.core.identity.models.ActorIdentity, edited_payload: dict[str, typing.Any] | None = None, resolved_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, decision: zeroth.governance.approvals.models.ApprovalDecision, actor: zeroth.core.identity.models.ActorIdentity, edited_payload: dict[str, typing.Any] | None = None, resolved_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.approvals",
+        "__all__:zeroth.governance.approvals",
         "docs:docs/reference/python-api/approvals.md",
-        "package_export:zeroth.core.approvals"
+        "package_export:zeroth.governance.approvals"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals:ApprovalService"
       ],
-      "module": "zeroth.core.approvals",
+      "module": "zeroth.governance.approvals",
       "name": "ApprovalService",
       "signature": "(*, repository: 'ApprovalRepository', run_repository: 'RunRepository', audit_repository: 'AuditRepository | None' = None, payload_sanitizer: 'PayloadSanitizer | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.approvals",
+        "__all__:zeroth.governance.approvals",
         "docs:docs/reference/python-api/approvals.md",
-        "package_export:zeroth.core.approvals"
+        "package_export:zeroth.governance.approvals"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals:ApprovalStatus"
       ],
-      "module": "zeroth.core.approvals",
+      "module": "zeroth.governance.approvals",
       "name": "ApprovalStatus",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.approvals",
+        "__all__:zeroth.governance.approvals",
         "docs:docs/reference/python-api/approvals.md",
-        "package_export:zeroth.core.approvals"
+        "package_export:zeroth.governance.approvals"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals:HumanInteractionType"
       ],
-      "module": "zeroth.core.approvals",
+      "module": "zeroth.governance.approvals",
       "name": "HumanInteractionType",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.approvals.models"
+        "schema_model:zeroth.governance.approvals.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals.models:ApprovalRecord"
       ],
-      "module": "zeroth.core.approvals.models",
+      "module": "zeroth.governance.approvals.models",
       "name": "ApprovalRecord",
-      "signature": "(*, approval_id: str = <factory>, run_id: str, thread_id: str | None = None, node_id: str, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, requested_by: zeroth.core.identity.models.ActorIdentity | None = None, interaction_type: zeroth.core.approvals.models.HumanInteractionType = <HumanInteractionType.APPROVAL: 'approval'>, status: zeroth.core.approvals.models.ApprovalStatus = <ApprovalStatus.PENDING: 'pending'>, requested_decision: zeroth.core.approvals.models.ApprovalDecision = <ApprovalDecision.APPROVE: 'approve'>, allowed_actions: list[zeroth.core.approvals.models.ApprovalDecision] = <factory>, summary: str, rationale: str, context_excerpt: dict[str, typing.Any] = <factory>, proposed_payload: dict[str, typing.Any] | None = None, urgency_metadata: dict[str, typing.Any] = <factory>, resolution_schema_ref: str | None = None, resolution: zeroth.core.approvals.models.ApprovalResolution | None = None, sla_deadline: datetime.datetime | None = None, escalation_action: str | None = None, escalated_from_id: str | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, approval_id: str = <factory>, run_id: str, thread_id: str | None = None, node_id: str, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, requested_by: zeroth.core.identity.models.ActorIdentity | None = None, interaction_type: zeroth.governance.approvals.models.HumanInteractionType = <HumanInteractionType.APPROVAL: 'approval'>, status: zeroth.governance.approvals.models.ApprovalStatus = <ApprovalStatus.PENDING: 'pending'>, requested_decision: zeroth.governance.approvals.models.ApprovalDecision = <ApprovalDecision.APPROVE: 'approve'>, allowed_actions: list[zeroth.governance.approvals.models.ApprovalDecision] = <factory>, summary: str, rationale: str, context_excerpt: dict[str, typing.Any] = <factory>, proposed_payload: dict[str, typing.Any] | None = None, urgency_metadata: dict[str, typing.Any] = <factory>, resolution_schema_ref: str | None = None, resolution: zeroth.governance.approvals.models.ApprovalResolution | None = None, sla_deadline: datetime.datetime | None = None, escalation_action: str | None = None, escalated_from_id: str | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.approvals.models"
+        "schema_model:zeroth.governance.approvals.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.approvals.models:ApprovalResolution"
       ],
-      "module": "zeroth.core.approvals.models",
+      "module": "zeroth.governance.approvals.models",
       "name": "ApprovalResolution",
-      "signature": "(*, decision: zeroth.core.approvals.models.ApprovalDecision, actor: zeroth.core.identity.models.ActorIdentity, edited_payload: dict[str, typing.Any] | None = None, resolved_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, decision: zeroth.governance.approvals.models.ApprovalDecision, actor: zeroth.core.identity.models.ActorIdentity, edited_payload: dict[str, typing.Any] | None = None, resolved_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -9364,7 +9364,7 @@
       ],
       "module": "zeroth.service.api.approval_api",
       "name": "ApprovalResolutionRequest",
-      "signature": "(*, decision: zeroth.core.approvals.models.ApprovalDecision, edited_payload: dict[str, typing.Any] | None = None) -> None"
+      "signature": "(*, decision: zeroth.governance.approvals.models.ApprovalDecision, edited_payload: dict[str, typing.Any] | None = None) -> None"
     },
     {
       "evidence": [
@@ -9376,7 +9376,7 @@
       ],
       "module": "zeroth.service.api.approval_api",
       "name": "ApprovalResolutionResponse",
-      "signature": "(*, approval: zeroth.core.approvals.models.ApprovalRecord, run: zeroth.service.api.run_api.RunStatusResponse) -> None"
+      "signature": "(*, approval: zeroth.governance.approvals.models.ApprovalRecord, run: zeroth.service.api.run_api.RunStatusResponse) -> None"
     },
     {
       "evidence": [
@@ -9448,7 +9448,7 @@
       ],
       "module": "zeroth.service.api.audit_api",
       "name": "DeploymentEvidenceResponse",
-      "signature": "(*, deployment: zeroth.service.api.contracts_api.DeploymentVersionMetadataResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, run_ids: list[str] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+      "signature": "(*, deployment: zeroth.service.api.contracts_api.DeploymentVersionMetadataResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.governance.approvals.models.ApprovalRecord] = <factory>, run_ids: list[str] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -9472,7 +9472,7 @@
       ],
       "module": "zeroth.service.api.audit_api",
       "name": "RunEvidenceResponse",
-      "signature": "(*, run: zeroth.service.api.run_api.RunStatusResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.core.approvals.models.ApprovalRecord] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+      "signature": "(*, run: zeroth.service.api.run_api.RunStatusResponse, audits: list[zeroth.core.audit.models.NodeAuditRecord] = <factory>, approvals: list[zeroth.governance.approvals.models.ApprovalRecord] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
     },
     {
       "evidence": [

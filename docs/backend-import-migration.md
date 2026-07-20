@@ -384,6 +384,16 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.governed.models.common:RunStatus` | `zeroth.contracts.governed.models.common:RunStatus` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.governed.models.common:normalize_step_ref` | `zeroth.contracts.governed.models.common:normalize_step_ref` | Move governed contracts | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.governed.models.run_state:RunState` | `zeroth.contracts.governed.models.run_state:RunState` | Move governed contracts | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals:ApprovalDecision` | `zeroth.governance.approvals:ApprovalDecision` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals:ApprovalRecord` | `zeroth.governance.approvals:ApprovalRecord` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals:ApprovalRepository` | `zeroth.governance.approvals:ApprovalRepository` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals:ApprovalResolution` | `zeroth.governance.approvals:ApprovalResolution` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals:ApprovalService` | `zeroth.governance.approvals:ApprovalService` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals:ApprovalStatus` | `zeroth.governance.approvals:ApprovalStatus` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals:HumanInteractionType` | `zeroth.governance.approvals:HumanInteractionType` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals.models:ApprovalRecord` | `zeroth.governance.approvals.models:ApprovalRecord` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals.models:ApprovalResolution` | `zeroth.governance.approvals.models:ApprovalResolution` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.approvals.sla_checker:ApprovalSLAChecker` | `zeroth.governance.approvals.sla_checker:ApprovalSLAChecker` | Move approvals governance | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
