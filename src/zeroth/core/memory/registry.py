@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from zeroth.core.governed.audit.emitter import AuditEmitter
 from zeroth.core.governed.memory.auditing import AuditingMemoryConnector
 from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.governed.memory.scoped import ScopedMemoryConnector
@@ -22,6 +21,7 @@ from zeroth.core.memory.models import (
 from zeroth.core.memory.tenant_scoped import TenantScopedMemoryConnector
 from zeroth.core.policy.models import Capability
 from zeroth.core.runs import ThreadMemoryBinding, ThreadRepository
+from zeroth.governance.audit.emitter import AuditEmitter
 
 
 class InMemoryConnectorRegistry:

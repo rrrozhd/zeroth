@@ -14,8 +14,8 @@ from uuid import uuid4
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from zeroth.core.audit import AuditRepository, NodeAuditRecord
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 
 try:  # pragma: no cover - exercised once bearer verification lands
     import jwt

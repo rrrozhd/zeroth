@@ -11,7 +11,7 @@ from zeroth.governance.approvals import (
     ApprovalService,
     ApprovalStatus,
 )
-from zeroth.core.audit import AuditRepository
+from zeroth.governance.audit import AuditRepository
 from zeroth.contracts.graph import HumanApprovalNode, HumanApprovalNodeData
 from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.core.runs import Run, RunRepository

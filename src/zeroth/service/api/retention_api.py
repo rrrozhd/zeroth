@@ -17,10 +17,10 @@ from typing import Protocol
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.audit import AuditQuery
 from zeroth.core.identity import AuthenticatedPrincipal
 from zeroth.core.retention.erasure_service import LegalHoldError
 from zeroth.core.retention.models import LegalHold, RetentionPolicy
+from zeroth.governance.audit import AuditQuery
 from zeroth.service.api.authorization import (
     Permission,
     require_permission,

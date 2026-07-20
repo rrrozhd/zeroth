@@ -50,7 +50,7 @@ from zeroth.core.agent_runtime import (
     DeterministicProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.audit import AuditQuery
+from zeroth.governance.audit import AuditQuery
 from zeroth.core.execution_units import ExecutableUnitRunner
 
 

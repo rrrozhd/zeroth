@@ -7,7 +7,7 @@ from zeroth.core.agent_runtime.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )
-from zeroth.core.audit import AuditRepository
+from zeroth.governance.audit import AuditRepository
 from zeroth.core.execution_units import EnvironmentVariable
 from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator

@@ -8,7 +8,7 @@ in-flight spend never enters the headline, a zero success denominator stays ``No
 
 from __future__ import annotations
 
-from zeroth.core.audit.models import NodeAuditRecord
+from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.core.econ.unit_economics import unit_economics
 from zeroth.core.runs.models import Run, RunStatus
 

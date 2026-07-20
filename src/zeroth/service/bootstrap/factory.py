@@ -11,7 +11,6 @@ from zeroth.contracts.graph.serialization import deserialize_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.agent_runtime import AgentRunner
-from zeroth.core.audit import AuditRepository
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.execution_units import ExecutableUnitRunner
@@ -25,6 +24,7 @@ from zeroth.core.memory.runtime_configs import load_persisted_connectors
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.policy import PolicyGuard, PolicyRegistry, default_capability_registry
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
+from zeroth.governance.audit import AuditRepository
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.dispatch import LeaseManager

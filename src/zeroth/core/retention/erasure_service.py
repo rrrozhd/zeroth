@@ -24,7 +24,6 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from zeroth.core.audit.erasure_schema import AUDIT_CLEANUP_PAYLOAD_FIELDS
 from zeroth.core.retention.cleanup_manifest import (
     CleanupManifest,
     CleanupOperation,
@@ -35,6 +34,7 @@ from zeroth.core.retention.cleanup_state_repository import (
 )
 from zeroth.core.retention.coordination import RetentionCoordinator
 from zeroth.core.retention.models import ErasureResult
+from zeroth.governance.audit.erasure_schema import AUDIT_CLEANUP_PAYLOAD_FIELDS
 from zeroth.governance.retention.claims import CleanupClaims
 from zeroth.governance.retention.compatibility import CompatibilityLog, result_detail
 
@@ -57,11 +57,11 @@ from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanu
 from zeroth.platform.artifacts.helpers import extract_artifact_refs
 
 if TYPE_CHECKING:
-    from zeroth.core.audit.repository import AuditRepository
     from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
     from zeroth.core.retention.econ_eraser import EconEventEraser
     from zeroth.core.retention.legal_hold_repository import LegalHoldRepository
     from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+    from zeroth.governance.audit.repository import AuditRepository
     from zeroth.integrations.persistence.runs import RunRepository
 
 logger = logging.getLogger(__name__)

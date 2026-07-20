@@ -14,8 +14,9 @@ Legend for the Disposition column:
 
 - **Contracts (Task 12)** — moved to `zeroth.contracts.governed.*` in this
   task; the legacy module republishes the same object.
-- **Deferred (Task 13)** — stays in place; classified when governance
-  packages move and `core/governed/audit` is consolidated with `core/audit`.
+- **Governance (Task 13)** — moved to `zeroth.governance.audit.*` when the
+  governance packages moved and `core/governed/audit` was consolidated with
+  `core/audit`; the legacy module republishes the same object.
 - **Deferred (Task 14)** — stays in place; classified when the runtime and
   integration implementations move behind owned protocols.
 
@@ -58,13 +59,13 @@ Legend for the Disposition column:
 | `normalize_step_ref` | `models/common.py` | Contracts (Task 12) → `zeroth.contracts.governed.models.common` |
 | `RunState` | `models/run_state.py` | Contracts (Task 12) → `zeroth.contracts.governed.models.run_state` |
 
-## `audit/` — audit emitters → Deferred (Task 13)
+## `audit/` — audit emitters → Governance (Task 13)
 
 | Symbol | Module | Disposition |
 | --- | --- | --- |
-| `AuditEmitter` | `audit/emitter.py` | Deferred (Task 13) — consolidated with `core/audit` under `governance/audit` |
-| `emit_event` | `audit/emitter.py` | Deferred (Task 13) |
-| `RedisAuditEmitter` | `audit/redis.py` | Deferred (Task 13) |
+| `AuditEmitter` | `audit/emitter.py` | Governance (Task 13) → `zeroth.governance.audit.emitter`, consolidated with `core/audit` under `governance/audit` |
+| `emit_event` | `audit/emitter.py` | Governance (Task 13) → `zeroth.governance.audit.emitter` |
+| `RedisAuditEmitter` | `audit/redis.py` | Governance (Task 13) → `zeroth.governance.audit.redis`; its only concrete dependency is the optional third-party `redis.asyncio` client, imported lazily, so no zeroth-internal edge leaves the governance domain |
 
 ## `integrations/` — provider tool-call helpers → Deferred (Task 14)
 

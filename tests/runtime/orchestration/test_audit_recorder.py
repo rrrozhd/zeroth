@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from zeroth.core.audit.models import MemoryAccessRecord, ToolCallRecord
+from zeroth.governance.audit.models import MemoryAccessRecord, ToolCallRecord
 from zeroth.contracts.graph import AgentNode, AgentNodeData
 from zeroth.core.parallel.models import BranchContext
 from zeroth.core.runs import Run

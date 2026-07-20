@@ -19,8 +19,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.agent_runtime.models import ModelParams, PromptMessage
 from zeroth.core.agent_runtime.response_format import build_response_format
-from zeroth.core.audit.models import TokenUsage
 from zeroth.core.governed.integrations.tool_calls import NormalizedToolCall, extract_tool_calls
+from zeroth.governance.audit.models import TokenUsage
 from zeroth.platform.secrets import SecretResolutionError, resolve_secret_async
 
 if TYPE_CHECKING:

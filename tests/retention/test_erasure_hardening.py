@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from tests.retention.conftest import make_audit_record
-from zeroth.core.audit.erasure_schema import (
+from zeroth.governance.audit.erasure_schema import (
     AUDIT_CLEANUP_PAYLOAD_FIELDS,
     ERASED_PII_VALUES,
     pii_commitment_fields,

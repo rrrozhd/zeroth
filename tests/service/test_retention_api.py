@@ -15,7 +15,7 @@ from tests.service.helpers import (
     scoped_auth_config,
 )
 
-from zeroth.core.audit import NodeAuditRecord
+from zeroth.governance.audit import NodeAuditRecord
 from zeroth.core.identity import ServiceRole
 from zeroth.core.runs import Run
 from zeroth.core.service.bootstrap import bootstrap_app

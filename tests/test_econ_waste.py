@@ -20,8 +20,8 @@ from zeroth.core.agent_runtime.errors import AgentOutputValidationError
 from zeroth.core.agent_runtime.models import RetryPolicy
 from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.core.agent_runtime.resilience import CachingProviderAdapter
-from zeroth.core.audit import AuditRepository
-from zeroth.core.audit.models import NodeAuditRecord, TokenUsage
+from zeroth.governance.audit import AuditRepository
+from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
 from zeroth.core.econ import (
     EconThresholdError,
     WasteKind,

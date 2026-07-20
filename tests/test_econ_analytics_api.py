@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.core.audit.models import NodeAuditRecord
+from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.runs.models import Run, RunStatus
 from zeroth.core.service.econ_analytics_api import register_econ_analytics_routes

@@ -20,7 +20,7 @@ from zeroth.core.agent_runtime.provider import (
     ProviderResponse,
 )
 from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
-from zeroth.core.audit.models import TokenUsage
+from zeroth.governance.audit.models import TokenUsage
 from zeroth.core.context_window import ContextWindowSettings
 from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 from zeroth.core.execution_units import ExecutableUnitRunResult

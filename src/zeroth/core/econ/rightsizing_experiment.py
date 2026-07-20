@@ -34,11 +34,11 @@ from collections.abc import Mapping, Sequence
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.agent_runtime.provider import ProviderAdapter, ProviderRequest
-from zeroth.core.audit.models import NodeAuditRecord
 from zeroth.core.econ.rightsizing import ModelOption
 from zeroth.core.eval.models import EvalCase, EvalDataset, Score
 from zeroth.core.eval.runner import run_eval
 from zeroth.core.eval.scorers import JudgeVerdict, LLMJudgeScorer
+from zeroth.governance.audit.models import NodeAuditRecord
 
 # Fields that commonly hold "the answer" in a node's output snapshot. The default agent
 # output model is ``{"content": "..."}``; contract-typed nodes vary, so we look for a few

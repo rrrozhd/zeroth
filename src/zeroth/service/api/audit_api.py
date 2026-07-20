@@ -7,7 +7,12 @@ from typing import Protocol
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.audit import (
+from zeroth.core.deployments.provenance import (
+    build_attestation_payload,
+    verify_attestation_full,
+)
+from zeroth.governance.approvals.models import ApprovalRecord
+from zeroth.governance.audit import (
     AuditContinuityVerifier,
     AuditQuery,
     AuditRedactionConfig,
@@ -17,11 +22,6 @@ from zeroth.core.audit import (
     build_summary,
     collect_policy_events,
 )
-from zeroth.core.deployments.provenance import (
-    build_attestation_payload,
-    verify_attestation_full,
-)
-from zeroth.governance.approvals.models import ApprovalRecord
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,

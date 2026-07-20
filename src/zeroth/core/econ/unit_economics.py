@@ -34,9 +34,9 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.audit.models import NodeAuditRecord
 from zeroth.core.econ.quality import QualityEconomicsReport, quality_economics
 from zeroth.core.runs.models import Run, RunStatus
+from zeroth.governance.audit.models import NodeAuditRecord
 
 _SUCCESS = RunStatus.COMPLETED.value
 _FAILED = RunStatus.FAILED.value

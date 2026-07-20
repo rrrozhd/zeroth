@@ -13,7 +13,7 @@ from zeroth.core.agent_runtime import (
     ProviderResponse,
     ToolAttachmentManifest,
 )
-from zeroth.core.audit import AuditRepository
+from zeroth.governance.audit import AuditRepository
 from zeroth.core.execution_units import (
     CommandArtifactSource,
     ExecutableUnitBinding,

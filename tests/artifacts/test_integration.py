@@ -18,11 +18,11 @@ from zeroth.platform.artifacts.errors import ArtifactTTLError
 from zeroth.platform.artifacts.helpers import extract_artifact_refs, refresh_artifact_ttls
 from zeroth.platform.artifacts.models import ArtifactReference, ArtifactStoreSettings
 from zeroth.platform.artifacts.store import FilesystemArtifactStore
-from zeroth.core.audit.evidence import (
+from zeroth.governance.audit.evidence import (
     build_summary,
     resolve_artifact_references,
 )
-from zeroth.core.audit.models import NodeAuditRecord
+from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.contracts.registry import validate_artifact_reference
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 

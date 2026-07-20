@@ -16,11 +16,11 @@ from typing import Literal
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.core.econ.quality import RunQualityVerdict
 from zeroth.core.econ.unit_economics import UnitEconomicsReport, unit_economics
 from zeroth.core.econ.waste import WasteRollup, waste_rollup
 from zeroth.core.runs.models import Run
+from zeroth.governance.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,

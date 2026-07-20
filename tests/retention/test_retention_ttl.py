@@ -330,7 +330,7 @@ async def test_run_ttl_ignores_runs_with_old_audits_but_recent_activity(env) -> 
 
 
 async def test_signed_chain_verifies_after_audit_ttl_tombstoning(env) -> None:
-    from zeroth.core.audit import AuditContinuityVerifier
+    from zeroth.governance.audit import AuditContinuityVerifier
 
     old = datetime.now(UTC) - timedelta(days=60)
     await env.seed_run("run-chain", tenant_id="t-chain", created_at=old, n_audits=3)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zeroth.core.audit.models import NodeAuditRecord
+from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.core.econ.quality import quality_economics, read_quality_verdict
 from zeroth.core.runs.models import Run, RunStatus
 

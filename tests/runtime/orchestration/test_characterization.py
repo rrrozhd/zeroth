@@ -32,7 +32,7 @@ from zeroth.core.agent_runtime import (
 )
 from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
-from zeroth.core.audit import AuditRepository
+from zeroth.governance.audit import AuditRepository
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.contracts.graph import (
     AgentNode,

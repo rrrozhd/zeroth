@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-import zeroth.core.audit.models as audit_models
-from zeroth.core.audit import (
+import zeroth.governance.audit.models as audit_models
+from zeroth.governance.audit import (
     AuditContinuityVerifier,
     AuditQuery,
     AuditRedactionConfig,

@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from zeroth.core.audit import AuditRepository
+from zeroth.governance.audit import AuditRepository
 from tests.conftest import requires_docker
 from zeroth.core.retention.coordination import RetentionCoordinator, RetentionTransaction
 from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository

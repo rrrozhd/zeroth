@@ -12,7 +12,7 @@ from zeroth.core.agent_runtime.provider import (
     ProviderRequest,
     ProviderResponse,
 )
-from zeroth.core.audit.models import TokenUsage
+from zeroth.governance.audit.models import TokenUsage
 
 
 @pytest.fixture

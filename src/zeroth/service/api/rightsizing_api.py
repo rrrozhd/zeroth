@@ -14,7 +14,6 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter
-from zeroth.core.audit.models import AuditQuery
 from zeroth.core.econ.opportunities import SpendReport, spend_opportunities
 from zeroth.core.econ.quality import read_quality_verdict
 from zeroth.core.econ.rightsizing import RightsizingResult, describe, recommend
@@ -24,6 +23,7 @@ from zeroth.core.econ.rightsizing_experiment import (
     build_labeled_dataset,
     run_experiment,
 )
+from zeroth.governance.audit.models import AuditQuery
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,

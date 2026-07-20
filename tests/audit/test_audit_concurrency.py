@@ -7,9 +7,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from tests.conftest import requires_docker
-from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
-from zeroth.core.audit import coordination as audit_coordination
-from zeroth.core.audit.verifier import compute_chained_record
+from zeroth.governance.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
+from zeroth.governance.audit import coordination as audit_coordination
+from zeroth.governance.audit.verifier import compute_chained_record
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
 

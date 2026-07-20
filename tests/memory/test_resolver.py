@@ -7,7 +7,7 @@ then ScopedMemoryConnector, and returns correct ResolvedMemoryBinding shape.
 from __future__ import annotations
 
 import pytest
-from zeroth.core.governed.audit.emitter import AuditEmitter
+from zeroth.governance.audit.emitter import AuditEmitter
 from zeroth.core.governed.memory.models import MemoryScope
 
 from zeroth.core.memory.connectors import KeyValueMemoryConnector, RunEphemeralMemoryConnector

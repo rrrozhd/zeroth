@@ -82,7 +82,7 @@ def test_provider_response_accepts_cost_fields():
 
 def test_node_audit_record_accepts_cost_fields():
     """NodeAuditRecord accepts cost_usd and cost_event_id as optional fields."""
-    from zeroth.core.audit.models import NodeAuditRecord
+    from zeroth.governance.audit.models import NodeAuditRecord
 
     record = NodeAuditRecord(
         audit_id="a1",

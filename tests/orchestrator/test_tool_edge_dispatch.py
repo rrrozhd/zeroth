@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from zeroth.core.agent_runtime import DeterministicProviderAdapter, ProviderResponse
 from zeroth.core.agent_runtime.factory import build_agent_runners
-from zeroth.core.audit import AuditRepository
+from zeroth.governance.audit import AuditRepository
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.execution_units import (
     CommandArtifactSource,

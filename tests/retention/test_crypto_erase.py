@@ -8,8 +8,8 @@ import pytest
 
 from tests.retention.conftest import make_audit_record
 
-from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
-from zeroth.core.audit.verifier import (
+from zeroth.governance.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
+from zeroth.governance.audit.verifier import (
     _compute_pii_commitments,
     _compute_record_digest,
     compute_chained_record,

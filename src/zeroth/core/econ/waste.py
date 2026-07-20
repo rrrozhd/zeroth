@@ -2,7 +2,7 @@
 
 Zeroth is the runtime, so it sees the *graph* -- not just a flat stream of API
 calls. This module turns the per-node cost already captured on
-:class:`~zeroth.core.audit.models.NodeAuditRecord` into a structured
+:class:`~zeroth.governance.audit.models.NodeAuditRecord` into a structured
 :class:`EconReport` of :class:`WasteFinding` s, attributing spend to *structural*
 causes (a failed run that still paid, a node re-executed in a loop). It is pure
 and in-process: no Regulus, no network -- feed it a run's audit records.
@@ -28,9 +28,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.audit.models import NodeAuditRecord
 from zeroth.core.runs import RunStatus
 from zeroth.core.runs.models import Run
+from zeroth.governance.audit.models import NodeAuditRecord
 
 
 class WasteKind(StrEnum):

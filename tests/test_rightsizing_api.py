@@ -167,7 +167,7 @@ def test_opportunities_empty_when_no_spend() -> None:
 
 
 def test_opportunities_ranks_spending_nodes() -> None:
-    from zeroth.core.audit.models import NodeAuditRecord, TokenUsage
+    from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
 
     def _rec(node_id: str, cost: float) -> NodeAuditRecord:
         return NodeAuditRecord(

@@ -31,8 +31,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.audit.models import NodeAuditRecord
 from zeroth.core.runs.models import Run, RunStatus
+from zeroth.governance.audit.models import NodeAuditRecord
 
 _SUCCESS = RunStatus.COMPLETED.value
 _FAILED = RunStatus.FAILED.value

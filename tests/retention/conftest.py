@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from zeroth.core.audit import AuditRepository, NodeAuditRecord
+from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.core.retention import (
     LegalHoldRepository,
     RetentionAuditLogRepository,

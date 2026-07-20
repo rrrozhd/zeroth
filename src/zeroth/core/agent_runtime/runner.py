@@ -45,7 +45,6 @@ from zeroth.core.agent_runtime.sanitization import (
 )
 from zeroth.core.agent_runtime.tools import ToolAttachmentBridge
 from zeroth.core.agent_runtime.validation import OutputValidator
-from zeroth.core.audit import MemoryAccessRecord
 from zeroth.core.governed.integrations.tool_calls import build_tool_message
 from zeroth.core.governed.memory.models import MemoryScope
 from zeroth.core.guardrails.content import (
@@ -57,6 +56,7 @@ from zeroth.core.guardrails.content import (
 from zeroth.core.memory import MemoryConnectorResolver
 from zeroth.core.policy.errors import parse_effective_capabilities, require_capabilities
 from zeroth.core.policy.models import Capability
+from zeroth.governance.audit import MemoryAccessRecord
 from zeroth.platform.observability import start_span
 
 

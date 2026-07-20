@@ -14,7 +14,7 @@ from tests.service.helpers import (
     default_service_auth_config,
     deploy_service,
 )
-from zeroth.core.audit import NodeAuditRecord
+from zeroth.governance.audit import NodeAuditRecord
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.contracts.graph import GraphRepository

@@ -18,8 +18,8 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.audit.models import NodeAuditRecord
 from zeroth.core.econ.rightsizing import recommend
+from zeroth.governance.audit.models import NodeAuditRecord
 
 _SUCCESS_STATUSES = {"completed", "success", "succeeded"}
 
