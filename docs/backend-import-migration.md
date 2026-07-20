@@ -558,6 +558,23 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.parallel.models:ParallelConfig` | `zeroth.runtime.parallel.models:ParallelConfig` | Republish contract-owned model | Legacy path still re-exports | Same class object, defined in `zeroth.contracts.graph.models` | Not removed |
 | `zeroth.core.parallel.reducers:dispatch_strategy` | `zeroth.runtime.parallel.reducers:dispatch_strategy` | Move parallel runtime | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.parallel.reducers:resolve_reducer_ref` | `zeroth.runtime.parallel.reducers:resolve_reducer_ref` | Move parallel runtime | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.subgraph:SubgraphCycleError` | `zeroth.runtime.subgraphs:SubgraphCycleError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph:SubgraphDepthLimitError` | `zeroth.runtime.subgraphs:SubgraphDepthLimitError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph:SubgraphError` | `zeroth.runtime.subgraphs:SubgraphError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph:SubgraphExecutionError` | `zeroth.runtime.subgraphs:SubgraphExecutionError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph:SubgraphExecutor` | `zeroth.runtime.subgraphs:SubgraphExecutor` | Move subgraph runtime | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.subgraph:SubgraphResolutionError` | `zeroth.runtime.subgraphs:SubgraphResolutionError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph.errors:SubgraphCycleError` | `zeroth.runtime.subgraphs.errors:SubgraphCycleError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph.errors:SubgraphDepthLimitError` | `zeroth.runtime.subgraphs.errors:SubgraphDepthLimitError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph.errors:SubgraphError` | `zeroth.runtime.subgraphs.errors:SubgraphError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph.errors:SubgraphExecutionError` | `zeroth.runtime.subgraphs.errors:SubgraphExecutionError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph.errors:SubgraphResolutionError` | `zeroth.runtime.subgraphs.errors:SubgraphResolutionError` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph.executor:SubgraphExecutor` | `zeroth.runtime.subgraphs.executor:SubgraphExecutor` | Move subgraph runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.subgraph.models:SubgraphNodeData` | `zeroth.runtime.subgraphs.models:SubgraphNodeData` | Republish contract-owned model | Legacy path still re-exports | Same class object, defined in `zeroth.contracts.graph.models` | Not removed |
+| `zeroth.core.subgraph.resolver:SubgraphResolver` | `zeroth.runtime.subgraphs.resolver:SubgraphResolver` | Move subgraph runtime | Legacy path still re-exports | Same class object; `deployment_service` is now annotated with the runtime-owned `DeploymentLookup` protocol, which the concrete `DeploymentService` satisfies | Not removed |
+| `zeroth.core.subgraph.resolver:base_node_id` | `zeroth.runtime.subgraphs.resolver:base_node_id` | Move subgraph runtime | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.subgraph.resolver:merge_governance` | `zeroth.runtime.subgraphs.resolver:merge_governance` | Move subgraph runtime | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.subgraph.resolver:namespace_subgraph` | `zeroth.runtime.subgraphs.resolver:namespace_subgraph` | Move subgraph runtime | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

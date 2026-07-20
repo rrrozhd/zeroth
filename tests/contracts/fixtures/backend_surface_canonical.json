@@ -10596,65 +10596,65 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.subgraph",
-        "package_export:zeroth.core.subgraph"
+        "__all__:zeroth.runtime.subgraphs",
+        "package_export:zeroth.runtime.subgraphs"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph:SubgraphCycleError"
       ],
-      "module": "zeroth.core.subgraph",
+      "module": "zeroth.runtime.subgraphs",
       "name": "SubgraphCycleError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.subgraph",
-        "package_export:zeroth.core.subgraph"
+        "__all__:zeroth.runtime.subgraphs",
+        "package_export:zeroth.runtime.subgraphs"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph:SubgraphDepthLimitError"
       ],
-      "module": "zeroth.core.subgraph",
+      "module": "zeroth.runtime.subgraphs",
       "name": "SubgraphDepthLimitError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.subgraph",
-        "package_export:zeroth.core.subgraph"
+        "__all__:zeroth.runtime.subgraphs",
+        "package_export:zeroth.runtime.subgraphs"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph:SubgraphError"
       ],
-      "module": "zeroth.core.subgraph",
+      "module": "zeroth.runtime.subgraphs",
       "name": "SubgraphError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.subgraph",
-        "package_export:zeroth.core.subgraph"
+        "__all__:zeroth.runtime.subgraphs",
+        "package_export:zeroth.runtime.subgraphs"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph:SubgraphExecutionError"
       ],
-      "module": "zeroth.core.subgraph",
+      "module": "zeroth.runtime.subgraphs",
       "name": "SubgraphExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.subgraph"
+        "__all__:zeroth.runtime.subgraphs"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph:SubgraphExecutor"
       ],
-      "module": "zeroth.core.subgraph",
+      "module": "zeroth.runtime.subgraphs",
       "name": "SubgraphExecutor",
       "signature": "(resolver: 'SubgraphResolver') -> None"
     },
@@ -10673,74 +10673,74 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.subgraph",
-        "package_export:zeroth.core.subgraph"
+        "__all__:zeroth.runtime.subgraphs",
+        "package_export:zeroth.runtime.subgraphs"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph:SubgraphResolutionError"
       ],
-      "module": "zeroth.core.subgraph",
+      "module": "zeroth.runtime.subgraphs",
       "name": "SubgraphResolutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.subgraph.errors"
+        "package_export:zeroth.runtime.subgraphs.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph.errors:SubgraphCycleError"
       ],
-      "module": "zeroth.core.subgraph.errors",
+      "module": "zeroth.runtime.subgraphs.errors",
       "name": "SubgraphCycleError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.subgraph.errors"
+        "package_export:zeroth.runtime.subgraphs.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph.errors:SubgraphDepthLimitError"
       ],
-      "module": "zeroth.core.subgraph.errors",
+      "module": "zeroth.runtime.subgraphs.errors",
       "name": "SubgraphDepthLimitError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.subgraph.errors"
+        "package_export:zeroth.runtime.subgraphs.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph.errors:SubgraphError"
       ],
-      "module": "zeroth.core.subgraph.errors",
+      "module": "zeroth.runtime.subgraphs.errors",
       "name": "SubgraphError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.subgraph.errors"
+        "package_export:zeroth.runtime.subgraphs.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph.errors:SubgraphExecutionError"
       ],
-      "module": "zeroth.core.subgraph.errors",
+      "module": "zeroth.runtime.subgraphs.errors",
       "name": "SubgraphExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.subgraph.errors"
+        "package_export:zeroth.runtime.subgraphs.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.subgraph.errors:SubgraphResolutionError"
       ],
-      "module": "zeroth.core.subgraph.errors",
+      "module": "zeroth.runtime.subgraphs.errors",
       "name": "SubgraphResolutionError",
       "signature": "<not-inspectable>"
     },
