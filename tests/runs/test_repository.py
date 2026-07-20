@@ -6,15 +6,9 @@ import pytest
 import zeroth.integrations.persistence.runs.thread_repository as thread_repository_module
 from zeroth.contracts.governed import RunStatus
 
-from zeroth.core.runs.models import (
-    Run,
-    RunFailureState,
-    RunHistoryEntry,
-    Thread,
-    ThreadMemoryBinding,
-    ThreadStatus,
-)
-from zeroth.core.runs.repository import RunRepository, ThreadRepository
+from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, Thread, ThreadMemoryBinding
+from zeroth.runtime.runs import ThreadStatus
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 
 async def test_thread_repository_consumes_platform_clock(runs_db, monkeypatch) -> None:

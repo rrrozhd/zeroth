@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from tests.test_studio_publish_deploy import _make_env
 from zeroth.contracts.registry import ContractReference, ContractRegistry
 from zeroth.contracts.registry.schema_model import model_from_json_schema
-from zeroth.core.service.bootstrap import run_migrations
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 ORDER_SCHEMA = {

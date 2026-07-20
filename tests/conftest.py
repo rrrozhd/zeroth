@@ -31,7 +31,7 @@ os.environ.setdefault(
     tempfile.mkdtemp(prefix="zeroth-artifacts-test-"),
 )
 
-from zeroth.core.service.bootstrap import run_migrations  # noqa: E402
+from zeroth.service.bootstrap.migrations import run_migrations  # noqa: E402
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
 
 

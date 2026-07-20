@@ -8,8 +8,8 @@ import contextlib
 from tests.service.helpers import agent_graph, deploy_service
 from zeroth.platform.dispatch import LeaseManager
 from zeroth.runtime.orchestration.run_worker import RunWorker
-from zeroth.core.runs import RunStatus
-from zeroth.core.runs.models import Run
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.runs import Run
 
 DEPLOYMENT = "durable-dispatch-test"
 

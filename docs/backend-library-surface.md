@@ -1,9 +1,45 @@
 # Backend Library Surface
 
 This document is the human-readable inventory of Zeroth's protected backend
-library surface before the architecture refactor begins. The executable source
-of truth is the immutable `tests/contracts/fixtures/backend_surface_legacy.json`;
-the current import map is `backend_surface_canonical.json` beside it.
+library surface, captured before the architecture refactor began. The
+executable source of truth is the immutable
+`tests/contracts/fixtures/backend_surface_legacy.json`; the current import map
+is `backend_surface_canonical.json` beside it. The inventory tables below
+describe the legacy import surface and are retained unchanged; the refactor's
+end state is summarized next.
+
+## Post-refactor layering (2026-07-20)
+
+The 2026-07-18 backend architecture refactor finished with every backend
+capability owned by one of eight canonical domain packages:
+
+| Domain | Owns | May import |
+| --- | --- | --- |
+| `zeroth.platform` | clocks, ids, config, storage, artifacts, dispatch, observability, secrets, signing | nothing |
+| `zeroth.contracts` | graph, conditions, mappings, templates, registry, governed models | platform |
+| `zeroth.governance` | approvals, audit, identity, policy, guardrails, retention | contracts, platform |
+| `zeroth.runtime` | orchestration, agents, parallel, subgraphs, context, runs | contracts, governance, platform |
+| `zeroth.econ` | analytics, instrumentation, plane | contracts, platform |
+| `zeroth.integrations` | persistence, execution, http, memory, rag, sandbox sidecar | contracts, econ, governance, platform, runtime |
+| `zeroth.eval` | scorers, runner, models | contracts, platform, runtime |
+| `zeroth.service` | app, api, bootstrap, deployments, webhooks | every other domain |
+
+The direction of the matrix is enforced by an AST scanner
+(`src/zeroth/_architecture.py`) and
+`tests/architecture/test_backend_dependencies.py`. The scanner's temporary
+exception map documents the edges that cannot be removed while the legacy
+surface stands; every remaining entry is keyed to a decision beyond the
+refactor plan (retiring the legacy surface, a cost-instrumentation wrapping
+seam, or a contracts home for the run/audit vocabulary).
+
+`zeroth.core` and `zeroth.econ_plane` remain as the protected compatibility
+shell: every pinned legacy capability keeps importing from its legacy path,
+either because the definition deliberately stayed there (signature-pinned
+models, the orchestrator facade, the CLI and demo modules) or because the
+legacy module republishes the canonical object. The canonical import for
+every symbol is recorded in `docs/backend-import-migration.md` and verified
+by the canonical surface fixture; deliberate probe and parity tests keep the
+legacy paths exercised.
 
 ## Baseline scope
 

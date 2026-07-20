@@ -33,7 +33,7 @@ pip install "zeroth-core[memory-pg]"
 import asyncio
 
 from zeroth.platform.config.settings import get_settings
-from zeroth.core.service.bootstrap import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_service
 from zeroth.platform.storage.factory import create_database
 
 
@@ -72,8 +72,8 @@ own, mount the service sub-app:
 ```python
 from fastapi import FastAPI
 
-from zeroth.core.service.app import create_app
-from zeroth.core.service.bootstrap import bootstrap_service
+from zeroth.service.app import create_app
+from zeroth.service.bootstrap.factory import bootstrap_service
 from zeroth.platform.storage.factory import create_database
 from zeroth.platform.config.settings import get_settings
 

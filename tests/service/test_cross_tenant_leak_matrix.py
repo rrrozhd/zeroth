@@ -32,8 +32,9 @@ from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRe
 from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
 from zeroth.integrations.memory.models import ConnectorManifest
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
-from zeroth.core.runs import Run, RunRepository
-from zeroth.core.service.studio_api import router as studio_router
+from zeroth.runtime.runs import Run
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.service.api.studio_api import router as studio_router
 
 # ---------------------------------------------------------------------------
 # memory — SHARED scope, resolver singleton, one physical connector

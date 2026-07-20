@@ -20,9 +20,9 @@ from zeroth.service.deployments import DeploymentService, SQLiteDeploymentReposi
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.service.deployment_api import register_deployment_routes
-from zeroth.core.service.studio_api import router as studio_router
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.service.api.deployment_api import register_deployment_routes
+from zeroth.service.api.studio_api import router as studio_router
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 

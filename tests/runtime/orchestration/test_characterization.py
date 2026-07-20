@@ -53,7 +53,8 @@ from zeroth.governance.policy import (
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.core.runs import Run, RunRepository, RunStatus
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
 
 
 class NumberInput(BaseModel):
@@ -657,7 +658,8 @@ async def test_fan_out_records_branch_audits_before_the_source_node_audit(sqlite
     ]
     # The source's own audit is written last and takes the parent's audit:1
     # slot; branch refs are appended to the parent only afterwards, by
-    # _merge_fan_in_state. Reversing that order renumbers the parent trail.
+    # RuntimeParallelExecutor.merge_fan_in_state. Reversing that order
+    # renumbers the parent trail.
     assert written[-1] == ("source", f"{run.run_id}:audit:1")
     assert run.audit_refs == [
         "audit:1",

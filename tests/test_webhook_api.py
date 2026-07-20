@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.core.service.webhook_api import register_webhook_routes
+from zeroth.service.api.webhook_api import register_webhook_routes
 from zeroth.service.webhooks.models import (
     WebhookDeadLetter,
     WebhookDelivery,

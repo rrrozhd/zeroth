@@ -24,7 +24,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from zeroth.core.service.app import create_app
+from zeroth.service.app import create_app
 
 FIXTURE = (
     Path(__file__).resolve().parents[1] / "contracts" / "fixtures" / "backend_route_inventory.json"

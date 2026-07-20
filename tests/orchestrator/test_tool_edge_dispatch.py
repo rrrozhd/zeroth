@@ -36,7 +36,8 @@ from zeroth.contracts.graph import (
 )
 from zeroth.contracts.graph.models import AgentNode, ExecutableUnitNode
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 class NumberInput(BaseModel):

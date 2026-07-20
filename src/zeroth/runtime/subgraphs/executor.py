@@ -227,7 +227,7 @@ class SubgraphExecutor:
     ) -> Run:
         """Resume a paused child subgraph Run in place (D-11 literal).
 
-        Used by ``_execute_parallel_fan_out_resume`` to re-drive ONLY
+        Used by ``RuntimeParallelExecutor.execute_fan_out_resume`` to re-drive ONLY
         the branch that hit WAITING_APPROVAL. Re-namespaces the child
         graph using the SAME ``branch_index`` as the original
         execution so audit IDs remain byte-identical (T-43-01

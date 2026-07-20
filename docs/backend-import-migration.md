@@ -1,10 +1,15 @@
 # Backend Import Migration Guide
 
 This guide is the change log for public Python import locations during the
-backend architecture refactor. The baseline captured on 2026-07-18 has not
-moved any symbols: all public imports still resolve from their legacy
-locations. The canonical package shells exist so moves can proceed in focused,
-independently verified slices.
+backend architecture refactor. The migration completed on 2026-07-20 (Task 18
+of `docs/superpowers/plans/2026-07-18-backend-architecture-refactor.md`): the
+symbol migration log below records every published canonical location, every
+legacy import path keeps resolving through the `zeroth.core` /
+`zeroth.econ_plane` compatibility shell, and
+`tests/contracts/fixtures/backend_surface_canonical.json` is the executable
+form of this guide. New code should use the canonical imports; the legacy
+paths remain supported until the legacy surface is retired by a decision
+outside the refactor plan.
 
 ## Compatibility policy
 

@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 
 from zeroth.runtime.parallel.models import BranchResult, FanInResult
-from zeroth.core.runs import Run, RunHistoryEntry, RunStatus
+from zeroth.runtime.runs import Run, RunHistoryEntry, RunStatus
 from zeroth.runtime.orchestration import RuntimeParallelExecutor
 
 

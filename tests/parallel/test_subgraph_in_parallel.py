@@ -4,7 +4,7 @@ Top-of-module note: This module's integration tests mock the
 ``SubgraphExecutor`` rather than constructing a full resolver +
 DeploymentService chain. The mocks return pre-built child ``Run``
 objects so that ``branch_coro_factory``'s SubgraphNode dispatch path is
-exercised end-to-end through ``_execute_parallel_fan_out`` and
+exercised end-to-end through ``RuntimeParallelExecutor.execute_fan_out`` and
 ``ParallelExecutor`` without the persistence overhead of
 ``tests/subgraph/test_integration.py``.
 

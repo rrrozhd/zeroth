@@ -15,7 +15,7 @@ from typing import Any, Protocol, get_type_hints
 
 import pytest
 
-from zeroth.core.runs.repository import RunRepository, ThreadRepository
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.runtime.runs import (
     CheckpointStore,
     Run,

@@ -23,9 +23,10 @@ from zeroth.contracts.graph import (
     HumanApprovalNodeData,
 )
 from zeroth.governance.identity import ServiceRole
-from zeroth.core.runs import Run
-from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.core.service.bootstrap import bootstrap_app, bootstrap_service
+from zeroth.runtime.runs import Run
+from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
+from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_service
 
 
 class RunInputPayload(BaseModel):

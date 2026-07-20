@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from zeroth.contracts.graph.models import Graph, Node
 from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
-from zeroth.core.runs.models import Run
+from zeroth.runtime.runs import Run
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,

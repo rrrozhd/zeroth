@@ -54,14 +54,15 @@ from zeroth.contracts.graph import (
     GraphRepository,
 )
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.service.app import create_app
-from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
 from zeroth.platform.storage import AsyncSQLiteDatabase
 from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     LiteLLMProviderAdapter,
 )
+from zeroth.service.app import create_app
+from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 DEPLOYMENT_REF = "examples-api"

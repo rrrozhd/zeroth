@@ -19,7 +19,8 @@ from zeroth.integrations.memory.models import ConnectorManifest
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.orchestrator.runtime import NodeDispatcherError
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 class _RecordingConnector:

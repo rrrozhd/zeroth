@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 from zeroth.governance.approvals.models import ApprovalDecision
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.runs import Run, RunRepository, RunStatus
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
 
 # ---------------------------------------------------------------------------
 # Helpers

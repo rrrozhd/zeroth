@@ -34,7 +34,8 @@ in-process:
 
 ```python
 import asyncio
-from zeroth.core.service import bootstrap_service, create_app
+from zeroth.service.app import create_app
+from zeroth.service.bootstrap.factory import bootstrap_service
 from zeroth.platform.storage.factory import create_database
 from zeroth.platform.config.settings import get_settings
 

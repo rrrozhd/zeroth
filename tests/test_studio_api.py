@@ -11,8 +11,8 @@ from fastapi.testclient import TestClient
 
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.service.studio_api import router as studio_router
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.service.api.studio_api import router as studio_router
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 

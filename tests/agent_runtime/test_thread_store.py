@@ -7,7 +7,7 @@ from zeroth.runtime.agents.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )
-from zeroth.core.runs.repository import RunRepository, ThreadRepository
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 
 async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:

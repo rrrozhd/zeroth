@@ -22,7 +22,8 @@ from zeroth.runtime.context import (
 )
 from zeroth.contracts.graph.models import AgentNode, AgentNodeData
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.runs import Run, RunRepository, RunStatus
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
 
 
 class SimpleInput(BaseModel):

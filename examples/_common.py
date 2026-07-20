@@ -28,16 +28,14 @@ from pydantic import BaseModel
 
 from zeroth.contracts.graph import Graph, GraphRepository
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.core.service.bootstrap import (
-    ServiceBootstrap,
-    bootstrap_service,
-    run_migrations,
-)
 from zeroth.governance.identity import ServiceRole
 from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.platform.storage import AsyncSQLiteDatabase
 from zeroth.runtime.agents import AgentRunner
+from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
+from zeroth.service.bootstrap.container import ServiceBootstrap
+from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 # ---------------------------------------------------------------------------

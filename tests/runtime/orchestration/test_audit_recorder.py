@@ -18,7 +18,7 @@ import pytest
 from zeroth.governance.audit.models import MemoryAccessRecord, ToolCallRecord
 from zeroth.contracts.graph import AgentNode, AgentNodeData
 from zeroth.runtime.parallel.models import BranchContext
-from zeroth.core.runs import Run
+from zeroth.runtime.runs import Run
 from zeroth.runtime.orchestration import RuntimeAuditRecorder
 
 

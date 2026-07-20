@@ -12,7 +12,8 @@ from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.contracts.graph import AgentNode, AgentNodeData, Graph
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 class SimpleInput(BaseModel):

@@ -82,8 +82,8 @@ class BranchApprovalPauseSignal(BaseException):
     * Cancellation of sibling branches propagates through the task
       group even in best-effort mode.
 
-    Carries the metadata needed by ``_execute_parallel_fan_out`` to
-    stash ``pending_parallel_subgraph`` on the parent Run so the paused
+    Carries the metadata needed by ``RuntimeParallelExecutor.execute_fan_out``
+    to stash ``pending_parallel_subgraph`` on the parent Run so the paused
     branch can be resumed later via ``SubgraphExecutor.resume`` without
     re-executing any sibling.
     """

@@ -37,7 +37,8 @@ from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
 from zeroth.integrations.memory.models import ConnectorManifest
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.runs import Run, RunRepository
+from zeroth.runtime.runs import Run
+from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.contracts.templates import TemplateReference, TemplateRegistry, TemplateRenderer
 
 

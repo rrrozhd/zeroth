@@ -45,7 +45,8 @@ from zeroth.governance.policy import (
     default_capability_registry,
 )
 from zeroth.governance.policy.models import EnforcementResult
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 # ---------------------------------------------------------------------------
@@ -532,8 +533,9 @@ async def test_per_branch_contract_validation(sqlite_db) -> None:
 
 # ---------------------------------------------------------------------------
 # G2: per-branch capability enforcement (parallel agent + memory under
-# enforcement). Before the fix, _enforce_policy_for_branch never persisted the
-# granted capability set, so a branch node's _enforcement_context_for read an
+# enforcement). Before the fix, branch policy enforcement (now
+# RuntimePolicyGate.enforce_policy_for_branch) never persisted the granted
+# capability set, so a branch node's enforcement context read an
 # empty set and require_capabilities fail-closed DENIED a correctly-declared
 # memory read/write. These cover the allow AND deny sides.
 # ---------------------------------------------------------------------------

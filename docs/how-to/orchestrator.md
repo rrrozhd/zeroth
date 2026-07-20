@@ -13,7 +13,8 @@ from pathlib import Path
 
 from zeroth.core.examples.quickstart import build_demo_graph
 from zeroth.contracts.graph import GraphRepository
-from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
+from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.contracts.registry import ContractRegistry

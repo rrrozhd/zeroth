@@ -14,7 +14,8 @@ from zeroth.governance.retention import (
     RetentionErasureService,
     RetentionPolicyRepository,
 )
-from zeroth.core.runs import Run, RunRepository
+from zeroth.runtime.runs import Run
+from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.signing import EnvHmacSigner
 
 

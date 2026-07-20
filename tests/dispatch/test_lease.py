@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from zeroth.platform.dispatch.lease import _HAS_PG, LeaseManager
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 DEPLOYMENT = "test-deployment"

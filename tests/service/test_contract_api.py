@@ -8,9 +8,9 @@ from tests.service.helpers import admin_headers, default_service_auth_config
 from zeroth.contracts.registry import ContractReference, ContractRegistry
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.contracts.graph import GraphRepository
-from zeroth.core.runs import RunFailureState
+from zeroth.runtime.runs import RunFailureState
 from zeroth.core.service.bootstrap import bootstrap_app
-from zeroth.core.service.contracts_api import (
+from zeroth.service.api.contracts_api import (
     DeploymentResultErrorStateSchemaResponse,
     DeploymentVersionMetadataResponse,
     PublicContractSchemaResponse,

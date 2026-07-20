@@ -10,12 +10,12 @@ See [Concept: identity](../concepts/identity.md) for the model and [Concept: ser
 
 ```python
 from zeroth.governance.identity import ServiceRole
-from zeroth.core.service.auth import (
+from zeroth.service.api.authentication import (
     BearerTokenConfig,
     ServiceAuthConfig,
     StaticApiKeyCredential,
 )
-from zeroth.core.service.bootstrap import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_service
 
 # 1. Configure one static API key and (optionally) a JWT bearer verifier.
 auth_config = ServiceAuthConfig(

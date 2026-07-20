@@ -49,8 +49,8 @@ from zeroth.econ.analytics.service_auth import (  # noqa: E402
     mint_econ_service_token,
 )
 from zeroth.governance.identity import ServiceRole  # noqa: E402
-from zeroth.core.service.app import create_app  # noqa: E402
-from zeroth.core.service.auth import (  # noqa: E402
+from zeroth.service.app import create_app  # noqa: E402
+from zeroth.service.api.authentication import (  # noqa: E402
     ServiceAuthConfig,
     ServiceAuthenticator,
     StaticApiKeyCredential,

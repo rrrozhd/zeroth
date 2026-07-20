@@ -31,7 +31,8 @@ from zeroth.integrations.memory.models import ConnectorManifest
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.integrations.memory.tenant_scoped import TenantScopedMemoryConnector
 from zeroth.core.orchestrator.runtime import MemoryBindingResolutionError, RuntimeOrchestrator
-from zeroth.core.runs import Run, RunRepository, RunStatus
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.contracts.templates.registry import TemplateRegistry
 from zeroth.contracts.templates.renderer import TemplateRenderer
 

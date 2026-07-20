@@ -8,8 +8,9 @@ import pytest
 
 from zeroth.platform.dispatch.lease import LeaseManager
 from zeroth.runtime.orchestration.run_worker import RunWorker
-from zeroth.core.runs import RunRepository, RunStatus
-from zeroth.core.runs.models import Run
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.runs import Run
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 DEPLOYMENT = "worker-test-deployment"

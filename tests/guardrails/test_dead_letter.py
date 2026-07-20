@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from zeroth.governance.guardrails.dead_letter import DeadLetterManager
-from zeroth.core.runs import RunRepository, RunStatus
-from zeroth.core.runs.models import Run
-from zeroth.core.runs.repository import DEAD_LETTER_REASON
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.runs import Run
+from zeroth.integrations.persistence.runs.run_repository import DEAD_LETTER_REASON
 
 DEPLOYMENT = "dl-test-deployment"
 

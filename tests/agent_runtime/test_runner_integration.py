@@ -25,7 +25,7 @@ from zeroth.integrations.execution import (
     OutputMode,
     PythonModuleArtifactSource,
 )
-from zeroth.core.runs import RunRepository, ThreadRepository
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 
 class AgentInput(BaseModel):

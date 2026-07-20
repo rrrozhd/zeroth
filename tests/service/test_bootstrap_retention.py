@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.service.helpers import agent_graph, default_service_auth_config, deploy_service
-from zeroth.core.service.bootstrap import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_service
 
 
 async def test_bootstrap_seeds_policy_repository_default_from_settings(

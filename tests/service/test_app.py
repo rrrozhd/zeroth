@@ -10,11 +10,9 @@ from zeroth.contracts.registry import ContractRegistry
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.contracts.graph import GraphRepository
-from zeroth.core.service.bootstrap import (
-    DeploymentBootstrapError,
-    bootstrap_app,
-    bootstrap_service,
-)
+from zeroth.service.bootstrap.container import DeploymentBootstrapError
+from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_service
 
 
 class AppInputContract(BaseModel):

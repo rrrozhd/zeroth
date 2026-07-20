@@ -8,7 +8,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.service.rightsizing_api import register_rightsizing_routes
+from zeroth.service.api.rightsizing_api import register_rightsizing_routes
 
 
 def _make_app(*, roles: list[ServiceRole] | None = None, bootstrap: object | None = None) -> FastAPI:

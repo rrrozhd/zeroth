@@ -45,9 +45,6 @@ import sys
 import uvicorn
 
 from examples._contracts import Answer, Question
-from zeroth.core.service.app import create_app
-from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.core.service.bootstrap import bootstrap_service
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.storage.factory import create_database
@@ -56,6 +53,9 @@ from zeroth.runtime.agents import (
     AgentRunner,
     LiteLLMProviderAdapter,
 )
+from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
+from zeroth.service.app import create_app
+from zeroth.service.bootstrap.factory import bootstrap_service
 
 
 async def build_app_async():

@@ -19,8 +19,9 @@ from zeroth.contracts.registry import ContractRegistry
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.contracts.graph import GraphRepository
 from zeroth.governance.identity import ServiceRole
-from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.core.service.bootstrap import bootstrap_app, bootstrap_service
+from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
+from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_service
 from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider
 
 _KEY = EnvHmacSigner(key_id="k1", keys={"k1": b"provenance-endpoint-key"})

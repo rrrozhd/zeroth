@@ -13,7 +13,7 @@ from tests.service.helpers import (
     scoped_auth_config,
 )
 from zeroth.governance.identity import ServiceRole
-from zeroth.core.runs import RunStatus
+from zeroth.runtime.runs import RunStatus
 from zeroth.core.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "admin-test"

@@ -11,9 +11,10 @@ from zeroth.governance.audit import AuditRepository
 from zeroth.integrations.execution import EnvironmentVariable
 from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.runs import RunRepository, RunStatus, ThreadRepository
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from zeroth.runtime.runs import RunStatus
 from zeroth.platform.secrets import EnvSecretProvider, SecretResolver
-from zeroth.core.service.bootstrap import run_migrations
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.platform.storage import EncryptedField
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 

@@ -114,7 +114,12 @@ TEMPORARY_EXCEPTIONS = {
             "concrete adapters it no longer owns. Resolution stays lazy: making it "
             "eager reintroduces the cycle that blocked the extraction."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.core.graph.validation", "zeroth.runtime.graph_validation"),
@@ -125,7 +130,12 @@ TEMPORARY_EXCEPTIONS = {
             "Resolution stays lazy: an eager import here would put the runtime "
             "on the import path of anything reaching zeroth.core.graph."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.runtime.orchestration.dispatcher", "zeroth.econ.analytics.adapter"),
@@ -138,7 +148,13 @@ TEMPORARY_EXCEPTIONS = {
             "The construction moved with the dispatch code it belongs to; the edge "
             "itself outlives Task 8."
         ),
-        removal_task="Task 18: final migration cleanup and verification.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: add a first-class "
+            "provider-wrapping seam to the dispatcher's cost_estimator "
+            "contract. Re-evaluated at plan close (Task 18): duck-typed "
+            "estimator doubles are still relied on, so forcing the seam now "
+            "would break existing callers."
+        ),
     ),
     **_exception_group(
         ("zeroth.governance.retention.erasure_service", "zeroth.integrations.persistence.runs"),
@@ -151,7 +167,12 @@ TEMPORARY_EXCEPTIONS = {
             "econ_plane edges by moving the concrete eraser into the econ domain; "
             "this one outlives the decomposition and ends with the legacy surface."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.platform.secrets.provider", "zeroth.integrations.execution.models"),
@@ -164,7 +185,12 @@ TEMPORARY_EXCEPTIONS = {
             "integrations. Same wall as RepositoryThreadStateStore in "
             "docs/backend-import-migration.md."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.core.dispatch", "zeroth.runtime.orchestration.run_worker"),
@@ -175,7 +201,12 @@ TEMPORARY_EXCEPTIONS = {
             "it eager would put the orchestrator on the import path of the "
             "dispatch shim."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.core.storage.redis", "zeroth.integrations.persistence.governed_redis"),
@@ -187,7 +218,12 @@ TEMPORARY_EXCEPTIONS = {
             "would put runtime and governance code on the import path of "
             "everything that touches storage."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.core.conditions.recorder", "zeroth.runtime.runs.condition_recorder"),
@@ -199,7 +235,12 @@ TEMPORARY_EXCEPTIONS = {
             "import would put the runtime run domain on the import path of "
             "the legacy conditions package."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.governance.approvals.service", "zeroth.core.runs"),
@@ -213,7 +254,12 @@ TEMPORARY_EXCEPTIONS = {
             "moved to its contract-owned definition in zeroth.contracts."
             "governed, so this edge carries only the run bookkeeping objects."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.governance.guardrails.dead_letter", "zeroth.core.runs"),
@@ -229,7 +275,12 @@ TEMPORARY_EXCEPTIONS = {
             "imported from the persistence module, so this edge carries only "
             "the run bookkeeping objects."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.core.agent_runtime.factory", "zeroth.service.bootstrap.factory"),
@@ -240,7 +291,12 @@ TEMPORARY_EXCEPTIONS = {
             "an eager import would put the service domain on the import path "
             "of the legacy agent runtime package."
         ),
-        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
+            "legacy surface. The pinned legacy fixture walls this edge off, so "
+            "it ends with the legacy surface itself; see "
+            "docs/backend-library-surface.md."
+        ),
     ),
     **_exception_group(
         ("zeroth.econ.analytics.adapter", "zeroth.runtime.agents.provider"),
@@ -268,7 +324,13 @@ TEMPORARY_EXCEPTIONS = {
             "evaluation helpers directly; the reads move behind contract-owned "
             "types when the run and audit vocabulary gains a contracts home."
         ),
-        removal_task="Task 18: final migration cleanup and verification.",
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: give the run and audit "
+            "vocabulary a contracts home. Re-evaluated at plan close (Task 18): "
+            "the pinned legacy signatures keep the model definitions at their "
+            "legacy homes (canonical packages re-export), so the contracts home "
+            "did not open inside the plan."
+        ),
     ),
 }
 

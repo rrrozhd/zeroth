@@ -8,8 +8,9 @@ from zeroth.governance.audit import AuditRepository
 from zeroth.platform.dispatch.lease import LeaseManager
 from zeroth.governance.identity import ActorIdentity
 from zeroth.governance.identity.models import AuthMethod
-from zeroth.core.runs import RunRepository, RunStatus
-from zeroth.core.runs.models import Run
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.runs import Run
 
 DEPLOYMENT = "recovery-test-deployment"
 

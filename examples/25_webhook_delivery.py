@@ -42,8 +42,8 @@ from pathlib import Path
 
 import httpx
 
-from zeroth.core.service.bootstrap import run_migrations
 from zeroth.platform.storage import AsyncSQLiteDatabase
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.service.webhooks import (
     WebhookEventType,
     WebhookRepository,

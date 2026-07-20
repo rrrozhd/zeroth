@@ -48,7 +48,8 @@ from zeroth.governance.policy import (
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.core.runs import Run, RunRepository, RunStatus, ThreadRepository
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 
 class NumberInput(BaseModel):

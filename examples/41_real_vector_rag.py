@@ -65,8 +65,8 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.integrations.memory.governed.models import MemoryScope
 from zeroth.integrations.memory.chroma_connector import ChromaDBMemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryScope
 from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,

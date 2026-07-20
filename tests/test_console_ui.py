@@ -15,12 +15,8 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from zeroth.core.service.auth import AuthenticationError
-from zeroth.core.service.console_ui import (
-    console_cors_origins,
-    find_console_dir,
-    mount_console,
-)
+from zeroth.service.api.authentication import AuthenticationError
+from zeroth.service.api.console_ui import console_cors_origins, find_console_dir, mount_console
 
 API_KEY = "secret"
 

@@ -24,7 +24,7 @@ from zeroth.governance.retention.cleanup_manifest import (
     parse_cleanup_manifest,
 )
 from zeroth.governance.retention.erasure_service import StaleCleanupClaimError
-from zeroth.core.runs import Run
+from zeroth.runtime.runs import Run
 
 
 def _artifact_ref(key: str) -> dict[str, object]:

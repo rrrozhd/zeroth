@@ -70,4 +70,3 @@ class RedisAuditEmitter(AuditEmitter):
         close = getattr(self._redis, "aclose", None)
         if callable(close):
             await close()
-

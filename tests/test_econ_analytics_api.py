@@ -9,8 +9,9 @@ from fastapi.testclient import TestClient
 
 from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.runs.models import Run, RunStatus
-from zeroth.core.service.econ_analytics_api import register_econ_analytics_routes
+from zeroth.runtime.runs import Run
+from zeroth.runtime.runs import RunStatus
+from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
 
 
 def _make_app(*, bootstrap: object | None = None) -> FastAPI:

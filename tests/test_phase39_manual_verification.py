@@ -35,9 +35,9 @@ from zeroth.contracts.graph.models import (
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.runtime.agents.models import AgentRunResult, PromptAssembly
-from zeroth.core.runs.models import RunStatus
-from zeroth.core.runs.repository import RunRepository
-from zeroth.core.service.bootstrap import run_migrations
+from zeroth.runtime.runs import RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 from zeroth.runtime.subgraphs.resolver import SubgraphResolver

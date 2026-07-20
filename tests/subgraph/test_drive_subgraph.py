@@ -16,7 +16,8 @@ from zeroth.contracts.graph.models import (
 )
 from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.core.orchestrator.runtime import OrchestratorError, RuntimeOrchestrator
-from zeroth.core.runs.models import Run, RunStatus
+from zeroth.runtime.runs import Run
+from zeroth.runtime.runs import RunStatus
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
