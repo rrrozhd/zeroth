@@ -31,7 +31,6 @@ from zeroth.governance.retention.cleanup_manifest import (
     CleanupOperation,
 )
 from zeroth.governance.retention.cleanup_state_repository import (
-    CleanupStateRecord,
     CleanupStateRepository,
 )
 from zeroth.governance.retention.compatibility import CompatibilityLog, result_detail
@@ -547,14 +546,6 @@ class RetentionErasureService:
         """Load current state in O(N), replaying audit history once only for legacy rows."""
         return await self._claims.load_or_materialize(connection, authorization)
 
-    async def _get_or_materialize_state_record(
-        self,
-        connection: Any,
-        authorization_log_id: str,
-    ) -> CleanupStateRecord:
-        """Return the materialized cleanup state row, replaying legacy audit history when absent."""
-        return await self._claims.state_record(connection, authorization_log_id)
-
     @staticmethod
     def _manifest_complete(manifest: CleanupManifest) -> bool:
         """Return True when every manifest operation is already completed or skipped."""
@@ -574,42 +565,6 @@ class RetentionErasureService:
             claim_id=claim_id,
             generation=generation,
             manifest=manifest,
-        )
-
-    async def _execute_operation(self, operation: CleanupOperation) -> int:
-        """Dispatch one operation to its external surface; return the deleted-item count."""
-        return await self._executor.execute_operation(operation)
-
-    async def _execute_operation_with_heartbeat(
-        self,
-        authorization_log_id: str,
-        claim_id: str,
-        generation: int,
-        operation: CleanupOperation,
-    ) -> int:
-        """Run one operation while heartbeating the claim lease every third of its window."""
-        return await self._executor.execute_operation_with_heartbeat(
-            authorization_log_id,
-            claim_id,
-            generation,
-            operation,
-        )
-
-    async def _record_claim_heartbeat(
-        self,
-        authorization_log_id: str,
-        claim_id: str,
-        generation: int,
-        tenant_id: str,
-        run_id: str,
-    ) -> str:
-        """Extend the active claim's lease (fenced against stale claims); return the log id."""
-        return await self._claims.record_heartbeat(
-            authorization_log_id=authorization_log_id,
-            claim_id=claim_id,
-            generation=generation,
-            tenant_id=tenant_id,
-            run_id=run_id,
         )
 
     @staticmethod
@@ -646,24 +601,6 @@ class RetentionErasureService:
     ) -> None:
         """Raise :class:`StaleCleanupClaimError` unless the claim/generation still own the state."""
         CleanupClaims.verify_active(state, claim_id, generation)
-
-    async def _record_terminal_fenced(
-        self,
-        authorization_log_id: str,
-        claim_id: str,
-        generation: int,
-        manifest: CleanupManifest,
-        *,
-        failed: bool,
-    ) -> str:
-        """Record the completed/failed terminal event and state, fenced against stale claims."""
-        return await self._claims.record_terminal(
-            authorization_log_id,
-            claim_id,
-            generation,
-            manifest,
-            failed=failed,
-        )
 
     async def _release_cleanup_claim(
         self,
@@ -704,25 +641,6 @@ class RetentionErasureService:
     async def _record_database_compatibility_steps(self, result: ErasureResult) -> None:
         """Emit legacy per-step database log entries (best-effort; failures only logged)."""
         await self._compatibility.record_database_steps(result)
-
-    async def _record_external_compatibility_steps(
-        self,
-        result: ErasureResult,
-        manifest: CleanupManifest,
-        *,
-        failed: bool,
-    ) -> None:
-        """Emit legacy artifact/econ/completion log entries mirroring pre-manifest logging."""
-        await self._compatibility.record_external_steps(result, manifest, failed=failed)
-
-    async def _record_compatibility_log(
-        self,
-        result: ErasureResult,
-        action: str,
-        detail: dict[str, Any],
-    ) -> None:
-        """Write one best-effort compatibility log entry; failures are logged, never raised."""
-        await self._compatibility.record(result, action, detail)
 
     @staticmethod
     def _result_detail(result: ErasureResult) -> dict[str, Any]:
