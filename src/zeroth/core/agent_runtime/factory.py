@@ -29,7 +29,7 @@ from zeroth.core.agent_runtime.models import AgentConfig, ModelParams, PromptCon
 from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter, ProviderAdapter
 from zeroth.core.agent_runtime.runner import AgentRunner
 from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
-from zeroth.core.policy.models import Capability
+from zeroth.governance.policy.models import Capability
 
 if TYPE_CHECKING:
     from zeroth.platform.secrets import SecretProvider

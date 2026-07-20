@@ -20,7 +20,7 @@ from zeroth.contracts.graph.models import (
 )
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.contracts.graph.validation_errors import ValidationCode
-from zeroth.core.policy import Capability
+from zeroth.governance.policy import Capability
 
 REF = "cap-graph@1"
 

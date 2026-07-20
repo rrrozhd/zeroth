@@ -38,7 +38,7 @@ from zeroth.contracts.graph import (
 )
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.policy import Capability, EnforcementResult, PolicyDecision
+from zeroth.governance.policy import Capability, EnforcementResult, PolicyDecision
 from zeroth.core.runs import RunRepository, RunStatus
 
 

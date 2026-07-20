@@ -18,7 +18,7 @@ from zeroth.contracts.graph.models import (
     Graph,
     HumanApprovalNode,
 )
-from zeroth.core.policy.models import Capability
+from zeroth.governance.policy.models import Capability
 
 
 def test_build_demo_graph_returns_graph_instance() -> None:

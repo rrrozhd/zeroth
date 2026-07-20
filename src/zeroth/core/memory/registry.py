@@ -19,9 +19,9 @@ from zeroth.core.memory.models import (
     ResolvedMemoryBinding,
 )
 from zeroth.core.memory.tenant_scoped import TenantScopedMemoryConnector
-from zeroth.core.policy.models import Capability
 from zeroth.core.runs import ThreadMemoryBinding, ThreadRepository
 from zeroth.governance.audit.emitter import AuditEmitter
+from zeroth.governance.policy.models import Capability
 
 
 class InMemoryConnectorRegistry:

@@ -36,7 +36,7 @@ from zeroth.core.http.models import (
 )
 
 if TYPE_CHECKING:
-    from zeroth.core.policy.models import Capability
+    from zeroth.governance.policy.models import Capability
     from zeroth.platform.secrets.provider import SecretProvider
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ class ResilientHttpClient:
         """Raise if required capabilities are missing."""
         if effective_capabilities is None:
             return  # no governance context — skip
-        from zeroth.core.policy.models import Capability  # noqa: PLC0415
+        from zeroth.governance.policy.models import Capability  # noqa: PLC0415
 
         read_caps = frozenset({Capability.NETWORK_READ, Capability.EXTERNAL_API_CALL})
         write_caps = frozenset({Capability.NETWORK_WRITE, Capability.EXTERNAL_API_CALL})

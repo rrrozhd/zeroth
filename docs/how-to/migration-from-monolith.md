@@ -65,7 +65,7 @@ import zeroth.policy as policy
 from zeroth.core.orchestrator import Orchestrator
 from zeroth.contracts.graph import Graph, Node
 from zeroth.core.memory import EphemeralMemory
-import zeroth.core.policy as policy
+import zeroth.governance.policy as policy
 ```
 
 ### Grep + sed recipe

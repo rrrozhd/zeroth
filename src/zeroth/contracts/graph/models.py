@@ -24,8 +24,28 @@ from zeroth.contracts.governed.app.spec import (
 )
 from zeroth.contracts.mappings.models import EdgeMapping
 from zeroth.contracts.templates.models import TemplateReference
-from zeroth.core.policy.models import Capability
 from zeroth.platform.primitives import utc_now
+
+
+class Capability(StrEnum):
+    """A specific permission that a node might need to do its job.
+
+    Each value represents one kind of action (like reading from the network
+    or writing to the filesystem). Authored tool bindings declare the
+    capabilities they require, and policies use these values to control
+    what nodes are allowed to do; the policy engine republishes the enum
+    from :mod:`zeroth.governance.policy.models`.
+    """
+
+    NETWORK_READ = "network_read"
+    NETWORK_WRITE = "network_write"
+    FILESYSTEM_READ = "filesystem_read"
+    FILESYSTEM_WRITE = "filesystem_write"
+    SECRET_ACCESS = "secret_access"
+    EXTERNAL_API_CALL = "external_api_call"
+    PROCESS_SPAWN = "process_spawn"
+    MEMORY_READ = "memory_read"
+    MEMORY_WRITE = "memory_write"
 
 
 class GraphStatus(StrEnum):

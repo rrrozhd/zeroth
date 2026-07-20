@@ -22,9 +22,9 @@ from zeroth.core.memory.factory import register_memory_connectors
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.memory.runtime_configs import load_persisted_connectors
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.policy import PolicyGuard, PolicyRegistry, default_capability_registry
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.audit import AuditRepository
+from zeroth.governance.policy import PolicyGuard, PolicyRegistry, default_capability_registry
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.dispatch import LeaseManager

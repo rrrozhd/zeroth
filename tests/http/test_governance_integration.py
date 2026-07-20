@@ -16,7 +16,7 @@ from zeroth.core.http.client import ResilientHttpClient
 from zeroth.core.http.errors import HttpClientError, HttpRateLimitError
 from zeroth.core.http.models import AuthType, EndpointConfig
 from zeroth.platform.config.models import HttpClientSettings
-from zeroth.core.policy.models import Capability
+from zeroth.governance.policy.models import Capability
 
 
 # ---------------------------------------------------------------------------

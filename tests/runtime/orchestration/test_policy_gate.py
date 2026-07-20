@@ -20,7 +20,7 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.policy import (
+from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,

@@ -162,8 +162,7 @@ TEMPORARY_EXCEPTIONS = {
             "NodeDispatcher maps the authored string scope names on retrieval and "
             "template-memory bindings onto MemoryScope members before calling a "
             "connector. The enum cannot move: its module path is embedded in "
-            "signature strings pinned by the immutable legacy fixture, the same "
-            "wall documented for policy.models:Capability."
+            "signature strings pinned by the immutable legacy fixture."
         ),
         removal_task="Task 14: move runtime packages and inject owned protocols.",
     ),
@@ -243,23 +242,6 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.contracts.graph.models", "zeroth.core.policy.models"),
-        reason=(
-            "AgentToolBinding's required_capabilities field is typed with the "
-            "Capability enum, which is the policy engine's own vocabulary and "
-            "is resolved against grants at enforcement time. Where the "
-            "contract-owned slice of the policy surface lives is a Task 13 "
-            "decision ('move governance packages behind contract-owned "
-            "interfaces'); relocating the enum out of the policy package "
-            "inside the graph move would preempt it. The other four Task 12 "
-            "graph edges were removed by defining the authored node models "
-            "(SubgraphNodeData, ParallelConfig, ContextWindowSettings) in the "
-            "graph contracts and republishing them from their legacy runtime "
-            "packages."
-        ),
-        removal_task="Task 13: move governance packages behind contract-owned interfaces.",
-    ),
-    **_exception_group(
         ("zeroth.governance.approvals.service", "zeroth.core.runs"),
         reason=(
             "ApprovalService's pinned __init__ names RunRepository in the "
@@ -279,7 +261,6 @@ TEMPORARY_EXCEPTIONS = {
             "zeroth.core.guardrails.dead_letter",
             "zeroth.integrations.persistence.runs.run_repository",
         ),
-        ("zeroth.core.policy.guard", "zeroth.core.runs"),
         reason="Legacy governance services depend directly on runtime implementations.",
         removal_task="Task 13: move governance packages behind contract-owned interfaces.",
     ),

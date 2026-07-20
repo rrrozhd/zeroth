@@ -29,7 +29,7 @@ from zeroth.contracts.graph import (
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.policy import CapabilityDeniedError, PolicyGuard
+from zeroth.governance.policy import CapabilityDeniedError, PolicyGuard
 
 REF = "cap-orch@1"
 

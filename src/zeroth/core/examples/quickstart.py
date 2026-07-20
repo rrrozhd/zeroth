@@ -22,7 +22,7 @@ from zeroth.contracts.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.policy.models import Capability
+from zeroth.governance.policy.models import Capability
 
 _DEMO_GRAPH_ID = "demo-quickstart"
 _DEMO_GRAPH_VERSION_REF = f"{_DEMO_GRAPH_ID}@1"
@@ -126,7 +126,7 @@ def build_demo_graph_with_policy(denied_capabilities: list[Capability]) -> Graph
 
     The policy id ``"block-demo-caps"`` is a *reference* only. The example
     script is responsible for registering a
-    :class:`~zeroth.core.policy.models.PolicyDefinition` with that id that
+    :class:`~zeroth.governance.policy.models.PolicyDefinition` with that id that
     denies ``denied_capabilities`` — this helper does **not** persist a
     policy. Plan 30-04 (Governance Walkthrough) uses this hook to
     demonstrate the policy-block scenario.

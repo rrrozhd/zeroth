@@ -54,9 +54,9 @@ from zeroth.core.guardrails.content import (
     PIIFilter,
 )
 from zeroth.core.memory import MemoryConnectorResolver
-from zeroth.core.policy.errors import parse_effective_capabilities, require_capabilities
-from zeroth.core.policy.models import Capability
 from zeroth.governance.audit import MemoryAccessRecord
+from zeroth.governance.policy.errors import parse_effective_capabilities, require_capabilities
+from zeroth.governance.policy.models import Capability
 from zeroth.platform.observability import start_span
 
 

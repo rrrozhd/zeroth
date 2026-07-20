@@ -49,7 +49,7 @@ from zeroth.core.memory import (
     KeyValueMemoryConnector,
     MemoryConnectorResolver,
 )
-from zeroth.core.policy import (
+from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,

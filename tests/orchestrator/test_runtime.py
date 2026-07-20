@@ -41,7 +41,7 @@ from zeroth.contracts.graph import (
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.policy import (
+from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,

@@ -10,7 +10,7 @@ from zeroth.core.memory.capability_guard import CapabilityEnforcingMemoryConnect
 from zeroth.core.memory.connectors import KeyValueMemoryConnector
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
-from zeroth.core.policy import (
+from zeroth.governance.policy import (
     Capability,
     CapabilityDeniedError,
     default_capability_registry,

@@ -14,8 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from zeroth.core.policy.errors import require_capabilities
-from zeroth.core.policy.models import Capability
+from zeroth.governance.policy.errors import require_capabilities
+from zeroth.governance.policy.models import Capability
 
 
 class ToolAttachmentError(ValueError):
@@ -249,7 +249,7 @@ class ToolAttachmentBridge:
         The tool's ``required_capabilities`` (the target unit's declared
         capabilities) must be covered by ``effective_capabilities`` (what the
         policy guard granted the agent node). Raises
-        :class:`~zeroth.core.policy.errors.CapabilityDeniedError` otherwise.
+        :class:`~zeroth.governance.policy.errors.CapabilityDeniedError` otherwise.
 
         Fail-closed: an empty granted set denies any tool that requires a
         capability. Only invoked when enforcement is active — the runner passes

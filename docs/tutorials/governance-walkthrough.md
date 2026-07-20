@@ -148,6 +148,6 @@ subsystem is:
   and `zeroth.core.service.approval_api`.
 - **Audit** — `zeroth.governance.audit.models.NodeAuditRecord` and
   `zeroth.core.service.audit_api`.
-- **Policy** — `zeroth.core.policy.models.PolicyDefinition`,
-  `zeroth.core.policy.guard.PolicyGuard`, and
-  `zeroth.core.policy.registry`.
+- **Policy** — `zeroth.governance.policy.models.PolicyDefinition`,
+  `zeroth.governance.policy.guard.PolicyGuard`, and
+  `zeroth.governance.policy.registry`.

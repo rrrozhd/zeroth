@@ -31,11 +31,11 @@ from zeroth.core.parallel.models import (
     FanInResult,
     GlobalStepTracker,
 )
-from zeroth.core.policy import Capability, PolicyGuard
 from zeroth.core.runs import Run, RunRepository, RunStatus
 from zeroth.governance.approvals import ApprovalRecord, ApprovalService
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.audit.models import MemoryAccessRecord, ToolCallRecord
+from zeroth.governance.policy import Capability, PolicyGuard
 from zeroth.platform.observability import start_span
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder

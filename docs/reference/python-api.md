@@ -19,7 +19,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 - [Runs](python-api/runs.md) — `zeroth.core.runs`
 
 ### Governance
-- [Policy](python-api/policy.md) — `zeroth.core.policy`
+- [Policy](python-api/policy.md) — `zeroth.governance.policy`
 - [Approvals](python-api/approvals.md) — `zeroth.governance.approvals`
 - [Audit](python-api/audit.md) — `zeroth.governance.audit`
 - [Guardrails](python-api/guardrails.md) — `zeroth.core.guardrails`

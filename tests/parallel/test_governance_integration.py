@@ -35,7 +35,7 @@ from zeroth.core.memory import (
 )
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.parallel.models import ParallelConfig
-from zeroth.core.policy import (
+from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDecision,
@@ -44,7 +44,7 @@ from zeroth.core.policy import (
     PolicyRegistry,
     default_capability_registry,
 )
-from zeroth.core.policy.models import EnforcementResult
+from zeroth.governance.policy.models import EnforcementResult
 from zeroth.core.runs import RunRepository, RunStatus
 
 

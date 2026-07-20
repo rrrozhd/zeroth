@@ -256,7 +256,7 @@ class TestCapabilityGating:
 
     @pytest.mark.asyncio
     async def test_missing_capability_raises(self) -> None:
-        from zeroth.core.policy.models import Capability
+        from zeroth.governance.policy.models import Capability
 
         settings = HttpClientSettings()
         client = ResilientHttpClient(settings)
@@ -272,7 +272,7 @@ class TestCapabilityGating:
 
     @pytest.mark.asyncio
     async def test_sufficient_capabilities_pass(self) -> None:
-        from zeroth.core.policy.models import Capability
+        from zeroth.governance.policy.models import Capability
 
         settings = HttpClientSettings()
         client = ResilientHttpClient(settings)

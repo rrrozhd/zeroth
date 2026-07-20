@@ -50,14 +50,14 @@ from zeroth.core.agent_runtime import (
     ProviderResponse,
 )
 from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.policy import (
+from zeroth.core.runs import RunStatus
+from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.core.runs import RunStatus
 
 POLICY_ID = "policy://no-network-writes"
 

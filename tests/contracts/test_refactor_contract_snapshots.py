@@ -21,7 +21,7 @@ from zeroth.contracts.graph.validation_errors import (
     ValidationIssue,
     ValidationSeverity,
 )
-from zeroth.core.policy import Capability, CapabilityDeniedError
+from zeroth.governance.policy import Capability, CapabilityDeniedError
 from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
 from zeroth.core.retention.cleanup_manifest import (
     CleanupManifest,
