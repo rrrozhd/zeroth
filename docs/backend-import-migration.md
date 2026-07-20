@@ -690,6 +690,86 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.governed.tools.python_tool:PythonReturn` | `zeroth.runtime.agents.tooling.python_tool:PythonReturn` | Consolidate governed runtime capability | Legacy path still re-exports | Same object | Not removed |
 | `zeroth.core.governed.tools.python_tool:PythonTool` | `zeroth.runtime.agents.tooling.python_tool:PythonTool` | Consolidate governed runtime capability | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.governed.tools.python_tool:tool` | `zeroth.runtime.agents.tooling.python_tool:tool` | Consolidate governed runtime capability | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_anthropic_async_client` | `zeroth.econ.instrumentation.integrations:instrument_anthropic_async_client` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_anthropic_client` | `zeroth.econ.instrumentation.integrations:instrument_anthropic_client` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_langchain_app` | `zeroth.econ.instrumentation.integrations:instrument_langchain_app` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_langchain_async_runnable` | `zeroth.econ.instrumentation.integrations:instrument_langchain_async_runnable` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_langchain_callback_handler` | `zeroth.econ.instrumentation.integrations:instrument_langchain_callback_handler` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_langchain_runnable` | `zeroth.econ.instrumentation.integrations:instrument_langchain_runnable` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_langgraph_graph` | `zeroth.econ.instrumentation.integrations:instrument_langgraph_graph` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_openai_async_client` | `zeroth.econ.instrumentation.integrations:instrument_openai_async_client` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.integrations:instrument_openai_client` | `zeroth.econ.instrumentation.integrations:instrument_openai_client` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.langgraph:LangGraphTelemetryAdapter` | `zeroth.econ.instrumentation.langgraph:LangGraphTelemetryAdapter` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation.langgraph:instrument_langgraph_graph` | `zeroth.econ.instrumentation.langgraph:instrument_langgraph_graph` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation.schemas:ExecutionEvent` | `zeroth.econ.instrumentation.schemas:ExecutionEvent` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation.schemas:OutcomeEvent` | `zeroth.econ.instrumentation.schemas:OutcomeEvent` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:AutoInstrumentationConfig` | `zeroth.econ.instrumentation:AutoInstrumentationConfig` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:CostProfileInput` | `zeroth.econ.instrumentation:CostProfileInput` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:ExecutionCostBreakdown` | `zeroth.econ.instrumentation:ExecutionCostBreakdown` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:ExecutionEvent` | `zeroth.econ.instrumentation:ExecutionEvent` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:InstrumentationClient` | `zeroth.econ.instrumentation:InstrumentationClient` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:InstrumentationConfig` | `zeroth.econ.instrumentation:InstrumentationConfig` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:LibraryContext` | `zeroth.econ.instrumentation:LibraryContext` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:OutcomeEvent` | `zeroth.econ.instrumentation:OutcomeEvent` | Move instrumentation SDK | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.instrumentation:build_cost_profile_input` | `zeroth.econ.instrumentation:build_cost_profile_input` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:configure` | `zeroth.econ.instrumentation:configure` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:disable_auto_instrumentation` | `zeroth.econ.instrumentation:disable_auto_instrumentation` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:enable_auto_instrumentation` | `zeroth.econ.instrumentation:enable_auto_instrumentation` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_anthropic_async_client` | `zeroth.econ.instrumentation:instrument_anthropic_async_client` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_anthropic_client` | `zeroth.econ.instrumentation:instrument_anthropic_client` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_langchain_app` | `zeroth.econ.instrumentation:instrument_langchain_app` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_langchain_async_runnable` | `zeroth.econ.instrumentation:instrument_langchain_async_runnable` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_langchain_callback_handler` | `zeroth.econ.instrumentation:instrument_langchain_callback_handler` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_langchain_runnable` | `zeroth.econ.instrumentation:instrument_langchain_runnable` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_langgraph_graph` | `zeroth.econ.instrumentation:instrument_langgraph_graph` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_openai_async_client` | `zeroth.econ.instrumentation:instrument_openai_async_client` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:instrument_openai_client` | `zeroth.econ.instrumentation:instrument_openai_client` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:join_key_context` | `zeroth.econ.instrumentation:join_key_context` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:track_execution` | `zeroth.econ.instrumentation:track_execution` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:track_outcome` | `zeroth.econ.instrumentation:track_outcome` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.instrumentation:with_instrumentation` | `zeroth.econ.instrumentation:with_instrumentation` | Move instrumentation SDK | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.models:CostAttribution` | `zeroth.econ.analytics.models:CostAttribution` | Move economic analytics | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ.service_auth:HeadersProvider` | `zeroth.econ.analytics.service_auth:HeadersProvider` | Move economic analytics | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.econ.service_auth:make_self_auth_headers_provider` | `zeroth.econ.analytics.service_auth:make_self_auth_headers_provider` | Move economic analytics | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.service_auth:mint_econ_service_token` | `zeroth.econ.analytics.service_auth:mint_econ_service_token` | Move economic analytics | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.econ.waste:EconThresholdError` | `zeroth.econ.analytics.waste:EconThresholdError` | Move economic analytics | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.econ:BudgetEnforcer` | `zeroth.econ.analytics:BudgetEnforcer` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:CandidateOutcome` | `zeroth.econ.analytics:CandidateOutcome` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:CorrectnessScorer` | `zeroth.econ.analytics:CorrectnessScorer` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:CostEstimator` | `zeroth.econ.analytics:CostEstimator` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:EconReport` | `zeroth.econ.analytics:EconReport` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:EconThresholdError` | `zeroth.econ.analytics:EconThresholdError` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:EquivalenceScorer` | `zeroth.econ.analytics:EquivalenceScorer` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:ExperimentReport` | `zeroth.econ.analytics:ExperimentReport` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:HarvestStats` | `zeroth.econ.analytics:HarvestStats` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:InstrumentedProviderAdapter` | `zeroth.econ.analytics:InstrumentedProviderAdapter` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:ModelOption` | `zeroth.econ.analytics:ModelOption` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:NodeSpend` | `zeroth.econ.analytics:NodeSpend` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:QualityEconomicsReport` | `zeroth.econ.analytics:QualityEconomicsReport` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:RegulusClient` | `zeroth.econ.analytics:RegulusClient` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:RightsizingResult` | `zeroth.econ.analytics:RightsizingResult` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:RunQualityVerdict` | `zeroth.econ.analytics:RunQualityVerdict` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:SpendReport` | `zeroth.econ.analytics:SpendReport` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:TenantEconomics` | `zeroth.econ.analytics:TenantEconomics` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:UnitEconomicsReport` | `zeroth.econ.analytics:UnitEconomicsReport` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:WasteFinding` | `zeroth.econ.analytics:WasteFinding` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:WasteKindTotal` | `zeroth.econ.analytics:WasteKindTotal` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:WasteKind` | `zeroth.econ.analytics:WasteKind` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:WasteRollupFinding` | `zeroth.econ.analytics:WasteRollupFinding` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:WasteRollup` | `zeroth.econ.analytics:WasteRollup` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:WorkflowEconomics` | `zeroth.econ.analytics:WorkflowEconomics` | Move economic analytics | Legacy path still re-exports, lazily | Same class object | Not removed |
+| `zeroth.core.econ:analyze_run` | `zeroth.econ.analytics:analyze_run` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:build_experiment_dataset` | `zeroth.econ.analytics:build_experiment_dataset` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:build_labeled_dataset` | `zeroth.econ.analytics:build_labeled_dataset` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:describe` | `zeroth.econ.analytics:describe` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:quality_economics` | `zeroth.econ.analytics:quality_economics` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:read_quality_verdict` | `zeroth.econ.analytics:read_quality_verdict` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:recommend` | `zeroth.econ.analytics:recommend` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:run_experiment` | `zeroth.econ.analytics:run_experiment` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:spend_opportunities` | `zeroth.econ.analytics:spend_opportunities` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:unit_economics` | `zeroth.econ.analytics:unit_economics` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:waste_gate` | `zeroth.econ.analytics:waste_gate` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
+| `zeroth.core.econ:waste_rollup` | `zeroth.econ.analytics:waste_rollup` | Move economic analytics | Legacy path still re-exports, lazily | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

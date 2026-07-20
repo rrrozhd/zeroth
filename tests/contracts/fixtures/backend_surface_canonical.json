@@ -2790,131 +2790,131 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/how-to/econ.md",
         "docs:docs/reference/python-api/econ.md",
         "examples:examples/22_budget_cap.py",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:BudgetEnforcer"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "BudgetEnforcer",
       "signature": "(regulus_base_url: 'str | None' = None, *, cache_ttl: 'int' = 30, timeout: 'float' = 5.0, headers_provider: 'Callable[[], dict[str, str]] | None' = None, fail_closed: 'bool' = False, asgi_app: 'Any | None' = None, _transport: 'Any' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:CandidateOutcome"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "CandidateOutcome",
       "signature": "(*, model: str, provider: str, is_incumbent: bool = False, equivalence_rate: float = 0.0, error_rate: float = 0.0, cases_evaluated: int = 0, cases_errored: int = 0, est_cost_per_1k_calls_usd: float | None = None, savings_pct: float | None = None, capability_ok: bool = True, meets_bar: bool = False) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:CorrectnessScorer"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "CorrectnessScorer",
       "signature": "(provider: 'ProviderAdapter', model_name: 'str', *, pass_threshold: 'float' = 0.7, name: 'str' = 'correctness') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/how-to/econ.md",
         "docs:docs/reference/python-api/econ.md",
         "examples:examples/22_budget_cap.py",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:CostEstimator"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "CostEstimator",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:EconReport"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "EconReport",
-      "signature": "(*, run_id: str, run_status: str, total_cost_usd: float = 0.0, cost_by_node: dict[str, float] = <factory>, findings: list[zeroth.core.econ.waste.WasteFinding] = <factory>) -> None"
+      "signature": "(*, run_id: str, run_status: str, total_cost_usd: float = 0.0, cost_by_node: dict[str, float] = <factory>, findings: list[zeroth.econ.analytics.waste.WasteFinding] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:EconThresholdError"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "EconThresholdError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:EquivalenceScorer"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "EquivalenceScorer",
       "signature": "(provider: 'ProviderAdapter', model_name: 'str', *, pass_threshold: 'float' = 0.7, name: 'str' = 'equivalence') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:ExperimentReport"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "ExperimentReport",
-      "signature": "(*, incumbent: str, node_id: str | None = None, mode: str = 'equivalence', cases: int = 0, min_cases: int = 5, tolerance_pct: float = 5.0, incumbent_self_equivalence: float = 0.0, mean_input_tokens: float = 0.0, mean_output_tokens: float = 0.0, token_profile_measured: bool = False, harvest: zeroth.core.econ.rightsizing_experiment.HarvestStats | None = None, outcomes: list[zeroth.core.econ.rightsizing_experiment.CandidateOutcome] = <factory>, recommended_model: str | None = None, verdict: str = 'none', note: str = '') -> None"
+      "signature": "(*, incumbent: str, node_id: str | None = None, mode: str = 'equivalence', cases: int = 0, min_cases: int = 5, tolerance_pct: float = 5.0, incumbent_self_equivalence: float = 0.0, mean_input_tokens: float = 0.0, mean_output_tokens: float = 0.0, token_profile_measured: bool = False, harvest: zeroth.econ.analytics.rightsizing_experiment.HarvestStats | None = None, outcomes: list[zeroth.econ.analytics.rightsizing_experiment.CandidateOutcome] = <factory>, recommended_model: str | None = None, verdict: str = 'none', note: str = '') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:HarvestStats"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "HarvestStats",
       "signature": "(*, cases: int = 0, skipped_not_success: int = 0, skipped_used_tools: int = 0, skipped_empty_output: int = 0, skipped_other_model: int = 0, mean_input_tokens: float = 1000.0, mean_output_tokens: float = 300.0, token_profile_measured: bool = False) -> None"
     },
@@ -2926,880 +2926,880 @@
       "legacy_ids": [
         "zeroth.core.econ:InstrumentedProviderAdapter"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "InstrumentedProviderAdapter",
       "signature": "(inner: 'ProviderAdapter', regulus_client: 'RegulusClient | None', cost_estimator: 'CostEstimator', *, node_id: 'str', run_id: 'str', tenant_id: 'str', deployment_ref: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:ModelOption"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "ModelOption",
       "signature": "(*, model: str, provider: str, input_per_mtok_usd: float, output_per_mtok_usd: float, blended_per_mtok_usd: float, savings_pct: float, max_input_tokens: int | None = None, supports_tools: bool = False, supports_vision: bool = False, same_provider: bool = False) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:NodeSpend"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "NodeSpend",
       "signature": "(*, node_id: str, runs: int = 0, total_cost_usd: float = 0.0, mean_cost_per_call_usd: float = 0.0, incumbent_model: str | None = None, uses_tools: bool = False, tool_free_runs: int = 0, cheaper_alternatives: int = 0, best_savings_pct: float | None = None, projected_savings_usd: float | None = None, experiment_ready: bool = False) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:QualityEconomicsReport"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "QualityEconomicsReport",
       "signature": "(*, terminal_runs: int = 0, labeled_terminal_runs: int = 0, coverage: float = 0.0, quality_successes: int = 0, quality_success_rate_over_labeled: float = 0.0, cost_per_quality_success_usd: float | None = None, cost_on_quality_failures_usd: float = 0.0, sources: list[str] = <factory>, state: Literal['ok', 'not_configured', 'below_coverage_floor'] = 'not_configured', note: str = '') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/how-to/econ.md",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:RegulusClient"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "RegulusClient",
       "signature": "(*, base_url: 'str' = 'http://localhost:8000/v1', timeout: 'float' = 5.0, enabled: 'bool' = True, headers_provider: 'Callable[[], dict[str, str]] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:RightsizingResult"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "RightsizingResult",
-      "signature": "(*, incumbent: str, incumbent_known: bool, incumbent_provider: str | None = None, incumbent_blended_per_mtok_usd: float | None = None, needs_tools: bool = False, needs_vision: bool = False, assumption: str = 'blended price assumes a 3:1 input:output token ratio', candidates: list[zeroth.core.econ.rightsizing.ModelOption] = <factory>, note: str = '') -> None"
+      "signature": "(*, incumbent: str, incumbent_known: bool, incumbent_provider: str | None = None, incumbent_blended_per_mtok_usd: float | None = None, needs_tools: bool = False, needs_vision: bool = False, assumption: str = 'blended price assumes a 3:1 input:output token ratio', candidates: list[zeroth.econ.analytics.rightsizing.ModelOption] = <factory>, note: str = '') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:RunQualityVerdict"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "RunQualityVerdict",
       "signature": "(*, verdict: Literal['good', 'bad', 'unknown'], score: float | None = None, source: str, rubric_id: str | None = None, detail: str = '', expected_output: str | None = None, attached_at: datetime.datetime | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:SpendReport"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "SpendReport",
-      "signature": "(*, total_cost_usd: float = 0.0, nodes: list[zeroth.core.econ.opportunities.NodeSpend] = <factory>, note: str = '') -> None"
+      "signature": "(*, total_cost_usd: float = 0.0, nodes: list[zeroth.econ.analytics.opportunities.NodeSpend] = <factory>, note: str = '') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:TenantEconomics"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "TenantEconomics",
       "signature": "(*, tenant_id: str, runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, success_rate: float = 0.0, terminal_cost_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:UnitEconomicsReport"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "UnitEconomicsReport",
-      "signature": "(*, window_runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, in_flight_runs: int = 0, success_rate: float = 0.0, total_cost_usd: float = 0.0, terminal_cost_usd: float = 0.0, cost_on_successful_usd: float = 0.0, cost_on_failed_usd: float = 0.0, cost_on_in_flight_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, mean_cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0, failure_tax_ratio: float = 0.0, runs_with_cost: int = 0, by_workflow: list[zeroth.core.econ.unit_economics.WorkflowEconomics] = <factory>, by_tenant: list[zeroth.core.econ.unit_economics.TenantEconomics] = <factory>, quality: zeroth.core.econ.quality.QualityEconomicsReport | None = None, note: str = '') -> None"
+      "signature": "(*, window_runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, in_flight_runs: int = 0, success_rate: float = 0.0, total_cost_usd: float = 0.0, terminal_cost_usd: float = 0.0, cost_on_successful_usd: float = 0.0, cost_on_failed_usd: float = 0.0, cost_on_in_flight_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, mean_cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0, failure_tax_ratio: float = 0.0, runs_with_cost: int = 0, by_workflow: list[zeroth.econ.analytics.unit_economics.WorkflowEconomics] = <factory>, by_tenant: list[zeroth.econ.analytics.unit_economics.TenantEconomics] = <factory>, quality: zeroth.econ.analytics.quality.QualityEconomicsReport | None = None, note: str = '') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:WasteFinding"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "WasteFinding",
-      "signature": "(*, kind: zeroth.core.econ.waste.WasteKind, node_id: str | None = None, wasted_usd: float = 0.0, confirmed: bool = False, severity: str = 'info', detail: str = '', metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, kind: zeroth.econ.analytics.waste.WasteKind, node_id: str | None = None, wasted_usd: float = 0.0, confirmed: bool = False, severity: str = 'info', detail: str = '', metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:WasteKind"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "WasteKind",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:WasteKindTotal"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "WasteKindTotal",
-      "signature": "(*, kind: zeroth.core.econ.waste.WasteKind, count: int = 0, wasted_usd: float = 0.0) -> None"
+      "signature": "(*, kind: zeroth.econ.analytics.waste.WasteKind, count: int = 0, wasted_usd: float = 0.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:WasteRollup"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "WasteRollup",
-      "signature": "(*, window_runs: int = 0, runs_with_waste: int = 0, runs_with_cost: int = 0, total_cost_usd: float = 0.0, total_confirmed_waste_usd: float = 0.0, total_flagged_waste_usd: float = 0.0, waste_ratio: float = 0.0, findings: int = 0, confirmed_findings: int = 0, flagged_findings: int = 0, by_kind: list[zeroth.core.econ.waste.WasteKindTotal] = <factory>, top_findings: list[zeroth.core.econ.waste.WasteRollupFinding] = <factory>, note: str = '') -> None"
+      "signature": "(*, window_runs: int = 0, runs_with_waste: int = 0, runs_with_cost: int = 0, total_cost_usd: float = 0.0, total_confirmed_waste_usd: float = 0.0, total_flagged_waste_usd: float = 0.0, waste_ratio: float = 0.0, findings: int = 0, confirmed_findings: int = 0, flagged_findings: int = 0, by_kind: list[zeroth.econ.analytics.waste.WasteKindTotal] = <factory>, top_findings: list[zeroth.econ.analytics.waste.WasteRollupFinding] = <factory>, note: str = '') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:WasteRollupFinding"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "WasteRollupFinding",
-      "signature": "(*, kind: zeroth.core.econ.waste.WasteKind, node_id: str | None = None, wasted_usd: float = 0.0, confirmed: bool = False, severity: str = 'info', detail: str = '', metadata: dict[str, typing.Any] = <factory>, run_id: str) -> None"
+      "signature": "(*, kind: zeroth.econ.analytics.waste.WasteKind, node_id: str | None = None, wasted_usd: float = 0.0, confirmed: bool = False, severity: str = 'info', detail: str = '', metadata: dict[str, typing.Any] = <factory>, run_id: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ:WorkflowEconomics"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "WorkflowEconomics",
       "signature": "(*, workflow_name: str, runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, success_rate: float = 0.0, terminal_cost_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:analyze_run"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "analyze_run",
       "signature": "(run_id: 'str', run_status: 'RunStatus', audits: 'Sequence[NodeAuditRecord]') -> 'EconReport'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:build_experiment_dataset"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "build_experiment_dataset",
       "signature": "(audits: 'Sequence[NodeAuditRecord]', *, name: 'str' = 'rightsizing', incumbent_model: 'str | None' = None, max_cases: 'int | None' = None) -> 'tuple[EvalDataset, HarvestStats]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:build_labeled_dataset"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "build_labeled_dataset",
       "signature": "(audits: 'Sequence[NodeAuditRecord]', expected_by_run: 'Mapping[str, str]', *, name: 'str' = 'rightsizing-correctness', incumbent_model: 'str | None' = None, max_cases: 'int | None' = None) -> 'tuple[EvalDataset, HarvestStats]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:describe"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "describe",
       "signature": "(model: 'str') -> 'ModelOption | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:quality_economics"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "quality_economics",
       "signature": "(runs: 'Sequence[Run]', audits: 'Sequence[NodeAuditRecord]', *, min_coverage: 'float' = 0.2) -> 'QualityEconomicsReport'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:read_quality_verdict"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "read_quality_verdict",
       "signature": "(run: 'Run') -> 'RunQualityVerdict | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:recommend"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "recommend",
       "signature": "(incumbent: 'str', *, needs_tools: 'bool' = False, needs_vision: 'bool' = False, min_savings_pct: 'float' = 20.0, limit: 'int' = 6) -> 'RightsizingResult'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:run_experiment"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "run_experiment",
       "signature": "(*, incumbent: 'ModelOption', candidates: 'Sequence[ModelOption]', dataset: 'EvalDataset', instruction: 'str', replay_provider: 'ProviderAdapter', judge_provider: 'ProviderAdapter', judge_model: 'str', mean_input_tokens: 'float', mean_output_tokens: 'float', harvest: 'HarvestStats | None' = None, node_id: 'str | None' = None, tolerance_pct: 'float' = 5.0, min_cases: 'int' = 5, mode: 'str' = 'equivalence') -> 'ExperimentReport'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:spend_opportunities"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "spend_opportunities",
       "signature": "(audits: 'Sequence[NodeAuditRecord]', *, min_savings_pct: 'float' = 20.0, limit: 'int' = 20) -> 'SpendReport'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:unit_economics"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "unit_economics",
       "signature": "(runs: 'Sequence[Run]', audits: 'Sequence[NodeAuditRecord]', *, workflow_limit: 'int' = 20, tenant_limit: 'int' = 20) -> 'UnitEconomicsReport'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:waste_gate"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "waste_gate",
       "signature": "(report: 'EconReport', *, max_confirmed_usd: 'float | None' = None, max_flagged_usd: 'float | None' = None, max_waste_ratio: 'float | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ",
+        "__all__:zeroth.econ.analytics",
         "docs:docs/reference/python-api/econ.md",
-        "package_export:zeroth.core.econ"
+        "package_export:zeroth.econ.analytics"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ:waste_rollup"
       ],
-      "module": "zeroth.core.econ",
+      "module": "zeroth.econ.analytics",
       "name": "waste_rollup",
       "signature": "(runs: 'Sequence[Run]', audits: 'Sequence[NodeAuditRecord]', *, top_n: 'int' = 10) -> 'WasteRollup'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:AutoInstrumentationConfig"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "AutoInstrumentationConfig",
       "signature": "(*, capture_mode: Literal['hierarchical', 'all_layers', 'provider_only'] = 'hierarchical', instrument_langchain: bool = True, instrument_langgraph: bool = True, instrument_openai: bool = True, instrument_anthropic: bool = True, provider_fallback_only: bool = True, capture_streaming: bool = True, include_tool_calls: bool = True, include_retriever_calls: bool = True, max_event_rate_per_sec: int = 200, dedupe_window_ms: int = 2000, strict_join_key: bool = True) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:CostProfileInput"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "CostProfileInput",
       "signature": "(*, requests_per_period: int, avg_input_tokens: float, avg_output_tokens: float, model_mix_json: dict = <factory>, provider_rate_overrides_json: dict = <factory>, avg_tool_calls_per_request_json: dict = <factory>, tool_unit_price_overrides_json: dict = <factory>, infra_monthly_spend_usd: float = 0.0, retry_rate: float = 0.0, cache_hit_rate: float = 0.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:ExecutionCostBreakdown"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "ExecutionCostBreakdown",
       "signature": "(*, token_cost_usd: float = 0.0, tool_cost_usd: float = 0.0, compute_cost_usd: float = 0.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:ExecutionEvent"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "ExecutionEvent",
       "signature": "(*, execution_id: str = <factory>, join_key: str | None = None, tenant_id: str | None = None, timestamp: datetime.datetime = <factory>, capability_id: str, implementation_id: str, model_version: str = 'unknown', token_cost_usd: decimal.Decimal = Decimal('0'), tool_cost_usd: decimal.Decimal = Decimal('0'), compute_cost_usd: decimal.Decimal = Decimal('0'), latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:InstrumentationClient"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "InstrumentationClient",
       "signature": "(base_url: 'str' = 'http://localhost:8000/v1', timeout: 'float' = 5.0, enabled: 'bool' = True, buffer_max_events: 'int' = 1000, flush_interval_ms: 'int' = 500, headers_provider: 'Optional[Callable[[], dict[str, Any]]]' = None)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:InstrumentationConfig"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "InstrumentationConfig",
       "signature": "(*, base_url: str = 'http://localhost:8000/v1', enabled: bool = True, buffer_max_events: int = 1000, flush_interval_ms: int = 500, request_timeout_s: float = 5.0, capture_content: bool = False, enable_otel: bool = False, default_capability_id: Optional[str] = None, default_implementation_id: Optional[str] = None, max_retries: int = 5) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:LibraryContext"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "LibraryContext",
       "signature": "(*, provider: str, library: str, model_name: str, is_async: bool, tags: dict[str, str] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:OutcomeEvent"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "OutcomeEvent",
       "signature": "(*, execution_id: str, join_key: str | None = None, capability_id: str, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom'], outcome_value: Union[float, bool, str], outcome_timestamp: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:build_cost_profile_input"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "build_cost_profile_input",
       "signature": "(requests_per_period: 'int', avg_input_tokens: 'float', avg_output_tokens: 'float', model_mix_json: 'dict[str, float]', provider_rate_overrides_json: 'dict[str, dict[str, float]]', avg_tool_calls_per_request_json: 'dict[str, float]', tool_unit_price_overrides_json: 'dict[str, float]', infra_monthly_spend_usd: 'float', retry_rate: 'float', cache_hit_rate: 'float') -> 'dict[str, object]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:configure"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "configure",
       "signature": "(config: 'InstrumentationConfig') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:disable_auto_instrumentation"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "disable_auto_instrumentation",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:enable_auto_instrumentation"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "enable_auto_instrumentation",
       "signature": "(config: 'AutoInstrumentationConfig') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_anthropic_async_client"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_anthropic_async_client",
       "signature": "(client: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_anthropic_client"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_anthropic_client",
       "signature": "(client: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_langchain_app"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_langchain_app",
       "signature": "(app: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_langchain_async_runnable"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_langchain_async_runnable",
       "signature": "(runnable: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_langchain_callback_handler"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_langchain_callback_handler",
       "signature": "(capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'EconLangChainCallbackHandler'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_langchain_runnable"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_langchain_runnable",
       "signature": "(runnable: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_langgraph_graph"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_langgraph_graph",
       "signature": "(graph: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_openai_async_client"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_openai_async_client",
       "signature": "(client: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:instrument_openai_client"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "instrument_openai_client",
       "signature": "(client: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:join_key_context"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "join_key_context",
       "signature": "(join_key: 'str') -> 'Iterator[None]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:track_execution"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "track_execution",
       "signature": "(event: 'ExecutionEvent') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:track_outcome"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "track_outcome",
       "signature": "(outcome: 'OutcomeEvent') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation",
-        "package_export:zeroth.core.econ.instrumentation"
+        "__all__:zeroth.econ.instrumentation",
+        "package_export:zeroth.econ.instrumentation"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation:with_instrumentation"
       ],
-      "module": "zeroth.core.econ.instrumentation",
+      "module": "zeroth.econ.instrumentation",
       "name": "with_instrumentation",
       "signature": "(capability_id: 'str', implementation_id: 'str', tags: 'Optional[dict[str, Any]]' = None) -> 'Iterator[dict[str, Any]]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_anthropic_async_client"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_anthropic_async_client",
       "signature": "(client: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_anthropic_client"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_anthropic_client",
       "signature": "(client: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_langchain_app"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_langchain_app",
       "signature": "(app: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_langchain_async_runnable"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_langchain_async_runnable",
       "signature": "(runnable: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_langchain_callback_handler"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_langchain_callback_handler",
       "signature": "(capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'EconLangChainCallbackHandler'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_langchain_runnable"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_langchain_runnable",
       "signature": "(runnable: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_langgraph_graph"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_langgraph_graph",
       "signature": "(graph: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_openai_async_client"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_openai_async_client",
       "signature": "(client: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.integrations",
-        "package_export:zeroth.core.econ.instrumentation.integrations"
+        "__all__:zeroth.econ.instrumentation.integrations",
+        "package_export:zeroth.econ.instrumentation.integrations"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.integrations:instrument_openai_client"
       ],
-      "module": "zeroth.core.econ.instrumentation.integrations",
+      "module": "zeroth.econ.instrumentation.integrations",
       "name": "instrument_openai_client",
       "signature": "(client: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.langgraph",
-        "optional_integration:zeroth.core.econ.instrumentation.langgraph",
-        "package_export:zeroth.core.econ.instrumentation.langgraph"
+        "__all__:zeroth.econ.instrumentation.langgraph",
+        "optional_integration:zeroth.econ.instrumentation.langgraph",
+        "package_export:zeroth.econ.instrumentation.langgraph"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.langgraph:LangGraphTelemetryAdapter"
       ],
-      "module": "zeroth.core.econ.instrumentation.langgraph",
+      "module": "zeroth.econ.instrumentation.langgraph",
       "name": "LangGraphTelemetryAdapter",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.econ.instrumentation.langgraph",
-        "optional_integration:zeroth.core.econ.instrumentation.langgraph",
-        "package_export:zeroth.core.econ.instrumentation.langgraph"
+        "__all__:zeroth.econ.instrumentation.langgraph",
+        "optional_integration:zeroth.econ.instrumentation.langgraph",
+        "package_export:zeroth.econ.instrumentation.langgraph"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.langgraph:instrument_langgraph_graph"
       ],
-      "module": "zeroth.core.econ.instrumentation.langgraph",
+      "module": "zeroth.econ.instrumentation.langgraph",
       "name": "instrument_langgraph_graph",
       "signature": "(graph: 'Any', capability_id: 'str', implementation_id: 'str', tags: 'dict[str, Any] | None' = None) -> 'Any'"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.econ.instrumentation.schemas"
+        "schema_model:zeroth.econ.instrumentation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.schemas:ExecutionEvent"
       ],
-      "module": "zeroth.core.econ.instrumentation.schemas",
+      "module": "zeroth.econ.instrumentation.schemas",
       "name": "ExecutionEvent",
       "signature": "(*, execution_id: str = <factory>, join_key: str | None = None, tenant_id: str | None = None, timestamp: datetime.datetime = <factory>, capability_id: str, implementation_id: str, model_version: str = 'unknown', token_cost_usd: decimal.Decimal = Decimal('0'), tool_cost_usd: decimal.Decimal = Decimal('0'), compute_cost_usd: decimal.Decimal = Decimal('0'), latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.econ.instrumentation.schemas"
+        "schema_model:zeroth.econ.instrumentation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.instrumentation.schemas:OutcomeEvent"
       ],
-      "module": "zeroth.core.econ.instrumentation.schemas",
+      "module": "zeroth.econ.instrumentation.schemas",
       "name": "OutcomeEvent",
       "signature": "(*, execution_id: str, join_key: str | None = None, capability_id: str, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom'], outcome_value: Union[float, bool, str], outcome_timestamp: datetime.datetime = <factory>) -> None"
     },
@@ -3811,7 +3811,7 @@
       "legacy_ids": [
         "zeroth.core.econ.models:CostAttribution"
       ],
-      "module": "zeroth.core.econ.models",
+      "module": "zeroth.econ.analytics.models",
       "name": "CostAttribution",
       "signature": "(*, cost_usd: float, cost_event_id: str, node_id: str, run_id: str, tenant_id: str, deployment_ref: str) -> None"
     },
@@ -3829,13 +3829,13 @@
     },
     {
       "evidence": [
-        "package_export:zeroth.core.econ.waste"
+        "package_export:zeroth.econ.analytics.waste"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.econ.waste:EconThresholdError"
       ],
-      "module": "zeroth.core.econ.waste",
+      "module": "zeroth.econ.analytics.waste",
       "name": "EconThresholdError",
       "signature": "<not-inspectable>"
     },
