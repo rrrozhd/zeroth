@@ -3841,293 +3841,293 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:CaseResult"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "CaseResult",
-      "signature": "(*, case_id: str, output: Any = None, scores: list[zeroth.core.eval.models.Score] = <factory>, error: str | None = None) -> None"
+      "signature": "(*, case_id: str, output: Any = None, scores: list[zeroth.eval.models.Score] = <factory>, error: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:ContainsScorer"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "ContainsScorer",
       "signature": "(*, field: 'str | None' = None, case_sensitive: 'bool' = False, name: 'str' = 'contains') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:EvalCase"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "EvalCase",
       "signature": "(*, id: str, input: dict[str, typing.Any], expected: Any = None, rubric: str | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:EvalDataset"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "EvalDataset",
-      "signature": "(*, name: str, cases: list[zeroth.core.eval.models.EvalCase] = <factory>) -> None"
+      "signature": "(*, name: str, cases: list[zeroth.eval.models.EvalCase] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:EvalReport"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "EvalReport",
-      "signature": "(*, dataset: str, results: list[zeroth.core.eval.models.CaseResult] = <factory>) -> None"
+      "signature": "(*, dataset: str, results: list[zeroth.eval.models.CaseResult] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval"
+        "__all__:zeroth.eval"
       ],
       "kind": "callable",
       "legacy_ids": [
         "zeroth.core.eval:EvalTarget"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "EvalTarget",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:EvalThresholdError"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "EvalThresholdError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:ExactMatchScorer"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "ExactMatchScorer",
       "signature": "(*, field: 'str | None' = None, name: 'str' = 'exact_match') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:JudgeVerdict"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "JudgeVerdict",
       "signature": "(*, score: Annotated[float, Ge(ge=0.0), Le(le=1.0)], rationale: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:LLMJudgeScorer"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "LLMJudgeScorer",
       "signature": "(provider: 'ProviderAdapter', model_name: 'str', *, rubric: 'str', pass_threshold: 'float' = 0.7, name: 'str' = 'llm_judge') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:PredicateScorer"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "PredicateScorer",
       "signature": "(fn: 'Callable[[Any, EvalCase], bool]', *, name: 'str' = 'predicate') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:RegexScorer"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "RegexScorer",
       "signature": "(pattern: 'str', *, field: 'str | None' = None, name: 'str' = 'regex') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:SchemaScorer"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "SchemaScorer",
       "signature": "(model: 'type[BaseModel]', *, field: 'str | None' = None, name: 'str' = 'schema') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:Score"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "Score",
       "signature": "(*, scorer: str, value: float = 0.0, passed: bool = False, rationale: str = '', error: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval:Scorer"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "Scorer",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.eval:gate"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "gate",
       "signature": "(report: 'EvalReport', *, min_pass_rate: 'float', max_error_rate: 'float | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.eval",
-        "package_export:zeroth.core.eval"
+        "__all__:zeroth.eval",
+        "package_export:zeroth.eval"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.eval:run_eval"
       ],
-      "module": "zeroth.core.eval",
+      "module": "zeroth.eval",
       "name": "run_eval",
       "signature": "(dataset: 'EvalDataset', target: 'EvalTarget', scorers: 'Sequence[Scorer]') -> 'EvalReport'"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.eval.models"
+        "schema_model:zeroth.eval.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval.models:CaseResult"
       ],
-      "module": "zeroth.core.eval.models",
+      "module": "zeroth.eval.models",
       "name": "CaseResult",
-      "signature": "(*, case_id: str, output: Any = None, scores: list[zeroth.core.eval.models.Score] = <factory>, error: str | None = None) -> None"
+      "signature": "(*, case_id: str, output: Any = None, scores: list[zeroth.eval.models.Score] = <factory>, error: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.eval.models"
+        "schema_model:zeroth.eval.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval.models:EvalCase"
       ],
-      "module": "zeroth.core.eval.models",
+      "module": "zeroth.eval.models",
       "name": "EvalCase",
       "signature": "(*, id: str, input: dict[str, typing.Any], expected: Any = None, rubric: str | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.eval.models"
+        "schema_model:zeroth.eval.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval.models:EvalDataset"
       ],
-      "module": "zeroth.core.eval.models",
+      "module": "zeroth.eval.models",
       "name": "EvalDataset",
-      "signature": "(*, name: str, cases: list[zeroth.core.eval.models.EvalCase] = <factory>) -> None"
+      "signature": "(*, name: str, cases: list[zeroth.eval.models.EvalCase] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.eval.models"
+        "schema_model:zeroth.eval.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval.models:EvalReport"
       ],
-      "module": "zeroth.core.eval.models",
+      "module": "zeroth.eval.models",
       "name": "EvalReport",
-      "signature": "(*, dataset: str, results: list[zeroth.core.eval.models.CaseResult] = <factory>) -> None"
+      "signature": "(*, dataset: str, results: list[zeroth.eval.models.CaseResult] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.eval.models"
+        "schema_model:zeroth.eval.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval.models:Score"
       ],
-      "module": "zeroth.core.eval.models",
+      "module": "zeroth.eval.models",
       "name": "Score",
       "signature": "(*, scorer: str, value: float = 0.0, passed: bool = False, rationale: str = '', error: str | None = None) -> None"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.eval.runner"
+        "package_export:zeroth.eval.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.eval.runner:EvalThresholdError"
       ],
-      "module": "zeroth.core.eval.runner",
+      "module": "zeroth.eval.runner",
       "name": "EvalThresholdError",
       "signature": "<not-inspectable>"
     },

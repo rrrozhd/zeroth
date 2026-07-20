@@ -1031,6 +1031,32 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.governed.memory.connector:MemoryConnector` | `zeroth.integrations.memory.governed.connector:MemoryConnector` | Consolidate memory integrations | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.governed.memory.models:MemoryEntry` | `zeroth.integrations.memory.governed.models:MemoryEntry` | Consolidate memory integrations | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.governed.memory.scoped:ScopedMemoryConnector` | `zeroth.integrations.memory.governed.scoped:ScopedMemoryConnector` | Consolidate memory integrations | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:CaseResult` | `zeroth.eval:CaseResult` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:ContainsScorer` | `zeroth.eval:ContainsScorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:EvalCase` | `zeroth.eval:EvalCase` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:EvalDataset` | `zeroth.eval:EvalDataset` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:EvalReport` | `zeroth.eval:EvalReport` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:EvalTarget` | `zeroth.eval:EvalTarget` | Move evaluation library | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.eval:EvalThresholdError` | `zeroth.eval:EvalThresholdError` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:ExactMatchScorer` | `zeroth.eval:ExactMatchScorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:JudgeVerdict` | `zeroth.eval:JudgeVerdict` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:LLMJudgeScorer` | `zeroth.eval:LLMJudgeScorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:PredicateScorer` | `zeroth.eval:PredicateScorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:RegexScorer` | `zeroth.eval:RegexScorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:SchemaScorer` | `zeroth.eval:SchemaScorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:Score` | `zeroth.eval:Score` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:Scorer` | `zeroth.eval:Scorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval:gate` | `zeroth.eval:gate` | Move evaluation library | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.eval:run_eval` | `zeroth.eval:run_eval` | Move evaluation library | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.eval.models:CaseResult` | `zeroth.eval.models:CaseResult` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval.models:EvalCase` | `zeroth.eval.models:EvalCase` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval.models:EvalDataset` | `zeroth.eval.models:EvalDataset` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval.models:EvalReport` | `zeroth.eval.models:EvalReport` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval.models:Score` | `zeroth.eval.models:Score` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval.runner:EvalThresholdError` | `zeroth.eval.runner:EvalThresholdError` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval.runner:run_eval` | `zeroth.eval.runner:run_eval` | Move evaluation library | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.eval.scorers:JudgeVerdict` | `zeroth.eval.scorers:JudgeVerdict` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.eval.scorers:LLMJudgeScorer` | `zeroth.eval.scorers:LLMJudgeScorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
