@@ -8401,205 +8401,205 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:EconEventEraser"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "EconEventEraser",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:ErasureResult"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "ErasureResult",
       "signature": "(run_id: 'str', tenant_id: 'str', reason: 'str', audits_erased: 'int' = 0, checkpoints_deleted: 'int' = 0, run_redacted: 'bool' = False, artifacts_deleted: 'int' = 0, econ_events_deleted: 'int | None' = None, external_cleanup_status: \"Literal['complete', 'failed', 'pending']\" = 'pending', authorization_log_id: 'str | None' = None, retry_log_id: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:LegalHold"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "LegalHold",
       "signature": "(*, hold_id: str, tenant_id: str, run_id: str | None = None, reason: str | None = None, active: bool = True, placed_by: str | None = None, created_at: datetime.datetime = <factory>, released_at: datetime.datetime | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:LegalHoldError"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "LegalHoldError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:LegalHoldRepository"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "LegalHoldRepository",
       "signature": "(database: 'AsyncDatabase') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:RetentionAuditLogRepository"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "RetentionAuditLogRepository",
       "signature": "(database: 'AsyncDatabase') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:RetentionErasureService"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "RetentionErasureService",
       "signature": "(*, audit_repository: 'AuditRepository', run_repository: 'RunRepository', policy_repository: 'RetentionPolicyRepository', legal_hold_repository: 'LegalHoldRepository', log_repository: 'RetentionAuditLogRepository', artifact_store: 'object | None' = None, econ_eraser: 'EconEventEraser | None' = None, cleanup_lease_seconds: 'float' = 30.0) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:RetentionPolicy"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "RetentionPolicy",
       "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, enabled: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:RetentionPolicyRepository"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "RetentionPolicyRepository",
       "signature": "(database: 'AsyncDatabase', *, default_policy: 'RetentionPolicy | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:RetentionPurgeWorker"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "RetentionPurgeWorker",
       "signature": "(erasure_service: 'RetentionErasureService', policy_repository: 'RetentionPolicyRepository', poll_interval: 'float' = 3600.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:SqlAlchemyEconEventEraser"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "SqlAlchemyEconEventEraser",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.retention",
-        "package_export:zeroth.core.retention"
+        "__all__:zeroth.governance.retention",
+        "package_export:zeroth.governance.retention"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention:TenantHolds"
       ],
-      "module": "zeroth.core.retention",
+      "module": "zeroth.governance.retention",
       "name": "TenantHolds",
       "signature": "(tenant_wide: 'bool' = False, run_ids: 'set[str]' = <factory>) -> None"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.retention.erasure_service"
+        "package_export:zeroth.governance.retention.erasure_service"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention.erasure_service:LegalHoldError"
       ],
-      "module": "zeroth.core.retention.erasure_service",
+      "module": "zeroth.governance.retention.erasure_service",
       "name": "LegalHoldError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.retention.erasure_service"
+        "package_export:zeroth.governance.retention.erasure_service"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention.erasure_service:StaleCleanupClaimError"
       ],
-      "module": "zeroth.core.retention.erasure_service",
+      "module": "zeroth.governance.retention.erasure_service",
       "name": "StaleCleanupClaimError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.retention.models"
+        "schema_model:zeroth.governance.retention.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention.models:LegalHold"
       ],
-      "module": "zeroth.core.retention.models",
+      "module": "zeroth.governance.retention.models",
       "name": "LegalHold",
       "signature": "(*, hold_id: str, tenant_id: str, run_id: str | None = None, reason: str | None = None, active: bool = True, placed_by: str | None = None, created_at: datetime.datetime = <factory>, released_at: datetime.datetime | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.retention.models"
+        "schema_model:zeroth.governance.retention.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.retention.models:RetentionPolicy"
       ],
-      "module": "zeroth.core.retention.models",
+      "module": "zeroth.governance.retention.models",
       "name": "RetentionPolicy",
       "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, enabled: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
