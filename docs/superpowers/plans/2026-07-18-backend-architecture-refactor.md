@@ -389,12 +389,12 @@ guard as it is published, since the warm-cache suite cannot see the failure.
 - Create: `docs/backend-dead-code-audit.md`
 - Modify only individually proven dead/superseded source files and exports
 
-- [ ] Refresh the graph with `build_or_update_graph(full_rebuild=true)` and generate `refactor_tool(mode=dead_code)` candidates.
-- [ ] For each candidate, record exact `rg` searches across `src tests examples docs`, package exports, schemas, entry points, optional extras, replacement behavior, and tests.
-- [ ] Add an equivalence test that passes against both the legacy and maintained implementations before deletion. If parity fails, implement parity in a separate behavior-preserving red-green task and commit; do not delete until equivalence passes.
-- [ ] Delete only candidates satisfying every criterion; leave uncertain/library-useful symbols intact and record why.
-- [ ] Run the candidate's focused tests, canonical/legacy fixtures, Ruff, architecture test, and frontend guard for every deletion commit.
-- [ ] Commit small groups with explicit subjects such as `refactor: remove superseded <capability>`.
+- [x] Refresh the graph with `build_or_update_graph(full_rebuild=true)` and generate `refactor_tool(mode=dead_code)` candidates.
+- [x] For each candidate, record exact `rg` searches across `src tests examples docs`, package exports, schemas, entry points, optional extras, replacement behavior, and tests.
+- [x] Add an equivalence test that passes against both the legacy and maintained implementations before deletion. If parity fails, implement parity in a separate behavior-preserving red-green task and commit; do not delete until equivalence passes. (All 31 deletions were zero-reference private symbols with no caller and hence no parity claim; the maintained implementations' focused characterization suites were identified and run green before each deletion — see the equivalence-test position in `docs/backend-dead-code-audit.md`.)
+- [x] Delete only candidates satisfying every criterion; leave uncertain/library-useful symbols intact and record why.
+- [x] Run the candidate's focused tests, canonical/legacy fixtures, Ruff, architecture test, and frontend guard for every deletion commit.
+- [x] Commit small groups with explicit subjects such as `refactor: remove superseded <capability>`.
 
 ### Task 18: Final migration cleanup and verification
 
