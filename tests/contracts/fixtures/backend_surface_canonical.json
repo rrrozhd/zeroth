@@ -11022,161 +11022,161 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:DeliveryStatus"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "DeliveryStatus",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:EscalationAction"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "EscalationAction",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:WebhookDeadLetter"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "WebhookDeadLetter",
-      "signature": "(*, dead_letter_id: str = <factory>, delivery_id: str, subscription_id: str, event_type: zeroth.core.webhooks.models.WebhookEventType, event_id: str, payload_json: str, attempt_count: int, last_error: str | None = None, last_status_code: int | None = None, created_at: datetime.datetime = <factory>, dead_lettered_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, dead_letter_id: str = <factory>, delivery_id: str, subscription_id: str, event_type: zeroth.service.webhooks.models.WebhookEventType, event_id: str, payload_json: str, attempt_count: int, last_error: str | None = None, last_status_code: int | None = None, created_at: datetime.datetime = <factory>, dead_lettered_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:WebhookDelivery"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "WebhookDelivery",
-      "signature": "(*, delivery_id: str = <factory>, subscription_id: str, event_type: zeroth.core.webhooks.models.WebhookEventType, event_id: str = <factory>, payload_json: str, status: zeroth.core.webhooks.models.DeliveryStatus = <DeliveryStatus.PENDING: 'pending'>, attempt_count: int = 0, max_attempts: int = 5, next_attempt_at: datetime.datetime = <factory>, last_error: str | None = None, last_status_code: int | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, delivery_id: str = <factory>, subscription_id: str, event_type: zeroth.service.webhooks.models.WebhookEventType, event_id: str = <factory>, payload_json: str, status: zeroth.service.webhooks.models.DeliveryStatus = <DeliveryStatus.PENDING: 'pending'>, attempt_count: int = 0, max_attempts: int = 5, next_attempt_at: datetime.datetime = <factory>, last_error: str | None = None, last_status_code: int | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:WebhookDeliveryWorker"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "WebhookDeliveryWorker",
       "signature": "(repository: 'WebhookRepository', http_client: 'httpx.AsyncClient', poll_interval: 'float' = 2.0, max_concurrency: 'int' = 16, retry_base_delay: 'float' = 1.0, retry_max_delay: 'float' = 300.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:WebhookEventPayload"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "WebhookEventPayload",
-      "signature": "(*, event_type: zeroth.core.webhooks.models.WebhookEventType, event_id: str = <factory>, timestamp: datetime.datetime = <factory>, deployment_ref: str, tenant_id: str, data: dict[str, typing.Any]) -> None"
+      "signature": "(*, event_type: zeroth.service.webhooks.models.WebhookEventType, event_id: str = <factory>, timestamp: datetime.datetime = <factory>, deployment_ref: str, tenant_id: str, data: dict[str, typing.Any]) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/how-to/webhooks.md",
         "docs:docs/reference/python-api/webhooks.md",
         "examples:examples/25_webhook_delivery.py",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:WebhookEventType"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "WebhookEventType",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
         "examples:examples/25_webhook_delivery.py",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:WebhookRepository"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "WebhookRepository",
       "signature": "(database: 'AsyncDatabase') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/how-to/webhooks.md",
         "docs:docs/reference/python-api/webhooks.md",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:WebhookService"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "WebhookService",
       "signature": "(repository: 'WebhookRepository', default_max_retries: 'int' = 5) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
         "examples:examples/25_webhook_delivery.py",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks:WebhookSubscription"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "WebhookSubscription",
-      "signature": "(*, subscription_id: str = <factory>, deployment_ref: str, tenant_id: str = 'default', target_url: str, secret: str = <factory>, event_types: list[zeroth.core.webhooks.models.WebhookEventType], active: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, subscription_id: str = <factory>, deployment_ref: str, tenant_id: str = 'default', target_url: str, secret: str = <factory>, event_types: list[zeroth.service.webhooks.models.WebhookEventType], active: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.webhooks",
+        "__all__:zeroth.service.webhooks",
         "docs:docs/reference/python-api/webhooks.md",
         "examples:examples/25_webhook_delivery.py",
-        "package_export:zeroth.core.webhooks"
+        "package_export:zeroth.service.webhooks"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.webhooks:sign_payload"
       ],
-      "module": "zeroth.core.webhooks",
+      "module": "zeroth.service.webhooks",
       "name": "sign_payload",
       "signature": "(payload_bytes: 'bytes', secret: 'str') -> 'str'"
     },
@@ -11188,57 +11188,57 @@
       "legacy_ids": [
         "zeroth.core.webhooks.delivery:WebhookDeliveryWorker"
       ],
-      "module": "zeroth.core.webhooks.delivery",
+      "module": "zeroth.service.webhooks.delivery",
       "name": "WebhookDeliveryWorker",
       "signature": "(repository: 'WebhookRepository', http_client: 'httpx.AsyncClient', poll_interval: 'float' = 2.0, max_concurrency: 'int' = 16, retry_base_delay: 'float' = 1.0, retry_max_delay: 'float' = 300.0) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.webhooks.models"
+        "schema_model:zeroth.service.webhooks.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks.models:WebhookDeadLetter"
       ],
-      "module": "zeroth.core.webhooks.models",
+      "module": "zeroth.service.webhooks.models",
       "name": "WebhookDeadLetter",
-      "signature": "(*, dead_letter_id: str = <factory>, delivery_id: str, subscription_id: str, event_type: zeroth.core.webhooks.models.WebhookEventType, event_id: str, payload_json: str, attempt_count: int, last_error: str | None = None, last_status_code: int | None = None, created_at: datetime.datetime = <factory>, dead_lettered_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, dead_letter_id: str = <factory>, delivery_id: str, subscription_id: str, event_type: zeroth.service.webhooks.models.WebhookEventType, event_id: str, payload_json: str, attempt_count: int, last_error: str | None = None, last_status_code: int | None = None, created_at: datetime.datetime = <factory>, dead_lettered_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.webhooks.models"
+        "schema_model:zeroth.service.webhooks.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks.models:WebhookDelivery"
       ],
-      "module": "zeroth.core.webhooks.models",
+      "module": "zeroth.service.webhooks.models",
       "name": "WebhookDelivery",
-      "signature": "(*, delivery_id: str = <factory>, subscription_id: str, event_type: zeroth.core.webhooks.models.WebhookEventType, event_id: str = <factory>, payload_json: str, status: zeroth.core.webhooks.models.DeliveryStatus = <DeliveryStatus.PENDING: 'pending'>, attempt_count: int = 0, max_attempts: int = 5, next_attempt_at: datetime.datetime = <factory>, last_error: str | None = None, last_status_code: int | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, delivery_id: str = <factory>, subscription_id: str, event_type: zeroth.service.webhooks.models.WebhookEventType, event_id: str = <factory>, payload_json: str, status: zeroth.service.webhooks.models.DeliveryStatus = <DeliveryStatus.PENDING: 'pending'>, attempt_count: int = 0, max_attempts: int = 5, next_attempt_at: datetime.datetime = <factory>, last_error: str | None = None, last_status_code: int | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.webhooks.models"
+        "schema_model:zeroth.service.webhooks.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks.models:WebhookEventPayload"
       ],
-      "module": "zeroth.core.webhooks.models",
+      "module": "zeroth.service.webhooks.models",
       "name": "WebhookEventPayload",
-      "signature": "(*, event_type: zeroth.core.webhooks.models.WebhookEventType, event_id: str = <factory>, timestamp: datetime.datetime = <factory>, deployment_ref: str, tenant_id: str, data: dict[str, typing.Any]) -> None"
+      "signature": "(*, event_type: zeroth.service.webhooks.models.WebhookEventType, event_id: str = <factory>, timestamp: datetime.datetime = <factory>, deployment_ref: str, tenant_id: str, data: dict[str, typing.Any]) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.webhooks.models"
+        "schema_model:zeroth.service.webhooks.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.webhooks.models:WebhookSubscription"
       ],
-      "module": "zeroth.core.webhooks.models",
+      "module": "zeroth.service.webhooks.models",
       "name": "WebhookSubscription",
-      "signature": "(*, subscription_id: str = <factory>, deployment_ref: str, tenant_id: str = 'default', target_url: str, secret: str = <factory>, event_types: list[zeroth.core.webhooks.models.WebhookEventType], active: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, subscription_id: str = <factory>, deployment_ref: str, tenant_id: str = 'default', target_url: str, secret: str = <factory>, event_types: list[zeroth.service.webhooks.models.WebhookEventType], active: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -11248,7 +11248,7 @@
       "legacy_ids": [
         "zeroth.core.webhooks.service:WebhookService"
       ],
-      "module": "zeroth.core.webhooks.service",
+      "module": "zeroth.service.webhooks.service",
       "name": "WebhookService",
       "signature": "(repository: 'WebhookRepository', default_max_retries: 'int' = 5) -> None"
     },

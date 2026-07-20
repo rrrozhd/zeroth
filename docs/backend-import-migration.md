@@ -1077,6 +1077,29 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.deployments.repository:SQLiteDeploymentRepository` | `zeroth.service.deployments.repository:SQLiteDeploymentRepository` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.deployments.service:DeploymentError` | `zeroth.service.deployments.service:DeploymentError` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.deployments.service:DeploymentService` | `zeroth.service.deployments.service:DeploymentService` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:DeliveryStatus` | `zeroth.service.webhooks:DeliveryStatus` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:EscalationAction` | `zeroth.service.webhooks:EscalationAction` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:WebhookDeadLetter` | `zeroth.service.webhooks:WebhookDeadLetter` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:WebhookDelivery` | `zeroth.service.webhooks:WebhookDelivery` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:WebhookDeliveryWorker` | `zeroth.service.webhooks:WebhookDeliveryWorker` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:WebhookEventPayload` | `zeroth.service.webhooks:WebhookEventPayload` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:WebhookEventType` | `zeroth.service.webhooks:WebhookEventType` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:WebhookRepository` | `zeroth.service.webhooks:WebhookRepository` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:WebhookService` | `zeroth.service.webhooks:WebhookService` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:WebhookSubscription` | `zeroth.service.webhooks:WebhookSubscription` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks:sign_payload` | `zeroth.service.webhooks:sign_payload` | Move webhook service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.webhooks.delivery:WebhookDeliveryWorker` | `zeroth.service.webhooks.delivery:WebhookDeliveryWorker` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.delivery:next_retry_delay` | `zeroth.service.webhooks.delivery:next_retry_delay` | Move webhook service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.webhooks.models:DeliveryStatus` | `zeroth.service.webhooks.models:DeliveryStatus` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.models:EscalationAction` | `zeroth.service.webhooks.models:EscalationAction` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.models:WebhookDeadLetter` | `zeroth.service.webhooks.models:WebhookDeadLetter` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.models:WebhookDelivery` | `zeroth.service.webhooks.models:WebhookDelivery` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.models:WebhookEventPayload` | `zeroth.service.webhooks.models:WebhookEventPayload` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.models:WebhookEventType` | `zeroth.service.webhooks.models:WebhookEventType` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.models:WebhookSubscription` | `zeroth.service.webhooks.models:WebhookSubscription` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.repository:WebhookRepository` | `zeroth.service.webhooks.repository:WebhookRepository` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.service:WebhookService` | `zeroth.service.webhooks.service:WebhookService` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.webhooks.signing:sign_payload` | `zeroth.service.webhooks.signing:sign_payload` | Move webhook service domain | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
