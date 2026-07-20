@@ -28,8 +28,6 @@ from pydantic import BaseModel
 
 from zeroth.contracts.graph import Graph, GraphRepository
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import (
     ServiceBootstrap,
@@ -37,8 +35,10 @@ from zeroth.core.service.bootstrap import (
     run_migrations,
 )
 from zeroth.governance.identity import ServiceRole
+from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.platform.storage import AsyncSQLiteDatabase
 from zeroth.runtime.agents import AgentRunner
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 # ---------------------------------------------------------------------------
 # Env guards so the whole examples suite runs hermetically in CI.

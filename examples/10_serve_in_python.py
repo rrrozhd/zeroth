@@ -54,7 +54,6 @@ from zeroth.contracts.graph import (
     GraphRepository,
 )
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.service.app import create_app
 from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
 from zeroth.platform.storage import AsyncSQLiteDatabase
@@ -63,6 +62,7 @@ from zeroth.runtime.agents import (
     AgentRunner,
     LiteLLMProviderAdapter,
 )
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 DEPLOYMENT_REF = "examples-api"
 DB_PATH = Path("examples_serve.sqlite")

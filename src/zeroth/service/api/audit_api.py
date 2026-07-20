@@ -7,10 +7,6 @@ from typing import Protocol
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.deployments.provenance import (
-    build_attestation_payload,
-    verify_attestation_full,
-)
 from zeroth.governance.approvals.models import ApprovalRecord
 from zeroth.governance.audit import (
     AuditContinuityVerifier,
@@ -33,6 +29,10 @@ from zeroth.service.api.contracts_api import (
     serialize_deployment_metadata,
 )
 from zeroth.service.api.run_api import RunStatusResponse, _serialize_run
+from zeroth.service.deployments.provenance import (
+    build_attestation_payload,
+    verify_attestation_full,
+)
 
 _REDACTOR = PayloadSanitizer(
     AuditRedactionConfig(redact_keys={"authorization", "api_key", "password", "secret", "token"})

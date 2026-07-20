@@ -6,9 +6,9 @@ import pytest
 from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
-import zeroth.core.deployments.models as deployment_models
+import zeroth.service.deployments.models as deployment_models
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.deployments import (
+from zeroth.service.deployments import (
     DeploymentError,
     DeploymentService,
     DeploymentStatus,

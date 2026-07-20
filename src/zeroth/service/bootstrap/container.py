@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph, GraphRepository
     from zeroth.contracts.registry import ContractRegistry
-    from zeroth.core.deployments import Deployment, DeploymentService
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.econ.analytics.client import RegulusClient
     from zeroth.governance.approvals import ApprovalService
@@ -27,6 +26,7 @@ if TYPE_CHECKING:
     from zeroth.platform.storage import AsyncDatabase
     from zeroth.runtime.orchestration.run_worker import RunWorker
     from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
+    from zeroth.service.deployments import Deployment, DeploymentService
 
 
 class DeploymentBootstrapError(RuntimeError):

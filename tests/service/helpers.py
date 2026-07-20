@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,

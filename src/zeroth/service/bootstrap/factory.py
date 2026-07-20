@@ -10,7 +10,6 @@ from zeroth.contracts.graph import GraphRepository
 from zeroth.contracts.graph.serialization import deserialize_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
@@ -45,6 +44,7 @@ from zeroth.service.api.authentication import (
 )
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap.container import DeploymentBootstrapError, ServiceBootstrap
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 
 async def bootstrap_service(

@@ -30,7 +30,7 @@ from zeroth.contracts.graph.models import (
     SubgraphNode,
 )
 from zeroth.contracts.graph.serialization import serialize_graph
-from zeroth.core.deployments.models import Deployment
+from zeroth.service.deployments.models import Deployment
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs.models import Run, RunStatus
 from zeroth.runtime.subgraphs.errors import SubgraphCycleError, SubgraphDepthLimitError

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from tests.graph.test_models import build_graph
 from tests.service.helpers import admin_headers, default_service_auth_config
 from zeroth.contracts.registry import ContractReference, ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.contracts.graph import GraphRepository
 from zeroth.core.runs import RunFailureState
 from zeroth.core.service.bootstrap import bootstrap_app

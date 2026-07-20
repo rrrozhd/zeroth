@@ -25,7 +25,7 @@ from zeroth.integrations.memory.governed.models import MemoryScope
 from tests.graph.test_models import build_graph
 from tests.service.helpers import approval_resume_graph, deploy_service
 from zeroth.governance.audit import AuditQuery, AuditRepository, NodeAuditRecord
-from zeroth.core.deployments.repository import SQLiteDeploymentRepository
+from zeroth.service.deployments.repository import SQLiteDeploymentRepository
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository

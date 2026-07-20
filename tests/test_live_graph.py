@@ -41,7 +41,7 @@ from zeroth.runtime.agents.provider import (
 )
 from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
 from zeroth.governance.audit import AuditRepository
-from zeroth.core.deployments.models import Deployment
+from zeroth.service.deployments.models import Deployment
 from zeroth.integrations.execution import (
     ExecutableUnitRegistry,
     ExecutableUnitRunner,

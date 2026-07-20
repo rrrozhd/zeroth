@@ -32,10 +32,10 @@ from zeroth.contracts.graph import (
     GraphRepository,
 )
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.storage.factory import create_database
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 DEPLOYMENT_REF = "examples-api"
 

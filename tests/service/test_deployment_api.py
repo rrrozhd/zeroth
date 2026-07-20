@@ -11,7 +11,7 @@ from tests.service.helpers import (
     operator_headers,
     scoped_auth_config,
 )
-from zeroth.core.deployments.repository import SQLiteDeploymentRepository
+from zeroth.service.deployments.repository import SQLiteDeploymentRepository
 from zeroth.governance.identity import ServiceRole
 from zeroth.core.service.bootstrap import bootstrap_app
 

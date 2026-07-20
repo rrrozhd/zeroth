@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.contracts.registry import ContractReference
 from zeroth.contracts.registry.errors import ContractNotFoundError
-from zeroth.core.deployments import DeploymentStatus
 from zeroth.core.runs import RunFailureState
 from zeroth.service.api.authorization import (
     Permission,
@@ -18,6 +17,7 @@ from zeroth.service.api.authorization import (
     require_permission,
 )
 from zeroth.service.api.run_api import RunStatusResponse
+from zeroth.service.deployments import DeploymentStatus
 
 
 class ContractApiBootstrapLike(Protocol):

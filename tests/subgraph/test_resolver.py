@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from zeroth.core.deployments.models import Deployment
+from zeroth.service.deployments.models import Deployment
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,

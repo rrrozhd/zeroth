@@ -6,8 +6,8 @@ from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.deployments.provenance import (
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.service.deployments.provenance import (
     build_attestation_payload,
     verify_attestation_full,
 )

@@ -15,7 +15,7 @@ from zeroth.core.examples.quickstart import build_demo_graph
 from zeroth.contracts.graph import GraphRepository
 from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.contracts.registry import ContractRegistry
 
 

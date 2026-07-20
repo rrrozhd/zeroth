@@ -14,8 +14,8 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.core.deployments.service import DeploymentError
 from zeroth.service.api.authorization import Permission, require_permission
+from zeroth.service.deployments.service import DeploymentError
 
 
 class DeploymentSummaryResponse(BaseModel):
