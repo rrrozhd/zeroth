@@ -152,7 +152,32 @@ class ParallelConfig(BaseModel):
     on the first error, 'best_effort' runs all branches and collects errors."""
 
     max_branches: int | None = Field(default=None, ge=1)
-    """Optional cap on the number of parallel branches. None means unlimited."""
+    """Optional cap on the number of parallel branches. None means unlimited.
+    This is a *safety ceiling* — a fan-out wider than this is rejected outright.
+    It is NOT a throttle: to process a large list in bounded waves use
+    ``batch_size`` / ``max_concurrency`` (both stay within this ceiling)."""
+
+    max_concurrency: int | None = Field(default=None, ge=1)
+    """Cap on how many branches run *simultaneously* (a worker pool). ``None``
+    means every branch runs at once (the historical unbounded ``gather``). Unlike
+    ``batch_size`` this is a sliding-window throttle: as one branch finishes the
+    next starts, with no barrier. Composes with ``batch_size`` (bounds concurrency
+    *within* each wave)."""
+
+    batch_size: int | None = Field(default=None, ge=1)
+    """Process branches in sequential waves of at most this many. Wave N+1 starts
+    only after wave N fully completes (a barrier — the ``asyncio.gather`` of one
+    wave, then the next). ``None`` runs everything as a single wave (historical
+    behaviour). Use for rate-limited downstreams or to cap peak resource use.
+    An approval-gate pause inside a *multi-wave* fan-out is rejected loudly:
+    earlier waves already ran their side effects and the resume contract cannot
+    represent partially-completed waves."""
+
+    branch_timeout_seconds: float | None = Field(default=None, gt=0)
+    """Per-branch wall-clock timeout (``asyncio.wait_for``). A branch that exceeds
+    it fails like any other branch error: dropped to an error ``BranchResult``
+    under ``best_effort``, or cancelling the fan-out under ``fail_fast``. ``None``
+    means no timeout."""
 
     @model_validator(mode="after")
     def _validate_reducer_ref_consistency(self) -> ParallelConfig:
@@ -189,21 +214,32 @@ class JoinConfig(BaseModel):
     failure handling; it simply reduces the ordered list of delivered inbound
     payloads.
 
-    Default ``merge_strategy='merge'`` (shallow dict merge, last delivered edge
-    wins on key conflict) — the least-surprise behaviour for a plain diamond.
+    Default ``merge_strategy='collect'`` — every delivered payload arrives as a
+    list element, matching ``ParallelConfig``'s default. This default is
+    deliberately **non-lossy**: ``merge`` shallow-merges whole payloads, so two
+    parents sharing an output schema would silently keep only the last parent's
+    values. A join must never lose a parent's data by default.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    merge_strategy: Literal["collect", "reduce", "merge", "custom"] = "merge"
+    merge_strategy: Literal["collect", "reduce", "merge", "custom"] = "collect"
     """How delivered inbound payloads combine (same vocabulary as
-    ``ParallelConfig``): 'merge' shallow-merges dicts in inbound-edge order,
-    'reduce' applies the built-in last-wins fold, 'collect' gathers into a list,
-    and 'custom' applies a user-supplied dotted-path reducer."""
+    ``ParallelConfig``): 'collect' gathers them into a list (default — non-lossy),
+    'merge' shallow-merges dicts in inbound-edge order (LOSSY on overlapping
+    keys — last delivered edge wins), 'reduce' applies the built-in last-wins
+    fold, and 'custom' applies a user-supplied dotted-path reducer."""
 
     reducer_ref: str | None = None
     """Dotted import path to a user-supplied reducer callable. Only valid with
     ``merge_strategy='custom'`` (mirrors ``ParallelConfig``)."""
+
+    merge_path: str | None = None
+    """Dot-path in the joined payload where a non-dict reduced value (notably the
+    ``collect`` list) is written — the join's analogue of ``ParallelConfig``'s
+    ``merge_path = split_path``. A join has no ``split_path`` to reuse, so the
+    author names the field the downstream node's input contract expects. When
+    None the value lands under ``result``."""
 
     @model_validator(mode="after")
     def _validate_reducer_ref_consistency(self) -> JoinConfig:

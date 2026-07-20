@@ -229,9 +229,12 @@ async def test_successful_linear_run_side_effect_order_is_exact(sqlite_db) -> No
         ("run.put", "RUNNING", ""),
         ("run.checkpoint", "RUNNING"),
         # node "first" (each hop re-reads the persisted status twice — loop head
-        # and pre-RUNNING-write — for cooperative operator cancel, audit F3)
+        # and pre-RUNNING-write — for cooperative operator cancel, audit F3; and
+        # persists the in-flight dispatch record before dispatching, B9)
         ("run.get",),
         ("run.put", "RUNNING", "first"),
+        ("run.put", "RUNNING", "first"),
+        ("run.checkpoint", "RUNNING"),
         ("audit.write", "first", "completed"),
         ("run.get",),
         ("run.put", "RUNNING", "first"),
@@ -239,6 +242,8 @@ async def test_successful_linear_run_side_effect_order_is_exact(sqlite_db) -> No
         # node "second"
         ("run.get",),
         ("run.put", "RUNNING", "second"),
+        ("run.put", "RUNNING", "second"),
+        ("run.checkpoint", "RUNNING"),
         ("audit.write", "second", "completed"),
         ("run.get",),
         ("run.put", "RUNNING", "second"),
@@ -298,6 +303,8 @@ async def test_node_failure_writes_failed_audit_before_failing_the_run(sqlite_db
         ("run.checkpoint", "RUNNING"),
         ("run.get",),  # loop-head cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),
+        ("run.put", "RUNNING", "first"),  # in-flight dispatch staging (B9)
+        ("run.checkpoint", "RUNNING"),
         ("audit.write", "first", "failed"),
         ("run.put", "FAILED", "first"),
         ("run.checkpoint", "FAILED"),
@@ -383,6 +390,8 @@ async def test_error_carrying_an_audit_record_is_audited_as_rejected(sqlite_db) 
         ("run.checkpoint", "RUNNING"),
         ("run.get",),  # loop-head cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),
+        ("run.put", "RUNNING", "first"),  # in-flight dispatch staging (B9)
+        ("run.checkpoint", "RUNNING"),
         ("audit.write", "first", "rejected"),
         ("run.put", "FAILED", "first"),
         ("run.checkpoint", "FAILED"),
@@ -476,6 +485,8 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
         ("run.checkpoint", "RUNNING"),
         ("run.get",),  # loop-head cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),
+        ("run.put", "RUNNING", "first"),  # in-flight dispatch staging (B9)
+        ("run.checkpoint", "RUNNING"),
         ("audit.write", "first", "completed"),
         ("run.get",),  # pre-RUNNING-write cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),

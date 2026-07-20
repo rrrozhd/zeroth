@@ -20,9 +20,9 @@ facade's public entry point so the run span is opened the same way.
 from __future__ import annotations
 
 import logging
-from collections import deque
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
@@ -31,9 +31,11 @@ from zeroth.contracts.conditions import NextStepPlanner
 from zeroth.contracts.conditions.models import ConditionContext, NextStepPlan, TraversalState
 from zeroth.contracts.graph import Edge, Graph, HumanApprovalNode, SubgraphNode
 from zeroth.contracts.mappings import MappingExecutor
+from zeroth.contracts.mappings.executor import _set_path
 from zeroth.core.runs import Run, RunFailureState, RunStatus
 from zeroth.platform.observability import start_span
 from zeroth.runtime.agents.errors import BudgetExceededError
+from zeroth.runtime.orchestration import token_scope as _ts
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.errors import OrchestratorError
@@ -57,6 +59,23 @@ from zeroth.runtime.subgraphs.resolver import merge_governance, namespace_subgra
 logger = logging.getLogger(__name__)
 
 
+def _ts_tag_to_json(tag: _ts.TokenTag) -> list[list[Any]]:
+    """Serialize a provenance tag to a JSON-safe ``[[header, iter], ...]`` list.
+
+    Tags live in ``run.metadata`` (``node_tags`` and each join entry's ``tag``),
+    which round-trips through the RunRepository checkpoint, so they must be plain
+    JSON — tuples are not.
+    """
+    return [[header, iteration] for header, iteration in tag]
+
+
+def _ts_tag_from_json(raw: Any) -> _ts.TokenTag:
+    """Rebuild a provenance tag from its checkpointed JSON form."""
+    if not raw:
+        return _ts.INITIAL_TAG
+    return tuple((header, int(iteration)) for header, iteration in raw)
+
+
 @dataclass(frozen=True, slots=True)
 class GraphDriver:
     """Drives a run through its graph, one node at a time, to a terminal state."""
@@ -75,6 +94,13 @@ class GraphDriver:
     per_run_cap_usd: float | None = None
     orchestrator: Any = None
     resume_graph: Callable[[Graph, str], Awaitable[Run]] | None = None
+    # B9 loop-scoping caches, keyed by (graph_id, version). The OWNER of these
+    # dicts must be the long-lived orchestrator (the facade passes its own dicts
+    # in), because graph ids/versions are only unique within one orchestrator's
+    # lifetime — a global cache would poison a different topology that reuses
+    # the same id (exactly what test suites do).
+    back_edge_cache: dict[tuple[str, int], frozenset[str]] = field(default_factory=dict)
+    scopes_cache: dict[tuple[str, int], _ts.GraphScopes] = field(default_factory=dict)
 
     async def refresh_artifact_ttls(self, run: Run) -> None:
         """Refresh TTLs on all artifact references found in run state.
@@ -151,6 +177,93 @@ class GraphDriver:
             return persisted
         return None
 
+    async def restore_in_flight_dispatch(self, graph: Graph, run: Run) -> None:
+        """Re-stage a dispatch left durable by a failed node execution.
+
+        The record is intentionally retained until the replayed node completes.
+        That makes a second failure replayable too, and prevents the restore itself
+        from creating a gap where the exact input exists only in memory.
+        """
+        raw = run.metadata.get("in_flight_dispatch")
+        if raw is None:
+            return
+        if not isinstance(raw, Mapping):
+            raise OrchestratorError("in-flight dispatch metadata is not a mapping")
+        node_id = raw.get("node_id")
+        input_payload = raw.get("input_payload")
+        token_tag = raw.get("token_tag")
+        if not isinstance(node_id, str) or not isinstance(input_payload, Mapping):
+            raise OrchestratorError("in-flight dispatch metadata is missing node_id or payload")
+        node = node_by_id(graph, node_id)
+        if getattr(node, "parallel_config", None) is not None:
+            raise OrchestratorError(
+                f"in-flight marker targets parallel fan-out node {node_id}; "
+                "ordinary failed-dispatch replay cannot restore fan-out state"
+            )
+        if node_id in run.pending_node_ids:
+            raise OrchestratorError(
+                f"in-flight node {node_id} is already pending; refusing duplicate replay"
+            )
+        payloads = dict(run.metadata.get("node_payloads", {}))
+        existing_payload = payloads.get(node_id)
+        if existing_payload is not None and existing_payload != input_payload:
+            raise OrchestratorError(f"in-flight node {node_id} has a conflicting staged payload")
+        if existing_payload is not None:
+            raise OrchestratorError(f"in-flight node {node_id} already has staged payload state")
+        payloads[node_id] = dict(input_payload)
+        run.metadata["node_payloads"] = payloads
+        tags = dict(run.metadata.get("node_tags", {}))
+        existing_tag = tags.get(node_id)
+        if graph.execution_settings.sequential_join_enabled:
+            if token_tag is None:
+                raise OrchestratorError(
+                    f"in-flight token node {node_id} is missing its provenance tag"
+                )
+            if existing_tag is not None and existing_tag != token_tag:
+                raise OrchestratorError(
+                    f"in-flight node {node_id} has a conflicting staged token tag"
+                )
+            tags[node_id] = token_tag
+            run.metadata["node_tags"] = tags
+        elif token_tag is not None:
+            raise OrchestratorError(
+                f"legacy in-flight node {node_id} unexpectedly carries a token tag"
+            )
+        run.pending_node_ids.insert(0, node_id)
+        run.current_node_ids = []
+        run.current_step = None
+
+    async def stage_in_flight_dispatch(
+        self,
+        graph: Graph,
+        run: Run,
+        node_id: str,
+        input_payload: Mapping[str, Any],
+    ) -> None:
+        """Durably bind a popped node to its exact payload and provenance tag."""
+        token_tag: Any = None
+        if graph.execution_settings.sequential_join_enabled:
+            tags = run.metadata.get("node_tags", {})
+            if node_id not in tags:
+                raise OrchestratorError(
+                    f"token node {node_id} has no staged provenance tag at dispatch"
+                )
+            token_tag = tags[node_id]
+        record = {
+            "node_id": node_id,
+            "input_payload": dict(input_payload),
+            "token_tag": token_tag,
+        }
+        existing = run.metadata.get("in_flight_dispatch")
+        if existing is not None and existing != record:
+            raise OrchestratorError(
+                f"cannot stage node {node_id}; another inconsistent dispatch is in flight"
+            )
+        run.metadata["in_flight_dispatch"] = record
+        run.touch()
+        persisted = await self.run_repository.put(run)
+        await self.run_repository.write_checkpoint(persisted)
+
     async def drive(
         self,
         graph: Graph,
@@ -165,6 +278,7 @@ class GraphDriver:
         or until a guard/policy/approval stops execution.
         """
         started_at = perf_counter()
+        await self.restore_in_flight_dispatch(graph, run)
         while True:
             # Cooperative cancellation (audit F3): observe an operator's out-of-band
             # cancel/interrupt before completing the run or dispatching the next node.
@@ -256,14 +370,39 @@ class GraphDriver:
                     )
                 del run.metadata["pending_parallel_subgraph"]
                 run.status = RunStatus.RUNNING
+                # The initial (paused) attempt short-circuited BEFORE the main
+                # path records the fan-out source node's own history and bumps its
+                # visit count, so do both now on resume (audit re-review #5). The
+                # source node's own output is the split input (what was fanned
+                # out); use it — not the fan-IN merged output — to plan the fan-out
+                # node's downstream edges, so their conditions evaluate on the
+                # right payload, exactly as the main path does (audit re-review #6).
+                source_output = pending_psg.get("split_input", dict(input_payload))
+                await self.audit_recorder.record_history(
+                    run,
+                    node,
+                    node_id,
+                    input_payload,
+                    source_output,
+                    {"resumed_parallel_fan_out": True},
+                    started_at=node_started_at,
+                )
+                self.increment_node_visit(run, node_id)
                 # Merge branch state and continue post-fan-in flow.
                 self.parallel_runtime.merge_fan_in_state(run, fan_in_resume)
                 merged_output = fan_in_resume.merged_output
-                downstream_ids = self.plan_next_nodes(graph, run, node_id, merged_output)
+                downstream_ids = self.plan_next_nodes(graph, run, node_id, source_output)
                 for ds_id in downstream_ids:
                     self.increment_node_visit(run, ds_id)
-                    post_fan_in_ids = self.plan_next_nodes(graph, run, ds_id, merged_output)
-                    self.queue_next_nodes(graph, run, ds_id, merged_output, post_fan_in_ids)
+                    # Route the post-fan-in hop through the SAME dispatch entry
+                    # point as every other node completion so a convergent node
+                    # reached through a fan-out enters the join barrier instead of
+                    # the legacy last-writer-wins queue (B9 audit #3/#4/#5). Under
+                    # the flag off this is byte-identical to the old
+                    # plan_next_nodes + queue_next_nodes pair (both funnel through
+                    # run_branch_planner); the increment_node_visit above stays
+                    # load-bearing because advance_downstream does not bump it.
+                    self.advance_downstream(graph, run, ds_id, merged_output)
                 run.metadata["last_output"] = merged_output
                 # Cooperative cancel across a resumed fan-in (audit F3 follow-up).
                 stopped = await self.external_stop(run)
@@ -518,6 +657,8 @@ class GraphDriver:
                             spend=spent,
                             cap=self.per_run_cap_usd,
                         )
+                if getattr(node, "parallel_config", None) is None:
+                    await self.stage_in_flight_dispatch(graph, run, node_id, input_payload)
                 output_data, audit_record = await self.node_dispatcher.dispatch(
                     node, run, input_payload, graph
                 )
@@ -578,8 +719,15 @@ class GraphDriver:
                 downstream_ids = self.plan_next_nodes(graph, run, node_id, output_data)
                 for ds_id in downstream_ids:
                     self.increment_node_visit(run, ds_id)
-                    post_fan_in_ids = self.plan_next_nodes(graph, run, ds_id, merged_output)
-                    self.queue_next_nodes(graph, run, ds_id, merged_output, post_fan_in_ids)
+                    # Route the post-fan-in hop through the SAME dispatch entry
+                    # point as every other node completion so a convergent node
+                    # reached through a fan-out enters the join barrier instead of
+                    # the legacy last-writer-wins queue (B9 audit #3/#4/#5). Under
+                    # the flag off this is byte-identical to the old
+                    # plan_next_nodes + queue_next_nodes pair (both funnel through
+                    # run_branch_planner); the increment_node_visit above stays
+                    # load-bearing because advance_downstream does not bump it.
+                    self.advance_downstream(graph, run, ds_id, merged_output)
                 run.metadata["last_output"] = merged_output
                 # Cooperative cancel across a parallel fan-in (audit F3 follow-up).
                 stopped = await self.external_stop(run)
@@ -605,6 +753,7 @@ class GraphDriver:
             self.increment_node_visit(run, node_id)
             self.advance_downstream(graph, run, node_id, output_data)
             run.metadata["last_output"] = output_data
+            run.metadata.pop("in_flight_dispatch", None)
             # An operator may have cancelled/interrupted while this node was
             # dispatching; don't clobber that with our RUNNING write (audit F3).
             stopped = await self.external_stop(run)
@@ -747,15 +896,17 @@ class GraphDriver:
         Single entry point for the sequential (non-parallel) post-node flow.
         With ``sequential_join_enabled`` off (default) this is byte-identical to
         the historical ``plan_next_nodes`` + ``queue_next_nodes`` pairing. With
-        the flag on it routes through the token/skip-propagation join barrier so a
-        convergent node dispatches once per iteration after all its inbound edges
-        resolve.
+        the flag on it routes through the token join engine: each edge carries a
+        provenance tag that TRAVELS WITH THE TOKEN, a convergent node's join is
+        keyed by that tag (so it re-joins cleanly on every loop iteration), and a
+        loop-exit edge resolves only when its loop terminates.
         """
         plan = self.run_branch_planner(graph, run, source_node_id, output_data)
         if not graph.execution_settings.sequential_join_enabled:
             self.queue_next_nodes(graph, run, source_node_id, output_data, list(plan.next_node_ids))
             return
-        self._resolve_join_edges(graph, run, source_node_id, output_data, plan)
+        source_tag = self._consume_node_tag(run, source_node_id)
+        self._resolve_join_edges(graph, run, source_node_id, output_data, plan, source_tag)
 
     def _resolve_join_edges(
         self,
@@ -764,105 +915,229 @@ class GraphDriver:
         source_node_id: str,
         output_data: Mapping[str, Any],
         plan: NextStepPlan,
+        source_tag: _ts.TokenTag,
     ) -> None:
-        """Seed the resolution worklist from one source node's outgoing edges (B9).
+        """Seed the token-join worklist from one source node's outgoing edges.
 
-        Every non-tool outgoing edge is resolved as either DELIVERED (active,
-        carries the mapped payload) or SUPPRESSED (condition false / disabled /
-        visit-limited). Draining the worklist dispatches any now-fully-resolved
-        convergent target and propagates the skip cascade.
+        Every non-tool outgoing edge resolves as DELIVERED (active — carries the
+        mapped payload) or SUPPRESSED, and carries the provenance TAG the token
+        holds after crossing it (:func:`token_scope.propagate_tag`). Draining the
+        worklist dispatches any now-fully-resolved convergent target (keyed by
+        that tag) and propagates the skip cascade.
+
+        **Loop-exit edges are special (P3).** A loop-exit edge is NEVER resolved by
+        its source node's ordinary edge resolution — only by the *exit-crossing
+        event*: when the source takes an ACTIVE exit edge of a loop L, L
+        terminates and L's whole exit-edge unit resolves at once at the outer tag
+        (the crossed edge delivers, its siblings suppress). That is what lets an
+        out-of-loop join see exactly one resolution of each of L's exit edges — at
+        the right tag, when the loop is actually done — with no per-iteration
+        premature dispatch and no hang. Exit edges of loops the source is in but
+        did NOT cross this pass are deferred: they resolve later, when their own
+        owning loop terminates.
         """
+        scopes = self._graph_scopes(graph)
         resolution = plan.branch_resolution
         edge_map = {edge.edge_id: edge for edge in graph.edges}
-        worklist: deque[tuple[Edge, bool, dict[str, Any] | None]] = deque()
-        for edge_id in resolution.active_edge_ids:
-            edge = edge_map.get(edge_id)
-            if edge is None or edge.kind == "tool":
+        active_ids = [
+            eid
+            for eid in resolution.active_edge_ids
+            if (e := edge_map.get(eid)) is not None and e.kind != "tool"
+        ]
+        suppressed_ids = [
+            eid
+            for eid in resolution.suppressed_edge_ids
+            if (e := edge_map.get(eid)) is not None and e.kind != "tool"
+        ]
+        active_set = set(active_ids)
+        # A loop is CROSSED this pass iff the source took an ACTIVE edge that EXITS
+        # it. A single edge may exit several nested loops at once, so crossing is
+        # recorded for EVERY loop an active exit edge leaves — not just its
+        # outermost owner — otherwise an inner loop the token also bailed out of
+        # would never terminate. Crossing a set of loops resolves, as one event,
+        # every exit edge OWNED by (outermost-exits) any crossed loop; each such
+        # edge whose owner is not yet crossed stays deferred. Exit edges among the
+        # source's OWN edges are withheld from the normal resolution below; only
+        # crossed units fire, in (B).
+        crossed_loops: set[str] = set()
+        for eid in active_ids:
+            if eid in scopes.exit_owner:
+                crossed_loops |= {
+                    header for header, eids in scopes.exit_edges.items() if eid in eids
+                }
+        unit_edge_ids = {eid for eid, owner in scopes.exit_owner.items() if owner in crossed_loops}
+        source_exit_ids = {
+            eid for eid in (*active_ids, *suppressed_ids) if eid in scopes.exit_owner
+        }
+        worklist: deque[tuple[Edge, bool, dict[str, Any] | None, _ts.TokenTag]] = deque()
+        # (A) Normal (non-exit) edges — deliver/suppress at the propagated tag.
+        for eid in active_ids:
+            if eid in source_exit_ids:
                 continue
+            edge = edge_map[eid]
+            tag = _ts.propagate_tag(source_tag, edge, scopes)
             payload = self.edge_payload(
                 graph, run, source_node_id, edge.target_node_id, output_data, edge
             )
-            worklist.append((edge, True, payload))
-        for edge_id in resolution.suppressed_edge_ids:
-            edge = edge_map.get(edge_id)
-            if edge is None or edge.kind == "tool":
+            worklist.append((edge, True, payload, tag))
+        for eid in suppressed_ids:
+            if eid in source_exit_ids:
                 continue
-            worklist.append((edge, False, None))
-        self._drain_join_worklist(graph, run, worklist)
+            edge = edge_map[eid]
+            if eid in scopes.back_edges:
+                # A suppressed back-edge is the loop declining to iterate via this
+                # edge; termination is handled by the exit-crossing event, so this
+                # is a no-op (recording it would spuriously feed the header's join).
+                continue
+            tag = _ts.propagate_tag(source_tag, edge, scopes)
+            worklist.append((edge, False, None, tag))
+        # (B) Exit-crossing unit resolution — the ONLY place exit edges resolve.
+        # Each edge resolves at the tag a token arriving at its TARGET would carry
+        # (``propagate_tag``): it strips the loops the edge exits AND adds a fresh
+        # (header, 0) for any loop the target ENTERS — so an exit edge whose target
+        # is itself a loop header lands in the same bucket as that node's other
+        # inbound, and a sibling exit that leaves fewer loops lands at the target's
+        # own scope. A strip-only tag would key these into divergent buckets that
+        # never complete.
+        for eid in unit_edge_ids:
+            edge = edge_map[eid]
+            tag = _ts.propagate_tag(source_tag, edge, scopes)
+            if eid in active_set:
+                payload = self.edge_payload(
+                    graph, run, source_node_id, edge.target_node_id, output_data, edge
+                )
+                worklist.append((edge, True, payload, tag))
+            else:
+                worklist.append((edge, False, None, tag))
+        self._drain_join_worklist(graph, run, worklist, scopes)
 
     def _drain_join_worklist(
         self,
         graph: Graph,
         run: Run,
-        worklist: deque[tuple[Edge, bool, dict[str, Any] | None]],
+        worklist: deque[tuple[Edge, bool, dict[str, Any] | None, _ts.TokenTag]],
+        scopes: _ts.GraphScopes,
     ) -> None:
         """Resolve edges until the worklist drains, enqueuing ready join targets.
 
         A ``parallel_config`` target owns its own fan-in, so it bypasses the
-        barrier (queued directly on delivery, exactly like the legacy path). Any
-        edge resolved twice in a single drain signals a cyclic convergent node —
-        those are rejected at publish validation under the flag, so this is
-        defense-in-depth for unvalidated (code-authored) graphs: fail loud rather
-        than spin.
+        barrier (queued directly on delivery, exactly like the legacy path).
+
+        Each (edge, tag) resolves at most once per drain: a skip cascade walking a
+        cycle can re-reach an edge at the same tag; first resolution wins.
+
+        **Forward vs back edge.** A FORWARD edge feeds its target's join bucket for
+        the token's tag. A delivered BACK edge is a loop re-entry: it dispatches
+        the header once at the bumped tag (the tag already carries the incremented
+        iteration); a suppressed back-edge is a no-op (see ``_resolve_join_edges``).
         """
-        visited_edges: set[str] = set()
+        visited: set[tuple[str, str]] = set()
+        back_dispatched: set[tuple[str, str]] = set()
         while worklist:
-            edge, delivered, payload = worklist.popleft()
-            if edge.edge_id in visited_edges:
-                raise OrchestratorError(
-                    f"join edge {edge.edge_id!r} resolved twice in one step — a cyclic "
-                    "convergent node is unsupported under sequential_join_enabled"
-                )
-            visited_edges.add(edge.edge_id)
+            edge, delivered, payload, tag = worklist.popleft()
+            tkey = _ts.tag_key(tag)
+            if (edge.edge_id, tkey) in visited:
+                continue
+            visited.add((edge.edge_id, tkey))
             target = edge.target_node_id
-            node = node_by_id(graph, target)
-            if getattr(node, "parallel_config", None) is not None:
-                # Parallel fan-in nodes handle their own collect/reduce; the
-                # sequential join barrier defers to them entirely.
-                if delivered and payload is not None:
-                    self._stash_join_payload(run, target, payload)
+            if edge.edge_id in scopes.back_edges:
+                # Loop re-entry. Dispatch the header once per (header, tag) even if
+                # two back-edges into one header deliver together.
+                if delivered and payload is not None and (target, tkey) not in back_dispatched:
+                    back_dispatched.add((target, tkey))
+                    self._stash_join_payload(run, target, payload, tag)
                     run.pending_node_ids.append(target)
                 continue
-            self._record_edge_resolution(run, target, edge.edge_id, delivered, payload)
-            self._check_join_target(graph, run, target, worklist)
+            self._record_forward_resolution(run, target, edge.edge_id, delivered, payload, tag)
+            self._check_forward_join(graph, run, target, tag, worklist, scopes)
 
-    def _check_join_target(
+    def _check_forward_join(
         self,
         graph: Graph,
         run: Run,
         target: str,
-        worklist: deque[tuple[Edge, bool, dict[str, Any] | None]],
+        tag: _ts.TokenTag,
+        worklist: deque[tuple[Edge, bool, dict[str, Any] | None, _ts.TokenTag]],
+        scopes: _ts.GraphScopes,
     ) -> None:
-        """Dispatch or skip a target once all its inbound edges for this iteration resolve.
+        """Dispatch or skip ``target`` once all its FORWARD inbound resolve at ``tag``.
 
-        - If every inbound edge is resolved and >=1 delivered: merge the
-          delivered payloads via the node's ``JoinConfig`` and enqueue the node
-          once. A single delivered edge (the common single-inbound case, and
-          conditional reconvergence) skips the merge entirely — byte-identical to
-          the legacy single-payload enqueue.
-        - If every inbound edge is resolved and none delivered: the node is
-          SKIPPED; its outbound edges cascade as SUPPRESSED so a downstream join
-          learns the branch is resolved-not-pending.
-        - Otherwise the node keeps waiting.
+        The join bucket is keyed by the token's provenance tag, so a convergent
+        node re-joins cleanly on every loop iteration (each iteration is a distinct
+        tag) — including an inner loop re-entered by an outer one, where the
+        counter-epoch model wrongly deadlocked.
+
+        - all forward inbound resolved at this tag, >=1 delivered → merge, dispatch
+          once with this tag;
+        - all resolved, none delivered → the node was not entered at this tag: SKIP
+          it, cascading its FORWARD, non-exit outbound as SUPPRESSED so downstream
+          joins learn the branch is resolved-not-pending;
+        - otherwise keep waiting.
+
+        Back-edges are not in the forward set, so a loop header never waits on a
+        back-edge that cannot fire yet.
         """
-        inbound = self._inbound_control_edges(graph, target)
-        iteration = self._join_iteration(run, target)
-        entry = self._join_entry(run, target, iteration)
-        resolved = entry["resolved"]
-        if not all(edge.edge_id in resolved for edge in inbound):
+        forward = self._forward_inbound_edges(graph, target)
+        if not forward:
+            # Only back-edge inbound (a pure loop header) or the entry node —
+            # dispatched via the back-edge path or the initial seed, not here.
             return
-        delivered_edges = [edge for edge in inbound if resolved.get(edge.edge_id) == "delivered"]
-        self._clear_join_entry(run, target, iteration)
+        entry = self._join_entry(run, target, tag)
+        resolved = entry["resolved"]
+        if not all(edge.edge_id in resolved for edge in forward):
+            return
+        delivered_edges = [edge for edge in forward if resolved.get(edge.edge_id) == "delivered"]
+        self._clear_join_entry(run, target, tag)
         if delivered_edges:
             payloads = [entry["payloads"][edge.edge_id] for edge in delivered_edges]
             merged = self._merge_join_payloads(graph, target, payloads)
-            self._stash_join_payload(run, target, merged)
+            self._stash_join_payload(run, target, merged, tag)
             run.pending_node_ids.append(target)
         else:
+            # SKIP: cascade FORWARD, non-exit outbound as suppressed. Exit edges
+            # resolve ONLY via the exit-crossing unit (never a cascade, which would
+            # re-resolve them at the still-in-loop tag and orphan the target); a
+            # back-edge is a loop-exit no-op.
             for out_edge in self._outbound_control_edges(graph, target):
-                worklist.append((out_edge, False, None))
+                if out_edge.edge_id in scopes.back_edges:
+                    continue
+                if out_edge.edge_id in scopes.exit_owner:
+                    continue
+                out_tag = _ts.propagate_tag(tag, out_edge, scopes)
+                worklist.append((out_edge, False, None, out_tag))
+            # A skipped loop HEADER means the loop was never entered at this tag —
+            # it is dead, so no token will ever cross its exit edges. Resolve that
+            # loop's whole exit-edge unit as SUPPRESSED now (the cascade above
+            # deliberately skips exit edges), each at its target's scope, or an
+            # out-of-loop join waiting on a bypassed loop's exit hangs forever and
+            # leaks its bucket. Only a HEADER skip kills the loop; a skipped body
+            # node is a dead branch inside a still-live loop.
+            if target in scopes.bodies:
+                edge_map = {edge.edge_id: edge for edge in graph.edges}
+                for eid, owner in scopes.exit_owner.items():
+                    if owner != target:
+                        continue
+                    exit_edge = edge_map.get(eid)
+                    if exit_edge is None:
+                        continue
+                    out_tag = _ts.propagate_tag(tag, exit_edge, scopes)
+                    worklist.append((exit_edge, False, None, out_tag))
 
     def _merge_join_payloads(
+        self,
+        graph: Graph,
+        node_id: str,
+        payloads: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Route a join merge through the facade seam when present.
+
+        See :meth:`_record_forward_resolution` for the pattern.
+        """
+        if self.orchestrator is not None and hasattr(self.orchestrator, "_merge_join_payloads"):
+            return self.orchestrator._merge_join_payloads(graph, node_id, payloads)
+        return self.merge_join_payloads(graph, node_id, payloads)
+
+    def merge_join_payloads(
         self,
         graph: Graph,
         node_id: str,
@@ -871,78 +1146,256 @@ class GraphDriver:
         """Combine delivered inbound payloads for a convergent node (B9).
 
         Reuses the parallel subsystem's ``dispatch_strategy`` reducer registry —
-        the join barrier does not reinvent merge semantics. A single delivered
-        payload is returned as-is (no merge invoked). Non-dict merge results
-        (e.g. ``collect`` returns a list) are wrapped ``{"result": ...}`` to keep
-        the downstream node payload a dict, matching the subgraph convention.
+        the join barrier does not reinvent merge semantics.
+
+        The result shape follows the node's **declared** ``JoinConfig``, never the
+        runtime payload count: a ``collect`` join yields a list even when only one
+        inbound edge happened to deliver this iteration. Shape must not depend on
+        which branch fired, or the same node would hand downstream a dict on one
+        run and a list on the next. A node with no ``JoinConfig`` (conditional
+        reconvergence — at most one delivery by construction) keeps its payload
+        verbatim, byte-identical to the legacy single-payload enqueue.
+
+        Non-dict reduced values (notably the ``collect`` list) are written at the
+        config's ``merge_path``, mirroring how ``collect_fan_in`` writes its
+        reduced value at ``split_path``; absent a ``merge_path`` they land under
+        ``result``.
         """
-        if len(payloads) == 1:
-            return dict(payloads[0])
         node = node_by_id(graph, node_id)
         join_config = getattr(node, "join_config", None)
         if join_config is None:
-            # Validation requires a JoinConfig for genuine concurrent delivery;
-            # default to shallow merge as a safe fallback for unvalidated graphs.
-            strategy, reducer_ref = "merge", None
+            if len(payloads) == 1:
+                return dict(payloads[0])
+            # Genuine concurrent delivery with no declared policy is rejected at
+            # publish (MISSING_JOIN_CONFIG). Reaching here means a code-authored
+            # graph that skipped validation: collect so no parent's data is lost.
+            strategy, reducer_ref, merge_path = "collect", None, None
         else:
-            strategy, reducer_ref = join_config.merge_strategy, join_config.reducer_ref
+            strategy = join_config.merge_strategy
+            reducer_ref = join_config.reducer_ref
+            merge_path = join_config.merge_path
         merged = dispatch_strategy(strategy, list(payloads), reducer_ref=reducer_ref)
-        if not isinstance(merged, dict):
-            return {"result": merged}
-        return dict(merged)
+        if isinstance(merged, dict):
+            return dict(merged)
+        joined: dict[str, Any] = {}
+        _set_path(joined, merge_path or "result", merged)
+        return joined
 
-    def _join_iteration(self, run: Run, node_id: str) -> str:
-        """Iteration key for a node's join scope (stringified for JSON round-trip).
+    def _graph_scopes(self, graph: Graph) -> _ts.GraphScopes:
+        """Static loop analysis (bodies, enclosing loops, exit edges + owners).
 
-        DAG scope: a node is visited at most once, so this is always ``"0"``.
-        Convergent-on-cycle nodes are rejected at publish validation under the
-        flag, so per-iteration loop re-scoping (design §4.4) is deferred; this
-        key intentionally stays ``"0"`` for every supported graph.
+        Delegates to :func:`token_scope.analyze` and caches per immutable
+        (graph_id, version). Replaces the old per-node loop-nesting cache; the
+        token engine reads bodies/exit-edges/exit-owners off the one object.
         """
-        return str(run.node_visit_counts.get(node_id, 0))
+        key = (graph.graph_id, graph.version)
+        cached = self.scopes_cache.get(key)
+        if cached is None:
+            cached = _ts.analyze(graph)
+            self.scopes_cache[key] = cached
+        return cached
 
-    def _join_entry(self, run: Run, node_id: str, iteration: str) -> dict[str, Any]:
-        """Get (creating if needed) the join-tracking entry for (node, iteration).
+    def _consume_node_tag(self, run: Run, node_id: str) -> _ts.TokenTag:
+        """Read and clear the provenance tag a node was dispatched with.
 
-        Lives under ``run.metadata['join_state']`` which round-trips through the
-        RunRepository checkpoint exactly like ``node_payloads`` — so a run paused
-        mid-join resumes with its partial resolution intact.
+        Parallels ``node_payloads``: whenever a payload is stashed for a node the
+        token engine also stashes its tag (:meth:`_stash_join_payload`). Consumed
+        here when the node runs, so the tag it carried becomes the base for
+        propagating its own outgoing edges. A node with no recorded tag (e.g. one
+        reached via the fan-out path, which the token engine does not yet tag)
+        defaults to the outermost scope.
+        """
+        tags = dict(run.metadata.get("node_tags", {}))
+        raw = tags.pop(node_id, None)
+        run.metadata["node_tags"] = tags
+        return _ts_tag_from_json(raw)
+
+    def _join_entry(self, run: Run, node_id: str, tag: _ts.TokenTag) -> dict[str, Any]:
+        """Get (creating if needed) the join bucket for ``(node_id, tag)``.
+
+        Lives under ``run.metadata['join_state'][node_id][tag_key]`` and
+        round-trips through the RunRepository checkpoint exactly like
+        ``node_payloads`` — so a run paused mid-join resumes with its partial
+        resolution intact. The bucket stores the tag itself so a completed join can
+        re-stash its merged payload at the right scope.
         """
         join_state: dict[str, Any] = run.metadata.setdefault("join_state", {})
         node_state: dict[str, Any] = join_state.setdefault(node_id, {})
-        entry: dict[str, Any] = node_state.setdefault(iteration, {"resolved": {}, "payloads": {}})
+        key = _ts.tag_key(tag)
+        entry = node_state.get(key)
+        if entry is None:
+            entry = {"tag": _ts_tag_to_json(tag), "resolved": {}, "payloads": {}}
+            node_state[key] = entry
         return entry
 
-    def _record_edge_resolution(
+    def _record_forward_resolution(
         self,
         run: Run,
         target: str,
         edge_id: str,
         delivered: bool,
         payload: dict[str, Any] | None,
+        tag: _ts.TokenTag,
     ) -> None:
-        """Record one inbound edge of ``target`` as delivered (with payload) or suppressed."""
-        iteration = self._join_iteration(run, target)
-        entry = self._join_entry(run, target, iteration)
+        """Route one forward-edge resolution through the facade seam when present.
+
+        The monolith exposed ``_record_forward_resolution`` on the orchestrator
+        and the trace/oracle bridge subclasses it to observe the token engine.
+        With a facade attached the call goes through it (so overrides fire); the
+        facade's base implementation calls straight back into
+        :meth:`record_forward_resolution`, which is also the standalone path.
+        """
+        if self.orchestrator is not None and hasattr(
+            self.orchestrator, "_record_forward_resolution"
+        ):
+            self.orchestrator._record_forward_resolution(
+                run, target, edge_id, delivered, payload, tag
+            )
+            return
+        self.record_forward_resolution(run, target, edge_id, delivered, payload, tag)
+
+    def record_forward_resolution(
+        self,
+        run: Run,
+        target: str,
+        edge_id: str,
+        delivered: bool,
+        payload: dict[str, Any] | None,
+        tag: _ts.TokenTag,
+    ) -> None:
+        """Record one FORWARD inbound edge of ``target`` in its ``tag`` join bucket."""
+        entry = self._join_entry(run, target, tag)
         entry["resolved"][edge_id] = "delivered" if delivered else "suppressed"
         if delivered and payload is not None:
             entry["payloads"][edge_id] = dict(payload)
 
-    def _clear_join_entry(self, run: Run, node_id: str, iteration: str) -> None:
-        """Drop a resolved join entry so a later loop iteration starts clean."""
+    def _clear_join_entry(self, run: Run, node_id: str, tag: _ts.TokenTag) -> None:
+        """Drop a resolved join bucket so a later iteration's tag starts clean."""
         join_state = run.metadata.get("join_state", {})
         node_state = join_state.get(node_id)
         if node_state is None:
             return
-        node_state.pop(iteration, None)
+        node_state.pop(_ts.tag_key(tag), None)
         if not node_state:
             join_state.pop(node_id, None)
 
-    def _stash_join_payload(self, run: Run, node_id: str, payload: dict[str, Any]) -> None:
-        """Store the input payload for a node about to be enqueued (mirrors queue_next_nodes)."""
+    def _stash_join_payload(
+        self, run: Run, node_id: str, payload: dict[str, Any], tag: _ts.TokenTag
+    ) -> None:
+        """Route a payload/tag staging through the facade seam when present.
+
+        Mirrors :meth:`_record_forward_resolution` — the trace/oracle bridge
+        observes dispatch stagings by overriding the facade method.
+        """
+        if self.orchestrator is not None and hasattr(self.orchestrator, "_stash_join_payload"):
+            self.orchestrator._stash_join_payload(run, node_id, payload, tag)
+            return
+        self.stash_join_payload(run, node_id, payload, tag)
+
+    def stash_join_payload(
+        self, run: Run, node_id: str, payload: dict[str, Any], tag: _ts.TokenTag
+    ) -> None:
+        """Stage a node's input payload AND its provenance tag before enqueue.
+
+        Mirrors ``queue_next_nodes`` for the payload, and additionally records the
+        tag the node will run under (consumed by :meth:`_consume_node_tag`). A node
+        already staged at a DIFFERENT tag means two live tokens want the same node
+        at once — the single-circulating-token invariant the supported set
+        guarantees (fan-out-in-loop is rejected at publish) is broken; fail loud
+        rather than silently overwrite and complete with a wrong payload.
+        """
         payloads = dict(run.metadata.get("node_payloads", {}))
         payloads[node_id] = dict(payload)
         run.metadata["node_payloads"] = payloads
+        tags = dict(run.metadata.get("node_tags", {}))
+        new_tag = _ts_tag_to_json(tag)
+        existing = tags.get(node_id)
+        if existing is not None and existing != new_tag:
+            raise OrchestratorError(
+                f"node {node_id} is already staged at tag {existing}; cannot re-stage "
+                f"at {new_tag}. Two concurrent tokens share a node — an unsupported "
+                "multi-token tag (fan-out inside a loop is rejected at publish)."
+            )
+        tags[node_id] = new_tag
+        run.metadata["node_tags"] = tags
+
+    def _back_edge_ids(self, graph: Graph) -> frozenset[str]:
+        """Ids of the edges that close a cycle (DFS back-edges).
+
+        An edge is a back-edge when its target is an ancestor of its source on
+        the DFS stack — the edge that re-enters a loop. Classification is
+        **structural**, deliberately not taken from
+        ``Condition.allow_cycle_traversal``: that flag only gates whether the
+        planner will traverse a *conditional* edge into a node already on the
+        path, and an unconditional edge loops without it (``conditions/branch.py``
+        only consults the flag when ``condition is not None``). A declarative flag
+        therefore cannot identify which edges are loops; the topology can.
+
+        Cached per (graph_id, version) — a published graph version is immutable.
+        """
+        key = (graph.graph_id, graph.version)
+        cached = self.back_edge_cache.get(key)
+        if cached is not None:
+            return cached
+
+        outgoing: dict[str, list[Edge]] = defaultdict(list)
+        for edge in graph.edges:
+            # Disabled edges route no control flow (token_scope._control_edges
+            # drops them), so they must NOT be walked here either — otherwise this
+            # DFS classifier and token_scope.back_edges disagree on which edges are
+            # loops when a disabled edge is present, and a delivered edge gets left
+            # out of a join's forward wait-set → false join_deadlock (review D2).
+            if edge.kind != "tool" and edge.enabled:
+                outgoing[edge.source_node_id].append(edge)
+
+        on_stack, done = 0, 1
+        back: set[str] = set()
+        state: dict[str, int] = {}
+        # Entry first so classification matches real traversal order, then every
+        # remaining node so disconnected components are still classified.
+        roots = [graph.entry_step] if graph.entry_step else []
+        roots += [node.node_id for node in graph.nodes]
+        for root in roots:
+            if root is None or root in state:
+                continue
+            state[root] = on_stack
+            stack: list[tuple[str, Iterator[Edge]]] = [(root, iter(outgoing[root]))]
+            while stack:
+                node_id, edge_iter = stack[-1]
+                descended = False
+                for edge in edge_iter:
+                    target_state = state.get(edge.target_node_id)
+                    if target_state == on_stack:
+                        # Target is an ancestor of this node (or the node itself,
+                        # for a self-loop) → this edge re-enters a loop.
+                        back.add(edge.edge_id)
+                    elif target_state is None:
+                        state[edge.target_node_id] = on_stack
+                        stack.append((edge.target_node_id, iter(outgoing[edge.target_node_id])))
+                        descended = True
+                        break
+                if not descended:
+                    state[node_id] = done
+                    stack.pop()
+
+        result = frozenset(back)
+        self.back_edge_cache[key] = result
+        return result
+
+    def _forward_inbound_edges(self, graph: Graph, node_id: str) -> list[Edge]:
+        """A node's FORWARD (non-back) inbound edges — the ones its join waits for.
+
+        A plain AND-join over *all* inbound would deadlock any loop: a loop
+        header's back-edge cannot deliver on the first visit (its source has not
+        run yet). Back-edges are handled separately as loop re-entries, so the
+        forward join waits only for the forward inbound.
+        """
+        back_ids = self._back_edge_ids(graph)
+        return [
+            edge
+            for edge in self._inbound_control_edges(graph, node_id)
+            if edge.edge_id not in back_ids
+        ]
 
     def _inbound_control_edges(self, graph: Graph, node_id: str) -> list[Edge]:
         """Non-tool inbound edges of a node, in graph-declaration order.
@@ -1041,14 +1494,20 @@ class GraphDriver:
 
     def initial_metadata(self, graph: Graph, initial_input: Mapping[str, Any]) -> dict[str, Any]:
         """Build the starting metadata dict for a new run."""
-        return {
+        entry = self.entry_step(graph)
+        metadata: dict[str, Any] = {
             "graph_id": graph.graph_id,
             "graph_name": graph.name,
-            "node_payloads": {self.entry_step(graph): dict(initial_input)},
+            "node_payloads": {entry: dict(initial_input)},
             "edge_visit_counts": {},
             "path": [],
             "audits": {},
         }
+        # B9 token engine: the entry node starts at the outermost (empty) tag. Only
+        # seeded under the flag so the default (legacy) metadata stays identical.
+        if graph.execution_settings.sequential_join_enabled:
+            metadata["node_tags"] = {entry: _ts_tag_to_json(_ts.INITIAL_TAG)}
+        return metadata
 
     def edge_for(self, graph: Graph, source_node_id: str, target_node_id: str):
         """Find the data edge connecting two nodes, or None if there isn't one.

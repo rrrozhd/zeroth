@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-20
+
+### Added
+
+- **B9 token/provenance join engine (P1–P3, flag-off), ported from
+  `feat/b9-join-loops`** (branch versions v0.11.5.2–v0.11.6.1 + subsequent
+  oracle/replay/diamond commits), reimplemented on the decomposed runtime.
+  Replaces the loop-epoch join model with provenance tags that travel with
+  the token:
+  - `runtime/orchestration/token_scope.py` (new): pure static loop analysis —
+    DFS back-edges, natural-loop bodies, enclosing loops, exit edges and
+    their outermost-owner units, tag propagation.
+  - `GraphDriver`: tag-keyed join buckets (per-iteration re-join on loops),
+    back-edge re-entry dispatch, loop-exit edges resolved only by the
+    exit-crossing event (whole unit at the outer tag), skip cascade with
+    dead-loop exit suppression, durable in-flight dispatch records
+    (stage/restore) so a failed node replays its exact payload and tag, and
+    declared-shape JoinConfig merges (`collect` default, `merge_path`).
+  - Validation: `IRREDUCIBLE_LOOP`, `MULTI_LATCH_LOOP`, `FANOUT_IN_LOOP`
+    (parallel-config-in-loop + structural token forks with the
+    reconvergence-before-boundary proof), `FANOUT_SUCCESSOR_JOIN`; the
+    `JOIN_ON_CYCLE` rejection is removed — loops now join correctly
+    (`contracts/graph/validation/token_loops.py`, rewritten `joins.py`).
+  - Models: `ParallelConfig` gains `max_concurrency`/`batch_size`/
+    `branch_timeout_seconds` (wave + worker-pool + per-branch timeout
+    execution in `runtime/parallel/executor.py`); `JoinConfig` default flips
+    to non-lossy `collect` and gains `merge_path`.
+  - The monolith's overridable orchestrator seams are preserved through the
+    decomposition: `_dispatch_node`, `_record_forward_resolution`,
+    `_stash_join_payload`, `_merge_join_payloads`, `_back_edge_ids` route
+    driver-internal calls through the facade so subclasses (incl. the
+    trace/oracle bridge) observe the real engine. Loop-analysis caches live
+    on the facade instance and are threaded into each driver.
+  - Test suites ported: extended `test_join_barrier{,_stress}.py` (nested
+    loops, loop-then-combine, multi-exit, bypassed-loop shapes), new
+    `test_token_scope.py`, `test_token_engine_model.py` (reference oracle),
+    `test_token_engine_runtime_trace.py` (real-runtime trace bridge incl.
+    seeded corruption), `test_failed_node_replay.py`; parallel executor
+    batching/concurrency/timeout suites. Design spec copied to
+    `docs/superpowers/specs/`.
+  - Surface fixtures re-amended additively (`ParallelConfig`, `JoinConfig`,
+    `RuntimeOrchestrator` cache fields).
+
 ## [0.11.0.0.1] - 2026-07-20
 
 ### Fixed

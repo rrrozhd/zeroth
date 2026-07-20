@@ -15,6 +15,10 @@ from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation.joins import validate_join_configs
 from zeroth.contracts.graph.validation.nodes import validate_entrypoint, validate_nodes
 from zeroth.contracts.graph.validation.references import validate_graph_refs
+from zeroth.contracts.graph.validation.token_loops import (
+    validate_fanout_in_loop,
+    validate_reducibility,
+)
 from zeroth.contracts.graph.validation.tools import validate_tool_attachments
 from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
@@ -80,4 +84,15 @@ class ContractValidator:
             capability_checks=self._capability_checks,
         )
         validate_cycles(graph, node_map, adjacency, issues)
-        validate_join_configs(graph, node_map, adjacency, issues)
+        # The B9 loop-model guards must see the SAME control-flow graph the runtime
+        # executes. The token engine drops DISABLED edges (token_scope._control_edges
+        # filters edge.enabled), so a disabled edge must not inflate loop bodies or
+        # dominators here — otherwise the guard's loop model diverges from the
+        # runtime's and can hide a real fork (or conjure a phantom loop).
+        control_adjacency: dict[str, list[str]] = defaultdict(list)
+        for edge in graph.edges:
+            if edge.kind != "tool" and edge.enabled and edge.source_node_id in node_map:
+                control_adjacency[edge.source_node_id].append(edge.target_node_id)
+        validate_reducibility(graph, node_map, control_adjacency, issues)
+        validate_fanout_in_loop(graph, node_map, control_adjacency, issues)
+        validate_join_configs(graph, node_map, issues)

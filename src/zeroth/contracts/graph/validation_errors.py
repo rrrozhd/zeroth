@@ -58,6 +58,10 @@ class ValidationCode(StrEnum):
     MISSING_MCP_CAPABILITY = "missing_mcp_capability"
     MISSING_JOIN_CONFIG = "missing_join_config"
     JOIN_ON_CYCLE = "join_on_cycle"
+    IRREDUCIBLE_LOOP = "irreducible_loop"
+    MULTI_LATCH_LOOP = "multi_latch_loop"
+    FANOUT_SUCCESSOR_JOIN = "fanout_successor_join"
+    FANOUT_IN_LOOP = "fanout_in_loop"
 
 
 class ValidationIssue(BaseModel):

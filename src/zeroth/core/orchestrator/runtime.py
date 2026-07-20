@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -53,6 +53,26 @@ from zeroth.runtime.parallel.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _FacadeDispatchSeam:
+    """Routes the driver's node dispatch through ``RuntimeOrchestrator._dispatch_node``.
+
+    ``_dispatch_node`` is an overridable seam of the legacy facade (subclasses
+    instrument or stub it — the monolith's ``_drive`` called it directly). The
+    decomposed driver holds a ``NodeDispatcher`` instead, so this adapter keeps
+    the seam observable: ``dispatch`` goes through the facade method; every other
+    dispatcher attribute proxies to the real ``NodeDispatcher``.
+    """
+
+    def __init__(self, orchestrator: RuntimeOrchestrator) -> None:
+        self._orchestrator = orchestrator
+
+    def __getattr__(self, name: str):
+        return getattr(self._orchestrator._node_dispatcher, name)
+
+    async def dispatch(self, node, run, input_payload, graph=None):
+        return await self._orchestrator._dispatch_node(node, run, input_payload, graph)
 
 
 @dataclass(slots=True)
@@ -102,6 +122,13 @@ class RuntimeOrchestrator:
     mapping_executor: MappingExecutor = MappingExecutor()
     # Phase 39: Subgraph composition executor (typed as Any to avoid circular import).
     subgraph_executor: Any | None = None
+    # B9 loop scoping: back-edge ids and full static loop analysis per
+    # (graph_id, version). Owned here — the facade is the long-lived object —
+    # and threaded into every GraphDriver it builds, so the analysis is computed
+    # once per orchestrator lifetime rather than per node hop, and never leaks
+    # across orchestrators that reuse a graph id for a different topology.
+    _back_edge_cache: dict = field(default_factory=dict)
+    _scopes_cache: dict = field(default_factory=dict)
 
     async def run_graph(
         self,
@@ -174,7 +201,10 @@ class RuntimeOrchestrator:
         return GraphDriver(
             run_repository=self.run_repository,
             audit_recorder=self._audit_recorder,
-            node_dispatcher=self._node_dispatcher,
+            # Routed through the facade's overridable ``_dispatch_node`` seam (a
+            # protected legacy capability): a subclass overriding it must observe
+            # every dispatch the driver makes, exactly as on the monolith.
+            node_dispatcher=_FacadeDispatchSeam(self),
             policy_gate=self._policy_gate,
             parallel_runtime=self._parallel_runtime,
             branch_planner=self.branch_planner,
@@ -186,6 +216,8 @@ class RuntimeOrchestrator:
             per_run_cap_usd=self.per_run_cap_usd,
             orchestrator=self,
             resume_graph=self.resume_graph,
+            back_edge_cache=self._back_edge_cache,
+            scopes_cache=self._scopes_cache,
         )
 
     async def _refresh_artifact_ttls(self, run: Run) -> None:
@@ -259,6 +291,43 @@ class RuntimeOrchestrator:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Dispatch a node inside an OBS tracing span."""
         return await self._node_dispatcher.dispatch(node, run, input_payload, graph)
+
+    def _back_edge_ids(self, graph: Graph) -> frozenset[str]:
+        """DFS back-edge ids for ``graph`` (B9 loop classification, driver-owned).
+
+        Kept on the facade because the trace/oracle bridge (and the token_scope
+        parity test) reads the runtime's loop classification through the
+        orchestrator, exactly as on the monolith.
+        """
+        return self._driver._back_edge_ids(graph)
+
+    def _record_forward_resolution(
+        self,
+        run: Run,
+        target: str,
+        edge_id: str,
+        delivered: bool,
+        payload: dict[str, Any] | None,
+        tag: Any,
+    ) -> None:
+        """B9 token-engine seam: one forward-edge resolution (driver-owned).
+
+        The trace/oracle bridge subclasses this to observe the engine, exactly
+        as on the monolith; the driver routes every resolution through it.
+        """
+        self._driver.record_forward_resolution(run, target, edge_id, delivered, payload, tag)
+
+    def _stash_join_payload(
+        self, run: Run, node_id: str, payload: dict[str, Any], tag: Any
+    ) -> None:
+        """B9 token-engine seam: a node's payload/tag staging (driver-owned)."""
+        self._driver.stash_join_payload(run, node_id, payload, tag)
+
+    def _merge_join_payloads(
+        self, graph: Graph, node_id: str, payloads: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """B9 token-engine seam: JoinConfig payload merge (driver-owned)."""
+        return self._driver.merge_join_payloads(graph, node_id, payloads)
 
     async def _dispatch_retrieval_node(
         self,

@@ -6655,7 +6655,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.orchestrator",
       "legacy_name": "RuntimeOrchestrator",
-      "signature": "(run_repository: 'RunRepository', agent_runners: 'Mapping[str, AgentRunner]', executable_unit_runner: 'ExecutableUnitRunner', audit_repository: 'AuditRepository | None' = None, policy_guard: 'PolicyGuard | None' = None, approval_service: 'ApprovalService | None' = None, secret_resolver: 'SecretResolver | None' = None, thread_resolver: 'RepositoryThreadResolver | None' = None, webhook_service: 'object | None' = None, regulus_client: 'object | None' = None, cost_estimator: 'object | None' = None, deployment_ref: 'str | None' = None, memory_resolver: 'object | None' = None, budget_enforcer: 'object | None' = None, per_run_cap_usd: 'float | None' = None, artifact_store: 'Any | None' = None, http_client: 'Any | None' = None, template_registry: 'Any | None' = None, template_renderer: 'Any | None' = None, context_window_enabled: 'bool' = True, parallel_executor: 'ParallelExecutor' = <zeroth.core.parallel.executor.ParallelExecutor object at 0x<address>>, branch_planner: 'NextStepPlanner' = <zeroth.core.conditions.branch.NextStepPlanner object at 0x<address>>, mapping_executor: 'MappingExecutor' = <zeroth.core.mappings.executor.MappingExecutor object at 0x<address>>, subgraph_executor: 'Any | None' = None) -> None"
+      "signature": "(run_repository: 'RunRepository', agent_runners: 'Mapping[str, AgentRunner]', executable_unit_runner: 'ExecutableUnitRunner', audit_repository: 'AuditRepository | None' = None, policy_guard: 'PolicyGuard | None' = None, approval_service: 'ApprovalService | None' = None, secret_resolver: 'SecretResolver | None' = None, thread_resolver: 'RepositoryThreadResolver | None' = None, webhook_service: 'object | None' = None, regulus_client: 'object | None' = None, cost_estimator: 'object | None' = None, deployment_ref: 'str | None' = None, memory_resolver: 'object | None' = None, budget_enforcer: 'object | None' = None, per_run_cap_usd: 'float | None' = None, artifact_store: 'Any | None' = None, http_client: 'Any | None' = None, template_registry: 'Any | None' = None, template_renderer: 'Any | None' = None, context_window_enabled: 'bool' = True, parallel_executor: 'ParallelExecutor' = <zeroth.runtime.parallel.executor.ParallelExecutor object at 0x<address>>, branch_planner: 'NextStepPlanner' = <zeroth.contracts.conditions.branch.NextStepPlanner object at 0x<address>>, mapping_executor: 'MappingExecutor' = <zeroth.contracts.mappings.executor.MappingExecutor object at 0x<address>>, subgraph_executor: 'Any | None' = None, _back_edge_cache: 'dict' = <factory>, _scopes_cache: 'dict' = <factory>) -> None"
     },
     {
       "evidence": [
@@ -6762,7 +6762,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.parallel",
       "legacy_name": "ParallelConfig",
-      "signature": "(*, split_path: str, merge_strategy: Literal['collect', 'reduce', 'merge', 'custom'] = 'collect', reducer_ref: str | None = None, fail_mode: Literal['fail_fast', 'best_effort'] = 'fail_fast', max_branches: Annotated[int | None, Ge(ge=1)] = None) -> None"
+      "signature": "(*, split_path: str, merge_strategy: Literal['collect', 'reduce', 'merge', 'custom'] = 'collect', reducer_ref: str | None = None, fail_mode: Literal['fail_fast', 'best_effort'] = 'fail_fast', max_branches: Annotated[int | None, Ge(ge=1)] = None, max_concurrency: Annotated[int | None, Ge(ge=1)] = None, batch_size: Annotated[int | None, Ge(ge=1)] = None, branch_timeout_seconds: Annotated[float | None, Gt(gt=0)] = None) -> None"
     },
     {
       "evidence": [
@@ -6885,7 +6885,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.parallel.models",
       "legacy_name": "ParallelConfig",
-      "signature": "(*, split_path: str, merge_strategy: Literal['collect', 'reduce', 'merge', 'custom'] = 'collect', reducer_ref: str | None = None, fail_mode: Literal['fail_fast', 'best_effort'] = 'fail_fast', max_branches: Annotated[int | None, Ge(ge=1)] = None) -> None"
+      "signature": "(*, split_path: str, merge_strategy: Literal['collect', 'reduce', 'merge', 'custom'] = 'collect', reducer_ref: str | None = None, fail_mode: Literal['fail_fast', 'best_effort'] = 'fail_fast', max_branches: Annotated[int | None, Ge(ge=1)] = None, max_concurrency: Annotated[int | None, Ge(ge=1)] = None, batch_size: Annotated[int | None, Ge(ge=1)] = None, branch_timeout_seconds: Annotated[float | None, Gt(gt=0)] = None) -> None"
     },
     {
       "evidence": [
@@ -10153,7 +10153,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph.models",
       "legacy_name": "JoinConfig",
-      "signature": "(*, merge_strategy: Literal['collect', 'reduce', 'merge', 'custom'] = 'merge', reducer_ref: str | None = None) -> None"
+      "signature": "(*, merge_strategy: Literal['collect', 'reduce', 'merge', 'custom'] = 'collect', reducer_ref: str | None = None, merge_path: str | None = None) -> None"
     }
   ],
   "immutable": true,

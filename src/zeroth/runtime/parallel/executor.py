@@ -113,12 +113,107 @@ class ParallelExecutor:
             branch_coro_factory: A callable that creates a coroutine for each branch.
             config: Parallel configuration controlling fail behavior.
 
+        Concurrency controls (all optional, all preserve per-branch audit because
+        each branch still runs through the same coroutine factory):
+        * ``config.max_concurrency`` — a semaphore bounding simultaneously-running
+          branches (sliding window, no barrier).
+        * ``config.branch_timeout_seconds`` — per-branch ``wait_for``; a timeout
+          is just another branch failure.
+        * ``config.batch_size`` — sequential waves; wave N+1 starts only after
+          wave N completes. An approval pause inside a multi-wave fan-out is
+          rejected loudly (earlier waves already ran their side effects).
+
         Returns:
             A list of BranchResult objects, ordered by branch_index.
 
         Raises:
-            ParallelExecutionError: In fail-fast mode, wraps the first branch exception.
+            ParallelExecutionError: In fail-fast mode, wraps the first branch
+                exception; also raised when an approval pause occurs inside a
+                multi-wave (batched) fan-out.
         """
+        factory = self._with_concurrency_controls(branch_coro_factory, config)
+        waves = self._split_into_waves(branch_contexts, config.batch_size)
+        if len(waves) == 1:
+            # Single wave — no barrier. Pause/partition semantics are unchanged
+            # from the pre-batching engine, so approval pauses propagate normally.
+            return await self._execute_window(waves[0], factory, config)
+
+        # Multi-wave (batched): run each wave to completion before the next.
+        all_results: list[BranchResult] = []
+        for wave_index, wave in enumerate(waves):
+            try:
+                all_results.extend(await self._execute_window(wave, factory, config))
+            except BranchApprovalPauseSignal as pause:
+                # Earlier waves already executed their side effects; the resume
+                # contract (a single paused branch) cannot represent completed
+                # waves, so fail loudly rather than silently corrupt resume state.
+                raise ParallelExecutionError(
+                    f"approval pause inside a batched fan-out (batch_size="
+                    f"{config.batch_size}): wave {wave_index} paused for approval "
+                    f"after {wave_index} earlier wave(s) already ran their side "
+                    "effects, and batched resume cannot represent partially-"
+                    "completed waves. Move the approval gate outside the fan-out, "
+                    "or drop batch_size."
+                ) from pause
+        return all_results
+
+    @staticmethod
+    def _split_into_waves(
+        branch_contexts: list[BranchContext], batch_size: int | None
+    ) -> list[list[BranchContext]]:
+        """Chunk branches into sequential waves of at most ``batch_size``.
+
+        ``None`` or a size covering everything yields a single wave — identical
+        to the historical single-``gather`` behaviour.
+        """
+        if batch_size is None or batch_size >= len(branch_contexts):
+            return [branch_contexts]
+        return [
+            branch_contexts[i : i + batch_size] for i in range(0, len(branch_contexts), batch_size)
+        ]
+
+    @staticmethod
+    def _with_concurrency_controls(
+        factory: Callable[[BranchContext], Coroutine[Any, Any, dict[str, Any]]],
+        config: ParallelConfig,
+    ) -> Callable[[BranchContext], Coroutine[Any, Any, dict[str, Any]]]:
+        """Wrap a branch factory with an optional semaphore + per-branch timeout.
+
+        Transparent to the pause/partition logic below: the wrapped coroutine
+        raises exactly what the inner one raises (``BranchApprovalPauseSignal``
+        passes straight through ``wait_for``); only a genuine timeout surfaces as
+        ``TimeoutError``, which the fail-mode handlers already treat as a branch
+        failure. Returns the factory unchanged when neither control is set.
+        """
+        semaphore = (
+            asyncio.Semaphore(config.max_concurrency)
+            if config.max_concurrency is not None
+            else None
+        )
+        timeout = config.branch_timeout_seconds
+        if semaphore is None and timeout is None:
+            return factory
+
+        async def wrapped(ctx: BranchContext) -> dict[str, Any]:
+            async def _run() -> dict[str, Any]:
+                if timeout is not None:
+                    return await asyncio.wait_for(factory(ctx), timeout)
+                return await factory(ctx)
+
+            if semaphore is not None:
+                async with semaphore:
+                    return await _run()
+            return await _run()
+
+        return wrapped
+
+    async def _execute_window(
+        self,
+        branch_contexts: list[BranchContext],
+        branch_coro_factory: Callable[[BranchContext], Coroutine[Any, Any, dict[str, Any]]],
+        config: ParallelConfig,
+    ) -> list[BranchResult]:
+        """Run one wave of branches under the configured fail mode."""
         if config.fail_mode == "best_effort":
             return await self._execute_best_effort(branch_contexts, branch_coro_factory)
         return await self._execute_fail_fast(branch_contexts, branch_coro_factory)

@@ -265,6 +265,55 @@ async def test_failed_branch_dispatch_records_failed_audit(sqlite_db) -> None:
         assert audit.audit_id == f"{run.run_id}:branch:{branch_index}:audit:1"
 
 
+@pytest.mark.asyncio
+async def test_batched_fan_out_audits_every_branch_across_waves(sqlite_db) -> None:
+    """A batched fan-out still writes one branch-scoped audit record per item.
+
+    The whole point of the audit requirement for batch-parallelized fan-out:
+    running items in sequential waves must not drop any branch's audit trail.
+    Five items with ``batch_size=2`` run as waves [0,1],[2,3],[4]; all five
+    branch audits must be present with distinct, contiguous branch indices.
+    """
+    audit_repo = AuditRepository(sqlite_db)
+    source = _make_agent_runner(
+        output_model=ItemsOutput,
+        handler=lambda req: ProviderResponse(
+            content={"items": [{"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}, {"x": 5}]}
+        ),
+    )
+    orchestrator = _make_orchestrator(
+        {"source": source, "sink": _sink_runner()},
+        sqlite_db,
+        audit_repository=audit_repo,
+    )
+    graph = _make_graph(
+        [
+            _make_agent_node(
+                "source",
+                parallel_config=ParallelConfig(
+                    split_path="items", batch_size=2, max_concurrency=2
+                ),
+            ),
+            _make_agent_node("sink"),
+        ],
+        [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
+    )
+
+    run = await orchestrator.run_graph(graph, {"value": 1})
+
+    assert run.status is RunStatus.COMPLETED
+    audits = await audit_repo.list_by_run(run.run_id)
+    branch_audits = [a for a in audits if "branch_id" in a.execution_metadata]
+    # Every one of the 5 branches audited across the 3 waves — none dropped.
+    assert len(branch_audits) == 5
+    branch_indices = {a.execution_metadata["branch_index"] for a in branch_audits}
+    assert branch_indices == {0, 1, 2, 3, 4}
+    # Distinct branch ids, all scoped to the parent run.
+    assert len({a.execution_metadata["branch_id"] for a in branch_audits}) == 5
+    for audit in branch_audits:
+        assert audit.run_id == run.run_id
+
+
 # ---------------------------------------------------------------------------
 # Policy tests
 # ---------------------------------------------------------------------------
