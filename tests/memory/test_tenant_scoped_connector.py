@@ -15,13 +15,13 @@ from __future__ import annotations
 import fnmatch
 
 import pytest
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.governed.memory.scoped import ScopedMemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory.governed.scoped import ScopedMemoryConnector
 
-from zeroth.core.memory.connectors import KeyValueMemoryConnector
-from zeroth.core.memory.redis_kv import RedisKVMemoryConnector
-from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector
-from zeroth.core.memory.tenant_scoped import (
+from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
+from zeroth.integrations.memory.redis_kv import RedisKVMemoryConnector
+from zeroth.integrations.memory.redis_thread import RedisThreadMemoryConnector
+from zeroth.integrations.memory.tenant_scoped import (
     TenantScopedMemoryConnector,
     TenantScopeError,
     tenant_slug,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryScope
 
 from tests.service.helpers import (
     agent_graph,
@@ -11,9 +11,9 @@ from tests.service.helpers import (
     operator_headers,
     reviewer_headers,
 )
-from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
-from zeroth.core.memory.registry import InMemoryConnectorRegistry
-from zeroth.core.memory.runtime_configs import load_persisted_connectors
+from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry
+from zeroth.integrations.memory.runtime_configs import load_persisted_connectors
 from zeroth.core.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "connectors-runtime-test"

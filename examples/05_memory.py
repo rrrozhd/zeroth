@@ -40,8 +40,8 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.memory import (
+from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory import (
     ConnectorManifest,
     InMemoryConnectorRegistry,
     MemoryConnectorResolver,

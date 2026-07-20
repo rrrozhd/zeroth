@@ -11,7 +11,7 @@ import asyncio
 import json
 from collections.abc import Mapping
 from copy import copy, deepcopy
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
@@ -43,6 +43,7 @@ from zeroth.runtime.agents.models import (
     ThreadStateStore,
 )
 from zeroth.runtime.agents.prompt import AgentAuditSerializer, PromptAssembler
+from zeroth.runtime.agents.protocols import MemoryConnectorResolver
 from zeroth.runtime.agents.provider import (
     ProviderAdapter,
     ProviderRequest,
@@ -57,12 +58,6 @@ from zeroth.runtime.agents.sanitization import (
 from zeroth.runtime.agents.tooling.tool_calls import build_tool_message
 from zeroth.runtime.agents.tools import ToolAttachmentBridge
 from zeroth.runtime.agents.validation import OutputValidator
-
-if TYPE_CHECKING:
-    # Annotation-only: importing the concrete resolver eagerly would put the
-    # memory integration package (and, through the legacy zeroth.core.memory
-    # republisher, its whole import chain) on the agent runtime's import path.
-    from zeroth.core.memory import MemoryConnectorResolver
 
 
 class AgentRunner:

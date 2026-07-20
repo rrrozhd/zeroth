@@ -6,10 +6,10 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
-from zeroth.core.governed.memory.connector import MemoryConnector
-from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.integrations.memory.governed.connector import MemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
-from zeroth.core.memory.redis_kv import RedisKVMemoryConnector
+from zeroth.integrations.memory.redis_kv import RedisKVMemoryConnector
 
 # ---------------------------------------------------------------------------
 # Helpers

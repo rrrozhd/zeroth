@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryScope
 from pydantic import BaseModel
 
 from zeroth.runtime.agents import AgentConfig, AgentRunner
@@ -27,7 +27,7 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.memory import (
+from zeroth.integrations.memory import (
     ConnectorManifest,
     InMemoryConnectorRegistry,
     KeyValueMemoryConnector,

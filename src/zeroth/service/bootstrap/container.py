@@ -9,8 +9,6 @@ if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph, GraphRepository
     from zeroth.contracts.registry import ContractRegistry
     from zeroth.core.deployments import Deployment, DeploymentService
-    from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
-    from zeroth.core.memory.registry import InMemoryConnectorRegistry
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.econ.analytics.client import RegulusClient
     from zeroth.governance.approvals import ApprovalService
@@ -18,6 +16,8 @@ if TYPE_CHECKING:
     from zeroth.governance.guardrails.config import GuardrailConfig
     from zeroth.governance.guardrails.dead_letter import DeadLetterManager
     from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+    from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
+    from zeroth.integrations.memory.registry import InMemoryConnectorRegistry
     from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
     from zeroth.platform.dispatch import LeaseManager
     from zeroth.platform.observability.metrics import MetricsCollector

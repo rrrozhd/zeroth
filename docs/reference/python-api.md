@@ -13,7 +13,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 
 ### Data & state
 - [Mappings](python-api/mappings.md) — `zeroth.contracts.mappings`
-- [Memory](python-api/memory.md) — `zeroth.core.memory`
+- [Memory](python-api/memory.md) — `zeroth.integrations.memory`
 - [Storage](python-api/storage.md) — `zeroth.platform.storage`
 - [Contracts](python-api/contracts.md) — `zeroth.contracts.registry`
 - [Runs](python-api/runs.md) — `zeroth.core.runs`

@@ -3,8 +3,8 @@
 ``MemoryScope`` is authored-binding and connector vocabulary consumed across
 the runtime, integrations, and service domains, so its definition lives with
 the governed contracts. The ``MemoryEntry`` model and the connector
-implementations remain in :mod:`zeroth.core.governed.memory` until the memory
-integrations consolidate.
+implementations live in :mod:`zeroth.integrations.memory.governed`; the
+legacy ``zeroth.core.governed.memory`` path republishes the same objects.
 """
 
 from __future__ import annotations

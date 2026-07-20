@@ -21,8 +21,8 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.memory.runtime_configs import apply_config
+from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory.runtime_configs import apply_config
 from zeroth.service.api.authorization import Permission, require_permission
 
 _REF_RE = re.compile(r"^[a-z0-9_-]{1,64}$")

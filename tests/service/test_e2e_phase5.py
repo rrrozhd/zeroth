@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from fastapi.testclient import TestClient
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryScope
 from pydantic import BaseModel
 
 from tests.service.helpers import (
@@ -43,7 +43,7 @@ from zeroth.contracts.graph import (
     Graph,
 )
 from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
-from zeroth.core.memory import (
+from zeroth.integrations.memory import (
     ConnectorManifest,
     InMemoryConnectorRegistry,
     KeyValueMemoryConnector,

@@ -11,7 +11,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
 from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.contracts.graph import (
@@ -26,8 +26,8 @@ from zeroth.contracts.graph import (
     RetrievalNode,
     RetrievalNodeData,
 )
-from zeroth.core.memory.models import ConnectorManifest
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.integrations.memory.models import ConnectorManifest
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.governance.policy import CapabilityDeniedError, PolicyGuard
 

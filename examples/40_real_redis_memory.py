@@ -64,8 +64,8 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory.redis_thread import RedisThreadMemoryConnector
 from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,

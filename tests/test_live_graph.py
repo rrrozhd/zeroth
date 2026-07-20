@@ -29,7 +29,7 @@ import os
 from typing import Any
 
 import pytest
-from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 from pydantic import BaseModel
 
 from zeroth.runtime.agents import AgentConfig, AgentRunner
@@ -68,8 +68,8 @@ from zeroth.contracts.graph import (
 from zeroth.contracts.graph.models import SubgraphNode
 from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.governance.identity import ActorIdentity, AuthMethod
-from zeroth.core.memory.models import ConnectorManifest
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.integrations.memory.models import ConnectorManifest
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.runtime.parallel.models import ParallelConfig
 from zeroth.core.runs import RunRepository, RunStatus

@@ -232,15 +232,6 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.runtime.agents.runner", "zeroth.core.memory"),
-        reason=(
-            "The agent runtime still resolves memory connectors from their "
-            "concrete integration modules; the seam becomes a runtime-owned "
-            "protocol when the memory packages consolidate."
-        ),
-        removal_task="Task 15: move integrations and evaluation.",
-    ),
-    **_exception_group(
         ("zeroth.core.agent_runtime.factory", "zeroth.service.bootstrap.factory"),
         reason=(
             "zeroth.core.agent_runtime.factory:build_runners_for_deployment is "

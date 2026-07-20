@@ -11,8 +11,8 @@ This example uses only the in-process `RunEphemeralMemoryConnector`, which requi
 ```python
 import asyncio
 
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.memory import RunEphemeralMemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory import RunEphemeralMemoryConnector
 
 
 async def main() -> None:
@@ -66,4 +66,4 @@ For a durable, multi-run memory, swap the connector for a `KeyValueMemoryConnect
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.memory`](../reference/python-api/memory.md).
+See the [Python API reference for `zeroth.integrations.memory`](../reference/python-api/memory.md).
