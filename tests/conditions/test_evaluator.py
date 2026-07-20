@@ -74,6 +74,17 @@ def test_condition_evaluator_rejects_unsupported_calls() -> None:
         evaluator.evaluate(condition, context)
 
 
+def test_condition_evaluator_rejects_dunder_attribute_on_object() -> None:
+    # Audit S5 hardening: reaching a Python object's __class__ (a str here is a
+    # non-Mapping value) would open the introspection/gadget path, so underscore
+    # attribute access on a non-Mapping object is refused.
+    ev = _SafeEvaluator({"s": "hello"})
+    with pytest.raises(ConditionEvaluationError, match="not allowed"):
+        ev.evaluate("s.__class__")
+    # Dict/JSON key access is unaffected (goes through the Mapping branch).
+    assert ev.evaluate("s") == "hello"
+
+
 # ---------------------------------------------------------------------------
 # Safe builtins support in _SafeEvaluator
 # ---------------------------------------------------------------------------

@@ -519,7 +519,10 @@ class RuntimeParallelExecutor:
             # Fallback: re-resolve + re-namespace with SAME branch_index for
             # D-11 idempotency, then resume_graph directly on the child run.
             subgraph, _ = await self.subgraph_executor.resolver.resolve(
-                paused_graph_ref, paused_version
+                paused_graph_ref,
+                paused_version,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
             )
             child_run = await self.run_repository.get(paused_child_run_id)
             depth = child_run.metadata.get("subgraph_depth", 1) if child_run else 1

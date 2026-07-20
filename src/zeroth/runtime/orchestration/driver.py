@@ -317,7 +317,10 @@ class GraphDriver:
                     # are not persisted in metadata -- too large).
                     try:
                         subgraph, _ = await self.subgraph_executor.resolver.resolve(
-                            graph_ref, version
+                            graph_ref,
+                            version,
+                            tenant_id=run.tenant_id,
+                            workspace_id=run.workspace_id,
                         )
                     except SubgraphResolutionError as exc:
                         return await self.fail_run(run, "subgraph_resume_failed", str(exc))
@@ -678,9 +681,18 @@ class GraphDriver:
         return dict(payload)
 
     async def fail_run(self, run: Run, reason: str, message: str) -> Run:
-        """Mark a run as failed with the given reason and save it."""
+        """Mark a run as failed with the given reason and save it.
+
+        The ``message`` is routed through the secret redactor (audit S6): call
+        sites pass ``str(exc)`` from node dispatch, whose exception text can echo
+        a Vault-resolved token (httpx errors include the request URL/headers), and
+        ``RunFailureState.message`` is returned verbatim by the public run API.
+        ``redact`` is a no-op when no secret resolver is configured.
+        """
         run.status = RunStatus.FAILED
-        run.failure_state = RunFailureState(reason=reason, message=message)
+        run.failure_state = RunFailureState(
+            reason=reason, message=self.audit_recorder.redact(message)
+        )
         run.metadata["termination_reason"] = reason
         run.touch()
         persisted = await self.run_repository.put(run)

@@ -250,7 +250,7 @@ class RuntimeAuditRecorder:
                 token_usage=token_usage,
                 cost_usd=redacted_audit_record.get("cost_usd"),
                 cost_event_id=redacted_audit_record.get("cost_event_id"),
-                error=str(error),
+                error=self.redact(str(error)),
                 tool_calls=tool_calls,
                 memory_interactions=memory_interactions,
             )
@@ -357,7 +357,7 @@ class RuntimeAuditRecorder:
                 token_usage=token_usage,
                 cost_usd=redacted_audit_record.get("cost_usd"),
                 cost_event_id=redacted_audit_record.get("cost_event_id"),
-                error=str(error),
+                error=self.redact(str(error)),
                 tool_calls=tool_calls,
                 memory_interactions=memory_interactions,
             )

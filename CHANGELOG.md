@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-07-20
+
+### Fixed
+
+Security-hardening fixes ported from the public main line (main v0.10.1.12,
+v0.10.1.15, v0.10.1.18, v0.10.1.20.1, v0.10.1.21, v0.10.1.22):
+
+- **S5 — condition evaluator blocks dunder attribute access** on non-Mapping
+  objects, closing the `__class__`/`__globals__` introspection gadget path
+  (`contracts/conditions/evaluator.py`).
+- **S7 — subgraph resolution is tenant-scoped.** `SubgraphResolver.resolve`
+  (and the `DeploymentLookup` protocol seam) take `tenant_id`/`workspace_id`;
+  all four call sites (executor initial + resume, driver resume path,
+  parallel-executor fallback) pass the parent run's tenant, so a subgraph
+  node naming a foreign tenant's deployment ref fails closed.
+- **S3/S4 — rate-limit and quota check-and-update serialized.** Token-bucket
+  and quota transactions take `write_lock=True` (+ `FOR UPDATE` on Postgres);
+  cold-start insert uses `ON CONFLICT DO NOTHING` + re-read, so concurrent
+  first requests can't 500 or double-spend a capacity-1 bucket
+  (`governance/guardrails/rate_limit.py`).
+- **S2 — strict sandbox refuses the local backend unconditionally** (was a
+  silent no-op for bare inline units with no resource constraints); STANDARD
+  behavior unchanged (`integrations/execution/sandbox.py`).
+- **B4 — run worker never leaks a concurrency slot.** The lease-renewal task's
+  own exception (e.g. "database is locked") no longer escapes the `finally`
+  before `release_lease` + semaphore release
+  (`runtime/orchestration/run_worker.py`).
+- **S6 — failure text routed through the secret redactor.** Both persisted
+  audit `error` columns and `RunFailureState.message` (returned verbatim by
+  the public run API) are redacted; no-op without a secret resolver
+  (`runtime/orchestration/{audit_recorder,driver}.py`).
+
 ## [0.10.4] - 2026-07-20
 
 ### Fixed

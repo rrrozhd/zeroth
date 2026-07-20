@@ -100,6 +100,16 @@ class _SafeEvaluator:
                 value = self._visit(node.value)
                 if isinstance(value, Mapping):
                     return value.get(node.attr)
+                # Defense-in-depth (audit S5): attribute access on a non-Mapping
+                # object reaches Python internals via getattr. Blocking any
+                # underscore-prefixed name closes the class/introspection gadget
+                # path (__class__/__globals__/__subclasses__/...) so a condition
+                # expression cannot walk to arbitrary types even if the namespace
+                # ever carries a real Python object instead of plain JSON data.
+                if node.attr.startswith("_"):
+                    raise ConditionEvaluationError(
+                        f"attribute access to '{node.attr}' is not allowed"
+                    )
                 return getattr(value, node.attr, None)
             case ast.Subscript():
                 value = self._visit(node.value)

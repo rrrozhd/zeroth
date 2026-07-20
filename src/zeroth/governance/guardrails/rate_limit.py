@@ -9,6 +9,16 @@ from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncDatabase
 
 
+def _for_update(backend: str) -> str:
+    """Row-lock suffix for the read side of a check-and-update.
+
+    ``write_lock=True`` gives SQLite an exclusive BEGIN IMMEDIATE, but on
+    PostgreSQL it only sets ``lock_timeout`` — the row itself must be locked with
+    ``SELECT ... FOR UPDATE`` (mirrors ``coordination.ensure_and_lock_row``).
+    """
+    return " FOR UPDATE" if backend == "postgres" else ""
+
+
 @dataclass(slots=True)
 class TokenBucketRateLimiter:
     """Per-key token bucket backed by an async database.
@@ -39,23 +49,36 @@ class TokenBucketRateLimiter:
         """
         now = utc_now()
         now_iso = now.isoformat()
-        async with self.database.transaction() as conn:
+        lock = _for_update(self.database.backend)
+        # write_lock serializes the read-modify-write. Without it two concurrent
+        # callers interleave between the SELECT and the UPDATE and both consume the
+        # same token, letting N requests through a capacity-1 bucket (audit S4).
+        async with self.database.transaction(write_lock=True) as conn:
             row = await conn.fetch_one(
-                "SELECT token_count, last_refill_at FROM rate_limit_buckets WHERE bucket_key = ?",
+                "SELECT token_count, last_refill_at FROM rate_limit_buckets "
+                f"WHERE bucket_key = ?{lock}",
                 (bucket_key,),
             )
             if row is None:
-                # First request: start full minus one consumed token.
-                new_count = capacity - 1.0
+                # Cold start: create the bucket full, then fall through to the
+                # uniform refill+consume path (so the first request consumes one
+                # token exactly like every later one). ON CONFLICT DO NOTHING so
+                # concurrent first-requests can't collide on the UNIQUE key (a
+                # plain INSERT raised IntegrityError -> 500); re-read the locked row.
                 await conn.execute(
                     """
                     INSERT INTO rate_limit_buckets
                         (bucket_key, token_count, last_refill_at, capacity, refill_rate)
                     VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(bucket_key) DO NOTHING
                     """,
-                    (bucket_key, max(0.0, new_count), now_iso, capacity, refill_rate),
+                    (bucket_key, capacity, now_iso, capacity, refill_rate),
                 )
-                return True
+                row = await conn.fetch_one(
+                    "SELECT token_count, last_refill_at FROM rate_limit_buckets "
+                    f"WHERE bucket_key = ?{lock}",
+                    (bucket_key,),
+                )
 
             last_refill = datetime.fromisoformat(row["last_refill_at"])
             elapsed = max(0.0, (now - last_refill).total_seconds())
@@ -108,19 +131,33 @@ class QuotaEnforcer:
         """
         now = utc_now()
         now_iso = now.isoformat()
-        async with self.database.transaction() as conn:
+        lock = _for_update(self.database.backend)
+        # write_lock serializes the check-and-increment. Without it two concurrent
+        # requests at value=limit-1 both pass the ceiling check and both increment,
+        # silently overshooting the daily quota (audit S3).
+        async with self.database.transaction(write_lock=True) as conn:
             row = await conn.fetch_one(
                 "SELECT value, window_start, window_seconds"
-                " FROM quota_counters WHERE counter_key = ?",
+                f" FROM quota_counters WHERE counter_key = ?{lock}",
                 (counter_key,),
             )
             if row is None:
+                # Cold start: create the counter at zero, then fall through to the
+                # uniform ceiling+increment path (so the first request is counted
+                # and gated exactly like every later one). ON CONFLICT DO NOTHING so
+                # concurrent first-requests can't collide on the UNIQUE key; re-read
+                # the locked row.
                 await conn.execute(
                     "INSERT INTO quota_counters"
-                    " (counter_key, value, window_start, window_seconds) VALUES (?, 1, ?, ?)",
+                    " (counter_key, value, window_start, window_seconds) VALUES (?, 0, ?, ?)"
+                    " ON CONFLICT(counter_key) DO NOTHING",
                     (counter_key, now_iso, window_seconds),
                 )
-                return True
+                row = await conn.fetch_one(
+                    "SELECT value, window_start, window_seconds"
+                    f" FROM quota_counters WHERE counter_key = ?{lock}",
+                    (counter_key,),
+                )
 
             window_start = datetime.fromisoformat(row["window_start"])
             if (now - window_start).total_seconds() > row["window_seconds"]:

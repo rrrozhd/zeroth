@@ -141,6 +141,35 @@ def test_policy_violation_is_raised_when_required_isolation_cannot_be_met() -> N
         )
 
 
+def test_strict_refuses_local_backend_even_without_constraints() -> None:
+    # S2: STRICT + LOCAL must refuse UNCONDITIONALLY. A bare inline unit reaches
+    # the sandbox with resource_constraints=None; gating the refusal on
+    # constraints made strict mode a silent no-op that ran authored code as an
+    # unisolated host subprocess.
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.LOCAL,
+            strictness_mode=SandboxStrictnessMode.STRICT,
+        )
+    )
+
+    with pytest.raises(SandboxPolicyViolationError, match="local backend"):
+        manager.run(["echo", "UNISOLATED"])  # no resource_constraints
+
+
+def test_standard_local_without_constraints_still_runs() -> None:
+    # Guard the boundary: STANDARD (not STRICT) + LOCAL with no hard-isolation
+    # constraints is still permitted, so the S2 fix doesn't over-restrict.
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.LOCAL,
+            strictness_mode=SandboxStrictnessMode.STANDARD,
+        )
+    )
+    result = manager.run(["echo", "ok"])
+    assert result.backend == "local"
+
+
 def test_docker_hardening_flags_applied_by_default() -> None:
     from zeroth.integrations.execution.sandbox import DockerSandboxConfig, _docker_hardening_flags
 
