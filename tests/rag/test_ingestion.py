@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from zeroth.core.governed.memory.models import MemoryScope
 
-from zeroth.core.rag import IngestionReport, SourceDocument, chunk_text, ingest_documents
+from zeroth.integrations.rag import IngestionReport, SourceDocument, chunk_text, ingest_documents
 
 
 def test_chunk_text_basic_no_overlap() -> None:

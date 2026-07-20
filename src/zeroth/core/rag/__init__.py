@@ -1,11 +1,11 @@
-"""Retrieval-augmented generation (RAG) helpers.
+"""Legacy import path for the rag integrations package.
 
-The RetrievalNode itself lives in ``zeroth.contracts.graph`` (it is a graph node type);
-this package provides the ingestion side — chunking documents and writing them to a
-memory connector for later retrieval.
+RAG ingestion lives in :mod:`zeroth.integrations.rag`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.rag.ingestion import (
+from zeroth.integrations.rag.ingestion import (
     IngestionReport,
     SourceDocument,
     chunk_text,
