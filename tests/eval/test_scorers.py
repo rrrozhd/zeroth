@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from zeroth.runtime.agents.provider import ProviderResponse
-from zeroth.core.eval import (
+from zeroth.eval import (
     ContainsScorer,
     EvalCase,
     ExactMatchScorer,

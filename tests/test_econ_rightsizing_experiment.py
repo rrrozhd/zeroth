@@ -20,8 +20,8 @@ from zeroth.econ.analytics.rightsizing_experiment import (
     build_labeled_dataset,
     run_experiment,
 )
-from zeroth.core.eval.models import EvalCase
-from zeroth.core.eval.scorers import JudgeVerdict
+from zeroth.eval.models import EvalCase
+from zeroth.eval.scorers import JudgeVerdict
 
 
 def _option(model: str, provider: str, in_price: float, out_price: float, **kw) -> ModelOption:

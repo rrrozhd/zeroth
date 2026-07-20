@@ -33,10 +33,10 @@ from collections.abc import Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.eval.models import EvalCase, EvalDataset, Score
-from zeroth.core.eval.runner import run_eval
-from zeroth.core.eval.scorers import JudgeVerdict, LLMJudgeScorer
 from zeroth.econ.analytics.rightsizing import ModelOption
+from zeroth.eval.models import EvalCase, EvalDataset, Score
+from zeroth.eval.runner import run_eval
+from zeroth.eval.scorers import JudgeVerdict, LLMJudgeScorer
 from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest
 
