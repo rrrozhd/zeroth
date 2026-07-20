@@ -6650,145 +6650,145 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:BlocklistFilter"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "BlocklistFilter",
       "signature": "(terms: 'tuple[str, ...]' = ()) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:ContentFilter"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "ContentFilter",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:ContentFinding"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "ContentFinding",
       "signature": "(category: 'str', count: 'int') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:ContentGuardrail"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "ContentGuardrail",
       "signature": "(*, filters: 'tuple[ContentFilter, ...] | list[ContentFilter]', mode: 'str' = 'flag') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:DeadLetterManager"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "DeadLetterManager",
       "signature": "(run_repository: 'RunRepository', max_failure_count: 'int' = 3) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/how-to/guardrails.md",
         "docs:docs/reference/python-api/guardrails.md",
         "examples:examples/31_guardrails.py",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:GuardrailConfig"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "GuardrailConfig",
       "signature": "(*, rate_limit_capacity: float = 10.0, rate_limit_refill_rate: float = 1.0, quota_daily_limit: int | None = None, max_failure_count: int = 3, backpressure_queue_depth: int = 100, max_concurrency: int = 8) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:GuardrailOutcome"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "GuardrailOutcome",
       "signature": "(payload: 'dict', findings: 'tuple[ContentFinding, ...]', direction: 'str', mode: 'str', blocked: 'bool') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:PIIFilter"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "PIIFilter",
       "signature": "(types: 'tuple[str, ...]' = ()) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/how-to/guardrails.md",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:QuotaEnforcer"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "QuotaEnforcer",
       "signature": "(database: 'AsyncDatabase') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.guardrails",
+        "__all__:zeroth.governance.guardrails",
         "docs:docs/how-to/guardrails.md",
         "docs:docs/reference/python-api/guardrails.md",
-        "package_export:zeroth.core.guardrails"
+        "package_export:zeroth.governance.guardrails"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.guardrails:TokenBucketRateLimiter"
       ],
-      "module": "zeroth.core.guardrails",
+      "module": "zeroth.governance.guardrails",
       "name": "TokenBucketRateLimiter",
       "signature": "(database: 'AsyncDatabase') -> None"
     },

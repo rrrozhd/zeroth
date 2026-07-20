@@ -465,6 +465,22 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.policy.registry:CapabilityRegistry` | `zeroth.governance.policy.registry:CapabilityRegistry` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.policy.registry:PolicyRegistry` | `zeroth.governance.policy.registry:PolicyRegistry` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.policy.registry:default_capability_registry` | `zeroth.governance.policy.registry:default_capability_registry` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.guardrails:BlocklistFilter` | `zeroth.governance.guardrails:BlocklistFilter` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:ContentFilter` | `zeroth.governance.guardrails:ContentFilter` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:ContentFinding` | `zeroth.governance.guardrails:ContentFinding` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:ContentGuardrail` | `zeroth.governance.guardrails:ContentGuardrail` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:DeadLetterManager` | `zeroth.governance.guardrails:DeadLetterManager` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:GuardrailConfig` | `zeroth.governance.guardrails:GuardrailConfig` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:GuardrailOutcome` | `zeroth.governance.guardrails:GuardrailOutcome` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:PIIFilter` | `zeroth.governance.guardrails:PIIFilter` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:QuotaEnforcer` | `zeroth.governance.guardrails:QuotaEnforcer` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails:TokenBucketRateLimiter` | `zeroth.governance.guardrails:TokenBucketRateLimiter` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails.config:GuardrailConfig` | `zeroth.governance.guardrails.config:GuardrailConfig` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails.content:ContentGuardrail` | `zeroth.governance.guardrails.content:ContentGuardrail` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails.dead_letter:DEAD_LETTER_REASON` | `zeroth.governance.guardrails.dead_letter:DEAD_LETTER_REASON` | Move guardrails governance | Locally pinned literal; equality with the repository constant is test-enforced | Equal string value | Not removed |
+| `zeroth.core.guardrails.dead_letter:DeadLetterManager` | `zeroth.governance.guardrails.dead_letter:DeadLetterManager` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails.rate_limit:QuotaEnforcer` | `zeroth.governance.guardrails.rate_limit:QuotaEnforcer` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.guardrails.rate_limit:TokenBucketRateLimiter` | `zeroth.governance.guardrails.rate_limit:TokenBucketRateLimiter` | Move guardrails governance | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
