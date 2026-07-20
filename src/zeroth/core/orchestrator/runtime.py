@@ -27,7 +27,7 @@ from zeroth.core.runs import Run, RunRepository, RunStatus
 from zeroth.governance.approvals import ApprovalRecord, ApprovalService
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.audit.models import MemoryAccessRecord, ToolCallRecord
-from zeroth.governance.policy import Capability, PolicyGuard
+from zeroth.governance.policy import PolicyGuard
 from zeroth.platform.observability import start_span
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.agents import AgentRunner, RepositoryThreadResolver
@@ -46,11 +46,9 @@ from zeroth.runtime.orchestration.errors import (
 from zeroth.runtime.orchestration.parallel_executor import RuntimeParallelExecutor
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.protocols import ExecutableUnitRunner
-from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor, node_by_id
+from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
 from zeroth.runtime.parallel.executor import ParallelExecutor
 from zeroth.runtime.parallel.models import (
-    BranchContext,
-    FanInResult,
     GlobalStepTracker,
 )
 
@@ -227,75 +225,6 @@ class RuntimeOrchestrator:
             resume_graph=self.resume_graph,
         )
 
-    async def _execute_parallel_fan_out(
-        self,
-        graph: Graph,
-        run: Run,
-        node: Node,
-        node_id: str,
-        input_payload: Mapping[str, Any],
-        output_data: dict[str, Any],
-        audit_record: dict[str, Any],
-        parallel_config: Any,
-        *,
-        step_tracker: GlobalStepTracker | None = None,
-    ) -> FanInResult:
-        """Execute parallel fan-out for a node with parallel_config."""
-        return await self._parallel_runtime.execute_fan_out(
-            graph,
-            run,
-            node,
-            node_id,
-            input_payload,
-            output_data,
-            audit_record,
-            parallel_config,
-            step_tracker=step_tracker,
-        )
-
-    async def _handle_parallel_subgraph_pause(
-        self,
-        run: Run,
-        node: Node,
-        node_id: str,
-        input_payload: Mapping[str, Any],
-        output_data: dict[str, Any],
-        fan_in_result: FanInResult,
-    ) -> Run:
-        """Stash pending_parallel_subgraph and return run in WAITING_APPROVAL."""
-        return await self._parallel_runtime.handle_subgraph_pause(
-            run, node, node_id, input_payload, output_data, fan_in_result
-        )
-
-    async def _execute_parallel_fan_out_resume(
-        self,
-        graph: Graph,
-        run: Run,
-        node: Node,
-        node_id: str,
-        pending: dict[str, Any],
-        *,
-        step_tracker: GlobalStepTracker | None,
-    ) -> FanInResult:
-        """D-11 literal resume: reuse completed, resume paused, None-out cancelled."""
-        return await self._parallel_runtime.execute_fan_out_resume(
-            graph, run, node, node_id, pending, step_tracker=step_tracker
-        )
-
-    async def _enforce_policy_for_branch(
-        self,
-        graph: Graph,
-        run: Run,
-        node: Node,
-        input_payload: Mapping[str, Any],
-    ) -> str | None:
-        """Check policy for a branch node dispatch. Returns denial reason or None."""
-        return await self._policy_gate.enforce_policy_for_branch(graph, run, node, input_payload)
-
-    def _merge_fan_in_state(self, run: Run, fan_in_result: FanInResult) -> None:
-        """Merge branch execution state back into the parent Run."""
-        self._parallel_runtime.merge_fan_in_state(run, fan_in_result)
-
     @property
     def _tool_executor(self) -> RuntimeToolExecutor:
         """The governed unit-invocation collaborator."""
@@ -330,16 +259,6 @@ class RuntimeOrchestrator:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Dispatch a node inside an OBS tracing span."""
         return await self._node_dispatcher.dispatch(node, run, input_payload, graph)
-
-    async def _dispatch_node_inner(
-        self,
-        node: Node,
-        run: Run,
-        input_payload: Mapping[str, Any],
-        graph: Graph | None = None,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Run a single node and return its output and audit data."""
-        return await self._node_dispatcher.dispatch_inner(node, run, input_payload, graph)
 
     async def _dispatch_retrieval_node(
         self,
@@ -442,24 +361,6 @@ class RuntimeOrchestrator:
             run, node, node_id, input_payload, error, started_at=started_at
         )
 
-    async def _record_failed_branch_execution_audit(
-        self,
-        run: Run,
-        node: Node,
-        node_id: str,
-        input_payload: Mapping[str, Any],
-        error: Exception,
-        ctx: BranchContext,
-    ) -> None:
-        """Persist a branch-scoped audit record for a failed branch-node dispatch."""
-        await self._audit_recorder.record_failed_branch_execution(
-            run, node, node_id, input_payload, error, ctx
-        )
-
-    def _payload_for(self, run: Run, node_id: str) -> dict[str, Any]:
-        """Get and remove the queued input payload for a node."""
-        return self._driver.payload_for(run, node_id)
-
     @property
     def _policy_gate(self) -> RuntimePolicyGate:
         """The policy collaborator, built from this orchestrator's own dependencies.
@@ -480,87 +381,6 @@ class RuntimeOrchestrator:
             agent_runners=self.agent_runners,
         )
 
-    async def _enforce_loop_guards(
-        self,
-        graph: Graph,
-        run: Run,
-        started_at: float,
-    ) -> Run | None:
-        """Check if the run has exceeded its step or time limits."""
-        return await self._policy_gate.enforce_loop_guards(graph, run, started_at)
-
-    async def _enforce_policy(
-        self,
-        graph: Graph,
-        run: Run,
-        node: Node,
-        input_payload: Mapping[str, Any],
-    ) -> Run | None:
-        """Check if the policy guard allows this node to run."""
-        return await self._policy_gate.enforce_policy(graph, run, node, input_payload)
-
-    def _enforcement_context_for(self, run: Run, node_id: str) -> dict[str, Any]:
-        """Return the stored policy enforcement context for a node, if any."""
-        return self._policy_gate.enforcement_context_for(run, node_id)
-
-    def _effective_capabilities_for(self, run: Run, node_id: str) -> set[Capability] | None:
-        """Return the node's granted capability set, or None when enforcement is off."""
-        return self._policy_gate.effective_capabilities_for(run, node_id)
-
-    async def _gate_policy_required_side_effects(
-        self,
-        run: Run,
-        node: Node,
-        input_payload: Mapping[str, Any],
-    ) -> Run | None:
-        """Pause execution when policy requires approval before side effects."""
-        return await self._policy_gate.gate_policy_required_side_effects(run, node, input_payload)
-
-    async def _consume_side_effect_approval(
-        self,
-        run: Run,
-        node: Node,
-        input_payload: Mapping[str, Any],
-    ) -> Run | None:
-        """Resolve pending side-effect approval state before re-executing a node."""
-        return await self._policy_gate.consume_side_effect_approval(run, node, input_payload)
-
-    def _node_has_side_effects(self, node: Node) -> bool:
-        """Detect whether a node can cause side effects that require approval."""
-        return self._policy_gate.node_has_side_effects(node)
-
-    async def _run_agent_with_optional_enforcement(
-        self,
-        runner: AgentRunner,
-        input_payload: Mapping[str, Any],
-        *,
-        thread_id: str | None,
-        runtime_context: Mapping[str, Any],
-        enforcement_context: Mapping[str, Any],
-    ) -> Any:
-        """Call agent runners with enforcement context when their signature supports it."""
-        return await self._node_dispatcher.run_agent_with_optional_enforcement(
-            runner,
-            input_payload,
-            thread_id=thread_id,
-            runtime_context=runtime_context,
-            enforcement_context=enforcement_context,
-        )
-
-    async def _run_executable_unit_with_optional_enforcement(
-        self,
-        manifest_ref: str,
-        input_payload: Mapping[str, Any],
-        *,
-        enforcement_context: Mapping[str, Any],
-    ) -> Any:
-        """Call executable-unit runners with enforcement context when supported."""
-        return await self._tool_executor.run_unit(
-            manifest_ref,
-            input_payload,
-            enforcement_context=enforcement_context,
-        )
-
     def _tool_executor_for(
         self,
         graph: Graph,
@@ -568,10 +388,6 @@ class RuntimeOrchestrator:
     ) -> Any:
         """Build the executor that runs an agent's attached tool nodes."""
         return self._tool_executor.build(graph, enforcement_context)
-
-    def _redact_for_audit(self, value: Any) -> Any:
-        """Redact any resolved secret values before persisting audit material."""
-        return self._audit_recorder.redact(value)
 
     @staticmethod
     def _typed_audit_fields(
@@ -635,15 +451,6 @@ class RuntimeOrchestrator:
         """Mark a run as failed with the given reason and save it."""
         return await self._driver.fail_run(run, reason, message)
 
-    async def _emit_webhook(
-        self,
-        event_type: str,
-        run: Run,
-        data: dict[str, Any],
-    ) -> None:
-        """Emit a webhook event if a webhook service is configured."""
-        await self._driver.emit_webhook(event_type, run, data)
-
     def _entry_step(self, graph: Graph) -> str:
         """Get the ID of the first node to run in the graph."""
         return self._driver.entry_step(graph)
@@ -652,18 +459,6 @@ class RuntimeOrchestrator:
         """Build a version reference string like 'my-graph:v2'."""
         return self._driver.graph_version_ref(graph)
 
-    def _stored_audit_id(self, run_id: str, audit_ref: str) -> str:
-        """Namespace persisted audit IDs by run so append-only storage stays globally unique."""
-        return RuntimeAuditRecorder.stored_audit_id(run_id, audit_ref)
-
     def _initial_metadata(self, graph: Graph, initial_input: Mapping[str, Any]) -> dict[str, Any]:
         """Build the starting metadata dict for a new run."""
         return self._driver.initial_metadata(graph, initial_input)
-
-    def _node_by_id(self, graph: Graph, node_id: str) -> Node:
-        """Find a node in the graph by its ID. Raises KeyError if not found."""
-        return node_by_id(graph, node_id)
-
-    def _edge_for(self, graph: Graph, source_node_id: str, target_node_id: str):
-        """Find the data edge connecting two nodes, or None if there isn't one."""
-        return self._driver.edge_for(graph, source_node_id, target_node_id)
