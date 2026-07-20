@@ -645,7 +645,7 @@ class SandboxManager:
         import asyncio
         import uuid
 
-        from zeroth.core.sandbox_sidecar.models import SidecarExecuteRequest
+        from zeroth.integrations.sandbox.models import SidecarExecuteRequest
 
         execution_id = str(uuid.uuid4())
         image_ref = self._config.docker.container_name

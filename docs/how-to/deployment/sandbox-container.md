@@ -28,7 +28,7 @@ Configure the sandbox via `DockerSandboxSettings` (see
 | `docker_binary` | `ZEROTH_SANDBOX__DOCKER_BINARY` | `docker` | CLI to invoke (e.g. `podman`) |
 
 Set `backend=docker` (or `sidecar` if you prefer the HTTP sidecar app at
-`zeroth.core.sandbox_sidecar`) and make sure the named container is
+`zeroth.integrations.sandbox`) and make sure the named container is
 running and reachable from the `zeroth-core` process.
 
 ## Minimal recipe

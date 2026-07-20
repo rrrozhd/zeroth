@@ -216,7 +216,7 @@ def test_run_via_sidecar_constructs_request_and_translates_response() -> None:
     from unittest.mock import AsyncMock
 
     from zeroth.integrations.execution.constraints import ResourceConstraints
-    from zeroth.core.sandbox_sidecar.models import SidecarExecuteResponse
+    from zeroth.integrations.sandbox.models import SidecarExecuteResponse
 
     mock_response = SidecarExecuteResponse(
         execution_id="test-id",

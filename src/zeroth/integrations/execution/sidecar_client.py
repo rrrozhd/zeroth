@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import httpx
 
-from zeroth.core.sandbox_sidecar.models import (
+from zeroth.integrations.sandbox.models import (
     SidecarExecuteRequest,
     SidecarExecuteResponse,
     SidecarHealthResponse,
