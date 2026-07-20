@@ -1,4 +1,4 @@
-"""Tests for zeroth.core.http.client — ResilientHttpClient and settings wiring."""
+"""Tests for zeroth.integrations.http.client — ResilientHttpClient and settings wiring."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from zeroth.core.http.client import ResilientHttpClient
-from zeroth.core.http.errors import (
+from zeroth.integrations.http.client import ResilientHttpClient
+from zeroth.integrations.http.errors import (
     CircuitOpenError,
     HttpClientError,
     HttpRateLimitError,
     HttpRetryExhaustedError,
 )
-from zeroth.core.http.models import AuthType, EndpointConfig
+from zeroth.integrations.http.models import AuthType, EndpointConfig
 from zeroth.platform.config.models import HttpClientSettings
 
 

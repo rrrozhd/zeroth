@@ -349,7 +349,7 @@ async def bootstrap_service(
     http_client_instance: object | None = None
     http_settings = settings.http_client
 
-    from zeroth.core.http import ResilientHttpClient  # noqa: PLC0415
+    from zeroth.integrations.http import ResilientHttpClient  # noqa: PLC0415
 
     http_client_instance = ResilientHttpClient(
         settings=http_settings,

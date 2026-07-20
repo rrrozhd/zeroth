@@ -12,9 +12,9 @@ from dataclasses import dataclass, field
 import httpx
 import pytest
 
-from zeroth.core.http.client import ResilientHttpClient
-from zeroth.core.http.errors import HttpClientError, HttpRateLimitError
-from zeroth.core.http.models import AuthType, EndpointConfig
+from zeroth.integrations.http.client import ResilientHttpClient
+from zeroth.integrations.http.errors import HttpClientError, HttpRateLimitError
+from zeroth.integrations.http.models import AuthType, EndpointConfig
 from zeroth.platform.config.models import HttpClientSettings
 from zeroth.governance.policy.models import Capability
 

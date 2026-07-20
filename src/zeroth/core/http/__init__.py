@@ -1,16 +1,14 @@
-"""Resilient HTTP client package.
+"""Legacy import path for the http integrations package.
 
-Provides :class:`ResilientHttpClient` with automatic retry, exponential
-backoff with jitter, per-endpoint circuit breaking, in-memory rate limiting,
-connection pooling, and call-record auditing.
+The resilient HTTP client lives in :mod:`zeroth.integrations.http`; this
+package republishes the same objects for compatibility. Import from the
+canonical location instead (see docs/backend-import-migration.md).
 
-Every export resolves lazily, for the same reason as
-:mod:`zeroth.core.econ`: ``zeroth.core.config.settings`` historically needed
-only ``HttpClientSettings`` (now defined in
-:mod:`zeroth.platform.config.models` and republished from
-:mod:`zeroth.core.http.models`), and eagerly importing the client package
-pulled its dependencies into the platform layer.
-``from zeroth.core.http import X`` is unchanged.
+Every export resolves lazily, as before the move:
+``zeroth.core.config.settings`` historically needed only
+``HttpClientSettings`` (defined in :mod:`zeroth.platform.config.models`),
+and eagerly importing the client package pulled its dependencies into the
+platform layer. ``from zeroth.core.http import X`` is unchanged.
 """
 
 from __future__ import annotations
@@ -19,20 +17,20 @@ import importlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from zeroth.core.http.circuit_breaker import (
+    from zeroth.integrations.http.circuit_breaker import (
         CircuitBreaker,
         CircuitBreakerRegistry,
         CircuitState,
         InMemoryTokenBucket,
     )
-    from zeroth.core.http.client import ResilientHttpClient
-    from zeroth.core.http.errors import (
+    from zeroth.integrations.http.client import ResilientHttpClient
+    from zeroth.integrations.http.errors import (
         CircuitOpenError,
         HttpClientError,
         HttpRateLimitError,
         HttpRetryExhaustedError,
     )
-    from zeroth.core.http.models import (
+    from zeroth.integrations.http.models import (
         AuthType,
         EndpointConfig,
         HttpCallRecord,
@@ -76,12 +74,12 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
-    """Resolve a public HTTP symbol from its submodule on first access."""
+    """Resolve a public HTTP symbol from its canonical submodule on first access."""
     submodule = _EXPORTS.get(name)
     if submodule is None:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)
-    value = getattr(importlib.import_module(f"{__name__}.{submodule}"), name)
+    value = getattr(importlib.import_module(f"zeroth.integrations.http.{submodule}"), name)
     globals()[name] = value
     return value
 
