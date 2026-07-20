@@ -16,7 +16,7 @@ from zeroth.runtime.agents import DeterministicProviderAdapter, ProviderResponse
 from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.governance.audit import AuditRepository
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,

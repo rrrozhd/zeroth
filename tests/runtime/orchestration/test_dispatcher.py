@@ -44,6 +44,10 @@ class _StubUnitRunner:
         self.calls.append(("run_binding", binding.manifest_ref))
         return _Result()
 
+    async def run_inline_source(self, unit_id: str, source: str, payload: Any, **kwargs: Any) -> Any:
+        self.calls.append(("run_inline_source", unit_id))
+        return _Result()
+
 
 class _Result:
     output_data: dict[str, Any] = {"ok": True}
@@ -131,7 +135,7 @@ async def test_the_tool_executor_synthesizes_a_binding_for_inline_source() -> No
     await executor.run_inline(node, {}, enforcement_context={})
 
     (call,) = runner.calls
-    assert call[0] == "run_binding"
+    assert call == ("run_inline_source", "code")
 
 
 async def test_a_tool_call_targeting_a_non_unit_node_is_rejected() -> None:

@@ -59,19 +59,17 @@ class RuntimeToolExecutor:
     ) -> Any:
         """Run a code node whose source travels in the graph.
 
-        Studio code node: the source travels in the graph, so the binding is
-        synthesized here rather than looked up in the registry. Runs through the
-        same sandboxed subprocess path as a registered unit.
+        Studio code node: the source travels in the graph, so the runner
+        synthesizes the binding on demand rather than looking it up in the
+        registry; the ``run_inline_source`` seam keeps the binding synthesis
+        inside the execution integrations package. Runs through the same
+        sandboxed subprocess path as a registered unit.
         """
-        from zeroth.core.execution_units.inline import build_inline_binding
-
-        return await self.executable_unit_runner.run_binding(
-            build_inline_binding(
-                node.node_id,
-                node.executable_unit.inline_source,
-                timeout_seconds=node.executable_unit.timeout_seconds,
-            ),
+        return await self.executable_unit_runner.run_inline_source(
+            node.node_id,
+            node.executable_unit.inline_source,
             input_payload,
+            timeout_seconds=node.executable_unit.timeout_seconds,
             enforcement_context=enforcement_context,
         )
 

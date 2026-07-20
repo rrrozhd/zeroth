@@ -22,7 +22,7 @@ from tests.service.helpers import (
 )
 from zeroth.runtime.agents import AgentConfig, AgentRunner, RepositoryThreadStateStore
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,

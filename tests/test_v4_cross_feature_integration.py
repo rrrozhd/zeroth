@@ -21,7 +21,7 @@ from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.governance.audit import AuditRepository
 from zeroth.runtime.context.models import ContextWindowSettings
-from zeroth.core.execution_units import ExecutableUnitRunner
+from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from zeroth.core.execution_units.sidecar_client import SandboxSidecarClient
+from zeroth.integrations.execution.sidecar_client import SandboxSidecarClient
 from zeroth.core.sandbox_sidecar.models import (
     SidecarExecuteRequest,
     SidecarExecuteResponse,

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 
-from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,

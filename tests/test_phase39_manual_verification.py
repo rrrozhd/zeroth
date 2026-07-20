@@ -20,7 +20,7 @@ import pytest
 from zeroth.core.deployments.repository import SQLiteDeploymentRepository
 from zeroth.core.deployments.service import DeploymentService
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.execution_units import ExecutableUnitRunner
+from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,

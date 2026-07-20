@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel
 
 from zeroth.governance.audit import AuditRepository
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     AdmissionController,
     CommandArtifactSource,
     ExecutableUnitBinding,

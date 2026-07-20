@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     # (orchestrator, audit recorder) consumes it and runtime may not import
     # integrations. The static edge carries a documented exception in
     # zeroth._architecture.
-    from zeroth.core.execution_units.models import EnvironmentVariable
+    from zeroth.integrations.execution.models import EnvironmentVariable
 
 
 class SecretResolutionError(RuntimeError):

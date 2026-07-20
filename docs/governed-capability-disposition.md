@@ -26,6 +26,11 @@ Legend for the Disposition column:
   integration packages consolidate under `zeroth.integrations`; consumed by
   the runtime through excepted edges documented in
   `src/zeroth/_architecture.py`.
+- **Runtime (Task 15)** — moved into the maintained runtime packages in
+  Task 15: the provider tool-call helpers are pure parsing/loop logic the
+  agent runtime calls at dispatch time, so they are runtime-owned (the
+  Task 14 `governed/tools` precedent) rather than integrations; the legacy
+  module republishes the same object.
 
 ## Top-level aggregator (`zeroth.core.governed`)
 
@@ -74,14 +79,14 @@ Legend for the Disposition column:
 | `emit_event` | `audit/emitter.py` | Governance (Task 13) → `zeroth.governance.audit.emitter` |
 | `RedisAuditEmitter` | `audit/redis.py` | Governance (Task 13) → `zeroth.governance.audit.redis`; its only concrete dependency is the optional third-party `redis.asyncio` client, imported lazily, so no zeroth-internal edge leaves the governance domain |
 
-## `integrations/` — provider tool-call helpers → Integrations (Task 15)
+## `integrations/` — provider tool-call helpers → Runtime (Task 15)
 
 | Symbol | Module | Disposition |
 | --- | --- | --- |
-| `NormalizedToolCall` | `integrations/tool_calls.py` | Integrations (Task 15) |
-| `extract_tool_calls` | `integrations/tool_calls.py` | Integrations (Task 15) |
-| `build_tool_message` | `integrations/tool_calls.py` | Integrations (Task 15) |
-| `GovernedToolCallLoop` | `integrations/tool_calls.py` | Integrations (Task 15) |
+| `NormalizedToolCall` | `integrations/tool_calls.py` | Runtime (Task 15) → `zeroth.runtime.agents.tooling.tool_calls` |
+| `extract_tool_calls` | `integrations/tool_calls.py` | Runtime (Task 15) → `zeroth.runtime.agents.tooling.tool_calls` |
+| `build_tool_message` | `integrations/tool_calls.py` | Runtime (Task 15) → `zeroth.runtime.agents.tooling.tool_calls` |
+| `GovernedToolCallLoop` | `integrations/tool_calls.py` | Runtime (Task 15) → `zeroth.runtime.agents.tooling.tool_calls` |
 
 ## `memory/` — memory type system and connector wrappers → Integrations (Task 15), except the contract-owned scope enum
 

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from zeroth.core.execution_units.constraints import ResourceConstraints, build_docker_resource_flags
-from zeroth.core.execution_units.sandbox import (
+from zeroth.integrations.execution.constraints import ResourceConstraints, build_docker_resource_flags
+from zeroth.integrations.execution.sandbox import (
     DockerSandboxConfig,
     SandboxBackendMode,
     SandboxBackendUnavailableError,
@@ -142,7 +142,7 @@ def test_policy_violation_is_raised_when_required_isolation_cannot_be_met() -> N
 
 
 def test_docker_hardening_flags_applied_by_default() -> None:
-    from zeroth.core.execution_units.sandbox import DockerSandboxConfig, _docker_hardening_flags
+    from zeroth.integrations.execution.sandbox import DockerSandboxConfig, _docker_hardening_flags
 
     flags = _docker_hardening_flags(DockerSandboxConfig())
     assert "--read-only" in flags
@@ -153,7 +153,7 @@ def test_docker_hardening_flags_applied_by_default() -> None:
 
 
 def test_docker_hardening_flags_disabled_and_user_override() -> None:
-    from zeroth.core.execution_units.sandbox import DockerSandboxConfig, _docker_hardening_flags
+    from zeroth.integrations.execution.sandbox import DockerSandboxConfig, _docker_hardening_flags
 
     assert _docker_hardening_flags(DockerSandboxConfig(hardened=False)) == []
     flags = _docker_hardening_flags(

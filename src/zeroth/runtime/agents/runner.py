@@ -11,13 +11,11 @@ import asyncio
 import json
 from collections.abc import Mapping
 from copy import copy, deepcopy
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 
 from zeroth.contracts.governed import MemoryScope
-from zeroth.core.governed.integrations.tool_calls import build_tool_message
-from zeroth.core.memory import MemoryConnectorResolver
 from zeroth.governance.audit import MemoryAccessRecord
 from zeroth.governance.guardrails.content import (
     BlocklistFilter,
@@ -56,8 +54,15 @@ from zeroth.runtime.agents.sanitization import (
     HeuristicInjectionScreener,
     ToolOutputSanitizer,
 )
+from zeroth.runtime.agents.tooling.tool_calls import build_tool_message
 from zeroth.runtime.agents.tools import ToolAttachmentBridge
 from zeroth.runtime.agents.validation import OutputValidator
+
+if TYPE_CHECKING:
+    # Annotation-only: importing the concrete resolver eagerly would put the
+    # memory integration package (and, through the legacy zeroth.core.memory
+    # republisher, its whole import chain) on the agent runtime's import path.
+    from zeroth.core.memory import MemoryConnectorResolver
 
 
 class AgentRunner:

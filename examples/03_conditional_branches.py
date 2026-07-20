@@ -51,7 +51,7 @@ from zeroth.contracts.mappings.models import (
     EdgeMapping,
     PassthroughMappingOperation,
 )
-from zeroth.core.execution_units import ExecutableUnitRunner
+from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,

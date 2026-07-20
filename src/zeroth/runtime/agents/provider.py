@@ -17,11 +17,11 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.governed.integrations.tool_calls import NormalizedToolCall, extract_tool_calls
 from zeroth.governance.audit.models import TokenUsage
 from zeroth.platform.secrets import SecretResolutionError, resolve_secret_async
 from zeroth.runtime.agents.models import ModelParams, PromptMessage
 from zeroth.runtime.agents.response_format import build_response_format
+from zeroth.runtime.agents.tooling.tool_calls import NormalizedToolCall, extract_tool_calls
 
 if TYPE_CHECKING:
     from zeroth.platform.secrets import SecretProvider

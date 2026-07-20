@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.execution_units import EnvironmentVariable
+from zeroth.integrations.execution import EnvironmentVariable
 from zeroth.platform.secrets import EnvSecretProvider, SecretRedactor, SecretResolver
 
 

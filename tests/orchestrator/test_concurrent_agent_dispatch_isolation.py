@@ -23,7 +23,7 @@ from zeroth.runtime.agents.tools import ToolAttachmentManifest
 from zeroth.governance.audit.models import TokenUsage
 from zeroth.runtime.context import ContextWindowSettings
 from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
-from zeroth.core.execution_units import ExecutableUnitRunResult
+from zeroth.integrations.execution import ExecutableUnitRunResult
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,

@@ -153,7 +153,7 @@ def _make_orchestrator(
     subgraph_executor: SubgraphExecutor | None = None,
 ) -> RuntimeOrchestrator:
     """Create a RuntimeOrchestrator with mocked dependencies."""
-    from zeroth.core.execution_units import ExecutableUnitRunner
+    from zeroth.integrations.execution import ExecutableUnitRunner
 
     return RuntimeOrchestrator(
         run_repository=run_repository or _make_run_repository(),
@@ -172,7 +172,7 @@ class TestOrchestratorSubgraphField:
     """RuntimeOrchestrator has subgraph_executor field (optional, None default)."""
 
     def test_subgraph_executor_defaults_to_none(self) -> None:
-        from zeroth.core.execution_units import ExecutableUnitRunner
+        from zeroth.integrations.execution import ExecutableUnitRunner
 
         orch = RuntimeOrchestrator(
             run_repository=AsyncMock(),

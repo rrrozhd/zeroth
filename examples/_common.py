@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from zeroth.contracts.graph import Graph, GraphRepository
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.execution_units import ExecutableUnitRunner
+from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import (
     ServiceBootstrap,

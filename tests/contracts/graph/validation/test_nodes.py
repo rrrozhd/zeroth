@@ -143,7 +143,7 @@ def test_inline_source_is_capped() -> None:
 
 def test_inline_cap_is_the_one_the_execution_unit_enforces() -> None:
     """The publish gate and the runtime must not drift apart."""
-    from zeroth.core.execution_units import inline
+    from zeroth.integrations.execution import inline
 
     assert inline.INLINE_SOURCE_MAX_CHARS is INLINE_SOURCE_MAX_CHARS
 

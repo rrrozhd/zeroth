@@ -11,7 +11,6 @@ from zeroth.contracts.graph.serialization import deserialize_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.core.memory.factory import register_memory_connectors
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
@@ -24,6 +23,7 @@ from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.governance.guardrails.dead_letter import DeadLetterManager
 from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.governance.policy import PolicyGuard, PolicyRegistry, default_capability_registry
+from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.dispatch import LeaseManager

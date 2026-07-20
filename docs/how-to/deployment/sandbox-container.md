@@ -63,7 +63,7 @@ docker run -d \
 
 `zeroth-core` will exec into this container for each unit and apply
 per-execution resource flags (`build_docker_resource_flags` in
-`zeroth.core.execution_units.constraints`) on top of your baseline.
+`zeroth.integrations.execution.constraints`) on top of your baseline.
 
 ## Production notes
 

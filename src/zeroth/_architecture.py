@@ -141,20 +141,6 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: final migration cleanup and verification.",
     ),
     **_exception_group(
-        (
-            "zeroth.runtime.orchestration.tool_executor",
-            "zeroth.core.execution_units.inline",
-        ),
-        reason=(
-            "RuntimeToolExecutor synthesizes a binding for a Studio code node, whose "
-            "source travels in the graph rather than a registry. build_inline_binding "
-            "constructs ExecutableUnitBinding and the inline manifest models, so it "
-            "cannot move to contracts; removing the edge needs a new run-inline-source "
-            "method on ExecutableUnitRunner, which is outside this task's boundary."
-        ),
-        removal_task="Task 15: move integrations and evaluation.",
-    ),
-    **_exception_group(
         ("zeroth.governance.retention.erasure_service", "zeroth.integrations.persistence.runs"),
         reason=(
             "RetentionErasureService's pinned __init__ names RunRepository in the "
@@ -168,7 +154,7 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.platform.secrets.provider", "zeroth.core.execution_units.models"),
+        ("zeroth.platform.secrets.provider", "zeroth.integrations.execution.models"),
         reason=(
             "SecretResolver's pinned legacy signatures name EnvironmentVariable "
             "in their annotations, and the dependency scanner walks the AST, so "
@@ -246,20 +232,11 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        (
-            "zeroth.runtime.agents.provider",
-            "zeroth.core.governed.integrations.tool_calls",
-        ),
-        (
-            "zeroth.runtime.agents.runner",
-            "zeroth.core.governed.integrations.tool_calls",
-        ),
         ("zeroth.runtime.agents.runner", "zeroth.core.memory"),
         reason=(
-            "The agent runtime still calls the provider tool-call helpers and "
-            "resolves memory connectors from their concrete integration modules; "
-            "the seams become runtime-owned protocols when the memory and "
-            "integration packages consolidate."
+            "The agent runtime still resolves memory connectors from their "
+            "concrete integration modules; the seam becomes a runtime-owned "
+            "protocol when the memory packages consolidate."
         ),
         removal_task="Task 15: move integrations and evaluation.",
     ),

@@ -333,7 +333,7 @@ class TestScenario1SubgraphInFanOutBranch:
     async def test_fan_out_to_subgraph_collect(self) -> None:
         from unittest.mock import AsyncMock, MagicMock
 
-        from zeroth.core.execution_units import ExecutableUnitRunner
+        from zeroth.integrations.execution import ExecutableUnitRunner
         from zeroth.contracts.graph.models import (
             AgentNode,
             AgentNodeData,
@@ -450,7 +450,7 @@ class TestScenario1SubgraphInFanOutBranch:
         """
         from unittest.mock import AsyncMock, MagicMock
 
-        from zeroth.core.execution_units import ExecutableUnitRunner
+        from zeroth.integrations.execution import ExecutableUnitRunner
         from zeroth.contracts.graph.models import (
             AgentNode,
             AgentNodeData,

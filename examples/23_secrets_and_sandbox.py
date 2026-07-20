@@ -31,7 +31,7 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import os
 import sys
 
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     EnvironmentVariable,
     SandboxBackendMode,
     SandboxConfig,

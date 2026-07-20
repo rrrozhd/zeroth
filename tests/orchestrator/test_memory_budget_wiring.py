@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.execution_units import ExecutableUnitRunner
+from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.contracts.graph import AgentNode, AgentNodeData, Graph
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator

@@ -16,7 +16,7 @@ from zeroth.platform.secrets import (
     SecretRedactor,
     SecretResolver,
 )
-from zeroth.core.execution_units.models import EnvironmentVariable
+from zeroth.integrations.execution.models import EnvironmentVariable
 
 # 1. Pick a provider. EnvSecretProvider is the default for local dev.
 provider = EnvSecretProvider({"OPENAI_API_KEY": "sk-test-123"})

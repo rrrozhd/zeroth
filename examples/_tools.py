@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from examples._contracts import ToolInput, ToolOutput
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     EntryPointType,
     ExecutableUnitRegistry,
     ExecutionMode,

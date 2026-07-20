@@ -15,7 +15,7 @@ from typing import Any, Protocol
 class ExecutableUnitRunner(Protocol):
     """Structural contract for the executable-unit runner the runtime drives.
 
-    The concrete runner (``zeroth.core.execution_units.runner``) satisfies
+    The concrete runner (``zeroth.integrations.execution.runner``) satisfies
     this protocol. The name deliberately matches the concrete class: the
     ``RuntimeOrchestrator`` ``__init__`` annotation that mentions it is pinned
     by the immutable legacy surface, and signature comparison keeps the bare
@@ -42,4 +42,16 @@ class ExecutableUnitRunner(Protocol):
         enforcement_context: Mapping[str, Any] | None = None,
     ) -> Any:
         """Run an executable unit from a binding directly."""
+        ...
+
+    async def run_inline_source(
+        self,
+        unit_id: str,
+        source: str,
+        payload: Any,
+        *,
+        timeout_seconds: int | None = None,
+        enforcement_context: Mapping[str, Any] | None = None,
+    ) -> Any:
+        """Run inline source authored in a graph node, binding it on demand."""
         ...

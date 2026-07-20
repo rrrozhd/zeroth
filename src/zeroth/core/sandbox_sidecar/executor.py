@@ -11,11 +11,14 @@ import asyncio
 import logging
 import time
 
-from zeroth.core.execution_units.constraints import ResourceConstraints, build_docker_resource_flags
 from zeroth.core.sandbox_sidecar.models import (
     SidecarExecuteRequest,
     SidecarExecuteResponse,
     SidecarStatusResponse,
+)
+from zeroth.integrations.execution.constraints import (
+    ResourceConstraints,
+    build_docker_resource_flags,
 )
 
 logger = logging.getLogger(__name__)

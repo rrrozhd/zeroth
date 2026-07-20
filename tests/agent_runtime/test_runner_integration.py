@@ -15,7 +15,7 @@ from zeroth.runtime.agents import (
     ToolAttachmentManifest,
     ToolAttachmentRegistry,
 )
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     ExecutableUnitBinding,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,

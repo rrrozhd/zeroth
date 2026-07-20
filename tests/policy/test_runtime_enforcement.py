@@ -14,7 +14,7 @@ from zeroth.runtime.agents import (
     ToolAttachmentManifest,
 )
 from zeroth.governance.audit import AuditRepository
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     CommandArtifactSource,
     ExecutableUnitBinding,
     ExecutableUnitRegistry,
