@@ -8,7 +8,7 @@ approval gate inside a subgraph branch has to stop the *whole* run, and the
 parent must persist enough state that resuming re-enters only the paused child.
 
 The heavy lifting of scheduling and merge strategy stays with
-``zeroth.core.parallel.executor.ParallelExecutor``; this collaborator owns what
+``zeroth.runtime.parallel.executor.ParallelExecutor``; this collaborator owns what
 the *runtime* does around it — governance per branch, branch audit records,
 cost rollup, and pause/resume state.
 
@@ -26,14 +26,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from zeroth.contracts.graph import Graph, Node, SubgraphNode
-from zeroth.core.parallel.errors import BranchApprovalPauseSignal, FanOutValidationError
-from zeroth.core.parallel.executor import ParallelExecutor
-from zeroth.core.parallel.models import (
-    BranchContext,
-    BranchResult,
-    FanInResult,
-    GlobalStepTracker,
-)
 from zeroth.core.runs import Run, RunHistoryEntry, RunStatus
 from zeroth.core.subgraph.resolver import merge_governance, namespace_subgraph
 from zeroth.governance.audit import NodeAuditRecord
@@ -42,6 +34,14 @@ from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.errors import OrchestratorError
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.tool_executor import node_by_id
+from zeroth.runtime.parallel.errors import BranchApprovalPauseSignal, FanOutValidationError
+from zeroth.runtime.parallel.executor import ParallelExecutor
+from zeroth.runtime.parallel.models import (
+    BranchContext,
+    BranchResult,
+    FanInResult,
+    GlobalStepTracker,
+)
 
 
 def sum_run_cost(run: Run) -> float:
@@ -107,7 +107,7 @@ class RuntimeParallelExecutor:
         Budget is checked before spawning. A GlobalStepTracker enforces the
         aggregate step limit across all branches.
         """
-        from zeroth.core.parallel.models import ParallelConfig as _ParallelConfig
+        from zeroth.runtime.parallel.models import ParallelConfig as _ParallelConfig
 
         config = (
             parallel_config
@@ -453,7 +453,7 @@ class RuntimeParallelExecutor:
           ``collect_fan_in`` with the node's merge strategy (collect
           preserves None entries).
         """
-        from zeroth.core.parallel.models import ParallelConfig as _ParallelConfig
+        from zeroth.runtime.parallel.models import ParallelConfig as _ParallelConfig
 
         parallel_config = getattr(node, "parallel_config", None)
         assert parallel_config is not None

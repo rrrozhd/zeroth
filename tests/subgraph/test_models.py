@@ -131,7 +131,7 @@ class TestSubgraphNode:
         branch is supported composition.
         """
         from zeroth.contracts.graph.models import SubgraphNode
-        from zeroth.core.parallel.models import ParallelConfig
+        from zeroth.runtime.parallel.models import ParallelConfig
 
         node = SubgraphNode(
             node_id="sub-1",

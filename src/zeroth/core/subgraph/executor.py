@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from zeroth.contracts.graph.models import Graph, SubgraphNode
-from zeroth.core.parallel.models import BranchContext, GlobalStepTracker
 from zeroth.core.runs.models import Run, RunStatus
 from zeroth.core.subgraph.errors import (
     SubgraphCycleError,
@@ -28,6 +27,7 @@ from zeroth.core.subgraph.resolver import (
     merge_governance,
     namespace_subgraph,
 )
+from zeroth.runtime.parallel.models import BranchContext, GlobalStepTracker
 
 if TYPE_CHECKING:
     from zeroth.core.orchestrator.runtime import RuntimeOrchestrator

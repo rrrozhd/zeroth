@@ -31,8 +31,8 @@ from zeroth.contracts.graph import (
     SubgraphNode,
 )
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.parallel.errors import FanOutValidationError
-from zeroth.core.parallel.models import ParallelConfig
+from zeroth.runtime.parallel.errors import FanOutValidationError
+from zeroth.runtime.parallel.models import ParallelConfig
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.subgraph.models import SubgraphNodeData
 from zeroth.contracts.templates.models import TemplateReference

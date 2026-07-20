@@ -24,8 +24,8 @@ from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
     ValidationSeverity,
 )
-from zeroth.core.parallel.errors import ReducerRefValidationError
-from zeroth.core.parallel.models import ParallelConfig
+from zeroth.runtime.parallel.errors import ReducerRefValidationError
+from zeroth.runtime.parallel.models import ParallelConfig
 
 from tests.graph.test_validation import build_valid_graph
 
@@ -158,7 +158,7 @@ class TestReducerRefValidation:
                 reducer_ref="os",  # single segment, regex-rejected
             ),
         )
-        with patch("zeroth.core.parallel.reducers.importlib.import_module") as mock_imp:
+        with patch("zeroth.runtime.parallel.reducers.importlib.import_module") as mock_imp:
             report = await validator.validate(graph)
             mock_imp.assert_not_called()
         codes = {i.code for i in report.issues}
@@ -280,7 +280,7 @@ class TestValidatorDegradation:
 
 def test_resolve_reducer_ref_wraps_import_error() -> None:
     with pytest.raises(ReducerRefValidationError):
-        from zeroth.core.parallel.reducers import resolve_reducer_ref
+        from zeroth.runtime.parallel.reducers import resolve_reducer_ref
 
         resolve_reducer_ref("definitely_missing_mod.fn")
 

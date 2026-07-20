@@ -34,7 +34,7 @@ from zeroth.core.memory import (
     MemoryConnectorResolver,
 )
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.parallel.models import ParallelConfig
+from zeroth.runtime.parallel.models import ParallelConfig
 from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,

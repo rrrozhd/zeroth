@@ -25,7 +25,7 @@ from zeroth.contracts.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.parallel.models import ParallelConfig
+from zeroth.runtime.parallel.models import ParallelConfig
 
 
 def _agent(

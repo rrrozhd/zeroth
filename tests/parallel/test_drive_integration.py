@@ -34,7 +34,7 @@ from zeroth.contracts.graph import (
     Graph,
 )
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.parallel.models import ParallelConfig
+from zeroth.runtime.parallel.models import ParallelConfig
 from zeroth.core.runs import RunRepository, RunStatus
 
 

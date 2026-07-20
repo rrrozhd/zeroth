@@ -34,9 +34,9 @@ from zeroth.contracts.graph.validation_errors import (
 )
 from zeroth.contracts.mappings import MappingValidator
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.parallel.errors import ReducerRefValidationError
-from zeroth.core.parallel.reducers import resolve_reducer_ref
 from zeroth.governance.policy.models import Capability
+from zeroth.runtime.parallel.errors import ReducerRefValidationError
+from zeroth.runtime.parallel.reducers import resolve_reducer_ref
 
 
 def _capabilities_from_refs(refs: Iterable[str]) -> set[Capability]:

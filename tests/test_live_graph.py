@@ -71,7 +71,7 @@ from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.parallel.models import ParallelConfig
+from zeroth.runtime.parallel.models import ParallelConfig
 from zeroth.core.runs import RunRepository, RunStatus
 from zeroth.core.subgraph.executor import SubgraphExecutor
 from zeroth.core.subgraph.models import SubgraphNodeData

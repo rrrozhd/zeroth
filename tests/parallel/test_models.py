@@ -1,4 +1,4 @@
-"""Tests for zeroth.core.parallel.models — ParallelConfig, BranchContext, BranchResult, FanInResult, GlobalStepTracker."""
+"""Tests for zeroth.runtime.parallel.models — ParallelConfig, BranchContext, BranchResult, FanInResult, GlobalStepTracker."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.parallel.models import (
+from zeroth.runtime.parallel.models import (
     BranchContext,
     BranchResult,
     FanInResult,
     GlobalStepTracker,
     ParallelConfig,
 )
-from zeroth.core.parallel.errors import ParallelStepLimitError
+from zeroth.runtime.parallel.errors import ParallelStepLimitError
 
 
 # ---------------------------------------------------------------------------

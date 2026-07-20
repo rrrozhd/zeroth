@@ -1,4 +1,4 @@
-"""Tests for zeroth.core.parallel.executor — ParallelExecutor fan-out/fan-in logic."""
+"""Tests for zeroth.runtime.parallel.executor — ParallelExecutor fan-out/fan-in logic."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from zeroth.core.parallel.errors import (
+from zeroth.runtime.parallel.errors import (
     FanOutValidationError,
     ParallelExecutionError,
 )
-from zeroth.core.parallel.executor import ParallelExecutor
-from zeroth.core.parallel.models import (
+from zeroth.runtime.parallel.executor import ParallelExecutor
+from zeroth.runtime.parallel.models import (
     BranchContext,
     BranchResult,
     ParallelConfig,
