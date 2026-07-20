@@ -76,7 +76,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         app.state.regulus_self_auth_headers = make_self_auth_headers_provider(_self_api_key)
 
         # Mount the Regulus economic control plane in-process under
-        # /regulus (source at src/zeroth/econ_plane). Guarded so a plain
+        # /regulus (source at src/zeroth/econ/plane). Guarded so a plain
         # `zeroth-core` install without the `regulus` extra still boots. The
         # mount sits behind Zeroth's API-key auth (no bypass); econ_plane then
         # enforces its own JWT on protected routes. Zeroth's econ client/budget/
@@ -85,7 +85,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         # fail-open boundary (D-12) is preserved. The backend keeps its own
         # ECP_-prefixed settings, database, and JWT auth.
         try:
-            from zeroth.econ_plane.main import app as econ_plane_app
+            from zeroth.econ.plane.main import app as econ_plane_app
 
             app.mount("/regulus", econ_plane_app)
             logger.info("Mounted bundled Regulus control plane at /regulus")

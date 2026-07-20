@@ -6,7 +6,7 @@ absorbed in-repo, Zeroth-owned, not a separate project:
 
 - the instrumentation SDK lives at `src/zeroth/core/econ/instrumentation`
   (import `zeroth.econ.instrumentation`); and
-- the backend lives at `src/zeroth/econ_plane` (the `zeroth.econ_plane` FastAPI
+- the backend lives at `src/zeroth/econ/plane` (the `zeroth.econ.plane` FastAPI
   app), installable via the `regulus` optional extra.
 
 You can run it **in-process** (mounted inside the Zeroth app — one service) or
@@ -79,7 +79,7 @@ Zeroth still boots (econ simply stays disabled / fail-open).
 Run the bundled backend on its own port and point Zeroth at it:
 
 ```bash
-uv run uvicorn zeroth.econ_plane.main:app --port 8000   # the Regulus backend
+uv run uvicorn zeroth.econ.plane.main:app --port 8000   # the Regulus backend
 ZEROTH_REGULUS__BASE_URL=http://regulus:8000/v1     # in Zeroth's env
 ```
 
@@ -91,8 +91,8 @@ services:
       ZEROTH_REGULUS__BASE_URL: "http://regulus:8000/v1"
     depends_on: [regulus]
   regulus:
-    image: zeroth-core:latest          # same image; runs zeroth.econ_plane.main:app
-    command: uvicorn zeroth.econ_plane.main:app --host 0.0.0.0 --port 8000
+    image: zeroth-core:latest          # same image; runs zeroth.econ.plane.main:app
+    command: uvicorn zeroth.econ.plane.main:app --host 0.0.0.0 --port 8000
     environment:
       ECP_JWT_SECRET: "${ECP_JWT_SECRET}"
 ```

@@ -4,7 +4,7 @@ This is the econ plane's side of right-to-erasure: the
 :class:`~zeroth.governance.retention.econ_eraser.EconEventEraser` protocol stays with
 retention, which defines *what* erasure needs; this adapter lives with the
 database it deletes from and is injected into the erasure service. Keeping it
-here is what lets the governance domain not import ``zeroth.econ_plane``.
+here is what lets the governance domain not import ``zeroth.econ.plane``.
 
 See the correlation caveat on the protocol module: deletions are constrained by
 both tenant and explicit join keys, never by nested payload keys.
@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 class SqlAlchemyEconEventEraser:
     """Concrete ``EconEventEraser`` over the econ_plane SQLAlchemy models.
 
-    Imports ``zeroth.econ_plane`` lazily so a plain ``zeroth-core`` install
+    Imports ``zeroth.econ.plane`` lazily so a plain ``zeroth-core`` install
     without the ``regulus`` extra never pays for it. Not wired into the default
     boot path (see bootstrap) — instantiate and pass it to
     ``RetentionErasureService`` when the econ plane is present.
@@ -47,8 +47,8 @@ class SqlAlchemyEconEventEraser:
         # Lazy import: keeps the econ_plane dependency out of the base install.
         from sqlalchemy import delete
 
-        from zeroth.econ_plane.database import SessionLocal
-        from zeroth.econ_plane.instrumentation.models import (
+        from zeroth.econ.plane.database import SessionLocal
+        from zeroth.econ.plane.instrumentation.models import (
             EconErasureReceipt,
             ExecutionEvent,
             OutcomeEvent,

@@ -35,9 +35,9 @@ async def service_lifespan(app: FastAPI):
     # sub-app's startup events, so econ_plane.main's on_startup never fires.
     if getattr(app.state.bootstrap, "regulus_client", None) is not None:
         try:
-            from zeroth.econ_plane.common.bootstrap import bootstrap as econ_plane_bootstrap
-            from zeroth.econ_plane.config import settings as ecp_settings
-            from zeroth.econ_plane.connectors.service import init_otel_metrics
+            from zeroth.econ.plane.common.bootstrap import bootstrap as econ_plane_bootstrap
+            from zeroth.econ.plane.config import settings as ecp_settings
+            from zeroth.econ.plane.connectors.service import init_otel_metrics
 
             # Default-safe JWT secret for the bundled control plane. The
             # mounted plane signs its Admin tokens with ECP_JWT_SECRET, so

@@ -26,13 +26,13 @@ from datetime import UTC, datetime
 
 import pytest
 
-# zeroth.econ_plane binds its SQLAlchemy engine to ECP_DATABASE_URL at import time,
-# so set it to a throwaway SQLite file BEFORE zeroth.econ_plane is first imported.
+# zeroth.econ.plane binds its SQLAlchemy engine to ECP_DATABASE_URL at import time,
+# so set it to a throwaway SQLite file BEFORE zeroth.econ.plane is first imported.
 _DB_FD, _DB_PATH = tempfile.mkstemp(suffix="_econ_mount.db")
 os.close(_DB_FD)
 os.environ["ECP_DATABASE_URL"] = f"sqlite+pysqlite:///{_DB_PATH}"
 
-pytest.importorskip("zeroth.econ_plane", reason="requires the 'regulus' extra")
+pytest.importorskip("zeroth.econ.plane", reason="requires the 'regulus' extra")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -179,8 +179,8 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
         assert ingest.json()["status"] == "inserted"
 
     # Persistence proof: the row is actually in econ_plane's database.
-    from zeroth.econ_plane.database import SessionLocal
-    from zeroth.econ_plane.instrumentation.models import ExecutionEvent
+    from zeroth.econ.plane.database import SessionLocal
+    from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 
     with SessionLocal() as db:
         row = db.query(ExecutionEvent).filter_by(execution_id=exec_id).one_or_none()
@@ -189,7 +189,7 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
 
 def test_minted_service_token_is_admin_and_decodable() -> None:
     """The minted econ token is valid and carries the Admin role."""
-    from zeroth.econ_plane.auth.service import decode_token
+    from zeroth.econ.plane.auth.service import decode_token
 
     token = mint_econ_service_token()
     assert token is not None
@@ -367,7 +367,7 @@ async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
     not the external localhost:8000 default). A $0.01 cap for "acme" plus $0.02
     of ingested spend makes the enforcer deny.
     """
-    from zeroth.econ_plane.main import app as econ_plane_app
+    from zeroth.econ.plane.main import app as econ_plane_app
 
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
@@ -397,7 +397,7 @@ async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
 async def test_cross_tenant_cap_isolation() -> None:
     """A cap seeded for tenant A only denies A after over-spend while tenant B
     (no cap) stays unlimited — caps do not leak across tenants."""
-    from zeroth.econ_plane.main import app as econ_plane_app
+    from zeroth.econ.plane.main import app as econ_plane_app
 
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
@@ -485,8 +485,8 @@ async def test_cap_trips_by_default_no_env_flags(monkeypatch) -> None:
     from pydantic import BaseModel
 
     from zeroth.platform.config.models import RegulusSettings
-    from zeroth.econ_plane.config import settings as ecp_settings
-    from zeroth.econ_plane.main import app as econ_plane_app
+    from zeroth.econ.plane.config import settings as ecp_settings
+    from zeroth.econ.plane.main import app as econ_plane_app
 
     # Simulate a pristine fresh deploy: placeholder secret, no escape flag set.
     monkeypatch.delenv("ECP_ALLOW_INSECURE_JWT_SECRET", raising=False)

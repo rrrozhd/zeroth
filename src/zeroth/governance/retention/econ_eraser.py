@@ -1,6 +1,6 @@
 """Econ-event erasure hook (WS-E).
 
-The economic control plane (``zeroth.econ_plane``) records ``execution_events``
+The economic control plane (``zeroth.econ.plane``) records ``execution_events``
 and ``outcome_events`` that carry tenant / cost / potentially-PII payloads on its
 OWN SQLAlchemy database — separate from the core append-only audit DB. Right-to-
 erasure must reach that data too, so the erasure service calls this interface.
@@ -16,7 +16,7 @@ and join key; automatic, complete run->join_key resolution remains deferred.
 Only the protocol lives here. The concrete SQLAlchemy adapter moved to
 :mod:`zeroth.econ.plane.erasure` — it is econ-plane code, and its presence in
 this module was the only reason the governance domain imported
-``zeroth.econ_plane``. The re-export below resolves lazily so this module keeps
+``zeroth.econ.plane``. The re-export below resolves lazily so this module keeps
 no import edge into the econ domain.
 """
 

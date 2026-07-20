@@ -185,7 +185,7 @@ async def bootstrap_service(
             # otherwise fall back to the external-HTTP base_url path unchanged.
             econ_plane_app = None
             try:
-                from zeroth.econ_plane.main import app as econ_plane_app
+                from zeroth.econ.plane.main import app as econ_plane_app
             except ImportError:
                 econ_plane_app = None
 
