@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
-from zeroth.core.approvals.models import ApprovalRecord
+from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.governance.approvals.models import ApprovalRecord
 from zeroth.core.audit import AuditRepository
 from zeroth.platform.dispatch.lease import LeaseManager
 from zeroth.core.identity import ActorIdentity

@@ -1,6 +1,6 @@
 """Background retention purge worker (WS-E).
 
-Mirrors :class:`zeroth.core.approvals.sla_checker.ApprovalSLAChecker` exactly: an
+Mirrors :class:`zeroth.governance.approvals.sla_checker.ApprovalSLAChecker` exactly: an
 ``@dataclass`` with an ``async poll_loop`` that runs until cancelled, catches and
 logs per-iteration errors, and sleeps ``poll_interval`` seconds between sweeps.
 Started in the service lifespan via ``asyncio.create_task`` and cancelled on

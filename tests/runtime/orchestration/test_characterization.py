@@ -31,7 +31,7 @@ from zeroth.core.agent_runtime import (
     DeterministicProviderAdapter,
 )
 from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
 from zeroth.core.audit import AuditRepository
 from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.contracts.graph import (

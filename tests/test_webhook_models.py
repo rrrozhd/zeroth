@@ -183,7 +183,7 @@ class TestApprovalStatusEscalated:
     """ApprovalStatus ESCALATED value."""
 
     def test_escalated_value(self):
-        from zeroth.core.approvals.models import ApprovalStatus
+        from zeroth.governance.approvals.models import ApprovalStatus
 
         assert ApprovalStatus.ESCALATED == "escalated"
 
@@ -192,7 +192,7 @@ class TestApprovalRecordSLAFields:
     """ApprovalRecord SLA fields backward compatibility."""
 
     def test_sla_fields_default_none(self):
-        from zeroth.core.approvals.models import ApprovalRecord
+        from zeroth.governance.approvals.models import ApprovalRecord
 
         record = ApprovalRecord(
             run_id="run-1",
@@ -207,7 +207,7 @@ class TestApprovalRecordSLAFields:
         assert record.escalated_from_id is None
 
     def test_sla_fields_with_values(self):
-        from zeroth.core.approvals.models import ApprovalRecord
+        from zeroth.governance.approvals.models import ApprovalRecord
 
         deadline = datetime(2026, 1, 1, tzinfo=UTC)
         record = ApprovalRecord(

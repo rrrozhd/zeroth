@@ -24,7 +24,6 @@ from zeroth.contracts.graph import (
 )
 from zeroth.contracts.mappings import MappingExecutor
 from zeroth.core.agent_runtime import AgentRunner, RepositoryThreadResolver
-from zeroth.core.approvals import ApprovalRecord, ApprovalService
 from zeroth.core.audit import AuditRepository
 from zeroth.core.audit.models import MemoryAccessRecord, ToolCallRecord
 from zeroth.core.execution_units import ExecutableUnitRunner
@@ -36,6 +35,7 @@ from zeroth.core.parallel.models import (
 )
 from zeroth.core.policy import Capability, PolicyGuard
 from zeroth.core.runs import Run, RunRepository, RunStatus
+from zeroth.governance.approvals import ApprovalRecord, ApprovalService
 from zeroth.platform.observability import start_span
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder

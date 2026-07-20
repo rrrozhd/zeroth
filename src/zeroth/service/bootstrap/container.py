@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph, GraphRepository
     from zeroth.contracts.registry import ContractRegistry
-    from zeroth.core.approvals import ApprovalService
     from zeroth.core.audit import AuditRepository
     from zeroth.core.deployments import Deployment, DeploymentService
     from zeroth.core.econ.client import RegulusClient
@@ -18,6 +17,7 @@ if TYPE_CHECKING:
     from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
     from zeroth.core.memory.registry import InMemoryConnectorRegistry
     from zeroth.core.orchestrator import RuntimeOrchestrator
+    from zeroth.governance.approvals import ApprovalService
     from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
     from zeroth.platform.dispatch import LeaseManager
     from zeroth.platform.observability.metrics import MetricsCollector

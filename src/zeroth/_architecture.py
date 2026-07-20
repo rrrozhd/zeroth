@@ -260,8 +260,20 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 13: move governance packages behind contract-owned interfaces.",
     ),
     **_exception_group(
-        ("zeroth.core.approvals.service", "zeroth.core.runs"),
-        ("zeroth.core.approvals.service", "zeroth.core.orchestrator.runtime"),
+        ("zeroth.governance.approvals.service", "zeroth.core.runs"),
+        reason=(
+            "ApprovalService's pinned __init__ names RunRepository in the "
+            "run_repository annotation, and the immutable legacy fixture pins "
+            "that signature text, so the parameter cannot be re-annotated with "
+            "a governance-owned protocol -- the same wall as "
+            "RetentionErasureService. Run and RunFailureState are also "
+            "consumed at runtime for resume bookkeeping. The RunStatus import "
+            "moved to its contract-owned definition in zeroth.contracts."
+            "governed, so this edge carries only the run bookkeeping objects."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+    ),
+    **_exception_group(
         ("zeroth.core.guardrails.dead_letter", "zeroth.core.runs"),
         (
             "zeroth.core.guardrails.dead_letter",

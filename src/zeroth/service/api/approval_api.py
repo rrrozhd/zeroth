@@ -7,8 +7,8 @@ from typing import Any, Protocol
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.core.approvals import ApprovalDecision, ApprovalRecord, ApprovalStatus
 from zeroth.core.runs import RunStatus
+from zeroth.governance.approvals import ApprovalDecision, ApprovalRecord, ApprovalStatus
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,

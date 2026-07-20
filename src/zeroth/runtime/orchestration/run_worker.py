@@ -216,7 +216,7 @@ class RunWorker:
     async def _drive_approval_resumed(self, run: object, approval_id: str) -> None:
         """Resume a run that was paused for an approval and is now resolved."""
         from zeroth.contracts.graph import HumanApprovalNode
-        from zeroth.core.approvals import ApprovalService
+        from zeroth.governance.approvals import ApprovalService
 
         approval_service: ApprovalService | None = getattr(
             self.orchestrator, "approval_service", None

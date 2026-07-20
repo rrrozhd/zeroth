@@ -1,18 +1,19 @@
-"""Approval package exports.
+"""Legacy import path for the governed approvals package.
 
-This package re-exports the key models, the database repository, and the
-high-level service so callers can simply ``from zeroth.core.approvals import ...``.
+The approvals subsystem lives in :mod:`zeroth.governance.approvals`; this
+package republishes the same objects for compatibility. Import from the
+canonical location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.approvals.models import (
+from zeroth.governance.approvals import (
     ApprovalDecision,
     ApprovalRecord,
+    ApprovalRepository,
     ApprovalResolution,
+    ApprovalService,
     ApprovalStatus,
     HumanInteractionType,
 )
-from zeroth.core.approvals.repository import ApprovalRepository
-from zeroth.core.approvals.service import ApprovalService
 
 __all__ = [
     "ApprovalDecision",

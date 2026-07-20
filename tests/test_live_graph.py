@@ -39,7 +39,7 @@ from zeroth.core.agent_runtime.provider import (
     LiteLLMProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
 from zeroth.core.audit import AuditRepository
 from zeroth.core.deployments.models import Deployment
 from zeroth.core.execution_units import (

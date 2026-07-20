@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from zeroth.core.approvals import ApprovalRecord, ApprovalRepository
+from zeroth.governance.approvals import ApprovalRecord, ApprovalRepository
 from zeroth.core.audit import AuditRepository, NodeAuditRecord
 from zeroth.contracts.registry import ContractNotFoundError, ContractRegistryError
 from zeroth.contracts.graph.validation_errors import (

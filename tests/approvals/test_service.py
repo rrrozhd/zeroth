@@ -4,8 +4,8 @@ from datetime import UTC
 
 import pytest
 
-import zeroth.core.approvals.models as approval_models
-from zeroth.core.approvals import (
+import zeroth.governance.approvals.models as approval_models
+from zeroth.governance.approvals import (
     ApprovalDecision,
     ApprovalRepository,
     ApprovalService,

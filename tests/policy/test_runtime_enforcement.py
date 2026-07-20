@@ -206,7 +206,7 @@ async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(s
         ],
         edges=[],
     )
-    from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+    from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
 
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
