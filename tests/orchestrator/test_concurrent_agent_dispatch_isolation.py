@@ -21,7 +21,7 @@ from zeroth.core.agent_runtime.provider import (
 )
 from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
 from zeroth.governance.audit.models import TokenUsage
-from zeroth.core.context_window import ContextWindowSettings
+from zeroth.runtime.context import ContextWindowSettings
 from zeroth.core.econ.adapter import InstrumentedProviderAdapter
 from zeroth.core.execution_units import ExecutableUnitRunResult
 from zeroth.contracts.graph import (

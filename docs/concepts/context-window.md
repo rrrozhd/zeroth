@@ -40,4 +40,4 @@ Context window settings are per-agent-node, configured on `ContextWindowSettings
 - **`CompactionError`** -- Raised when a compaction strategy fails to reduce context.
 - **`ContextWindowError`** -- Base error for all context window operations.
 
-See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.core.context_window` for implementation.
+See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.runtime.context` for implementation.

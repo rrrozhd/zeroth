@@ -313,7 +313,7 @@ class NodeDispatcher:
                 and hasattr(node.agent, "context_window")
                 and node.agent.context_window is not None
             ):
-                from zeroth.core.context_window import (
+                from zeroth.runtime.context import (
                     ContextWindowTracker,
                     LLMSummarizationStrategy,
                     ObservationMaskingStrategy,

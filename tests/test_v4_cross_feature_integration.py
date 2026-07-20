@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from zeroth.core.agent_runtime import AgentConfig, AgentRunner
 from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.governance.audit import AuditRepository
-from zeroth.core.context_window.models import ContextWindowSettings
+from zeroth.runtime.context.models import ContextWindowSettings
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.contracts.graph import (
     AgentNode,

@@ -1,28 +1,23 @@
-"""Context window management for the Zeroth platform.
+"""Legacy import path for the runtime context package.
 
-Provides token tracking, compaction threshold detection, and built-in
-compaction strategies for managing LLM context window limits.
+Context window management lives in :mod:`zeroth.runtime.context`; this
+package republishes the same objects for compatibility. Import from the
+canonical location instead (see docs/backend-import-migration.md).
 """
 
-from __future__ import annotations
-
-from zeroth.core.context_window.errors import (
+from zeroth.runtime.context import (
     CompactionError,
-    ContextWindowError,
-    TokenCountError,
-)
-from zeroth.core.context_window.models import (
     CompactionResult,
     CompactionState,
-    ContextWindowSettings,
-)
-from zeroth.core.context_window.strategies import (
     CompactionStrategy,
+    ContextWindowError,
+    ContextWindowSettings,
+    ContextWindowTracker,
     LLMSummarizationStrategy,
     ObservationMaskingStrategy,
+    TokenCountError,
     TruncationStrategy,
 )
-from zeroth.core.context_window.tracker import ContextWindowTracker
 
 __all__ = [
     "CompactionError",

@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.context_window import (
+from zeroth.runtime.context import (
     ContextWindowSettings,
     ContextWindowTracker,
     LLMSummarizationStrategy,
