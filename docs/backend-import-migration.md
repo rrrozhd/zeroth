@@ -441,6 +441,30 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.identity.models:PrincipalScope` | `zeroth.governance.identity.models:PrincipalScope` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.identity.models:AuthMethod` | `zeroth.governance.identity.models:AuthMethod` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.identity.models:ServiceRole` | `zeroth.governance.identity.models:ServiceRole` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy:Capability` | `zeroth.contracts.graph:Capability` | Move policy governance | Legacy path still re-exports; enum is authored graph vocabulary | Same class object | Not removed |
+| `zeroth.core.policy:CapabilityDeniedError` | `zeroth.governance.policy:CapabilityDeniedError` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy:CapabilityRegistry` | `zeroth.governance.policy:CapabilityRegistry` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy:EnforcementResult` | `zeroth.governance.policy:EnforcementResult` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy:PolicyDecision` | `zeroth.governance.policy:PolicyDecision` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy:PolicyDefinition` | `zeroth.governance.policy:PolicyDefinition` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy:PolicyGuard` | `zeroth.governance.policy:PolicyGuard` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy:PolicyRegistry` | `zeroth.governance.policy:PolicyRegistry` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy:apply_secret_policy` | `zeroth.governance.policy:apply_secret_policy` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.policy:default_capability_registry` | `zeroth.governance.policy:default_capability_registry` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.policy:parse_effective_capabilities` | `zeroth.governance.policy:parse_effective_capabilities` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.policy:require_capabilities` | `zeroth.governance.policy:require_capabilities` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.policy.errors:CapabilityDeniedError` | `zeroth.governance.policy.errors:CapabilityDeniedError` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy.errors:parse_effective_capabilities` | `zeroth.governance.policy.errors:parse_effective_capabilities` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.policy.errors:require_capabilities` | `zeroth.governance.policy.errors:require_capabilities` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.policy.models:Capability` | `zeroth.contracts.graph.models:Capability` | Move policy governance | Legacy path still re-exports; the graph contracts now define the enum | Same class object | Not removed |
+| `zeroth.core.policy.models:EnforcementResult` | `zeroth.governance.policy.models:EnforcementResult` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy.models:PolicyDecision` | `zeroth.governance.policy.models:PolicyDecision` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy.models:PolicyDefinition` | `zeroth.governance.policy.models:PolicyDefinition` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy.guard:PolicyGuard` | `zeroth.governance.policy.guard:PolicyGuard` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy.guard:apply_secret_policy` | `zeroth.governance.policy.guard:apply_secret_policy` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.policy.registry:CapabilityRegistry` | `zeroth.governance.policy.registry:CapabilityRegistry` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy.registry:PolicyRegistry` | `zeroth.governance.policy.registry:PolicyRegistry` | Move policy governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.policy.registry:default_capability_registry` | `zeroth.governance.policy.registry:default_capability_registry` | Move policy governance | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

@@ -798,7 +798,7 @@
       ],
       "module": "zeroth.core.agent_runtime",
       "name": "ToolAttachmentBinding",
-      "signature": "(*, alias: str, executable_unit_ref: str, description: str = '', parameters_schema: dict[str, typing.Any] | None = None, permission_scope: tuple[str, ...] = <factory>, required_capabilities: tuple[zeroth.core.policy.models.Capability, ...] = <factory>, timeout_override_seconds: Annotated[float | None, Ge(ge=0.0)] = None, side_effect_allowed: bool = False, max_output_chars: Annotated[int | None, Ge(ge=1)] = None, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, alias: str, executable_unit_ref: str, description: str = '', parameters_schema: dict[str, typing.Any] | None = None, permission_scope: tuple[str, ...] = <factory>, required_capabilities: tuple[zeroth.contracts.graph.models.Capability, ...] = <factory>, timeout_override_seconds: Annotated[float | None, Ge(ge=0.0)] = None, side_effect_allowed: bool = False, max_output_chars: Annotated[int | None, Ge(ge=1)] = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -842,7 +842,7 @@
       ],
       "module": "zeroth.core.agent_runtime",
       "name": "ToolAttachmentManifest",
-      "signature": "(*, alias: str, executable_unit_ref: str, description: str = '', parameters_schema: dict[str, typing.Any] | None = None, permission_scope: tuple[str, ...] = <factory>, required_capabilities: tuple[zeroth.core.policy.models.Capability, ...] = <factory>, timeout_override_seconds: Annotated[float | None, Ge(ge=0.0)] = None, side_effect_allowed: bool = False, max_output_chars: Annotated[int | None, Ge(ge=1)] = None, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, alias: str, executable_unit_ref: str, description: str = '', parameters_schema: dict[str, typing.Any] | None = None, permission_scope: tuple[str, ...] = <factory>, required_capabilities: tuple[zeroth.contracts.graph.models.Capability, ...] = <factory>, timeout_override_seconds: Annotated[float | None, Ge(ge=0.0)] = None, side_effect_allowed: bool = False, max_output_chars: Annotated[int | None, Ge(ge=1)] = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -6012,7 +6012,7 @@
       ],
       "module": "zeroth.contracts.graph",
       "name": "AgentToolBinding",
-      "signature": "(*, target_node_id: str, name: Annotated[str, _PydanticGeneralMetadata(pattern='^[a-zA-Z0-9_-]{1,64}$')], description: Annotated[str, MinLen(min_length=1)], arguments: list[zeroth.contracts.graph.models.ToolArgument] = <factory>, required_capabilities: list[zeroth.core.policy.models.Capability] = <factory>) -> None"
+      "signature": "(*, target_node_id: str, name: Annotated[str, _PydanticGeneralMetadata(pattern='^[a-zA-Z0-9_-]{1,64}$')], description: Annotated[str, MinLen(min_length=1)], arguments: list[zeroth.contracts.graph.models.ToolArgument] = <factory>, required_capabilities: list[zeroth.contracts.graph.models.Capability] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -6430,7 +6430,7 @@
       ],
       "module": "zeroth.contracts.graph.models",
       "name": "AgentToolBinding",
-      "signature": "(*, target_node_id: str, name: Annotated[str, _PydanticGeneralMetadata(pattern='^[a-zA-Z0-9_-]{1,64}$')], description: Annotated[str, MinLen(min_length=1)], arguments: list[zeroth.contracts.graph.models.ToolArgument] = <factory>, required_capabilities: list[zeroth.core.policy.models.Capability] = <factory>) -> None"
+      "signature": "(*, target_node_id: str, name: Annotated[str, _PydanticGeneralMetadata(pattern='^[a-zA-Z0-9_-]{1,64}$')], description: Annotated[str, MinLen(min_length=1)], arguments: list[zeroth.contracts.graph.models.ToolArgument] = <factory>, required_capabilities: list[zeroth.contracts.graph.models.Capability] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -8077,212 +8077,212 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.contracts.graph",
         "docs:docs/reference/python-api/policy.md",
         "examples:examples/21_policy_block.py",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.contracts.graph"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy:Capability"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.contracts.graph",
       "name": "Capability",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy:CapabilityDeniedError"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "CapabilityDeniedError",
       "signature": "(*, node_id: 'str', required: 'set[Capability]', granted: 'set[Capability]') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
         "examples:examples/21_policy_block.py",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy:CapabilityRegistry"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "CapabilityRegistry",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy:EnforcementResult"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "EnforcementResult",
-      "signature": "(*, decision: zeroth.core.policy.models.PolicyDecision, reason: str | None = None, effective_capabilities: set[zeroth.core.policy.models.Capability] = <factory>, allowed_secrets: list[str] = <factory>, network_mode: str | None = None, approval_required_for_side_effects: bool = False, timeout_override_seconds: float | None = None, sandbox_strictness_mode: str | None = None) -> None"
+      "signature": "(*, decision: zeroth.governance.policy.models.PolicyDecision, reason: str | None = None, effective_capabilities: set[zeroth.contracts.graph.models.Capability] = <factory>, allowed_secrets: list[str] = <factory>, network_mode: str | None = None, approval_required_for_side_effects: bool = False, timeout_override_seconds: float | None = None, sandbox_strictness_mode: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy:PolicyDecision"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "PolicyDecision",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
         "examples:examples/21_policy_block.py",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy:PolicyDefinition"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "PolicyDefinition",
-      "signature": "(*, policy_id: str, allowed_capabilities: list[zeroth.core.policy.models.Capability] = <factory>, denied_capabilities: list[zeroth.core.policy.models.Capability] = <factory>, allowed_secrets: list[str] = <factory>, network_mode: str | None = None, approval_required_for_side_effects: bool = False, timeout_override_seconds: float | None = None, sandbox_strictness_mode: str | None = None) -> None"
+      "signature": "(*, policy_id: str, allowed_capabilities: list[zeroth.contracts.graph.models.Capability] = <factory>, denied_capabilities: list[zeroth.contracts.graph.models.Capability] = <factory>, allowed_secrets: list[str] = <factory>, network_mode: str | None = None, approval_required_for_side_effects: bool = False, timeout_override_seconds: float | None = None, sandbox_strictness_mode: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/how-to/policy.md",
         "docs:docs/reference/python-api/policy.md",
         "examples:examples/21_policy_block.py",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy:PolicyGuard"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "PolicyGuard",
       "signature": "(*, policy_registry: 'PolicyRegistry | None' = None, capability_registry: 'CapabilityRegistry | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
         "examples:examples/21_policy_block.py",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy:PolicyRegistry"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "PolicyRegistry",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.policy:apply_secret_policy"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "apply_secret_policy",
       "signature": "(env: 'Mapping[str, str]', *, allowed_secrets: 'list[str]', secret_access_enabled: 'bool') -> 'dict[str, str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.policy:default_capability_registry"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "default_capability_registry",
       "signature": "() -> 'CapabilityRegistry'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.policy:parse_effective_capabilities"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "parse_effective_capabilities",
       "signature": "(ctx: 'Mapping[str, Any] | None') -> 'set[Capability]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy",
+        "__all__:zeroth.governance.policy",
         "docs:docs/reference/python-api/policy.md",
-        "package_export:zeroth.core.policy"
+        "package_export:zeroth.governance.policy"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.policy:require_capabilities"
       ],
-      "module": "zeroth.core.policy",
+      "module": "zeroth.governance.policy",
       "name": "require_capabilities",
       "signature": "(required: 'Iterable[Capability]', effective: 'set[Capability] | None', *, node_id: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy.errors",
-        "package_export:zeroth.core.policy.errors"
+        "__all__:zeroth.governance.policy.errors",
+        "package_export:zeroth.governance.policy.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy.errors:CapabilityDeniedError"
       ],
-      "module": "zeroth.core.policy.errors",
+      "module": "zeroth.governance.policy.errors",
       "name": "CapabilityDeniedError",
       "signature": "(*, node_id: 'str', required: 'set[Capability]', granted: 'set[Capability]') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy.errors"
+        "__all__:zeroth.governance.policy.errors"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.policy.errors:parse_effective_capabilities"
       ],
-      "module": "zeroth.core.policy.errors",
+      "module": "zeroth.governance.policy.errors",
       "name": "parse_effective_capabilities",
       "signature": "(ctx: 'Mapping[str, Any] | None') -> 'set[Capability]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.policy.errors"
+        "__all__:zeroth.governance.policy.errors"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.policy.errors:require_capabilities"
       ],
-      "module": "zeroth.core.policy.errors",
+      "module": "zeroth.governance.policy.errors",
       "name": "require_capabilities",
       "signature": "(required: 'Iterable[Capability]', effective: 'set[Capability] | None', *, node_id: 'str') -> 'None'"
     },
@@ -8294,34 +8294,34 @@
       "legacy_ids": [
         "zeroth.core.policy.models:Capability"
       ],
-      "module": "zeroth.core.policy.models",
+      "module": "zeroth.contracts.graph.models",
       "name": "Capability",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.policy.models"
+        "schema_model:zeroth.governance.policy.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy.models:EnforcementResult"
       ],
-      "module": "zeroth.core.policy.models",
+      "module": "zeroth.governance.policy.models",
       "name": "EnforcementResult",
-      "signature": "(*, decision: zeroth.core.policy.models.PolicyDecision, reason: str | None = None, effective_capabilities: set[zeroth.core.policy.models.Capability] = <factory>, allowed_secrets: list[str] = <factory>, network_mode: str | None = None, approval_required_for_side_effects: bool = False, timeout_override_seconds: float | None = None, sandbox_strictness_mode: str | None = None) -> None"
+      "signature": "(*, decision: zeroth.governance.policy.models.PolicyDecision, reason: str | None = None, effective_capabilities: set[zeroth.contracts.graph.models.Capability] = <factory>, allowed_secrets: list[str] = <factory>, network_mode: str | None = None, approval_required_for_side_effects: bool = False, timeout_override_seconds: float | None = None, sandbox_strictness_mode: str | None = None) -> None"
     },
     {
       "evidence": [
         "docs:docs/how-to/policy.md",
-        "schema_model:zeroth.core.policy.models"
+        "schema_model:zeroth.governance.policy.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.policy.models:PolicyDefinition"
       ],
-      "module": "zeroth.core.policy.models",
+      "module": "zeroth.governance.policy.models",
       "name": "PolicyDefinition",
-      "signature": "(*, policy_id: str, allowed_capabilities: list[zeroth.core.policy.models.Capability] = <factory>, denied_capabilities: list[zeroth.core.policy.models.Capability] = <factory>, allowed_secrets: list[str] = <factory>, network_mode: str | None = None, approval_required_for_side_effects: bool = False, timeout_override_seconds: float | None = None, sandbox_strictness_mode: str | None = None) -> None"
+      "signature": "(*, policy_id: str, allowed_capabilities: list[zeroth.contracts.graph.models.Capability] = <factory>, denied_capabilities: list[zeroth.contracts.graph.models.Capability] = <factory>, allowed_secrets: list[str] = <factory>, network_mode: str | None = None, approval_required_for_side_effects: bool = False, timeout_override_seconds: float | None = None, sandbox_strictness_mode: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -8331,7 +8331,7 @@
       "legacy_ids": [
         "zeroth.core.policy.registry:CapabilityRegistry"
       ],
-      "module": "zeroth.core.policy.registry",
+      "module": "zeroth.governance.policy.registry",
       "name": "CapabilityRegistry",
       "signature": "() -> 'None'"
     },
@@ -8343,7 +8343,7 @@
       "legacy_ids": [
         "zeroth.core.policy.registry:PolicyRegistry"
       ],
-      "module": "zeroth.core.policy.registry",
+      "module": "zeroth.governance.policy.registry",
       "name": "PolicyRegistry",
       "signature": "() -> 'None'"
     },
