@@ -54,7 +54,7 @@ from zeroth.runtime.parallel.models import (
     FanInResult,
     ParallelConfig,
 )
-from zeroth.core.subgraph.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@ class TestNamespaceSubgraphBranchIndex:
 
     def test_no_branch_index_matches_phase_39(self) -> None:
         from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
-        from zeroth.core.subgraph.resolver import namespace_subgraph
+        from zeroth.runtime.subgraphs.resolver import namespace_subgraph
 
         node = AgentNode(
             node_id="a1",
@@ -282,7 +282,7 @@ class TestNamespaceSubgraphBranchIndex:
 
     def test_branch_index_produces_branch_prefix(self) -> None:
         from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
-        from zeroth.core.subgraph.resolver import namespace_subgraph
+        from zeroth.runtime.subgraphs.resolver import namespace_subgraph
 
         node = AgentNode(
             node_id="a1",
@@ -301,7 +301,7 @@ class TestNamespaceSubgraphBranchIndex:
     def test_branch_index_idempotent_re_namespacing(self) -> None:
         """D-11 idempotency: re-namespacing with same branch_index is stable."""
         from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
-        from zeroth.core.subgraph.resolver import namespace_subgraph
+        from zeroth.runtime.subgraphs.resolver import namespace_subgraph
 
         node = AgentNode(
             node_id="a1",
@@ -342,7 +342,7 @@ class TestScenario1SubgraphInFanOutBranch:
         )
         from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
         from zeroth.core.runs.models import Run, RunStatus
-        from zeroth.core.subgraph.executor import SubgraphExecutor
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
         # Parent graph: source AgentNode (fan-out) -> SubgraphNode (downstream).
         source_node = AgentNode(
@@ -459,7 +459,7 @@ class TestScenario1SubgraphInFanOutBranch:
         )
         from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
         from zeroth.core.runs.models import Run, RunStatus
-        from zeroth.core.subgraph.executor import SubgraphExecutor
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
         source_node = AgentNode(
             node_id="source",

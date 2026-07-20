@@ -364,8 +364,8 @@ async def bootstrap_service(
     orchestrator.template_renderer = template_renderer
 
     # Phase 39: Subgraph composition.
-    from zeroth.core.subgraph.executor import SubgraphExecutor  # noqa: PLC0415
-    from zeroth.core.subgraph.resolver import SubgraphResolver  # noqa: PLC0415
+    from zeroth.runtime.subgraphs.executor import SubgraphExecutor  # noqa: PLC0415
+    from zeroth.runtime.subgraphs.resolver import SubgraphResolver  # noqa: PLC0415
 
     subgraph_resolver = SubgraphResolver(deployment_service=deployment_service)
     subgraph_executor = SubgraphExecutor(resolver=subgraph_resolver)

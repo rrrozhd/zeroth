@@ -15,9 +15,9 @@ from zeroth.contracts.graph.models import (
     SubgraphNode,
 )
 from zeroth.contracts.graph.serialization import serialize_graph
-from zeroth.core.subgraph.errors import SubgraphResolutionError
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import (
+from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import (
     SubgraphResolver,
     merge_governance,
     namespace_subgraph,

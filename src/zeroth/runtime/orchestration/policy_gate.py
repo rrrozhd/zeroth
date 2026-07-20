@@ -29,11 +29,11 @@ from zeroth.contracts.graph import (
     Node,
 )
 from zeroth.core.runs import Run, RunStatus
-from zeroth.core.subgraph.resolver import base_node_id
 from zeroth.governance.approvals import ApprovalDecision, ApprovalService
 from zeroth.governance.policy import Capability, PolicyDecision, PolicyGuard
 from zeroth.governance.policy.errors import parse_effective_capabilities
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
+from zeroth.runtime.subgraphs.resolver import base_node_id
 
 
 @dataclass(frozen=True, slots=True)

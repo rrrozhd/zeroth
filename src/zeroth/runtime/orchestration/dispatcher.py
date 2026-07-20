@@ -34,7 +34,6 @@ from zeroth.contracts.graph import (
 )
 from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.runs import Run
-from zeroth.core.subgraph.resolver import base_node_id
 from zeroth.platform.observability import start_span
 from zeroth.runtime.orchestration.errors import (
     MemoryBindingResolutionError,
@@ -42,6 +41,7 @@ from zeroth.runtime.orchestration.errors import (
 )
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
+from zeroth.runtime.subgraphs.resolver import base_node_id
 
 logger = logging.getLogger(__name__)
 

@@ -17,15 +17,15 @@ from zeroth.contracts.graph.models import (
 from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.core.orchestrator.runtime import OrchestratorError, RuntimeOrchestrator
 from zeroth.core.runs.models import Run, RunStatus
-from zeroth.core.subgraph.errors import (
+from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
     SubgraphExecutionError,
     SubgraphResolutionError,
 )
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 
 # ---------------------------------------------------------------------------

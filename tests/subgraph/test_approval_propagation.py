@@ -25,10 +25,10 @@ from zeroth.contracts.graph.models import (
 )
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs.models import Run, RunStatus
-from zeroth.core.subgraph.errors import SubgraphResolutionError
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 
 # ---------------------------------------------------------------------------

@@ -35,7 +35,7 @@ from zeroth.contracts.graph.models import (
     SubgraphNode,
 )
 from zeroth.contracts.graph.validation_errors import GraphValidationError
-from zeroth.core.subgraph.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.service.api.authorization import Permission, require_permission
 from zeroth.service.api.studio_schemas import (
     CreateContractRequest,

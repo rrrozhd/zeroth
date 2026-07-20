@@ -7,7 +7,7 @@ the pause points that return a run mid-flight.
 
 ``RuntimeOrchestrator`` keeps ``_drive`` and ``_entry_step`` as delegating
 methods because ``zeroth.runtime.orchestration.run_worker`` and
-``zeroth.core.subgraph.executor`` call them on the orchestrator by name.
+``zeroth.runtime.subgraphs.executor`` call them on the orchestrator by name.
 
 End-to-end behavior is guarded by ``tests/runtime/orchestration/
 test_characterization.py``, which pins the exact side-effect order this loop

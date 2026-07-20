@@ -32,13 +32,6 @@ from zeroth.contracts.graph import Graph, HumanApprovalNode, SubgraphNode
 from zeroth.contracts.mappings import MappingExecutor
 from zeroth.core.agent_runtime.errors import BudgetExceededError
 from zeroth.core.runs import Run, RunFailureState, RunStatus
-from zeroth.core.subgraph.errors import (
-    SubgraphCycleError,
-    SubgraphDepthLimitError,
-    SubgraphExecutionError,
-    SubgraphResolutionError,
-)
-from zeroth.core.subgraph.resolver import merge_governance, namespace_subgraph
 from zeroth.platform.observability import start_span
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
@@ -51,6 +44,13 @@ from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.tool_executor import node_by_id
 from zeroth.runtime.parallel.errors import FanOutValidationError, ParallelExecutionError
 from zeroth.runtime.parallel.models import GlobalStepTracker
+from zeroth.runtime.subgraphs.errors import (
+    SubgraphCycleError,
+    SubgraphDepthLimitError,
+    SubgraphExecutionError,
+    SubgraphResolutionError,
+)
+from zeroth.runtime.subgraphs.resolver import merge_governance, namespace_subgraph
 
 logger = logging.getLogger(__name__)
 

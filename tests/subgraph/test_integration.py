@@ -33,10 +33,10 @@ from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.core.deployments.models import Deployment
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
 from zeroth.core.runs.models import Run, RunStatus
-from zeroth.core.subgraph.errors import SubgraphCycleError, SubgraphDepthLimitError
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.subgraphs.errors import SubgraphCycleError, SubgraphDepthLimitError
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +576,7 @@ class TestErrorPaths:
     @pytest.mark.asyncio
     async def test_nonexistent_graph_ref_fails_run(self) -> None:
         """graph_ref pointing to non-existent deployment fails the run."""
-        from zeroth.core.subgraph.errors import SubgraphResolutionError
+        from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
 
         mock_executor = MagicMock(spec=SubgraphExecutor)
         mock_executor.execute = AsyncMock(

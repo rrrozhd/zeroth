@@ -27,7 +27,6 @@ from typing import Any
 
 from zeroth.contracts.graph import Graph, Node, SubgraphNode
 from zeroth.core.runs import Run, RunHistoryEntry, RunStatus
-from zeroth.core.subgraph.resolver import merge_governance, namespace_subgraph
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
@@ -42,6 +41,7 @@ from zeroth.runtime.parallel.models import (
     FanInResult,
     GlobalStepTracker,
 )
+from zeroth.runtime.subgraphs.resolver import merge_governance, namespace_subgraph
 
 
 def sum_run_cost(run: Run) -> float:

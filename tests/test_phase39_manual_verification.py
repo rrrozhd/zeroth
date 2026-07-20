@@ -39,8 +39,8 @@ from zeroth.core.runs.models import RunStatus
 from zeroth.core.runs.repository import RunRepository
 from zeroth.core.service.bootstrap import run_migrations
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 
 # ---------------------------------------------------------------------------

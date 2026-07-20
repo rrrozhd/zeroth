@@ -1,10 +1,7 @@
-"""Legacy import path for the subgraph node-data contract.
+"""Legacy import path for :mod:`zeroth.runtime.subgraphs.models`."""
 
-``SubgraphNodeData`` is authored graph vocabulary and lives in
-:mod:`zeroth.contracts.graph.models`; this module republishes it for
-compatibility.
-"""
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
 
-from zeroth.contracts.graph.models import SubgraphNodeData
-
-__all__ = ["SubgraphNodeData"]
+__all__ = [
+    "SubgraphNodeData",
+]

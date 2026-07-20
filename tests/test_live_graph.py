@@ -73,9 +73,9 @@ from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnect
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.runtime.parallel.models import ParallelConfig
 from zeroth.core.runs import RunRepository, RunStatus
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 pytestmark = pytest.mark.live
 

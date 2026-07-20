@@ -287,8 +287,6 @@ TEMPORARY_EXCEPTIONS = {
         ),
         ("zeroth.core.agent_runtime.runner", "zeroth.core.governed.memory.models"),
         ("zeroth.core.agent_runtime.runner", "zeroth.core.memory"),
-        ("zeroth.core.subgraph.resolver", "zeroth.core.deployments.models"),
-        ("zeroth.core.subgraph.resolver", "zeroth.core.deployments.service"),
         reason="Legacy runtime packages resolve concrete service and integration objects.",
         removal_task="Task 14: move runtime packages and inject owned protocols.",
     ),
