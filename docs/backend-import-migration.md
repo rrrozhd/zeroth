@@ -431,6 +431,16 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.governed.audit.emitter:AuditEmitter` | `zeroth.governance.audit.emitter:AuditEmitter` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.governed.audit.emitter:emit_event` | `zeroth.governance.audit.emitter:emit_event` | Consolidate audit governance | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.governed.audit.redis:RedisAuditEmitter` | `zeroth.governance.audit.redis:RedisAuditEmitter` | Consolidate audit governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity:ActorIdentity` | `zeroth.governance.identity:ActorIdentity` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity:AuthMethod` | `zeroth.governance.identity:AuthMethod` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity:AuthenticatedPrincipal` | `zeroth.governance.identity:AuthenticatedPrincipal` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity:PrincipalScope` | `zeroth.governance.identity:PrincipalScope` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity:ServiceRole` | `zeroth.governance.identity:ServiceRole` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity.models:ActorIdentity` | `zeroth.governance.identity.models:ActorIdentity` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity.models:AuthenticatedPrincipal` | `zeroth.governance.identity.models:AuthenticatedPrincipal` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity.models:PrincipalScope` | `zeroth.governance.identity.models:PrincipalScope` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity.models:AuthMethod` | `zeroth.governance.identity.models:AuthMethod` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.identity.models:ServiceRole` | `zeroth.governance.identity.models:ServiceRole` | Move identity governance | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
