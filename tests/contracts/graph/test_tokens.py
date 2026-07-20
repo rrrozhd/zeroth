@@ -635,6 +635,75 @@ def test_loop_exit_records_freeze_in_canonical_order() -> None:
         LoopExitRecord.model_validate({**records[0].model_dump(), "token_id": "different"})
 
 
+def test_loop_instance_rejects_one_token_recorded_across_multiple_exits() -> None:
+    records = tuple(
+        LoopExitRecord(
+            exit_edge_id=edge_id,
+            target_node_id=target_id,
+            token_id="token-duplicate",
+            outcome=LoopExitResolutionOutcome.SUPPRESSED,
+            canonical_order=_order("token-duplicate", 0, iteration=4),
+            settled_revision=10,
+        )
+        for edge_id, target_id in (("edge-left", "left"), ("edge-right", "right"))
+    )
+    unresolved_exits = tuple(
+        LoopExit(
+            exit_edge_id=record.exit_edge_id,
+            target_node_id=record.target_node_id,
+            records=(record,),
+        )
+        for record in records
+    )
+    current = IterationFrame(
+        iteration_frame_id="frame-5",
+        loop_instance_id="loop-1",
+        iteration_index=5,
+        members=(IterationMember(token_id="token-current", state=IterationMemberState.ACTIVE),),
+        state=IterationFrameState.ACTIVE,
+        created_revision=11,
+        updated_revision=11,
+    )
+
+    with pytest.raises(ValidationError, match="across loop exits"):
+        LoopInstance(
+            loop_instance_id="loop-1",
+            loop_header_node_id="header",
+            enclosing_owner={"token_id": "token-entry"},
+            frames=(current,),
+            live_child_token_ids=("token-current",),
+            next_token_ordinal=2,
+            exits=unresolved_exits,
+            lifecycle_state=LoopLifecycleState.RUNNING,
+            created_revision=2,
+            updated_revision=11,
+        )
+
+    resolved_exits = tuple(
+        exit_state.model_copy(
+            update={
+                "resolution_outcome": LoopExitResolutionOutcome.SUPPRESSED,
+                "resolved_revision": 11,
+            }
+        )
+        for exit_state in unresolved_exits
+    )
+    with pytest.raises(ValidationError, match="across loop exits"):
+        LoopInstance(
+            loop_instance_id="loop-1",
+            loop_header_node_id="header",
+            enclosing_owner={"token_id": "token-entry"},
+            frames=(),
+            live_child_token_ids=(),
+            next_token_ordinal=1,
+            exits=resolved_exits,
+            lifecycle_state=LoopLifecycleState.COMPLETED,
+            created_revision=2,
+            updated_revision=11,
+            completed_revision=11,
+        )
+
+
 def test_loop_instance_validates_frame_ownership_live_members_and_completion() -> None:
     member = IterationMember(token_id="token-a", state=IterationMemberState.ACTIVE)
     frame = IterationFrame(
@@ -653,7 +722,7 @@ def test_loop_instance_validates_frame_ownership_live_members_and_completion() -
         outer_provenance_tag=(),
         frames=(frame,),
         live_child_token_ids=("token-a",),
-        owned_token_ids=("token-a", "token-entry"),
+        next_token_ordinal=1,
         exits=(LoopExit(exit_edge_id="edge-exit", target_node_id="outside"),),
         lifecycle_state=LoopLifecycleState.RUNNING,
         created_revision=2,
@@ -663,6 +732,25 @@ def test_loop_instance_validates_frame_ownership_live_members_and_completion() -
 
     with pytest.raises(ValidationError, match="live_child_token_ids"):
         LoopInstance.model_validate({**running.model_dump(), "live_child_token_ids": ()})
+    with pytest.raises(ValidationError, match="enclosing owner"):
+        LoopInstance.model_validate(
+            {
+                **running.model_dump(),
+                "frames": (
+                    frame.model_copy(
+                        update={
+                            "members": (
+                                IterationMember(
+                                    token_id="token-entry",
+                                    state=IterationMemberState.ACTIVE,
+                                ),
+                            )
+                        }
+                    ),
+                ),
+                "live_child_token_ids": ("token-entry",),
+            }
+        )
     with pytest.raises(ValidationError, match="loop_instance_id"):
         LoopInstance.model_validate(
             {
@@ -674,6 +762,11 @@ def test_loop_instance_validates_frame_ownership_live_members_and_completion() -
         LoopInstance.model_validate(
             {
                 **running.model_dump(),
+                "enclosing_owner": {
+                    "token_id": "outer-member-token",
+                    "enclosing_loop_instance_id": "outer-loop",
+                    "iteration_frame_id": "outer-frame-0",
+                },
                 "outer_provenance_tag": (
                     ProvenanceFrame(loop_header_node_id="header", iteration_index=0),
                 ),
@@ -707,7 +800,7 @@ def test_loop_instance_can_restore_only_the_current_nonzero_iteration_frame() ->
         enclosing_owner={"token_id": "token-entry"},
         frames=(frame,),
         live_child_token_ids=("token-a",),
-        owned_token_ids=("token-a", "token-entry"),
+        next_token_ordinal=1,
         lifecycle_state=LoopLifecycleState.RUNNING,
         created_revision=2,
         updated_revision=12,
@@ -723,7 +816,7 @@ def test_completed_loop_instance_has_no_active_iteration_frame() -> None:
         enclosing_owner={"token_id": "token-entry"},
         frames=(),
         live_child_token_ids=(),
-        owned_token_ids=("token-entry",),
+        next_token_ordinal=0,
         exits=(
             LoopExit(
                 exit_edge_id="edge-exit",
@@ -766,7 +859,7 @@ def test_completed_loop_can_retain_delivered_exits_after_frame_compaction() -> N
         enclosing_owner={"token_id": "token-entry"},
         frames=(),
         live_child_token_ids=(),
-        owned_token_ids=("token-a", "token-entry"),
+        next_token_ordinal=2,
         exits=(exit_state,),
         lifecycle_state=LoopLifecycleState.COMPLETED,
         emitted_continuation_token_ids=("token-continuation",),
@@ -815,7 +908,7 @@ def test_running_loop_rejects_early_exit_resolution_and_orphan_records() -> None
         "enclosing_owner": {"token_id": "token-entry"},
         "frames": (frame,),
         "live_child_token_ids": ("token-b",),
-        "owned_token_ids": ("token-a", "token-b", "token-entry"),
+        "next_token_ordinal": 2,
         "exits": (pending_exit,),
         "lifecycle_state": LoopLifecycleState.RUNNING,
         "created_revision": 2,
@@ -849,12 +942,7 @@ def test_running_loop_rejects_early_exit_resolution_and_orphan_records() -> None
         LoopInstance(
             **{
                 **values,
-                "owned_token_ids": (
-                    "token-a",
-                    "token-b",
-                    "token-entry",
-                    "token-orphan",
-                ),
+                "next_token_ordinal": 3,
                 "exits": (
                     LoopExit(
                         exit_edge_id="edge-exit",
@@ -925,7 +1013,7 @@ def test_running_loop_allows_exit_records_from_compacted_earlier_frames() -> Non
         enclosing_owner={"token_id": "token-entry"},
         frames=(current,),
         live_child_token_ids=("token-current",),
-        owned_token_ids=("token-current", "token-earlier", "token-entry"),
+        next_token_ordinal=2,
         exits=(
             LoopExit(
                 exit_edge_id="edge-exit",
@@ -939,6 +1027,20 @@ def test_running_loop_allows_exit_records_from_compacted_earlier_frames() -> Non
     )
 
     assert restored.exits[0].records == (earlier_record,)
+
+    reused_record = earlier_record.model_copy(
+        update={
+            "token_id": "token-current",
+            "canonical_order": _order("token-current", 0, iteration=4),
+        }
+    )
+    with pytest.raises(ValidationError, match="different retained iteration"):
+        LoopInstance.model_validate(
+            {
+                **restored.model_dump(),
+                "exits": (restored.exits[0].model_copy(update={"records": (reused_record,)}),),
+            }
+        )
 
 
 def test_loop_instance_preserves_enclosing_owner_and_emitted_continuations() -> None:
@@ -961,33 +1063,39 @@ def test_loop_instance_preserves_enclosing_owner_and_emitted_continuations() -> 
         "updated_revision": 2,
     }
     with pytest.raises(ValidationError, match="enclosing_owner"):
-        LoopInstance(**running_values, owned_token_ids=("token-active",))
+        LoopInstance(**running_values, next_token_ordinal=1)
 
     running = LoopInstance(
         **running_values,
         enclosing_owner={"token_id": "token-entry"},
-        owned_token_ids=("token-active", "token-entry"),
+        next_token_ordinal=1,
     )
     assert running.enclosing_owner.token_id == "token-entry"
     with pytest.raises(ValidationError):
         LoopInstance(
             **running_values,
             enclosing_owner={},
-            owned_token_ids=("token-active",),
+            next_token_ordinal=1,
         )
     with pytest.raises(ValidationError):
         LoopInstance(
             **running_values,
             enclosing_owner={"iteration_frame_id": "outer-frame-2"},
-            owned_token_ids=("token-active",),
+            next_token_ordinal=1,
         )
     nested = LoopInstance(
-        **running_values,
+        **{
+            **running_values,
+            "outer_provenance_tag": (
+                ProvenanceFrame(loop_header_node_id="outer-header", iteration_index=2),
+            ),
+        },
         enclosing_owner={
             "token_id": "outer-member-token",
+            "enclosing_loop_instance_id": "outer-loop",
             "iteration_frame_id": "outer-frame-2",
         },
-        owned_token_ids=("outer-member-token", "token-active"),
+        next_token_ordinal=1,
     )
     assert nested.enclosing_owner.token_id == "outer-member-token"
     assert nested.enclosing_owner.iteration_frame_id == "outer-frame-2"
@@ -996,7 +1104,7 @@ def test_loop_instance_preserves_enclosing_owner_and_emitted_continuations() -> 
         LoopInstance(
             **running_values,
             enclosing_owner={"token_id": "token-entry"},
-            owned_token_ids=("token-active", "token-entry"),
+            next_token_ordinal=2,
             emitted_continuation_token_ids=("token-continuation",),
         )
 
@@ -1022,15 +1130,15 @@ def test_loop_instance_preserves_enclosing_owner_and_emitted_continuations() -> 
         "loop_header_node_id": "header",
         "enclosing_owner": {
             "token_id": "outer-member-token",
+            "enclosing_loop_instance_id": "outer-loop",
             "iteration_frame_id": "outer-frame-2",
         },
+        "outer_provenance_tag": (
+            ProvenanceFrame(loop_header_node_id="outer-header", iteration_index=2),
+        ),
         "frames": (),
         "live_child_token_ids": (),
-        "owned_token_ids": (
-            "outer-member-token",
-            "token-compacted",
-            "token-exited",
-        ),
+        "next_token_ordinal": 2,
         "exits": (delivered_exit,),
         "lifecycle_state": LoopLifecycleState.COMPLETED,
         "created_revision": 2,
@@ -1042,7 +1150,7 @@ def test_loop_instance_preserves_enclosing_owner_and_emitted_continuations() -> 
         emitted_continuation_token_ids=("token-continuation",),
     )
     assert LoopInstance.model_validate_json(completed.model_dump_json()) == completed
-    assert "token-compacted" in completed.owned_token_ids
+    assert completed.next_token_ordinal == 2
 
     with pytest.raises(ValidationError, match="one emitted continuation"):
         LoopInstance(**completed_values)
@@ -1064,26 +1172,13 @@ def test_loop_instance_preserves_enclosing_owner_and_emitted_continuations() -> 
     with pytest.raises(ValidationError, match="must be new"):
         LoopInstance(
             **completed_values,
-            emitted_continuation_token_ids=("token-compacted",),
+            emitted_continuation_token_ids=("outer-member-token",),
         )
-
-    with pytest.raises(ValidationError, match="owned_token_ids"):
+    with pytest.raises(ValidationError, match="next_token_ordinal"):
         LoopInstance(
             **{
                 **completed_values,
-                "owned_token_ids": ("outer-member-token", "token-compacted"),
-            },
-            emitted_continuation_token_ids=("token-continuation",),
-        )
-    with pytest.raises(ValidationError, match="unique and sorted"):
-        LoopInstance(
-            **{
-                **completed_values,
-                "owned_token_ids": (
-                    "token-exited",
-                    "token-compacted",
-                    "outer-member-token",
-                ),
+                "next_token_ordinal": 1,
             },
             emitted_continuation_token_ids=("token-continuation",),
         )
@@ -1130,11 +1225,7 @@ def test_loop_continuation_cannot_reuse_a_retained_internal_completion_id() -> N
             enclosing_owner={"token_id": "token-entry"},
             frames=(settled_frame,),
             live_child_token_ids=(),
-            owned_token_ids=(
-                "token-entry",
-                "token-exited",
-                "token-internal",
-            ),
+            next_token_ordinal=2,
             exits=(delivered_exit,),
             emitted_continuation_token_ids=("token-internal",),
             lifecycle_state=LoopLifecycleState.COMPLETED,
@@ -1142,6 +1233,89 @@ def test_loop_continuation_cannot_reuse_a_retained_internal_completion_id() -> N
             updated_revision=8,
             completed_revision=8,
         )
+
+
+def test_loop_instance_requires_complete_nested_owner_identity() -> None:
+    frame = IterationFrame(
+        iteration_frame_id="inner-frame-0",
+        loop_instance_id="inner-loop",
+        iteration_index=0,
+        members=(IterationMember(token_id="token-inner", state=IterationMemberState.ACTIVE),),
+        state=IterationFrameState.ACTIVE,
+        created_revision=3,
+        updated_revision=3,
+    )
+    values: dict[str, object] = {
+        "loop_instance_id": "inner-loop",
+        "loop_header_node_id": "inner-header",
+        "outer_provenance_tag": (
+            ProvenanceFrame(loop_header_node_id="outer-header", iteration_index=2),
+        ),
+        "frames": (frame,),
+        "live_child_token_ids": ("token-inner",),
+        "next_token_ordinal": 1,
+        "lifecycle_state": LoopLifecycleState.RUNNING,
+        "created_revision": 3,
+        "updated_revision": 3,
+    }
+    nested_owner = {
+        "token_id": "outer-member-token",
+        "enclosing_loop_instance_id": "outer-loop",
+        "iteration_frame_id": "outer-frame-2",
+    }
+
+    nested = LoopInstance(**values, enclosing_owner=nested_owner)
+    assert nested.enclosing_owner.enclosing_loop_instance_id == "outer-loop"
+    assert LoopInstance.model_validate_json(nested.model_dump_json()) == nested
+
+    for incomplete_owner in (
+        {"token_id": "outer-member-token"},
+        {"token_id": "outer-member-token", "iteration_frame_id": "outer-frame-2"},
+        {"token_id": "outer-member-token", "enclosing_loop_instance_id": "outer-loop"},
+    ):
+        with pytest.raises(ValidationError, match="nested enclosing identity"):
+            LoopInstance(**values, enclosing_owner=incomplete_owner)
+
+    with pytest.raises(ValidationError, match="top-level"):
+        LoopInstance(
+            **{**values, "outer_provenance_tag": ()},
+            enclosing_owner=nested_owner,
+        )
+
+
+def test_loop_allocation_cursor_keeps_compacted_iteration_state_bounded() -> None:
+    def restored_loop(iteration_index: int, next_token_ordinal: int) -> LoopInstance:
+        frame = IterationFrame(
+            iteration_frame_id=f"frame-{iteration_index}",
+            loop_instance_id="loop-1",
+            iteration_index=iteration_index,
+            members=(IterationMember(token_id="token-current", state=IterationMemberState.ACTIVE),),
+            state=IterationFrameState.ACTIVE,
+            created_revision=2,
+            updated_revision=iteration_index + 2,
+        )
+        return LoopInstance(
+            loop_instance_id="loop-1",
+            loop_header_node_id="header",
+            enclosing_owner={"token_id": "token-entry"},
+            frames=(frame,),
+            live_child_token_ids=("token-current",),
+            next_token_ordinal=next_token_ordinal,
+            lifecycle_state=LoopLifecycleState.RUNNING,
+            created_revision=2,
+            updated_revision=iteration_index + 2,
+        )
+
+    early = restored_loop(iteration_index=1, next_token_ordinal=2)
+    compacted = restored_loop(iteration_index=1_000_000, next_token_ordinal=1_000_001)
+    compacted_json = compacted.model_dump_json()
+
+    assert len(compacted.frames) == 1
+    assert "owned_token_ids" not in compacted_json
+    assert len(compacted_json) - len(early.model_dump_json()) < 32
+    assert LoopInstance.model_validate_json(compacted_json) == compacted
+    with pytest.raises(ValidationError, match="next_token_ordinal"):
+        restored_loop(iteration_index=1, next_token_ordinal=0)
 
 
 def test_cancellation_generation_and_in_flight_dispatch_form_a_monotonic_fence() -> None:

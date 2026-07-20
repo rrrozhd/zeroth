@@ -714,17 +714,41 @@ class LoopEnclosingOwner(_FrozenContract):
     """The durable outer owner resumed when a loop instance settles."""
 
     token_id: TokenId
+    enclosing_loop_instance_id: LoopInstanceId | None = None
     iteration_frame_id: IterationFrameId | None = None
+
+    @model_validator(mode="after")
+    def _validate_nested_identity(self) -> LoopEnclosingOwner:
+        if (self.enclosing_loop_instance_id is None) != (self.iteration_frame_id is None):
+            raise ValueError(
+                "nested enclosing identity requires both enclosing_loop_instance_id "
+                "and iteration_frame_id"
+            )
+        return self
 
 
 class LoopInstance(_FrozenContract):
+    """Durable loop state with bounded, scope-local token allocation metadata.
+
+    ``next_token_ordinal`` is the next never-used ordinal.  A runtime derives a
+    deterministic token ID from ``loop_instance_id`` plus that ordinal, then
+    advances the cursor atomically.  This standalone snapshot validates the
+    exclusive upper bound against currently durable identities; monotonicity
+    between revisions is a transition/CAS invariant.
+    """
+
     loop_instance_id: LoopInstanceId
     loop_header_node_id: NodeId
     enclosing_owner: LoopEnclosingOwner
     outer_provenance_tag: tuple[ProvenanceFrame, ...] = ()
     frames: tuple[IterationFrame, ...] = ()
     live_child_token_ids: tuple[TokenId, ...]
-    owned_token_ids: tuple[TokenId, ...]
+    next_token_ordinal: CreationOrdinal = Field(
+        description=(
+            "Next never-used scope-local token ordinal and exclusive upper-bound "
+            "cursor for deterministic token ID allocation"
+        )
+    )
     exits: tuple[LoopExit, ...] = ()
     emitted_continuation_token_ids: tuple[TokenId, ...] = ()
     lifecycle_state: LoopLifecycleState
@@ -736,6 +760,13 @@ class LoopInstance(_FrozenContract):
     def _validate_loop(self) -> LoopInstance:
         _require_revision_window(self.created_revision, self.updated_revision)
         _require_canonical_provenance(self.outer_provenance_tag, "outer_provenance_tag")
+        nested_owner = self.enclosing_owner.enclosing_loop_instance_id is not None
+        if bool(self.outer_provenance_tag) != nested_owner:
+            if self.outer_provenance_tag:
+                raise ValueError("a nested loop requires complete nested enclosing identity")
+            raise ValueError("a top-level loop cannot carry nested enclosing identity")
+        if self.enclosing_owner.enclosing_loop_instance_id == self.loop_instance_id:
+            raise ValueError("a loop instance cannot enclose itself")
         if self.loop_header_node_id in {
             frame.loop_header_node_id for frame in self.outer_provenance_tag
         }:
@@ -787,24 +818,36 @@ class LoopInstance(_FrozenContract):
             for frame in self.frames
         }
         all_records = tuple(record for exit_state in self.exits for record in exit_state.records)
-        owned_ids = self.owned_token_ids
-        if owned_ids != tuple(sorted(owned_ids)) or len(owned_ids) != len(set(owned_ids)):
-            raise ValueError("owned_token_ids must be unique and sorted")
-        required_owned_ids = {
-            self.enclosing_owner.token_id,
-            *(member.token_id for member in all_members),
-            *(record.token_id for record in all_records),
+        all_record_ids = tuple(record.token_id for record in all_records)
+        if len(all_record_ids) != len(set(all_record_ids)):
+            raise ValueError("a token may be recorded only once across loop exits")
+        member_iteration_by_id = {
+            member.token_id: frame.iteration_index
+            for frame in self.frames
+            for member in frame.members
         }
-        if not required_owned_ids <= set(owned_ids):
+        if any(
+            record.token_id in member_iteration_by_id
+            and member_iteration_by_id[record.token_id] != record.canonical_order.iteration_index
+            for record in all_records
+        ):
             raise ValueError(
-                "owned_token_ids must include the enclosing owner and every retained token ID"
+                "an exit record token ID cannot be reused by a different retained iteration"
             )
         emitted_ids = self.emitted_continuation_token_ids
         if emitted_ids != tuple(sorted(emitted_ids)) or len(emitted_ids) != len(set(emitted_ids)):
             raise ValueError("emitted_continuation_token_ids must be unique and sorted")
-        if set(owned_ids).intersection(emitted_ids):
+        retained_ids = set(all_member_ids) | set(all_record_ids)
+        if self.enclosing_owner.token_id in retained_ids:
+            raise ValueError("a loop-local token ID cannot reuse its enclosing owner token ID")
+        if (retained_ids | {self.enclosing_owner.token_id}).intersection(emitted_ids):
             raise ValueError(
                 "an emitted continuation token ID must be new within the loop instance"
+            )
+        durable_loop_local_ids = retained_ids | set(emitted_ids)
+        if len(durable_loop_local_ids) > self.next_token_ordinal:
+            raise ValueError(
+                "next_token_ordinal must be at least the number of durable loop-local token IDs"
             )
         if self.frames:
             for record in all_records:
