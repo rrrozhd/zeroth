@@ -8349,53 +8349,53 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.rag",
-        "package_export:zeroth.core.rag"
+        "__all__:zeroth.integrations.rag",
+        "package_export:zeroth.integrations.rag"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.rag:IngestionReport"
       ],
-      "module": "zeroth.core.rag",
+      "module": "zeroth.integrations.rag",
       "name": "IngestionReport",
       "signature": "(documents: 'int', chunks_written: 'int') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.rag",
-        "package_export:zeroth.core.rag"
+        "__all__:zeroth.integrations.rag",
+        "package_export:zeroth.integrations.rag"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.rag:SourceDocument"
       ],
-      "module": "zeroth.core.rag",
+      "module": "zeroth.integrations.rag",
       "name": "SourceDocument",
       "signature": "(source_id: 'str', text: 'str') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.rag",
-        "package_export:zeroth.core.rag"
+        "__all__:zeroth.integrations.rag",
+        "package_export:zeroth.integrations.rag"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.rag:chunk_text"
       ],
-      "module": "zeroth.core.rag",
+      "module": "zeroth.integrations.rag",
       "name": "chunk_text",
       "signature": "(text: 'str', *, chunk_size: 'int' = 1000, overlap: 'int' = 200) -> 'list[str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.rag",
-        "package_export:zeroth.core.rag"
+        "__all__:zeroth.integrations.rag",
+        "package_export:zeroth.integrations.rag"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.rag:ingest_documents"
       ],
-      "module": "zeroth.core.rag",
+      "module": "zeroth.integrations.rag",
       "name": "ingest_documents",
       "signature": "(connector: 'Any', documents: 'Sequence[SourceDocument]', scope: 'MemoryScope', *, chunk_size: 'int' = 1000, overlap: 'int' = 200) -> 'IngestionReport'"
     },

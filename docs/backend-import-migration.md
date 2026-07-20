@@ -859,6 +859,10 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.http.models:HttpCallRecord` | `zeroth.integrations.http.models:HttpCallRecord` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.http.models:HttpClientSettings` | `zeroth.integrations.http.models:HttpClientSettings` | Move http integration | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.http.models:redact_url` | `zeroth.integrations.http.models:redact_url` | Move http integration | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.rag:IngestionReport` | `zeroth.integrations.rag:IngestionReport` | Move rag integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.rag:SourceDocument` | `zeroth.integrations.rag:SourceDocument` | Move rag integration | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.rag:chunk_text` | `zeroth.integrations.rag:chunk_text` | Move rag integration | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.rag:ingest_documents` | `zeroth.integrations.rag:ingest_documents` | Move rag integration | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
