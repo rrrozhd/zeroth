@@ -2554,112 +2554,112 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.deployments",
-        "package_export:zeroth.core.deployments"
+        "__all__:zeroth.service.deployments",
+        "package_export:zeroth.service.deployments"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.deployments:Deployment"
       ],
-      "module": "zeroth.core.deployments",
+      "module": "zeroth.service.deployments",
       "name": "Deployment",
-      "signature": "(*, deployment_id: str, deployment_ref: str, version: Annotated[int, Ge(ge=1)] = 1, graph_id: str, graph_version: Annotated[int, Ge(ge=1)], graph_version_ref: str, serialized_graph: str, entry_input_contract_ref: str | None = None, entry_input_contract_version: Annotated[int | None, Ge(ge=1)] = None, entry_output_contract_ref: str | None = None, entry_output_contract_version: Annotated[int | None, Ge(ge=1)] = None, deployment_settings_snapshot: dict[str, typing.Any] = <factory>, graph_snapshot_digest: str = '', contract_snapshot_digest: str = '', settings_snapshot_digest: str = '', attestation_digest: str = '', attestation_signature: str | None = None, attestation_signing_key_id: str | None = None, attestation_algorithm: str | None = None, tenant_id: str = 'default', workspace_id: str | None = None, status: zeroth.core.deployments.models.DeploymentStatus = <DeploymentStatus.ACTIVE: 'active'>, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, deployment_id: str, deployment_ref: str, version: Annotated[int, Ge(ge=1)] = 1, graph_id: str, graph_version: Annotated[int, Ge(ge=1)], graph_version_ref: str, serialized_graph: str, entry_input_contract_ref: str | None = None, entry_input_contract_version: Annotated[int | None, Ge(ge=1)] = None, entry_output_contract_ref: str | None = None, entry_output_contract_version: Annotated[int | None, Ge(ge=1)] = None, deployment_settings_snapshot: dict[str, typing.Any] = <factory>, graph_snapshot_digest: str = '', contract_snapshot_digest: str = '', settings_snapshot_digest: str = '', attestation_digest: str = '', attestation_signature: str | None = None, attestation_signing_key_id: str | None = None, attestation_algorithm: str | None = None, tenant_id: str = 'default', workspace_id: str | None = None, status: zeroth.service.deployments.models.DeploymentStatus = <DeploymentStatus.ACTIVE: 'active'>, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.deployments",
-        "package_export:zeroth.core.deployments"
+        "__all__:zeroth.service.deployments",
+        "package_export:zeroth.service.deployments"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.deployments:DeploymentError"
       ],
-      "module": "zeroth.core.deployments",
+      "module": "zeroth.service.deployments",
       "name": "DeploymentError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.deployments",
+        "__all__:zeroth.service.deployments",
         "docs:docs/how-to/orchestrator.md",
         "examples:examples/10_serve_in_python.py",
         "examples:examples/20_approval_gate.py",
         "examples:examples/_common.py",
         "examples:examples/service/seed_deployment.py",
-        "package_export:zeroth.core.deployments"
+        "package_export:zeroth.service.deployments"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.deployments:DeploymentService"
       ],
-      "module": "zeroth.core.deployments",
+      "module": "zeroth.service.deployments",
       "name": "DeploymentService",
       "signature": "(graph_repository: 'GraphRepository', deployment_repository: 'SQLiteDeploymentRepository', contract_registry: 'ContractRegistry | None' = None, signer: 'SigningKeyProvider | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.deployments",
-        "package_export:zeroth.core.deployments"
+        "__all__:zeroth.service.deployments",
+        "package_export:zeroth.service.deployments"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.deployments:DeploymentStatus"
       ],
-      "module": "zeroth.core.deployments",
+      "module": "zeroth.service.deployments",
       "name": "DeploymentStatus",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.deployments",
+        "__all__:zeroth.service.deployments",
         "docs:docs/how-to/orchestrator.md",
         "examples:examples/10_serve_in_python.py",
         "examples:examples/20_approval_gate.py",
         "examples:examples/_common.py",
         "examples:examples/service/seed_deployment.py",
-        "package_export:zeroth.core.deployments"
+        "package_export:zeroth.service.deployments"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.deployments:SQLiteDeploymentRepository"
       ],
-      "module": "zeroth.core.deployments",
+      "module": "zeroth.service.deployments",
       "name": "SQLiteDeploymentRepository",
       "signature": "(database: 'AsyncDatabase')"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.deployments.models"
+        "schema_model:zeroth.service.deployments.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.deployments.models:Deployment"
       ],
-      "module": "zeroth.core.deployments.models",
+      "module": "zeroth.service.deployments.models",
       "name": "Deployment",
-      "signature": "(*, deployment_id: str, deployment_ref: str, version: Annotated[int, Ge(ge=1)] = 1, graph_id: str, graph_version: Annotated[int, Ge(ge=1)], graph_version_ref: str, serialized_graph: str, entry_input_contract_ref: str | None = None, entry_input_contract_version: Annotated[int | None, Ge(ge=1)] = None, entry_output_contract_ref: str | None = None, entry_output_contract_version: Annotated[int | None, Ge(ge=1)] = None, deployment_settings_snapshot: dict[str, typing.Any] = <factory>, graph_snapshot_digest: str = '', contract_snapshot_digest: str = '', settings_snapshot_digest: str = '', attestation_digest: str = '', attestation_signature: str | None = None, attestation_signing_key_id: str | None = None, attestation_algorithm: str | None = None, tenant_id: str = 'default', workspace_id: str | None = None, status: zeroth.core.deployments.models.DeploymentStatus = <DeploymentStatus.ACTIVE: 'active'>, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, deployment_id: str, deployment_ref: str, version: Annotated[int, Ge(ge=1)] = 1, graph_id: str, graph_version: Annotated[int, Ge(ge=1)], graph_version_ref: str, serialized_graph: str, entry_input_contract_ref: str | None = None, entry_input_contract_version: Annotated[int | None, Ge(ge=1)] = None, entry_output_contract_ref: str | None = None, entry_output_contract_version: Annotated[int | None, Ge(ge=1)] = None, deployment_settings_snapshot: dict[str, typing.Any] = <factory>, graph_snapshot_digest: str = '', contract_snapshot_digest: str = '', settings_snapshot_digest: str = '', attestation_digest: str = '', attestation_signature: str | None = None, attestation_signing_key_id: str | None = None, attestation_algorithm: str | None = None, tenant_id: str = 'default', workspace_id: str | None = None, status: zeroth.service.deployments.models.DeploymentStatus = <DeploymentStatus.ACTIVE: 'active'>, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.deployments.repository"
+        "package_export:zeroth.service.deployments.repository"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.deployments.repository:DeploymentRefLineageConflictError"
       ],
-      "module": "zeroth.core.deployments.repository",
+      "module": "zeroth.service.deployments.repository",
       "name": "DeploymentRefLineageConflictError",
       "signature": "(deployment_ref: 'str', graph_id: 'str')"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.deployments.service"
+        "package_export:zeroth.service.deployments.service"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.deployments.service:DeploymentError"
       ],
-      "module": "zeroth.core.deployments.service",
+      "module": "zeroth.service.deployments.service",
       "name": "DeploymentError",
       "signature": "<not-inspectable>"
     },
@@ -9667,7 +9667,7 @@
       ],
       "module": "zeroth.service.api.contracts_api",
       "name": "DeploymentVersionMetadataResponse",
-      "signature": "(*, deployment_ref: str, deployment_version: int, graph_id: str, graph_version: int, graph_version_ref: str, entry_input_contract_ref: str | None = None, entry_input_contract_version: int | None = None, entry_output_contract_ref: str | None = None, entry_output_contract_version: int | None = None, deployment_settings_snapshot: dict[str, typing.Any] = <factory>, status: zeroth.core.deployments.models.DeploymentStatus, created_at: datetime.datetime, updated_at: datetime.datetime, audit_ref: str | None = None, timeline_ref: str | None = None, evidence_ref: str | None = None, attestation_ref: str | None = None) -> None"
+      "signature": "(*, deployment_ref: str, deployment_version: int, graph_id: str, graph_version: int, graph_version_ref: str, entry_input_contract_ref: str | None = None, entry_input_contract_version: int | None = None, entry_output_contract_ref: str | None = None, entry_output_contract_version: int | None = None, deployment_settings_snapshot: dict[str, typing.Any] = <factory>, status: zeroth.service.deployments.models.DeploymentStatus, created_at: datetime.datetime, updated_at: datetime.datetime, audit_ref: str | None = None, timeline_ref: str | None = None, evidence_ref: str | None = None, attestation_ref: str | None = None) -> None"
     },
     {
       "evidence": [

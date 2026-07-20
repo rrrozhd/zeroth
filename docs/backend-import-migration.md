@@ -1057,6 +1057,26 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.eval.runner:run_eval` | `zeroth.eval.runner:run_eval` | Move evaluation library | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.eval.scorers:JudgeVerdict` | `zeroth.eval.scorers:JudgeVerdict` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.eval.scorers:LLMJudgeScorer` | `zeroth.eval.scorers:LLMJudgeScorer` | Move evaluation library | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments:Deployment` | `zeroth.service.deployments:Deployment` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments:DeploymentError` | `zeroth.service.deployments:DeploymentError` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments:DeploymentService` | `zeroth.service.deployments:DeploymentService` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments:DeploymentStatus` | `zeroth.service.deployments:DeploymentStatus` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments:SQLiteDeploymentRepository` | `zeroth.service.deployments:SQLiteDeploymentRepository` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments.models:Deployment` | `zeroth.service.deployments.models:Deployment` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments.models:DeploymentStatus` | `zeroth.service.deployments.models:DeploymentStatus` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments.provenance:build_attestation_payload` | `zeroth.service.deployments.provenance:build_attestation_payload` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.provenance:compute_attestation_digest` | `zeroth.service.deployments.provenance:compute_attestation_digest` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.provenance:compute_contract_snapshot_digest` | `zeroth.service.deployments.provenance:compute_contract_snapshot_digest` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.provenance:compute_graph_snapshot_digest` | `zeroth.service.deployments.provenance:compute_graph_snapshot_digest` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.provenance:compute_settings_snapshot_digest` | `zeroth.service.deployments.provenance:compute_settings_snapshot_digest` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.provenance:sign_attestation` | `zeroth.service.deployments.provenance:sign_attestation` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.provenance:verify_attestation` | `zeroth.service.deployments.provenance:verify_attestation` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.provenance:verify_attestation_full` | `zeroth.service.deployments.provenance:verify_attestation_full` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.provenance:verify_attestation_signature` | `zeroth.service.deployments.provenance:verify_attestation_signature` | Move deployment service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.deployments.repository:DeploymentRefLineageConflictError` | `zeroth.service.deployments.repository:DeploymentRefLineageConflictError` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments.repository:SQLiteDeploymentRepository` | `zeroth.service.deployments.repository:SQLiteDeploymentRepository` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments.service:DeploymentError` | `zeroth.service.deployments.service:DeploymentError` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.deployments.service:DeploymentService` | `zeroth.service.deployments.service:DeploymentService` | Move deployment service domain | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
