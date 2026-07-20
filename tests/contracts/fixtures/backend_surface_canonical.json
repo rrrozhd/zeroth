@@ -11254,686 +11254,686 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.econ_plane",
-        "package_export:zeroth.econ_plane"
+        "__all__:zeroth.econ.plane",
+        "package_export:zeroth.econ.plane"
       ],
       "kind": "module",
       "legacy_ids": [
         "zeroth.econ_plane:main"
       ],
-      "module": "zeroth.econ_plane",
+      "module": "zeroth.econ.plane",
       "name": "main",
       "signature": null
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.auth.schemas"
+        "schema_model:zeroth.econ.plane.auth.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.auth.schemas:LoginRequest"
       ],
-      "module": "zeroth.econ_plane.auth.schemas",
+      "module": "zeroth.econ.plane.auth.schemas",
       "name": "LoginRequest",
       "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str]) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.auth.schemas"
+        "schema_model:zeroth.econ.plane.auth.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.auth.schemas:TokenResponse"
       ],
-      "module": "zeroth.econ_plane.auth.schemas",
+      "module": "zeroth.econ.plane.auth.schemas",
       "name": "TokenResponse",
       "signature": "(*, access_token: str, token_type: str = 'bearer') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.auth.schemas"
+        "schema_model:zeroth.econ.plane.auth.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.auth.schemas:UserClaims"
       ],
-      "module": "zeroth.econ_plane.auth.schemas",
+      "module": "zeroth.econ.plane.auth.schemas",
       "name": "UserClaims",
       "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str], exp: int, iss: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:CapabilityCreate"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "CapabilityCreate",
-      "signature": "(*, id: str, tenant_id: str | None = None, name: str, category: Optional[Literal['REVENUE', 'COST', 'RISK', 'PRODUCTIVITY', 'Revenue', 'CostReduction', 'RiskMitigation', 'Productivity']] = None, type: Optional[Literal['REVENUE', 'COST', 'RISK', 'PRODUCTIVITY', 'Revenue', 'CostReduction', 'RiskMitigation', 'Productivity']] = None, description: str = '', criticality: Literal['LOW', 'MED', 'HIGH'] = 'MED', is_protected: bool = False, valuation_config: zeroth.econ_plane.capabilities.schemas.ValuationConfig = <factory>) -> None"
+      "signature": "(*, id: str, tenant_id: str | None = None, name: str, category: Optional[Literal['REVENUE', 'COST', 'RISK', 'PRODUCTIVITY', 'Revenue', 'CostReduction', 'RiskMitigation', 'Productivity']] = None, type: Optional[Literal['REVENUE', 'COST', 'RISK', 'PRODUCTIVITY', 'Revenue', 'CostReduction', 'RiskMitigation', 'Productivity']] = None, description: str = '', criticality: Literal['LOW', 'MED', 'HIGH'] = 'MED', is_protected: bool = False, valuation_config: zeroth.econ.plane.capabilities.schemas.ValuationConfig = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:CapabilityDetail"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "CapabilityDetail",
-      "signature": "(*, id: str, tenant_id: str, name: str, type: str, description: str, criticality: str, is_protected: bool, valuation_config: zeroth.econ_plane.capabilities.schemas.ValuationConfig, created_at: datetime.datetime, implementations: list[zeroth.econ_plane.capabilities.schemas.ImplementationOut] = <factory>) -> None"
+      "signature": "(*, id: str, tenant_id: str, name: str, type: str, description: str, criticality: str, is_protected: bool, valuation_config: zeroth.econ.plane.capabilities.schemas.ValuationConfig, created_at: datetime.datetime, implementations: list[zeroth.econ.plane.capabilities.schemas.ImplementationOut] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:CapabilityOut"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "CapabilityOut",
-      "signature": "(*, id: str, tenant_id: str, name: str, type: str, description: str, criticality: str, is_protected: bool, valuation_config: zeroth.econ_plane.capabilities.schemas.ValuationConfig, created_at: datetime.datetime) -> None"
+      "signature": "(*, id: str, tenant_id: str, name: str, type: str, description: str, criticality: str, is_protected: bool, valuation_config: zeroth.econ.plane.capabilities.schemas.ValuationConfig, created_at: datetime.datetime) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:ConfidenceGateConfig"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "ConfidenceGateConfig",
       "signature": "(*, min_confidence_level: float = 0.95, max_relative_width: float = 0.3) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:DeploymentCreate"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "DeploymentCreate",
       "signature": "(*, tenant_id: str | None = None, capability_id: str, active_impl_ids: list[str] = <factory>, weights_json: dict[str, float] = <factory>, routing_mode: Literal['STATIC', 'AB', 'SHADOW'] = 'STATIC') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:DeploymentOut"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "DeploymentOut",
       "signature": "(*, id: int, tenant_id: str, capability_id: str, active_impl_ids: list[str], weights_json: dict[str, float], routing_mode: str, updated_at: datetime.datetime) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:ExperimentCreate"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "ExperimentCreate",
       "signature": "(*, tenant_id: str | None = None, capability_id: str, mode: Literal['AB', 'SHADOW'], impl_a_id: str, impl_b_id: str, start_at: datetime.datetime, end_at: datetime.datetime | None = None, target_pct: float = 50.0, assignment_key: Literal['request_id', 'user_id'] = 'request_id', status: Literal['ACTIVE', 'PAUSED', 'COMPLETED'] = 'ACTIVE', constraints_json: dict = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:ExperimentOut"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "ExperimentOut",
       "signature": "(*, id: int, tenant_id: str, capability_id: str, mode: str, impl_a_id: str, impl_b_id: str, start_at: datetime.datetime, end_at: datetime.datetime | None, target_pct: float, assignment_key: str, status: str, constraints_json: dict) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:ImplementationCreate"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "ImplementationCreate",
       "signature": "(*, id: str, tenant_id: str | None = None, capability_id: str | None = None, name: str, provider: Literal['openai', 'anthropic', 'custom'] = 'custom', model_name: str = '', model_version_hash: str = '', prompt_version_hash: str = '', pipeline_version_hash: str = '', config_json: dict = <factory>, status: Literal['ACTIVE', 'PAUSED', 'DEPRECATED'] = 'ACTIVE', model_version: str = '', created_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:ImplementationOut"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "ImplementationOut",
       "signature": "(*, id: str, tenant_id: str, capability_id: str, name: str, provider: str, model_name: str, model_version_hash: str, prompt_version_hash: str, pipeline_version_hash: str, config_json: dict, status: str, model_version: str, created_at: datetime.datetime) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.capabilities.schemas"
+        "schema_model:zeroth.econ.plane.capabilities.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.capabilities.schemas:ValuationConfig"
       ],
-      "module": "zeroth.econ_plane.capabilities.schemas",
+      "module": "zeroth.econ.plane.capabilities.schemas",
       "name": "ValuationConfig",
-      "signature": "(*, valuation_method: Literal['PROXY', 'AB', 'SHADOW', 'HYBRID'] = 'PROXY', proxy_formula_id: str = 'default_proxy', proxy_parameters: dict = <factory>, baseline_source: Literal['control_arm', 'historical', 'external'] = 'historical', confidence_gate: zeroth.econ_plane.capabilities.schemas.ConfidenceGateConfig | None = None, cost_profile_id: int | None = None) -> None"
+      "signature": "(*, valuation_method: Literal['PROXY', 'AB', 'SHADOW', 'HYBRID'] = 'PROXY', proxy_formula_id: str = 'default_proxy', proxy_parameters: dict = <factory>, baseline_source: Literal['control_arm', 'historical', 'external'] = 'historical', confidence_gate: zeroth.econ.plane.capabilities.schemas.ConfidenceGateConfig | None = None, cost_profile_id: int | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.common.schemas"
+        "schema_model:zeroth.econ.plane.common.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.common.schemas:APIMessage"
       ],
-      "module": "zeroth.econ_plane.common.schemas",
+      "module": "zeroth.econ.plane.common.schemas",
       "name": "APIMessage",
       "signature": "(*, message: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.connectors.schemas"
+        "schema_model:zeroth.econ.plane.connectors.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.connectors.schemas:ConnectorConfigOut"
       ],
-      "module": "zeroth.econ_plane.connectors.schemas",
+      "module": "zeroth.econ.plane.connectors.schemas",
       "name": "ConnectorConfigOut",
       "signature": "(*, id: int, tenant_id: str, connector_type: Literal['langfuse', 'prometheus', 'otel_metrics', 'posthog', 'kafka', 'segment', 'snowplow', 'clickhouse', 'bigquery', 'snowflake', 'launchdarkly', 'envoy'], enabled: bool, config_json: dict[str, typing.Any], created_at: datetime.datetime, updated_at: datetime.datetime) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.connectors.schemas"
+        "schema_model:zeroth.econ.plane.connectors.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.connectors.schemas:ConnectorConfigRequest"
       ],
-      "module": "zeroth.econ_plane.connectors.schemas",
+      "module": "zeroth.econ.plane.connectors.schemas",
       "name": "ConnectorConfigRequest",
       "signature": "(*, config_json: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.connectors.schemas"
+        "schema_model:zeroth.econ.plane.connectors.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.connectors.schemas:ConnectorEventEnvelope"
       ],
-      "module": "zeroth.econ_plane.connectors.schemas",
+      "module": "zeroth.econ.plane.connectors.schemas",
       "name": "ConnectorEventEnvelope",
       "signature": "(*, event_id: str, event_type: str, event_key: str, occurred_at: datetime.datetime, tenant_id: str, join_key: str | None = None, capability_id: str | None = None, implementation_id: str | None = None, payload: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.connectors.schemas"
+        "schema_model:zeroth.econ.plane.connectors.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.connectors.schemas:ConnectorHealthResult"
       ],
-      "module": "zeroth.econ_plane.connectors.schemas",
+      "module": "zeroth.econ.plane.connectors.schemas",
       "name": "ConnectorHealthResult",
       "signature": "(*, healthy: bool, message: str = 'ok') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.connectors.schemas"
+        "schema_model:zeroth.econ.plane.connectors.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.connectors.schemas:ConnectorOutboxOut"
       ],
-      "module": "zeroth.econ_plane.connectors.schemas",
+      "module": "zeroth.econ.plane.connectors.schemas",
       "name": "ConnectorOutboxOut",
       "signature": "(*, id: int, tenant_id: str, event_type: str, event_key: str, payload_json: dict[str, typing.Any], status: Literal['PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD_LETTER'], attempts: int, next_attempt_at: datetime.datetime, last_error: str | None, created_at: datetime.datetime, processed_at: datetime.datetime | None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.connectors.schemas"
+        "schema_model:zeroth.econ.plane.connectors.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.connectors.schemas:ConnectorSendResult"
       ],
-      "module": "zeroth.econ_plane.connectors.schemas",
+      "module": "zeroth.econ.plane.connectors.schemas",
       "name": "ConnectorSendResult",
       "signature": "(*, success: bool, status_code: int | None = None, response_excerpt: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.connectors.schemas"
+        "schema_model:zeroth.econ.plane.connectors.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.connectors.schemas:ConnectorStatusOut"
       ],
-      "module": "zeroth.econ_plane.connectors.schemas",
+      "module": "zeroth.econ.plane.connectors.schemas",
       "name": "ConnectorStatusOut",
       "signature": "(*, connector_type: Literal['langfuse', 'prometheus', 'otel_metrics', 'posthog', 'kafka', 'segment', 'snowplow', 'clickhouse', 'bigquery', 'snowflake', 'launchdarkly', 'envoy'], enabled: bool, healthy: bool, message: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.connectors.schemas"
+        "schema_model:zeroth.econ.plane.connectors.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.connectors.schemas:RetryOutboxResponse"
       ],
-      "module": "zeroth.econ_plane.connectors.schemas",
+      "module": "zeroth.econ.plane.connectors.schemas",
       "name": "RetryOutboxResponse",
       "signature": "(*, id: int, status: Literal['PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD_LETTER']) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.costing.schemas"
+        "schema_model:zeroth.econ.plane.costing.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.costing.schemas:CostEstimateOut"
       ],
-      "module": "zeroth.econ_plane.costing.schemas",
+      "module": "zeroth.econ.plane.costing.schemas",
       "name": "CostEstimateOut",
       "signature": "(*, capability_id: str, implementation_id: str | None, period_start: datetime.datetime, period_end: datetime.datetime, llm_cost_estimate_usd: float, tool_cost_estimate_usd: float, infra_cost_estimate_usd: float, overhead_cost_estimate_usd: float, total_cost_estimate_usd: float, cost_interval_low_usd: float, cost_interval_high_usd: float, estimation_method: str, data_quality: str, method_version: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.costing.schemas"
+        "schema_model:zeroth.econ.plane.costing.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.costing.schemas:CostProfileCreate"
       ],
-      "module": "zeroth.econ_plane.costing.schemas",
+      "module": "zeroth.econ.plane.costing.schemas",
       "name": "CostProfileCreate",
       "signature": "(*, capability_id: str, requests_per_period: int, avg_input_tokens: float, avg_output_tokens: float, model_mix_json: dict = <factory>, provider_rate_overrides_json: dict = <factory>, avg_tool_calls_per_request_json: dict = <factory>, tool_unit_price_overrides_json: dict = <factory>, infra_monthly_spend_usd: float = 0.0, retry_rate: float = 0.0, cache_hit_rate: float = 0.0) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.costing.schemas"
+        "schema_model:zeroth.econ.plane.costing.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.costing.schemas:CostProfileOut"
       ],
-      "module": "zeroth.econ_plane.costing.schemas",
+      "module": "zeroth.econ.plane.costing.schemas",
       "name": "CostProfileOut",
       "signature": "(*, capability_id: str, requests_per_period: int, avg_input_tokens: float, avg_output_tokens: float, model_mix_json: dict = <factory>, provider_rate_overrides_json: dict = <factory>, avg_tool_calls_per_request_json: dict = <factory>, tool_unit_price_overrides_json: dict = <factory>, infra_monthly_spend_usd: float = 0.0, retry_rate: float = 0.0, cache_hit_rate: float = 0.0, id: int) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.costing.schemas"
+        "schema_model:zeroth.econ.plane.costing.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.costing.schemas:PricingCatalogCreate"
       ],
-      "module": "zeroth.econ_plane.costing.schemas",
+      "module": "zeroth.econ.plane.costing.schemas",
       "name": "PricingCatalogCreate",
       "signature": "(*, provider: str, model: str, region: str = 'global', effective_from: datetime.datetime, effective_to: datetime.datetime | None = None, input_per_million_usd: float = 0.0, output_per_million_usd: float = 0.0, gpu_hour_usd: float = 0.0, cpu_hour_usd: float = 0.0, memory_gb_hour_usd: float = 0.0, energy_kwh_usd: float = 0.0) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.counterfactual.schemas"
+        "schema_model:zeroth.econ.plane.counterfactual.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.counterfactual.schemas:EvaluationRunRequest"
       ],
-      "module": "zeroth.econ_plane.counterfactual.schemas",
+      "module": "zeroth.econ.plane.counterfactual.schemas",
       "name": "EvaluationRunRequest",
       "signature": "(*, capability_id: str, implementation_id: str | None = None, mode: Literal['AB_TEST', 'SHADOW', 'PROXY_MODEL'], period_start: datetime.datetime, period_end: datetime.datetime, confidence_level: float = 0.95) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.counterfactual.schemas"
+        "schema_model:zeroth.econ.plane.counterfactual.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.counterfactual.schemas:ValueEstimateOut"
       ],
-      "module": "zeroth.econ_plane.counterfactual.schemas",
+      "module": "zeroth.econ.plane.counterfactual.schemas",
       "name": "ValueEstimateOut",
       "signature": "(*, capability_id: str, implementation_id: str | None = None, period_start: datetime.datetime, period_end: datetime.datetime, estimated_value_usd: float, estimated_cost_usd: float, net_margin_usd: float, credible_interval_low_usd: float, credible_interval_high_usd: float, confidence_level: float, relative_interval_width: float, confidence_gate_passed: bool, estimation_method_version: str, cost_data_quality: str, value_data_quality: str, drift_score: float, drift_state: Literal['stable', 'warning', 'critical'], interval_method: str, confidence_breakdown: dict = <factory>, method_metadata: dict = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.dashboard.schemas"
+        "schema_model:zeroth.econ.plane.dashboard.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.dashboard.schemas:CapabilityRankingRow"
       ],
-      "module": "zeroth.econ_plane.dashboard.schemas",
+      "module": "zeroth.econ.plane.dashboard.schemas",
       "name": "CapabilityRankingRow",
       "signature": "(*, capability_id: str, capability_type: str, net_margin_usd: float, aer: float, is_protected: bool) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.dashboard.schemas"
+        "schema_model:zeroth.econ.plane.dashboard.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.dashboard.schemas:CapabilityValueRow"
       ],
-      "module": "zeroth.econ_plane.dashboard.schemas",
+      "module": "zeroth.econ.plane.dashboard.schemas",
       "name": "CapabilityValueRow",
       "signature": "(*, capability_id: str, net_margin_usd: float, confidence: float) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.dashboard.schemas"
+        "schema_model:zeroth.econ.plane.dashboard.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.dashboard.schemas:ConfidenceGateStatus"
       ],
-      "module": "zeroth.econ_plane.dashboard.schemas",
+      "module": "zeroth.econ.plane.dashboard.schemas",
       "name": "ConfidenceGateStatus",
       "signature": "(*, passed: int, blocked: int) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.dashboard.schemas"
+        "schema_model:zeroth.econ.plane.dashboard.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.dashboard.schemas:DataQualityMix"
       ],
-      "module": "zeroth.econ_plane.dashboard.schemas",
+      "module": "zeroth.econ.plane.dashboard.schemas",
       "name": "DataQualityMix",
       "signature": "(*, measured: int, inferred: int, mixed: int) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.dashboard.schemas"
+        "schema_model:zeroth.econ.plane.dashboard.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.dashboard.schemas:ImplementationCompareRow"
       ],
-      "module": "zeroth.econ_plane.dashboard.schemas",
+      "module": "zeroth.econ.plane.dashboard.schemas",
       "name": "ImplementationCompareRow",
       "signature": "(*, capability_id: str, implementation_id: str, arm: str | None = None, net_margin_usd: float, confidence_low_usd: float, confidence_high_usd: float, confidence_breakdown: dict = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.dashboard.schemas"
+        "schema_model:zeroth.econ.plane.dashboard.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.dashboard.schemas:KPIResponse"
       ],
-      "module": "zeroth.econ_plane.dashboard.schemas",
+      "module": "zeroth.econ.plane.dashboard.schemas",
       "name": "KPIResponse",
       "signature": "(*, total_ai_spend_usd: float, total_ai_value_usd: float, net_ai_margin_usd: float, portfolio_confidence_score: float, efficiency_index: float) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.dashboard.schemas"
+        "schema_model:zeroth.econ.plane.dashboard.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.dashboard.schemas:PolicyTimelineRow"
       ],
-      "module": "zeroth.econ_plane.dashboard.schemas",
+      "module": "zeroth.econ.plane.dashboard.schemas",
       "name": "PolicyTimelineRow",
       "signature": "(*, id: int, capability_id: str, action_type: str, status: str, proposed_at: str, approved_at: str | None = None, applied_at: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.dashboard.schemas"
+        "schema_model:zeroth.econ.plane.dashboard.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.dashboard.schemas:TrendPoint"
       ],
-      "module": "zeroth.econ_plane.dashboard.schemas",
+      "module": "zeroth.econ.plane.dashboard.schemas",
       "name": "TrendPoint",
       "signature": "(*, x: str, y: float) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.enforcement.schemas"
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.enforcement.schemas:BudgetStatusOut"
       ],
-      "module": "zeroth.econ_plane.enforcement.schemas",
+      "module": "zeroth.econ.plane.enforcement.schemas",
       "name": "BudgetStatusOut",
       "signature": "(*, tenant_id: str, total_cost_usd: float, budget_cap_usd: float | None = None, window: str = 'month_to_date', window_start: datetime.datetime | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.enforcement.schemas"
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.enforcement.schemas:DecisionRequest"
       ],
-      "module": "zeroth.econ_plane.enforcement.schemas",
+      "module": "zeroth.econ.plane.enforcement.schemas",
       "name": "DecisionRequest",
       "signature": "(*, reason: str = '') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.enforcement.schemas"
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.enforcement.schemas:EnforcementActionCreate"
       ],
-      "module": "zeroth.econ_plane.enforcement.schemas",
+      "module": "zeroth.econ.plane.enforcement.schemas",
       "name": "EnforcementActionCreate",
       "signature": "(*, capability_id: str, action_type: Literal['AdjustTrafficWeights', 'ApplyBudgetCap', 'TriggerInvestigation', 'EscalateAlert'], reason: str, before_config: dict = <factory>, after_config: dict = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.enforcement.schemas"
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.enforcement.schemas:EnforcementActionOut"
       ],
-      "module": "zeroth.econ_plane.enforcement.schemas",
+      "module": "zeroth.econ.plane.enforcement.schemas",
       "name": "EnforcementActionOut",
       "signature": "(*, id: int, capability_id: str, action_type: Literal['AdjustTrafficWeights', 'ApplyBudgetCap', 'TriggerInvestigation', 'EscalateAlert'], status: Literal['pending', 'approved', 'rejected'], reason: str, before_config: dict, after_config: dict, approver_sub: str | None, approved_at: datetime.datetime | None, created_at: datetime.datetime) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.enforcement.schemas"
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.enforcement.schemas:PolicyActionOut"
       ],
-      "module": "zeroth.econ_plane.enforcement.schemas",
+      "module": "zeroth.econ.plane.enforcement.schemas",
       "name": "PolicyActionOut",
       "signature": "(*, id: int, tenant_id: str, capability_id: str, proposed_at: datetime.datetime, proposed_by: str, action_type: str, payload_json: dict, metrics_snapshot_id: int | None, confidence_state_json: dict, status: Literal['PROPOSED', 'APPROVED', 'REJECTED', 'APPLIED', 'FAILED'], approved_by: str | None, approved_at: datetime.datetime | None, applied_at: datetime.datetime | None, failure_reason: str | None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.enforcement.schemas"
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.enforcement.schemas:TenantBudgetUpsert"
       ],
-      "module": "zeroth.econ_plane.enforcement.schemas",
+      "module": "zeroth.econ.plane.enforcement.schemas",
       "name": "TenantBudgetUpsert",
       "signature": "(*, budget_cap_usd: Annotated[float, Ge(ge=0)]) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.instrumentation.schemas"
+        "schema_model:zeroth.econ.plane.instrumentation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.instrumentation.schemas:ExecutionEventCreate"
       ],
-      "module": "zeroth.econ_plane.instrumentation.schemas",
+      "module": "zeroth.econ.plane.instrumentation.schemas",
       "name": "ExecutionEventCreate",
       "signature": "(*, tenant_id: str | None = None, execution_id: str, join_key: str | None = None, timestamp: datetime.datetime, capability_id: str, implementation_id: str, model_version: str, token_cost_usd: decimal.Decimal = Decimal('0'), tool_cost_usd: decimal.Decimal = Decimal('0'), compute_cost_usd: decimal.Decimal = Decimal('0'), latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.instrumentation.schemas"
+        "schema_model:zeroth.econ.plane.instrumentation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.instrumentation.schemas:IngestResult"
       ],
-      "module": "zeroth.econ_plane.instrumentation.schemas",
+      "module": "zeroth.econ.plane.instrumentation.schemas",
       "name": "IngestResult",
       "signature": "(*, status: str, execution_id: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.instrumentation.schemas"
+        "schema_model:zeroth.econ.plane.instrumentation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.instrumentation.schemas:OutcomeBatchIngestRequest"
       ],
-      "module": "zeroth.econ_plane.instrumentation.schemas",
+      "module": "zeroth.econ.plane.instrumentation.schemas",
       "name": "OutcomeBatchIngestRequest",
-      "signature": "(*, events: list[zeroth.econ_plane.instrumentation.schemas.OutcomeEventCreate]) -> None"
+      "signature": "(*, events: list[zeroth.econ.plane.instrumentation.schemas.OutcomeEventCreate]) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.instrumentation.schemas"
+        "schema_model:zeroth.econ.plane.instrumentation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.instrumentation.schemas:OutcomeEventCreate"
       ],
-      "module": "zeroth.econ_plane.instrumentation.schemas",
+      "module": "zeroth.econ.plane.instrumentation.schemas",
       "name": "OutcomeEventCreate",
       "signature": "(*, tenant_id: str | None = None, execution_id: str | None = None, join_key: str | None = None, capability_id: str, implementation_id: str | None = None, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom', 'reopen_rate'], outcome_value: Union[float, bool, str, NoneType] = None, outcome_payload_json: dict[str, typing.Any] = <factory>, occurred_at: datetime.datetime | None = None, outcome_timestamp: datetime.datetime | None = None, provenance: Literal['MEASURED', 'INFERRED', 'MIXED'] = 'MEASURED') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.instrumentation.schemas"
+        "schema_model:zeroth.econ.plane.instrumentation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.instrumentation.schemas:OutcomeQueryResponse"
       ],
-      "module": "zeroth.econ_plane.instrumentation.schemas",
+      "module": "zeroth.econ.plane.instrumentation.schemas",
       "name": "OutcomeQueryResponse",
       "signature": "(*, id: int, tenant_id: str, join_key: str, capability_id: str, implementation_id: str | None, outcome_type: str, outcome_payload_json: dict[str, typing.Any], occurred_at: datetime.datetime, provenance: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.performance.schemas"
+        "schema_model:zeroth.econ.plane.performance.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.performance.schemas:CapabilityPerformance"
       ],
-      "module": "zeroth.econ_plane.performance.schemas",
+      "module": "zeroth.econ.plane.performance.schemas",
       "name": "CapabilityPerformance",
       "signature": "(*, capability_id: str, implementation_id: str | None = None, aer: float, risk_adjusted_return: float, operational_drag: float, confidence_gate_passed: bool, confidence_breakdown: dict = <factory>, rule_output: str, captured_at: datetime.datetime) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.performance.schemas"
+        "schema_model:zeroth.econ.plane.performance.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.performance.schemas:PerformanceSummary"
       ],
-      "module": "zeroth.econ_plane.performance.schemas",
+      "module": "zeroth.econ.plane.performance.schemas",
       "name": "PerformanceSummary",
       "signature": "(*, capabilities: int, avg_aer: float, avg_risk_adjusted_return: float, avg_operational_drag: float) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.reconciliation.schemas"
+        "schema_model:zeroth.econ.plane.reconciliation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.reconciliation.schemas:GroundTruthCostIn"
       ],
-      "module": "zeroth.econ_plane.reconciliation.schemas",
+      "module": "zeroth.econ.plane.reconciliation.schemas",
       "name": "GroundTruthCostIn",
       "signature": "(*, period_start: datetime.datetime, period_end: datetime.datetime, capability_id: str, component: str, amount_usd: float) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.reconciliation.schemas"
+        "schema_model:zeroth.econ.plane.reconciliation.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.reconciliation.schemas:GroundTruthImportRequest"
       ],
-      "module": "zeroth.econ_plane.reconciliation.schemas",
+      "module": "zeroth.econ.plane.reconciliation.schemas",
       "name": "GroundTruthImportRequest",
-      "signature": "(*, rows: list[zeroth.econ_plane.reconciliation.schemas.GroundTruthCostIn]) -> None"
+      "signature": "(*, rows: list[zeroth.econ.plane.reconciliation.schemas.GroundTruthCostIn]) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.econ_plane.reconciliation.service"
+        "__all__:zeroth.econ.plane.reconciliation.service"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.econ_plane.reconciliation.service:add_ground_truth_rows"
       ],
-      "module": "zeroth.econ_plane.reconciliation.service",
+      "module": "zeroth.econ.plane.reconciliation.service",
       "name": "add_ground_truth_rows",
       "signature": "(db: 'Session', rows: 'list[GroundTruthCost]') -> 'int'"
     },
     {
       "evidence": [
-        "__all__:zeroth.econ_plane.reconciliation.service"
+        "__all__:zeroth.econ.plane.reconciliation.service"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.econ_plane.reconciliation.service:compute_calibration_summary"
       ],
-      "module": "zeroth.econ_plane.reconciliation.service",
+      "module": "zeroth.econ.plane.reconciliation.service",
       "name": "compute_calibration_summary",
       "signature": "(db: 'Session') -> 'list[CalibrationMetric]'"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.statistics.schemas"
+        "schema_model:zeroth.econ.plane.statistics.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.statistics.schemas:CalibrationSummary"
       ],
-      "module": "zeroth.econ_plane.statistics.schemas",
+      "module": "zeroth.econ.plane.statistics.schemas",
       "name": "CalibrationSummary",
       "signature": "(*, capability_id: str, mape: float, mae: float, rmse: float, interval_coverage: float, bias: float, sample_size: int) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.econ_plane.statistics.schemas"
+        "schema_model:zeroth.econ.plane.statistics.schemas"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.econ_plane.statistics.schemas:IntervalEstimate"
       ],
-      "module": "zeroth.econ_plane.statistics.schemas",
+      "module": "zeroth.econ.plane.statistics.schemas",
       "name": "IntervalEstimate",
       "signature": "(*, mean: float, low: float, high: float) -> None"
     }
