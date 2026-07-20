@@ -160,21 +160,21 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentAuditSerializer"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentAuditSerializer",
       "signature": "(*, redact_keys: 'set[str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/how-to/agents.md",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/00_hello.py",
@@ -194,103 +194,103 @@
         "examples:examples/40_real_redis_memory.py",
         "examples:examples/41_real_vector_rag.py",
         "examples:examples/service/entrypoint.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentConfig"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentConfig",
-      "signature": "(*, name: str, description: str = '', instruction: str, model_name: str, input_model: type[pydantic.main.BaseModel], output_model: type[pydantic.main.BaseModel], allowed_tools: list[str] = <factory>, tool_attachments: list[zeroth.core.agent_runtime.tools.ToolAttachmentManifest] = <factory>, memory_refs: list[str] = <factory>, capabilities: list[str] = <factory>, tags: list[str] = <factory>, prompt_config: zeroth.core.agent_runtime.models.PromptConfig = <factory>, retry_policy: zeroth.core.agent_runtime.models.RetryPolicy = <factory>, timeout_seconds: Annotated[float | None, Ge(ge=0.0)] = None, max_tool_calls: Annotated[int, Ge(ge=0)] = 4, tool_output_safety: zeroth.core.agent_runtime.models.ToolOutputSafetyConfig = <factory>, content_safety: zeroth.core.agent_runtime.models.ContentSafetyConfig = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', requires_approval: bool = False, mcp_servers: list[zeroth.core.agent_runtime.mcp.MCPServerConfig] = <factory>, metadata: dict[str, typing.Any] = <factory>, model_params: zeroth.core.agent_runtime.models.ModelParams | None = None) -> None"
+      "signature": "(*, name: str, description: str = '', instruction: str, model_name: str, input_model: type[pydantic.main.BaseModel], output_model: type[pydantic.main.BaseModel], allowed_tools: list[str] = <factory>, tool_attachments: list[zeroth.runtime.agents.tools.ToolAttachmentManifest] = <factory>, memory_refs: list[str] = <factory>, capabilities: list[str] = <factory>, tags: list[str] = <factory>, prompt_config: zeroth.runtime.agents.models.PromptConfig = <factory>, retry_policy: zeroth.runtime.agents.models.RetryPolicy = <factory>, timeout_seconds: Annotated[float | None, Ge(ge=0.0)] = None, max_tool_calls: Annotated[int, Ge(ge=0)] = 4, tool_output_safety: zeroth.runtime.agents.models.ToolOutputSafetyConfig = <factory>, content_safety: zeroth.runtime.agents.models.ContentSafetyConfig = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', requires_approval: bool = False, mcp_servers: list[zeroth.runtime.agents.mcp.MCPServerConfig] = <factory>, metadata: dict[str, typing.Any] = <factory>, model_params: zeroth.runtime.agents.models.ModelParams | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentContentBlockedError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentContentBlockedError",
       "signature": "(message: 'str', *, direction: 'str', findings: 'list[str]', audit_record: 'dict | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentInputValidationError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentInputValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentOutputValidationError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentOutputValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentProviderError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentProviderError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentRetryExhaustedError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentRetryExhaustedError",
       "signature": "(*, attempts: 'int', last_error: 'Exception')"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentRunResult"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentRunResult",
-      "signature": "(*, input_data: dict[str, typing.Any], output_data: dict[str, typing.Any], attempts: Annotated[int, Gt(gt=0)], prompt: zeroth.core.agent_runtime.models.PromptAssembly, provider_response: Any, thread_state_snapshot: dict[str, typing.Any] | None = None, tool_call_records: list[dict[str, typing.Any]] = <factory>, audit_record: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, input_data: dict[str, typing.Any], output_data: dict[str, typing.Any], attempts: Annotated[int, Gt(gt=0)], prompt: zeroth.runtime.agents.models.PromptAssembly, provider_response: Any, thread_state_snapshot: dict[str, typing.Any] | None = None, tool_call_records: list[dict[str, typing.Any]] = <factory>, audit_record: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/how-to/agents.md",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/00_hello.py",
@@ -311,89 +311,89 @@
         "examples:examples/41_real_vector_rag.py",
         "examples:examples/_common.py",
         "examples:examples/service/entrypoint.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentRunner"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentRunner",
       "signature": "(config: 'AgentConfig', provider: 'ProviderAdapter', *, prompt_assembler: 'PromptAssembler | None' = None, output_validator: 'OutputValidator | None' = None, audit_serializer: 'AgentAuditSerializer | None' = None, thread_state_store: 'ThreadStateStore | None' = None, tool_bridge: 'ToolAttachmentBridge | None' = None, tool_executor: 'Any | None' = None, granted_tool_permissions: 'list[str] | None' = None, memory_resolver: 'MemoryConnectorResolver | None' = None, budget_enforcer: 'Any | None' = None, context_tracker: 'Any | None' = None, tool_output_sanitizer: 'ToolOutputSanitizer | None' = None, content_guardrail: 'ContentGuardrail | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentRuntimeError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentRuntimeError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:AgentTimeoutError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "AgentTimeoutError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:CachingProviderAdapter"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "CachingProviderAdapter",
       "signature": "(inner: 'ProviderAdapter', cache: 'ResponseCache | None' = None, *, cache_tool_calls: 'bool' = False) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:CascadingProviderAdapter"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "CascadingProviderAdapter",
       "signature": "(inner: 'ProviderAdapter', *, cheap_model: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ContentSafetyConfig"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ContentSafetyConfig",
       "signature": "(*, enabled: bool = False, scan_input: bool = True, scan_output: bool = True, mode: Literal['flag', 'redact', 'block'] = 'flag', detect_pii: bool = True, pii_types: tuple[str, ...] = (), blocklist: tuple[str, ...] = ()) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/03_conditional_branches.py",
         "examples:examples/04_native_tool.py",
@@ -405,89 +405,89 @@
         "examples:examples/30_contracts_and_mappings.py",
         "examples:examples/32_observability.py",
         "examples:examples/33_mcp_tools.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:DeterministicProviderAdapter"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "DeterministicProviderAdapter",
       "signature": "(responses: 'Sequence[ProviderResponse | Any | Exception]')"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:FallbackProviderAdapter"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "FallbackProviderAdapter",
       "signature": "(targets: 'Sequence[ProviderTarget]', *, should_fallback: 'Callable[[BaseException], bool] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:HeuristicInjectionScreener"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "HeuristicInjectionScreener",
       "signature": "(patterns: 'tuple[tuple[str, re.Pattern[str]], ...] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:InMemoryResponseCache"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "InMemoryResponseCache",
       "signature": "(*, maxsize: 'int' = 1024, ttl: 'float | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:InMemoryThreadStateStore"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "InMemoryThreadStateStore",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:InjectionScreener"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "InjectionScreener",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/how-to/agents.md",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/00_hello.py",
@@ -497,162 +497,162 @@
         "examples:examples/40_real_redis_memory.py",
         "examples:examples/41_real_vector_rag.py",
         "examples:examples/service/entrypoint.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:LiteLLMProviderAdapter"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "LiteLLMProviderAdapter",
       "signature": "(*, default_timeout: 'float' = 600.0, secret_provider: 'SecretProvider | None' = None, tenant_id: 'str | None' = None, allow_env_fallback: 'bool' = True, llm_key_map: 'dict[str, str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/33_mcp_tools.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:MCPServerConfig"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "MCPServerConfig",
       "signature": "(*, name: str, command: str, args: list[str] = <factory>, env: dict[str, str] | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/how-to/agents.md",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ModelParams"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ModelParams",
       "signature": "(*, temperature: float | None = None, top_p: float | None = None, max_tokens: int | None = None, stop: list[str] | None = None, seed: int | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:OutputValidator"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "OutputValidator",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:PromptAssembler"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "PromptAssembler",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:PromptAssembly"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "PromptAssembly",
-      "signature": "(*, messages: list[zeroth.core.agent_runtime.models.PromptMessage] = <factory>, rendered_prompt: str, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, messages: list[zeroth.runtime.agents.models.PromptMessage] = <factory>, rendered_prompt: str, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/how-to/agents.md",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:PromptConfig"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "PromptConfig",
       "signature": "(*, include_input_schema: bool = True, include_output_schema: bool = True, include_thread_state: bool = True, include_tool_refs: bool = True, include_memory_refs: bool = True, redact_keys: tuple[str, ...] = ('password', 'secret', 'token'), extra_context: dict[str, typing.Any] = <factory>, messages_key: str | None = None, persist_conversation: bool = False, conversation_max_turns: int | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/how-to/agents.md",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:PromptMessage"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "PromptMessage",
       "signature": "(*, role: Literal['system', 'user', 'assistant'], content: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ProviderAdapter"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ProviderAdapter",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md"
       ],
       "kind": "value",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ProviderMessage"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ProviderMessage",
       "signature": null
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ProviderRequest"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ProviderRequest",
-      "signature": "(*, model_name: str, messages: list[typing.Any] = <factory>, metadata: dict[str, typing.Any] = <factory>, tools: list[dict[str, typing.Any]] | None = None, tool_choice: str | dict[str, typing.Any] | None = None, response_format: dict[str, typing.Any] | None = None, output_model: type[pydantic.main.BaseModel] | None = None, model_params: zeroth.core.agent_runtime.models.ModelParams | None = None) -> None"
+      "signature": "(*, model_name: str, messages: list[typing.Any] = <factory>, metadata: dict[str, typing.Any] = <factory>, tools: list[dict[str, typing.Any]] | None = None, tool_choice: str | dict[str, typing.Any] | None = None, response_format: dict[str, typing.Any] | None = None, output_model: type[pydantic.main.BaseModel] | None = None, model_params: zeroth.runtime.agents.models.ModelParams | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/03_conditional_branches.py",
         "examples:examples/04_native_tool.py",
@@ -664,548 +664,548 @@
         "examples:examples/30_contracts_and_mappings.py",
         "examples:examples/32_observability.py",
         "examples:examples/33_mcp_tools.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ProviderResponse"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ProviderResponse",
       "signature": "(*, content: Any = None, raw: Any = None, tool_calls: list[zeroth.core.governed.integrations.tool_calls.NormalizedToolCall] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, metadata: dict[str, typing.Any] = <factory>, cost_usd: float | None = None, cost_event_id: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ProviderTarget"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ProviderTarget",
       "signature": "(adapter: 'ProviderAdapter', model_name: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:RepositoryThreadResolver"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "RepositoryThreadResolver",
       "signature": "(thread_repository: 'ThreadRepository') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:RepositoryThreadStateStore"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "RepositoryThreadStateStore",
       "signature": "(database: 'AsyncDatabase | None' = None, *, run_repository: 'RunRepository | None' = None, thread_repository: 'ThreadRepository | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ResponseCache"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ResponseCache",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:RetryPolicy"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "RetryPolicy",
       "signature": "(*, max_retries: Annotated[int, Ge(ge=0)] = 0, retry_on_validation_error: bool = True, retry_on_provider_error: bool = True, retry_on_timeout: bool = True, backoff_seconds: Annotated[float, Ge(ge=0.0)] = 0.0, base_delay: Annotated[float, Ge(ge=0.0)] = 1.0, max_delay: Annotated[float, Ge(ge=0.0)] = 60.0, use_exponential_backoff: bool = True) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:SanitizedContent"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "SanitizedContent",
       "signature": "(text: 'str', original_length: 'int', truncated: 'bool' = False, flags: 'tuple[str, ...]' = (), blocked: 'bool' = False) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ThreadResolution"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ThreadResolution",
       "signature": "(*, thread: zeroth.core.runs.models.Thread, created: bool = False, restored_state: dict[str, typing.Any] | None = None, checkpoint_id: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolAttachmentAction"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolAttachmentAction",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolAttachmentBinding"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolAttachmentBinding",
       "signature": "(*, alias: str, executable_unit_ref: str, description: str = '', parameters_schema: dict[str, typing.Any] | None = None, permission_scope: tuple[str, ...] = <factory>, required_capabilities: tuple[zeroth.contracts.graph.models.Capability, ...] = <factory>, timeout_override_seconds: Annotated[float | None, Ge(ge=0.0)] = None, side_effect_allowed: bool = False, max_output_chars: Annotated[int | None, Ge(ge=1)] = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/04_native_tool.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolAttachmentBridge"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolAttachmentBridge",
       "signature": "(registry: 'ToolAttachmentRegistry | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolAttachmentError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolAttachmentError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/04_native_tool.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolAttachmentManifest"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolAttachmentManifest",
       "signature": "(*, alias: str, executable_unit_ref: str, description: str = '', parameters_schema: dict[str, typing.Any] | None = None, permission_scope: tuple[str, ...] = <factory>, required_capabilities: tuple[zeroth.contracts.graph.models.Capability, ...] = <factory>, timeout_override_seconds: Annotated[float | None, Ge(ge=0.0)] = None, side_effect_allowed: bool = False, max_output_chars: Annotated[int | None, Ge(ge=1)] = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
         "examples:examples/04_native_tool.py",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolAttachmentRegistry"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolAttachmentRegistry",
       "signature": "(attachments: 'Sequence[ToolAttachmentManifest] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolOutputSafetyConfig"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolOutputSafetyConfig",
       "signature": "(*, enabled: bool = True, max_output_chars: Annotated[int, Ge(ge=1)] = 8000, wrap_with_provenance: bool = True, screen_for_injection: bool = True, screening_mode: Literal['flag', 'block'] = 'flag') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolOutputSanitizer"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolOutputSanitizer",
       "signature": "(*, max_output_chars: 'int' = 8000, wrap_with_provenance: 'bool' = True, screener: 'InjectionScreener | None' = None, screening_mode: 'str' = 'flag') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:ToolPermissionError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "ToolPermissionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime:UndeclaredToolError"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "UndeclaredToolError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.agent_runtime:build_response_format"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "build_response_format",
       "signature": "(output_model: 'type[BaseModel]') -> 'dict[str, Any] | None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.agent_runtime:normalize_declared_tool_refs"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "normalize_declared_tool_refs",
       "signature": "(declared_tool_refs: 'Sequence[str]') -> 'list[str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.agent_runtime",
+        "__all__:zeroth.runtime.agents",
         "docs:docs/reference/python-api/agents.md",
-        "package_export:zeroth.core.agent_runtime"
+        "package_export:zeroth.runtime.agents"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.agent_runtime:wrap_untrusted"
       ],
-      "module": "zeroth.core.agent_runtime",
+      "module": "zeroth.runtime.agents",
       "name": "wrap_untrusted",
       "signature": "(text: 'str', *, source: 'str', flags: 'tuple[str, ...]' = ()) -> 'str'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.errors"
+        "package_export:zeroth.runtime.agents.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.errors:AgentContentBlockedError"
       ],
-      "module": "zeroth.core.agent_runtime.errors",
+      "module": "zeroth.runtime.agents.errors",
       "name": "AgentContentBlockedError",
       "signature": "(message: 'str', *, direction: 'str', findings: 'list[str]', audit_record: 'dict | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.errors"
+        "package_export:zeroth.runtime.agents.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.errors:AgentInputValidationError"
       ],
-      "module": "zeroth.core.agent_runtime.errors",
+      "module": "zeroth.runtime.agents.errors",
       "name": "AgentInputValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.errors"
+        "package_export:zeroth.runtime.agents.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.errors:AgentOutputValidationError"
       ],
-      "module": "zeroth.core.agent_runtime.errors",
+      "module": "zeroth.runtime.agents.errors",
       "name": "AgentOutputValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.errors"
+        "package_export:zeroth.runtime.agents.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.errors:AgentProviderError"
       ],
-      "module": "zeroth.core.agent_runtime.errors",
+      "module": "zeroth.runtime.agents.errors",
       "name": "AgentProviderError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.errors"
+        "package_export:zeroth.runtime.agents.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.errors:AgentRetryExhaustedError"
       ],
-      "module": "zeroth.core.agent_runtime.errors",
+      "module": "zeroth.runtime.agents.errors",
       "name": "AgentRetryExhaustedError",
       "signature": "(*, attempts: 'int', last_error: 'Exception')"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.errors"
+        "package_export:zeroth.runtime.agents.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.errors:AgentRuntimeError"
       ],
-      "module": "zeroth.core.agent_runtime.errors",
+      "module": "zeroth.runtime.agents.errors",
       "name": "AgentRuntimeError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.errors"
+        "package_export:zeroth.runtime.agents.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.errors:AgentTimeoutError"
       ],
-      "module": "zeroth.core.agent_runtime.errors",
+      "module": "zeroth.runtime.agents.errors",
       "name": "AgentTimeoutError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.errors"
+        "package_export:zeroth.runtime.agents.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.errors:BudgetExceededError"
       ],
-      "module": "zeroth.core.agent_runtime.errors",
+      "module": "zeroth.runtime.agents.errors",
       "name": "BudgetExceededError",
       "signature": "(message: 'str', *, spend: 'float' = 0.0, cap: 'float' = 0.0) -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.factory"
+        "package_export:zeroth.runtime.agents.factory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.factory:AgentRunnerFactoryError"
       ],
-      "module": "zeroth.core.agent_runtime.factory",
+      "module": "zeroth.runtime.agents.factory",
       "name": "AgentRunnerFactoryError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:AgentConfig"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "AgentConfig",
-      "signature": "(*, name: str, description: str = '', instruction: str, model_name: str, input_model: type[pydantic.main.BaseModel], output_model: type[pydantic.main.BaseModel], allowed_tools: list[str] = <factory>, tool_attachments: list[zeroth.core.agent_runtime.tools.ToolAttachmentManifest] = <factory>, memory_refs: list[str] = <factory>, capabilities: list[str] = <factory>, tags: list[str] = <factory>, prompt_config: zeroth.core.agent_runtime.models.PromptConfig = <factory>, retry_policy: zeroth.core.agent_runtime.models.RetryPolicy = <factory>, timeout_seconds: Annotated[float | None, Ge(ge=0.0)] = None, max_tool_calls: Annotated[int, Ge(ge=0)] = 4, tool_output_safety: zeroth.core.agent_runtime.models.ToolOutputSafetyConfig = <factory>, content_safety: zeroth.core.agent_runtime.models.ContentSafetyConfig = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', requires_approval: bool = False, mcp_servers: list[zeroth.core.agent_runtime.mcp.MCPServerConfig] = <factory>, metadata: dict[str, typing.Any] = <factory>, model_params: zeroth.core.agent_runtime.models.ModelParams | None = None) -> None"
+      "signature": "(*, name: str, description: str = '', instruction: str, model_name: str, input_model: type[pydantic.main.BaseModel], output_model: type[pydantic.main.BaseModel], allowed_tools: list[str] = <factory>, tool_attachments: list[zeroth.runtime.agents.tools.ToolAttachmentManifest] = <factory>, memory_refs: list[str] = <factory>, capabilities: list[str] = <factory>, tags: list[str] = <factory>, prompt_config: zeroth.runtime.agents.models.PromptConfig = <factory>, retry_policy: zeroth.runtime.agents.models.RetryPolicy = <factory>, timeout_seconds: Annotated[float | None, Ge(ge=0.0)] = None, max_tool_calls: Annotated[int, Ge(ge=0)] = 4, tool_output_safety: zeroth.runtime.agents.models.ToolOutputSafetyConfig = <factory>, content_safety: zeroth.runtime.agents.models.ContentSafetyConfig = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', requires_approval: bool = False, mcp_servers: list[zeroth.runtime.agents.mcp.MCPServerConfig] = <factory>, metadata: dict[str, typing.Any] = <factory>, model_params: zeroth.runtime.agents.models.ModelParams | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:AgentRunResult"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "AgentRunResult",
-      "signature": "(*, input_data: dict[str, typing.Any], output_data: dict[str, typing.Any], attempts: Annotated[int, Gt(gt=0)], prompt: zeroth.core.agent_runtime.models.PromptAssembly, provider_response: Any, thread_state_snapshot: dict[str, typing.Any] | None = None, tool_call_records: list[dict[str, typing.Any]] = <factory>, audit_record: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, input_data: dict[str, typing.Any], output_data: dict[str, typing.Any], attempts: Annotated[int, Gt(gt=0)], prompt: zeroth.runtime.agents.models.PromptAssembly, provider_response: Any, thread_state_snapshot: dict[str, typing.Any] | None = None, tool_call_records: list[dict[str, typing.Any]] = <factory>, audit_record: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:ContentSafetyConfig"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "ContentSafetyConfig",
       "signature": "(*, enabled: bool = False, scan_input: bool = True, scan_output: bool = True, mode: Literal['flag', 'redact', 'block'] = 'flag', detect_pii: bool = True, pii_types: tuple[str, ...] = (), blocklist: tuple[str, ...] = ()) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:ModelParams"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "ModelParams",
       "signature": "(*, temperature: float | None = None, top_p: float | None = None, max_tokens: int | None = None, stop: list[str] | None = None, seed: int | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:PromptAssembly"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "PromptAssembly",
-      "signature": "(*, messages: list[zeroth.core.agent_runtime.models.PromptMessage] = <factory>, rendered_prompt: str, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, messages: list[zeroth.runtime.agents.models.PromptMessage] = <factory>, rendered_prompt: str, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:PromptConfig"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "PromptConfig",
       "signature": "(*, include_input_schema: bool = True, include_output_schema: bool = True, include_thread_state: bool = True, include_tool_refs: bool = True, include_memory_refs: bool = True, redact_keys: tuple[str, ...] = ('password', 'secret', 'token'), extra_context: dict[str, typing.Any] = <factory>, messages_key: str | None = None, persist_conversation: bool = False, conversation_max_turns: int | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:PromptMessage"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "PromptMessage",
       "signature": "(*, role: Literal['system', 'user', 'assistant'], content: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:RetryPolicy"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "RetryPolicy",
       "signature": "(*, max_retries: Annotated[int, Ge(ge=0)] = 0, retry_on_validation_error: bool = True, retry_on_provider_error: bool = True, retry_on_timeout: bool = True, backoff_seconds: Annotated[float, Ge(ge=0.0)] = 0.0, base_delay: Annotated[float, Ge(ge=0.0)] = 1.0, max_delay: Annotated[float, Ge(ge=0.0)] = 60.0, use_exponential_backoff: bool = True) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.agent_runtime.models"
+        "schema_model:zeroth.runtime.agents.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.models:ToolOutputSafetyConfig"
       ],
-      "module": "zeroth.core.agent_runtime.models",
+      "module": "zeroth.runtime.agents.models",
       "name": "ToolOutputSafetyConfig",
       "signature": "(*, enabled: bool = True, max_output_chars: Annotated[int, Ge(ge=1)] = 8000, wrap_with_provenance: bool = True, screen_for_injection: bool = True, screening_mode: Literal['flag', 'block'] = 'flag') -> None"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.tools"
+        "package_export:zeroth.runtime.agents.tools"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.tools:ToolAttachmentError"
       ],
-      "module": "zeroth.core.agent_runtime.tools",
+      "module": "zeroth.runtime.agents.tools",
       "name": "ToolAttachmentError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.tools"
+        "package_export:zeroth.runtime.agents.tools"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.tools:ToolPermissionError"
       ],
-      "module": "zeroth.core.agent_runtime.tools",
+      "module": "zeroth.runtime.agents.tools",
       "name": "ToolPermissionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.agent_runtime.tools"
+        "package_export:zeroth.runtime.agents.tools"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.agent_runtime.tools:UndeclaredToolError"
       ],
-      "module": "zeroth.core.agent_runtime.tools",
+      "module": "zeroth.runtime.agents.tools",
       "name": "UndeclaredToolError",
       "signature": "<not-inspectable>"
     },
@@ -5795,7 +5795,7 @@
       ],
       "module": "zeroth.core.governed.memory.models",
       "name": "MemoryEntry",
-      "signature": "(*, key: str, value: Union[Dict[str, Any], List[Any], str, int, float, bool, NoneType], scope: zeroth.core.governed.memory.models.MemoryScope, scope_target: str, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, key: str, value: Union[Dict[str, Any], List[Any], str, int, float, bool, NoneType], scope: zeroth.contracts.governed.models.memory.MemoryScope, scope_target: str, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -5808,129 +5808,129 @@
       "legacy_ids": [
         "zeroth.core.governed.memory.models:MemoryScope"
       ],
-      "module": "zeroth.core.governed.memory.models",
+      "module": "zeroth.contracts.governed.models.memory",
       "name": "MemoryScope",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.governed.runtime",
-        "package_export:zeroth.core.governed.runtime"
+        "__all__:zeroth.runtime.orchestration.interrupts",
+        "package_export:zeroth.runtime.orchestration.interrupts"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.runtime:RedisInterruptStore"
       ],
-      "module": "zeroth.core.governed.runtime",
+      "module": "zeroth.runtime.orchestration.interrupts",
       "name": "RedisInterruptStore",
       "signature": "(*, redis_url: 'str', prefix: 'str' = 'governai:interrupt', redis_client: 'Any | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.governed.runtime",
-        "package_export:zeroth.core.governed.runtime"
+        "__all__:zeroth.runtime.orchestration.run_store",
+        "package_export:zeroth.runtime.orchestration.run_store"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.runtime:RedisRunStore"
       ],
-      "module": "zeroth.core.governed.runtime",
+      "module": "zeroth.runtime.orchestration.run_store",
       "name": "RedisRunStore",
       "signature": "(*, redis_url: 'str', prefix: 'str' = 'governai:run', ttl_seconds: 'int | None' = None, redis_client: 'Any | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.governed.runtime.run_store"
+        "package_export:zeroth.runtime.orchestration.run_store"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.runtime.run_store:StateConcurrencyError"
       ],
-      "module": "zeroth.core.governed.runtime.run_store",
+      "module": "zeroth.runtime.orchestration.run_store",
       "name": "StateConcurrencyError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.governed.tools.base"
+        "package_export:zeroth.runtime.agents.tooling.base"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.tools.base:CLIToolError"
       ],
-      "module": "zeroth.core.governed.tools.base",
+      "module": "zeroth.runtime.agents.tooling.base",
       "name": "CLIToolError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.governed.tools.base"
+        "package_export:zeroth.runtime.agents.tooling.base"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.tools.base:CLIToolOutputError"
       ],
-      "module": "zeroth.core.governed.tools.base",
+      "module": "zeroth.runtime.agents.tooling.base",
       "name": "CLIToolOutputError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.governed.tools.base"
+        "package_export:zeroth.runtime.agents.tooling.base"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.tools.base:CLIToolProcessError"
       ],
-      "module": "zeroth.core.governed.tools.base",
+      "module": "zeroth.runtime.agents.tooling.base",
       "name": "CLIToolProcessError",
       "signature": "(message: 'str', *, exit_code: 'int', stderr: 'str', stdout: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.governed.tools.base"
+        "package_export:zeroth.runtime.agents.tooling.base"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.tools.base:CLIToolTimeoutError"
       ],
-      "module": "zeroth.core.governed.tools.base",
+      "module": "zeroth.runtime.agents.tooling.base",
       "name": "CLIToolTimeoutError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.governed.tools.base"
+        "package_export:zeroth.runtime.agents.tooling.base"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.tools.base:ToolError"
       ],
-      "module": "zeroth.core.governed.tools.base",
+      "module": "zeroth.runtime.agents.tooling.base",
       "name": "ToolError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.governed.tools.base"
+        "package_export:zeroth.runtime.agents.tooling.base"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.tools.base:ToolExecutionError"
       ],
-      "module": "zeroth.core.governed.tools.base",
+      "module": "zeroth.runtime.agents.tooling.base",
       "name": "ToolExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.governed.tools.base"
+        "package_export:zeroth.runtime.agents.tooling.base"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.tools.base:ToolValidationError"
       ],
-      "module": "zeroth.core.governed.tools.base",
+      "module": "zeroth.runtime.agents.tooling.base",
       "name": "ToolValidationError",
       "signature": "<not-inspectable>"
     },
@@ -7464,7 +7464,7 @@
       ],
       "module": "zeroth.core.memory",
       "name": "ConnectorManifest",
-      "signature": "(*, connector_type: str, scope: zeroth.core.governed.memory.models.MemoryScope, instance_id: str | None = None, config: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, connector_type: str, scope: zeroth.contracts.governed.models.memory.MemoryScope, instance_id: str | None = None, config: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -7615,7 +7615,7 @@
       ],
       "module": "zeroth.core.memory.models",
       "name": "ConnectorManifest",
-      "signature": "(*, connector_type: str, scope: zeroth.core.governed.memory.models.MemoryScope, instance_id: str | None = None, config: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, connector_type: str, scope: zeroth.contracts.governed.models.memory.MemoryScope, instance_id: str | None = None, config: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
