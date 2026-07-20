@@ -13,10 +13,10 @@ from typing import Literal
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.econ.opportunities import SpendReport, spend_opportunities
-from zeroth.core.econ.quality import read_quality_verdict
-from zeroth.core.econ.rightsizing import RightsizingResult, describe, recommend
-from zeroth.core.econ.rightsizing_experiment import (
+from zeroth.econ.analytics.opportunities import SpendReport, spend_opportunities
+from zeroth.econ.analytics.quality import read_quality_verdict
+from zeroth.econ.analytics.rightsizing import RightsizingResult, describe, recommend
+from zeroth.econ.analytics.rightsizing_experiment import (
     ExperimentReport,
     build_experiment_dataset,
     build_labeled_dataset,

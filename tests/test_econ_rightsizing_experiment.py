@@ -13,8 +13,8 @@ import pytest
 
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
-from zeroth.core.econ.rightsizing import ModelOption
-from zeroth.core.econ.rightsizing_experiment import (
+from zeroth.econ.analytics.rightsizing import ModelOption
+from zeroth.econ.analytics.rightsizing_experiment import (
     EquivalenceScorer,
     build_experiment_dataset,
     build_labeled_dataset,

@@ -9,10 +9,10 @@ if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph, GraphRepository
     from zeroth.contracts.registry import ContractRegistry
     from zeroth.core.deployments import Deployment, DeploymentService
-    from zeroth.core.econ.client import RegulusClient
     from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
     from zeroth.core.memory.registry import InMemoryConnectorRegistry
     from zeroth.core.orchestrator import RuntimeOrchestrator
+    from zeroth.econ.analytics.client import RegulusClient
     from zeroth.governance.approvals import ApprovalService
     from zeroth.governance.audit import AuditRepository
     from zeroth.governance.guardrails.config import GuardrailConfig

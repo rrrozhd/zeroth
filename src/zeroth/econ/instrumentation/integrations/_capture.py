@@ -3,7 +3,7 @@ from __future__ import annotations
 from time import time
 from typing import Any
 
-from zeroth.core.econ.instrumentation.runtime import get_runtime
+from zeroth.econ.instrumentation.runtime import get_runtime
 
 
 def start_time_ms() -> int:

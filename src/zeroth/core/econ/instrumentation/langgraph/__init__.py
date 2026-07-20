@@ -1,4 +1,11 @@
-from zeroth.core.econ.instrumentation.langgraph.adapter import LangGraphTelemetryAdapter
-from zeroth.core.econ.instrumentation.integrations.langgraph import instrument_langgraph_graph
+"""Legacy import path for :mod:`zeroth.econ.instrumentation.langgraph`."""
 
-__all__ = ["LangGraphTelemetryAdapter", "instrument_langgraph_graph"]
+from zeroth.econ.instrumentation.langgraph import (
+    LangGraphTelemetryAdapter,
+    instrument_langgraph_graph,
+)
+
+__all__ = [
+    "LangGraphTelemetryAdapter",
+    "instrument_langgraph_graph",
+]

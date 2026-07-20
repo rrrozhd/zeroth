@@ -13,12 +13,12 @@ talk to the external **Regulus** backend via the
 ## Minimal example
 
 ```python
-from zeroth.core.econ import (
+from zeroth.econ.analytics import (
     BudgetEnforcer,
     CostEstimator,
     RegulusClient,
 )
-from zeroth.core.econ import InstrumentedProviderAdapter  # lazy-imported
+from zeroth.econ.analytics import InstrumentedProviderAdapter  # lazy-imported
 
 regulus = RegulusClient(base_url="http://regulus.internal:9000")
 estimator = CostEstimator()
@@ -69,6 +69,6 @@ response = await adapter.complete(prompt="hello")
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.econ`](../reference/python-api/econ.md).
+See the [Python API reference for `zeroth.econ.analytics`](../reference/python-api/econ.md).
 
 Related guides: [concepts/econ](../concepts/econ.md) · [runs](../concepts/runs.md).

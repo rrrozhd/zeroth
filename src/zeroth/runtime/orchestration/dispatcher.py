@@ -260,7 +260,7 @@ class NodeDispatcher:
             # Use getattr so lightweight runners without .provider still work.
             if original_provider is not _MISSING and self.cost_estimator is not None:
                 try:
-                    from zeroth.core.econ.adapter import InstrumentedProviderAdapter
+                    from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
 
                     tenant_id = run.tenant_id or "default"
                     runner.provider = InstrumentedProviderAdapter(

@@ -22,7 +22,7 @@ from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResp
 from zeroth.runtime.agents.resilience import CachingProviderAdapter
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
-from zeroth.core.econ import (
+from zeroth.econ.analytics import (
     EconThresholdError,
     WasteKind,
     analyze_run,
@@ -507,7 +507,7 @@ async def test_instrumented_cache_hit_costs_zero_through_orchestrator(sqlite_db)
     """
     from unittest.mock import MagicMock
 
-    from zeroth.core.econ.cost import CostEstimator
+    from zeroth.econ.analytics.cost import CostEstimator
 
     cached = CachingProviderAdapter(
         CallableProviderAdapter(

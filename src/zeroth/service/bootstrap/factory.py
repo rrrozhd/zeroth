@@ -11,13 +11,13 @@ from zeroth.contracts.graph.serialization import deserialize_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.econ.client import RegulusClient
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.core.memory.factory import register_memory_connectors
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.memory.runtime_configs import load_persisted_connectors
 from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.guardrails.config import GuardrailConfig
@@ -160,7 +160,7 @@ async def bootstrap_service(
         # own first service key, to pass the gated /regulus mount) + a fresh
         # econ_plane Admin JWT. Degrades gracefully when no Zeroth key exists
         # (Bearer only -> 401 -> fail-open). See econ.service_auth.
-        from zeroth.core.econ.service_auth import make_self_auth_headers_provider
+        from zeroth.econ.analytics.service_auth import make_self_auth_headers_provider
 
         _self_api_key = (
             resolved_auth_config.api_keys[0].secret if resolved_auth_config.api_keys else None
@@ -175,7 +175,7 @@ async def bootstrap_service(
         )
         # BudgetEnforcer wired here once econ.budget module lands (Plan 13-02).
         try:
-            from zeroth.core.econ.budget import BudgetEnforcer
+            from zeroth.econ.analytics.budget import BudgetEnforcer
 
             # Prefer the bundled in-process mount: a default bundled deploy points
             # base_url at the EXTERNAL localhost:8000 topology, so without this the
@@ -204,7 +204,7 @@ async def bootstrap_service(
     # local econ lenses (unit economics, waste, right-sizing) work out of the box.
     # Regulus, when enabled above, only adds the cost-event stream and budget caps.
     try:
-        from zeroth.core.econ.cost import CostEstimator
+        from zeroth.econ.analytics.cost import CostEstimator
 
         cost_estimator = CostEstimator()
     except ImportError:

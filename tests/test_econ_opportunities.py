@@ -8,7 +8,7 @@ model) rather than exact candidate counts.
 from __future__ import annotations
 
 from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage, ToolCallRecord
-from zeroth.core.econ.opportunities import spend_opportunities
+from zeroth.econ.analytics.opportunities import spend_opportunities
 
 
 def _rec(

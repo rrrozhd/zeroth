@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Union
 
-from zeroth.core.econ.instrumentation.client import track_execution, track_outcome
-from zeroth.core.econ.instrumentation.schemas import ExecutionEvent, OutcomeEvent
+from zeroth.econ.instrumentation.client import track_execution, track_outcome
+from zeroth.econ.instrumentation.schemas import ExecutionEvent, OutcomeEvent
 
 
 class LangGraphTelemetryAdapter:

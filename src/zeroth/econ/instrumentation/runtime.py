@@ -8,8 +8,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Iterator
 
-from zeroth.core.econ.instrumentation.config import AutoInstrumentationConfig, InstrumentationConfig
-from zeroth.core.econ.instrumentation.transport import TelemetryTransport
+from zeroth.econ.instrumentation.config import AutoInstrumentationConfig, InstrumentationConfig
+from zeroth.econ.instrumentation.transport import TelemetryTransport
 
 
 class RuntimeState:

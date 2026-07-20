@@ -6,16 +6,16 @@ from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Awaitable, Callable
 
-from zeroth.core.econ.instrumentation.integrations._capture import (
+from zeroth.econ.instrumentation.integrations._capture import (
     finalize_capture_metadata,
     should_capture_provider,
     should_emit_by_rate,
     start_time_ms,
 )
-from zeroth.core.econ.instrumentation.otel import maybe_span
-from zeroth.core.econ.instrumentation.runtime import get_runtime
-from zeroth.core.econ.instrumentation.schemas import ExecutionEvent
-from zeroth.core.econ.instrumentation.client import resolve_join_key
+from zeroth.econ.instrumentation.otel import maybe_span
+from zeroth.econ.instrumentation.runtime import get_runtime
+from zeroth.econ.instrumentation.schemas import ExecutionEvent
+from zeroth.econ.instrumentation.client import resolve_join_key
 
 
 def _usage_tokens(response: Any) -> tuple[int, int, int]:

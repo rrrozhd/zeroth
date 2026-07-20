@@ -17,8 +17,8 @@ from zeroth.runtime.agents.provider import (
     LiteLLMProviderAdapter,
     ProviderRequest,
 )
-from zeroth.core.econ.adapter import InstrumentedProviderAdapter
-from zeroth.core.econ.cost import CostEstimator
+from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
+from zeroth.econ.analytics.cost import CostEstimator
 
 
 class _FakeSecretProvider:

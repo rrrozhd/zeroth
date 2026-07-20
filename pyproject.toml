@@ -165,7 +165,7 @@ target-version = "py312"
 # D/ruff conformance is a deferred cleanup, so keep them excluded for now
 # rather than block on a mass reformat. zeroth/contracts/governed is the
 # governai contract slice relocated by Task 12 and keeps the same exemption.
-extend-exclude = ["src/zeroth/core/econ/instrumentation", "src/zeroth/econ_plane", "src/zeroth/core/governed", "src/zeroth/contracts/governed", "src/zeroth/runtime/agents/tooling", "src/zeroth/runtime/orchestration/interrupts.py", "src/zeroth/runtime/orchestration/run_store.py"]
+extend-exclude = ["src/zeroth/econ/instrumentation", "src/zeroth/econ_plane", "src/zeroth/core/governed", "src/zeroth/contracts/governed", "src/zeroth/runtime/agents/tooling", "src/zeroth/runtime/orchestration/interrupts.py", "src/zeroth/runtime/orchestration/run_store.py"]
 force-exclude = true
 
 [tool.ruff.lint]
@@ -194,4 +194,4 @@ fail-under = 90
 ignore-init-method = true
 ignore-init-module = true
 ignore-nested-functions = true
-exclude = ["src/zeroth/core/migrations", "tests", "scripts", "src/zeroth/core/econ/instrumentation", "src/zeroth/econ_plane", "src/zeroth/core/governed", "src/zeroth/contracts/governed"]
+exclude = ["src/zeroth/core/migrations", "tests", "scripts", "src/zeroth/econ/instrumentation", "src/zeroth/econ_plane", "src/zeroth/core/governed", "src/zeroth/contracts/governed"]

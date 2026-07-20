@@ -69,7 +69,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         # gated) Regulus mount: Zeroth's first service API key + a fresh
         # econ_plane Admin JWT. Used by the cost API; the SDK client and budget
         # enforcer get the same provider via bootstrap.
-        from zeroth.core.econ.service_auth import make_self_auth_headers_provider
+        from zeroth.econ.analytics.service_auth import make_self_auth_headers_provider
 
         _auth_cfg = getattr(bootstrap, "auth_config", None)
         _self_api_key = _auth_cfg.api_keys[0].secret if _auth_cfg and _auth_cfg.api_keys else None

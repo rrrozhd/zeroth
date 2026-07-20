@@ -1,8 +1,8 @@
-# Provenance: zeroth.core.econ.instrumentation
+# Provenance: zeroth.econ.instrumentation
 
 The client-side cost-instrumentation SDK (`ExecutionEvent` schema, the
 `InstrumentationClient` transport, and the reflection-based provider integrations).
-Used by the Zeroth cost path (`zeroth.core.econ.client` / `.adapter`) to emit
+Used by the Zeroth cost path (`zeroth.econ.analytics.client` / `.adapter`) to emit
 execution events to the economic control plane.
 
 ## Origin

@@ -43,8 +43,8 @@ from zeroth.runtime.agents.provider import (  # noqa: E402
     ProviderResponse,
 )
 from zeroth.runtime.agents.runner import AgentRunner  # noqa: E402
-from zeroth.core.econ.budget import BudgetEnforcer  # noqa: E402
-from zeroth.core.econ.service_auth import (  # noqa: E402
+from zeroth.econ.analytics.budget import BudgetEnforcer  # noqa: E402
+from zeroth.econ.analytics.service_auth import (  # noqa: E402
     make_self_auth_headers_provider,
     mint_econ_service_token,
 )

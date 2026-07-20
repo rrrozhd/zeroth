@@ -128,7 +128,7 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.runtime.orchestration.dispatcher", "zeroth.core.econ.adapter"),
+        ("zeroth.runtime.orchestration.dispatcher", "zeroth.econ.analytics.adapter"),
         reason=(
             "NodeDispatcher wraps an agent's provider in InstrumentedProviderAdapter "
             "for per-call cost attribution. Removing the edge needs a wrapping seam "
@@ -138,7 +138,7 @@ TEMPORARY_EXCEPTIONS = {
             "The construction moved with the dispatch code it belongs to; the edge "
             "itself outlives Task 8."
         ),
-        removal_task="Task 14: move economics behind contract and platform boundaries.",
+        removal_task="Task 18: final migration cleanup and verification.",
     ),
     **_exception_group(
         (
@@ -275,25 +275,32 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.econ.adapter", "zeroth.runtime.agents.provider"),
-        ("zeroth.core.econ.opportunities", "zeroth.governance.audit.models"),
-        ("zeroth.core.econ.quality", "zeroth.governance.audit.models"),
-        ("zeroth.core.econ.quality", "zeroth.core.runs.models"),
+        ("zeroth.econ.analytics.adapter", "zeroth.runtime.agents.provider"),
+        ("zeroth.econ.analytics.opportunities", "zeroth.governance.audit.models"),
+        ("zeroth.econ.analytics.quality", "zeroth.governance.audit.models"),
+        ("zeroth.econ.analytics.quality", "zeroth.core.runs.models"),
         (
-            "zeroth.core.econ.rightsizing_experiment",
+            "zeroth.econ.analytics.rightsizing_experiment",
             "zeroth.runtime.agents.provider",
         ),
-        ("zeroth.core.econ.rightsizing_experiment", "zeroth.governance.audit.models"),
-        ("zeroth.core.econ.rightsizing_experiment", "zeroth.core.eval.models"),
-        ("zeroth.core.econ.rightsizing_experiment", "zeroth.core.eval.runner"),
-        ("zeroth.core.econ.rightsizing_experiment", "zeroth.core.eval.scorers"),
-        ("zeroth.core.econ.unit_economics", "zeroth.governance.audit.models"),
-        ("zeroth.core.econ.unit_economics", "zeroth.core.runs.models"),
-        ("zeroth.core.econ.waste", "zeroth.governance.audit.models"),
-        ("zeroth.core.econ.waste", "zeroth.core.runs"),
-        ("zeroth.core.econ.waste", "zeroth.core.runs.models"),
-        reason="Legacy economics analytics directly consume runtime and governance data.",
-        removal_task="Task 14: move economics behind contract and platform boundaries.",
+        (
+            "zeroth.econ.analytics.rightsizing_experiment",
+            "zeroth.governance.audit.models",
+        ),
+        ("zeroth.econ.analytics.rightsizing_experiment", "zeroth.core.eval.models"),
+        ("zeroth.econ.analytics.rightsizing_experiment", "zeroth.core.eval.runner"),
+        ("zeroth.econ.analytics.rightsizing_experiment", "zeroth.core.eval.scorers"),
+        ("zeroth.econ.analytics.unit_economics", "zeroth.governance.audit.models"),
+        ("zeroth.econ.analytics.unit_economics", "zeroth.core.runs.models"),
+        ("zeroth.econ.analytics.waste", "zeroth.governance.audit.models"),
+        ("zeroth.econ.analytics.waste", "zeroth.core.runs"),
+        ("zeroth.econ.analytics.waste", "zeroth.core.runs.models"),
+        reason=(
+            "Economics analytics read runs, audit records, provider adapters, and "
+            "evaluation helpers directly; the reads move behind contract-owned "
+            "types when the run and audit vocabulary gains a contracts home."
+        ),
+        removal_task="Task 18: final migration cleanup and verification.",
     ),
 }
 

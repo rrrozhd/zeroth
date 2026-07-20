@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from zeroth.governance.audit.models import NodeAuditRecord
-from zeroth.core.econ.waste import WasteKind, waste_rollup
+from zeroth.econ.analytics.waste import WasteKind, waste_rollup
 from zeroth.core.runs.models import Run, RunStatus
 
 

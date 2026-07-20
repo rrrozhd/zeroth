@@ -31,7 +31,7 @@ def test_regulus_settings_accessible_via_zeroth_settings():
 
 def test_cost_estimator_known_model():
     """CostEstimator.estimate() returns a Decimal for a known model."""
-    from zeroth.core.econ.cost import CostEstimator
+    from zeroth.econ.analytics.cost import CostEstimator
 
     estimator = CostEstimator()
     cost = estimator.estimate("openai/gpt-4o", input_tokens=100, output_tokens=50)
@@ -41,7 +41,7 @@ def test_cost_estimator_known_model():
 
 def test_cost_estimator_unknown_model():
     """CostEstimator.estimate() returns Decimal('0') for an unknown model without raising."""
-    from zeroth.core.econ.cost import CostEstimator
+    from zeroth.econ.analytics.cost import CostEstimator
 
     estimator = CostEstimator()
     cost = estimator.estimate("unknown/nonexistent-model-xyz", input_tokens=100, output_tokens=50)
@@ -53,9 +53,9 @@ def test_regulus_client_delegates_to_instrumentation_client():
     """RegulusClient.track_execution() delegates to InstrumentationClient.track_execution()."""
     from unittest.mock import MagicMock
 
-    from zeroth.core.econ.instrumentation import ExecutionEvent
+    from zeroth.econ.instrumentation import ExecutionEvent
 
-    from zeroth.core.econ.client import RegulusClient
+    from zeroth.econ.analytics.client import RegulusClient
 
     mock_inner = MagicMock()
     client = RegulusClient.__new__(RegulusClient)

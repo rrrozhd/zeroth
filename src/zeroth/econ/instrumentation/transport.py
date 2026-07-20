@@ -9,8 +9,8 @@ from typing import Any
 
 import httpx
 
-from zeroth.core.econ.instrumentation.config import InstrumentationConfig
-from zeroth.core.econ.instrumentation.schemas import ExecutionEvent, OutcomeEvent
+from zeroth.econ.instrumentation.config import InstrumentationConfig
+from zeroth.econ.instrumentation.schemas import ExecutionEvent, OutcomeEvent
 
 
 @dataclass

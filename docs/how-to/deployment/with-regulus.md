@@ -5,7 +5,7 @@ cost/KPI data behind budget caps. It is **part of the `zeroth-core` package** â€
 absorbed in-repo, Zeroth-owned, not a separate project:
 
 - the instrumentation SDK lives at `src/zeroth/core/econ/instrumentation`
-  (import `zeroth.core.econ.instrumentation`); and
+  (import `zeroth.econ.instrumentation`); and
 - the backend lives at `src/zeroth/econ_plane` (the `zeroth.econ_plane` FastAPI
   app), installable via the `regulus` optional extra.
 

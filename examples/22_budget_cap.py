@@ -41,7 +41,7 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.econ import BudgetEnforcer, CostEstimator
+from zeroth.econ.analytics import BudgetEnforcer, CostEstimator
 from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
