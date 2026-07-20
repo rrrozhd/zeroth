@@ -672,7 +672,7 @@
       ],
       "module": "zeroth.runtime.agents",
       "name": "ProviderResponse",
-      "signature": "(*, content: Any = None, raw: Any = None, tool_calls: list[zeroth.core.governed.integrations.tool_calls.NormalizedToolCall] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, metadata: dict[str, typing.Any] = <factory>, cost_usd: float | None = None, cost_event_id: str | None = None) -> None"
+      "signature": "(*, content: Any = None, raw: Any = None, tool_calls: list[zeroth.runtime.agents.tooling.tool_calls.NormalizedToolCall] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, metadata: dict[str, typing.Any] = <factory>, cost_usd: float | None = None, cost_event_id: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -4146,289 +4146,289 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:AdmissionController"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "AdmissionController",
       "signature": "(*, allowed_runtimes: 'Iterable[str] | None' = None, allowed_commands: 'Iterable[str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:AdmissionResult"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "AdmissionResult",
       "signature": "(admitted: 'bool', reason: 'str', digest: 'str') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ArtifactSource"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ArtifactSource",
       "signature": "(*, kind: str, ref: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:AuditSettings"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "AuditSettings",
       "signature": "(*, enabled: bool = True, capture_stdout: bool = True, capture_stderr: bool = True, capture_inputs: bool = True, capture_outputs: bool = True) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:BuildConfig"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "BuildConfig",
       "signature": "(*, command: list[str] = <factory>, environment: dict[str, str] = <factory>, dependency_lock_hash: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:CommandArtifactSource"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "CommandArtifactSource",
       "signature": "(*, kind: Literal['command'] = 'command', ref: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:CommandRuntimeAdapter"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "CommandRuntimeAdapter",
       "signature": "(validator: 'ExecutableUnitValidator | None' = None)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:DependencySpec"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "DependencySpec",
       "signature": "(*, name: str, version: str | None = None, source: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:DockerSandboxConfig"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "DockerSandboxConfig",
       "signature": "(container_name: 'str' = 'zeroth-sandbox', docker_binary: 'str' = 'docker', workspace_root: 'str' = '/tmp/zeroth-sandbox', hardened: 'bool' = True, run_as_user: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/_tools.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:EntryPointType"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "EntryPointType",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:EnvironmentCacheManager"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "EnvironmentCacheManager",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/23_secrets_and_sandbox.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:EnvironmentVariable"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "EnvironmentVariable",
       "signature": "(*, name: str, value: str | None = None, secret_ref: str | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitAdmissionError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitAdmissionError",
       "signature": "(message: 'str', *, audit_record: 'Mapping[str, Any] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitBinding"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitBinding",
       "signature": "(manifest_ref: 'str', manifest: 'ExecutableUnitManifest', input_model: 'type[BaseModel]', output_model: 'type[BaseModel]', python_handler: 'PythonHandler | None' = None, allowed_env_keys: 'tuple[str, ...]' = ('PATH', 'PYTHONPATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP'), metadata: 'dict[str, Any]' = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitExecutionError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md"
       ],
       "kind": "callable",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitManifest"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitManifest",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitNotFoundError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitNotFoundError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/_tools.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitRegistry"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitRegistry",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitRunResult"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitRunResult",
       "signature": "(manifest_ref: 'str', input_data: 'dict[str, Any]', output_data: 'dict[str, Any]', sandbox_result: 'SandboxExecutionResult | None' = None, extracted_output: 'ExtractedOutput | None' = None, audit_record: 'dict[str, Any]' = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/01_first_graph.py",
         "examples:examples/03_conditional_branches.py",
@@ -4437,1312 +4437,1312 @@
         "examples:examples/21_policy_block.py",
         "examples:examples/24_audit_query.py",
         "examples:examples/_common.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitRunner"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitRunner",
       "signature": "(registry: 'ExecutableUnitRegistry | None' = None, *, sandbox_manager: 'SandboxManager | None' = None, python_adapter: 'PythonRuntimeAdapter | None' = None, secret_resolver: 'SecretResolver | None' = None, admission_controller: 'AdmissionController | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutableUnitValidator"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitValidator",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutionIOError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutionIOError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/_tools.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExecutionMode"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExecutionMode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ExtractedOutput"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ExtractedOutput",
       "signature": "(payload: 'Any', stdout: 'str' = '', stderr: 'str' = '', exit_code: 'int | None' = None, output_file: 'Path | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:FreeformPayload"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "FreeformPayload",
       "signature": "(**extra_data: Any) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:InjectedInput"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "InjectedInput",
       "signature": "(stdin: 'str | None' = None, argv: 'tuple[str, ...]' = (), env: 'dict[str, str]' = <factory>, input_file: 'Path | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:InlineSourceArtifactSource"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "InlineSourceArtifactSource",
       "signature": "(*, kind: Literal['inline_source'] = 'inline_source', ref: str, source: str, language: Literal['python'] = 'python') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:InlineUnitManifest"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "InlineUnitManifest",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.INLINE: 'inline'>] = <ExecutionMode.INLINE: 'inline'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.core.execution_units.models.InlineSourceArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig | None = None, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.INLINE: 'inline'>] = <ExecutionMode.INLINE: 'inline'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.integrations.execution.models.InlineSourceArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:InputInjectionError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "InputInjectionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/_tools.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:InputMode"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "InputMode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ManifestIntegrityRecord"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ManifestIntegrityRecord",
       "signature": "(digest: 'str', signed_at: 'datetime | None' = None, signer: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ManifestValidationError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ManifestValidationError",
       "signature": "(report: 'ManifestValidationReport')"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/_tools.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:NativeUnitManifest"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "NativeUnitManifest",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.NATIVE: 'native'>] = <ExecutionMode.NATIVE: 'native'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.core.execution_units.models.PythonModuleArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig | None = None, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.PYTHON_CALLABLE: 'python_callable'>] = <EntryPointType.PYTHON_CALLABLE: 'python_callable'>, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>, callable_ref: str) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.NATIVE: 'native'>] = <ExecutionMode.NATIVE: 'native'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.integrations.execution.models.PythonModuleArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.PYTHON_CALLABLE: 'python_callable'>] = <EntryPointType.PYTHON_CALLABLE: 'python_callable'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>, callable_ref: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:OutputConversionError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "OutputConversionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:OutputExtractionError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "OutputExtractionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/_tools.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:OutputMode"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "OutputMode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ProjectArchiveArtifactSource"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ProjectArchiveArtifactSource",
       "signature": "(*, kind: Literal['project_archive'] = 'project_archive', ref: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ProjectUnitManifest"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ProjectUnitManifest",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.PROJECT: 'project'>] = <ExecutionMode.PROJECT: 'project'>, runtime: Literal[<RuntimeLanguage.PROJECT: 'project'>] = <RuntimeLanguage.PROJECT: 'project'>, artifact_source: zeroth.core.execution_units.models.ProjectArchiveArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.PROJECT: 'project'>] = <EntryPointType.PROJECT: 'project'>, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>, project_archive_ref: str) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.PROJECT: 'project'>] = <ExecutionMode.PROJECT: 'project'>, runtime: Literal[<RuntimeLanguage.PROJECT: 'project'>] = <RuntimeLanguage.PROJECT: 'project'>, artifact_source: zeroth.integrations.execution.models.ProjectArchiveArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.PROJECT: 'project'>] = <EntryPointType.PROJECT: 'project'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>, project_archive_ref: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/_tools.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:PythonModuleArtifactSource"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "PythonModuleArtifactSource",
       "signature": "(*, kind: Literal['python_module'] = 'python_module', ref: str) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:PythonRuntimeAdapter"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "PythonRuntimeAdapter",
       "signature": "(validator: 'ExecutableUnitValidator | None' = None)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ResourceConstraints"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ResourceConstraints",
       "signature": "(cpu_cores: 'float | None' = None, memory_mb: 'int | None' = None, disk_mb: 'int | None' = None, max_processes: 'int | None' = None, network_access: 'bool | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ResourceLimits"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ResourceLimits",
       "signature": "(*, cpu_cores: Annotated[float | None, Gt(gt=0)] = None, memory_mb: Annotated[int | None, Gt(gt=0)] = None, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, max_processes: Annotated[int | None, Gt(gt=0)] = None, network_access: bool | None = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:RunConfig"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "RunConfig",
       "signature": "(*, command: list[str] = <factory>, working_directory: str | None = None, environment: dict[str, str] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:RuntimeAdapter"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "RuntimeAdapter",
       "signature": "(*args, **kwargs)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/_tools.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:RuntimeLanguage"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "RuntimeLanguage",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/23_secrets_and_sandbox.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxBackendMode"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxBackendMode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxBackendUnavailableError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxBackendUnavailableError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/23_secrets_and_sandbox.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxConfig"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxConfig",
       "signature": "(backend: 'SandboxBackendMode' = <SandboxBackendMode.LOCAL: 'local'>, docker: 'DockerSandboxConfig' = <factory>, strictness_mode: 'SandboxStrictnessMode' = <SandboxStrictnessMode.STANDARD: 'standard'>, sidecar_url: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxEnvironment"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxEnvironment",
       "signature": "(cache_key: 'str', variables: 'dict[str, str]', metadata: 'dict[str, Any]' = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxExecutionResult"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxExecutionResult",
       "signature": "(command: 'tuple[str, ...]', returncode: 'int', stdout: 'str', stderr: 'str', workdir: 'str', environment: 'dict[str, str]', timed_out: 'bool' = False, duration_seconds: 'float | None' = None, cache_key: 'str | None' = None, backend: 'str' = 'local', container_name: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
         "examples:examples/23_secrets_and_sandbox.py",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxManager"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxManager",
       "signature": "(*, base_env: 'Mapping[str, str] | None' = None, cache_manager: 'EnvironmentCacheManager | None' = None, config: 'SandboxConfig | None' = None, command_runner: 'Callable[..., subprocess.CompletedProcess[str]] | None' = None, container_inspector: 'Callable[[str], bool] | None' = None, sidecar_client: 'Any | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxPolicyViolationError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxPolicyViolationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxStrictnessMode"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxStrictnessMode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:SandboxTimeoutError"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "SandboxTimeoutError",
       "signature": "(*, command: 'Sequence[str]', timeout_seconds: 'float | None', stdout: 'str' = '', stderr: 'str' = '') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:ValidationCode"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "ValidationCode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units:WrappedCommandUnitManifest"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "WrappedCommandUnitManifest",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.WRAPPED_COMMAND: 'wrapped_command'>] = <ExecutionMode.WRAPPED_COMMAND: 'wrapped_command'>, runtime: Literal[<RuntimeLanguage.COMMAND: 'command'>] = <RuntimeLanguage.COMMAND: 'command'>, artifact_source: zeroth.core.execution_units.models.CommandArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig | None = None, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.WRAPPED_COMMAND: 'wrapped_command'>] = <ExecutionMode.WRAPPED_COMMAND: 'wrapped_command'>, runtime: Literal[<RuntimeLanguage.COMMAND: 'command'>] = <RuntimeLanguage.COMMAND: 'command'>, artifact_source: zeroth.integrations.execution.models.CommandArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:build_docker_resource_flags"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "build_docker_resource_flags",
       "signature": "(constraints: 'ResourceConstraints | None') -> 'list[str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:build_inline_binding"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "build_inline_binding",
       "signature": "(node_id: 'str', source: 'str', *, timeout_seconds: 'int | None' = None) -> 'ExecutableUnitBinding'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:build_inline_manifest"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "build_inline_manifest",
       "signature": "(unit_id: 'str', source: 'str', *, timeout_seconds: 'int | None' = None, input_contract_ref: 'str' = 'contract://inline-freeform', output_contract_ref: 'str' = 'contract://inline-freeform') -> 'InlineUnitManifest'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:build_sandbox_environment"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "build_sandbox_environment",
       "signature": "(base_env: 'Mapping[str, str] | None', *, allowed_env_keys: 'Sequence[str] | None' = None, overlay: 'Mapping[str, str] | None' = None) -> 'dict[str, str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:compute_environment_cache_key"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "compute_environment_cache_key",
       "signature": "(*, runtime: 'str', runtime_version: 'str | None' = None, dependency_manifest: 'Mapping[str, Any] | Sequence[Any] | None' = None, build_config: 'Mapping[str, Any] | Sequence[Any] | None' = None, sandbox_policy: 'Mapping[str, Any] | Sequence[Any] | None' = None, identity: 'Mapping[str, Any] | Sequence[Any] | None' = None) -> 'str'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:compute_manifest_digest"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "compute_manifest_digest",
       "signature": "(manifest: 'Any') -> 'str'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:convert_output"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "convert_output",
       "signature": "(output_model: 'type[BaseModel]', extracted: 'ExtractedOutput | Any') -> 'BaseModel'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:docker_container_running"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "docker_container_running",
       "signature": "(container_name: 'str', *, docker_binary: 'str' = 'docker', command_runner: 'Callable[..., subprocess.CompletedProcess[str]] | None' = None) -> 'bool'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:extract_output"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "extract_output",
       "signature": "(mode: 'OutputMode | str', *, stdout: 'str', stderr: 'str' = '', exit_code: 'int | None' = None, output_file_path: 'Path | None' = None) -> 'ExtractedOutput'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:inject_input"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "inject_input",
       "signature": "(mode: 'InputMode | str', payload: 'BaseModel | Mapping[str, Any]', *, input_file_path: 'Path | None' = None, env_prefix: 'str' = 'ZEROTH_INPUT') -> 'InjectedInput'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units",
+        "__all__:zeroth.integrations.execution",
         "docs:docs/reference/python-api/execution-units.md",
-        "package_export:zeroth.core.execution_units"
+        "package_export:zeroth.integrations.execution"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units:inline_source_digest"
       ],
-      "module": "zeroth.core.execution_units",
+      "module": "zeroth.integrations.execution",
       "name": "inline_source_digest",
       "signature": "(source: 'str') -> 'str'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.constraints"
+        "__all__:zeroth.integrations.execution.constraints"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.constraints:ResourceConstraints"
       ],
-      "module": "zeroth.core.execution_units.constraints",
+      "module": "zeroth.integrations.execution.constraints",
       "name": "ResourceConstraints",
       "signature": "(cpu_cores: 'float | None' = None, memory_mb: 'int | None' = None, disk_mb: 'int | None' = None, max_processes: 'int | None' = None, network_access: 'bool | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.constraints"
+        "__all__:zeroth.integrations.execution.constraints"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units.constraints:build_docker_resource_flags"
       ],
-      "module": "zeroth.core.execution_units.constraints",
+      "module": "zeroth.integrations.execution.constraints",
       "name": "build_docker_resource_flags",
       "signature": "(constraints: 'ResourceConstraints | None') -> 'list[str]'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.execution_units.errors"
+        "package_export:zeroth.integrations.execution.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.errors:ManifestValidationError"
       ],
-      "module": "zeroth.core.execution_units.errors",
+      "module": "zeroth.integrations.execution.errors",
       "name": "ManifestValidationError",
       "signature": "(report: 'ManifestValidationReport')"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.execution_units.errors"
+        "package_export:zeroth.integrations.execution.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.errors:UnsupportedRuntimeAdapterError"
       ],
-      "module": "zeroth.core.execution_units.errors",
+      "module": "zeroth.integrations.execution.errors",
       "name": "UnsupportedRuntimeAdapterError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.integrity"
+        "__all__:zeroth.integrations.execution.integrity"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.integrity:AdmissionController"
       ],
-      "module": "zeroth.core.execution_units.integrity",
+      "module": "zeroth.integrations.execution.integrity",
       "name": "AdmissionController",
       "signature": "(*, allowed_runtimes: 'Iterable[str] | None' = None, allowed_commands: 'Iterable[str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.integrity"
+        "__all__:zeroth.integrations.execution.integrity"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.integrity:AdmissionResult"
       ],
-      "module": "zeroth.core.execution_units.integrity",
+      "module": "zeroth.integrations.execution.integrity",
       "name": "AdmissionResult",
       "signature": "(admitted: 'bool', reason: 'str', digest: 'str') -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.integrity"
+        "__all__:zeroth.integrations.execution.integrity"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.integrity:ManifestIntegrityRecord"
       ],
-      "module": "zeroth.core.execution_units.integrity",
+      "module": "zeroth.integrations.execution.integrity",
       "name": "ManifestIntegrityRecord",
       "signature": "(digest: 'str', signed_at: 'datetime | None' = None, signer: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.integrity"
+        "__all__:zeroth.integrations.execution.integrity"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units.integrity:compute_manifest_digest"
       ],
-      "module": "zeroth.core.execution_units.integrity",
+      "module": "zeroth.integrations.execution.integrity",
       "name": "compute_manifest_digest",
       "signature": "(manifest: 'Any') -> 'str'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.execution_units.io"
+        "package_export:zeroth.integrations.execution.io"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.io:ExecutionIOError"
       ],
-      "module": "zeroth.core.execution_units.io",
+      "module": "zeroth.integrations.execution.io",
       "name": "ExecutionIOError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.execution_units.io"
+        "package_export:zeroth.integrations.execution.io"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.io:InputInjectionError"
       ],
-      "module": "zeroth.core.execution_units.io",
+      "module": "zeroth.integrations.execution.io",
       "name": "InputInjectionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.execution_units.io"
+        "package_export:zeroth.integrations.execution.io"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.io:OutputConversionError"
       ],
-      "module": "zeroth.core.execution_units.io",
+      "module": "zeroth.integrations.execution.io",
       "name": "OutputConversionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.execution_units.io"
+        "package_export:zeroth.integrations.execution.io"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.io:OutputExtractionError"
       ],
-      "module": "zeroth.core.execution_units.io",
+      "module": "zeroth.integrations.execution.io",
       "name": "OutputExtractionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:ArtifactSource"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "ArtifactSource",
       "signature": "(*, kind: str, ref: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:AuditSettings"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "AuditSettings",
       "signature": "(*, enabled: bool = True, capture_stdout: bool = True, capture_stderr: bool = True, capture_inputs: bool = True, capture_outputs: bool = True) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:BuildConfig"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "BuildConfig",
       "signature": "(*, command: list[str] = <factory>, environment: dict[str, str] = <factory>, dependency_lock_hash: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:CommandArtifactSource"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "CommandArtifactSource",
       "signature": "(*, kind: Literal['command'] = 'command', ref: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:DependencySpec"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "DependencySpec",
       "signature": "(*, name: str, version: str | None = None, source: str | None = None) -> None"
     },
     {
       "evidence": [
         "docs:docs/how-to/secrets.md",
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:EnvironmentVariable"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "EnvironmentVariable",
       "signature": "(*, name: str, value: str | None = None, secret_ref: str | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:ExecutableUnitManifestBase"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "ExecutableUnitManifestBase",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: zeroth.core.execution_units.models.ExecutionMode, runtime: zeroth.core.execution_units.models.RuntimeLanguage, artifact_source: zeroth.core.execution_units.models.PythonModuleArtifactSource | zeroth.core.execution_units.models.CommandArtifactSource | zeroth.core.execution_units.models.ProjectArchiveArtifactSource | zeroth.core.execution_units.models.InlineSourceArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig | None = None, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: zeroth.core.execution_units.models.EntryPointType, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: zeroth.integrations.execution.models.ExecutionMode, runtime: zeroth.integrations.execution.models.RuntimeLanguage, artifact_source: zeroth.integrations.execution.models.PythonModuleArtifactSource | zeroth.integrations.execution.models.CommandArtifactSource | zeroth.integrations.execution.models.ProjectArchiveArtifactSource | zeroth.integrations.execution.models.InlineSourceArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: zeroth.integrations.execution.models.EntryPointType, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:InlineSourceArtifactSource"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "InlineSourceArtifactSource",
       "signature": "(*, kind: Literal['inline_source'] = 'inline_source', ref: str, source: str, language: Literal['python'] = 'python') -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:InlineUnitManifest"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "InlineUnitManifest",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.INLINE: 'inline'>] = <ExecutionMode.INLINE: 'inline'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.core.execution_units.models.InlineSourceArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig | None = None, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.INLINE: 'inline'>] = <ExecutionMode.INLINE: 'inline'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.integrations.execution.models.InlineSourceArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:NativeUnitManifest"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "NativeUnitManifest",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.NATIVE: 'native'>] = <ExecutionMode.NATIVE: 'native'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.core.execution_units.models.PythonModuleArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig | None = None, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.PYTHON_CALLABLE: 'python_callable'>] = <EntryPointType.PYTHON_CALLABLE: 'python_callable'>, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>, callable_ref: str) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.NATIVE: 'native'>] = <ExecutionMode.NATIVE: 'native'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.integrations.execution.models.PythonModuleArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.PYTHON_CALLABLE: 'python_callable'>] = <EntryPointType.PYTHON_CALLABLE: 'python_callable'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>, callable_ref: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:ProjectArchiveArtifactSource"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "ProjectArchiveArtifactSource",
       "signature": "(*, kind: Literal['project_archive'] = 'project_archive', ref: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:ProjectUnitManifest"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "ProjectUnitManifest",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.PROJECT: 'project'>] = <ExecutionMode.PROJECT: 'project'>, runtime: Literal[<RuntimeLanguage.PROJECT: 'project'>] = <RuntimeLanguage.PROJECT: 'project'>, artifact_source: zeroth.core.execution_units.models.ProjectArchiveArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.PROJECT: 'project'>] = <EntryPointType.PROJECT: 'project'>, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>, project_archive_ref: str) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.PROJECT: 'project'>] = <ExecutionMode.PROJECT: 'project'>, runtime: Literal[<RuntimeLanguage.PROJECT: 'project'>] = <RuntimeLanguage.PROJECT: 'project'>, artifact_source: zeroth.integrations.execution.models.ProjectArchiveArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.PROJECT: 'project'>] = <EntryPointType.PROJECT: 'project'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>, project_archive_ref: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:PythonModuleArtifactSource"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "PythonModuleArtifactSource",
       "signature": "(*, kind: Literal['python_module'] = 'python_module', ref: str) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:ResourceLimits"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "ResourceLimits",
       "signature": "(*, cpu_cores: Annotated[float | None, Gt(gt=0)] = None, memory_mb: Annotated[int | None, Gt(gt=0)] = None, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, max_processes: Annotated[int | None, Gt(gt=0)] = None, network_access: bool | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:RunConfig"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "RunConfig",
       "signature": "(*, command: list[str] = <factory>, working_directory: str | None = None, environment: dict[str, str] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.execution_units.models"
+        "schema_model:zeroth.integrations.execution.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.models:WrappedCommandUnitManifest"
       ],
-      "module": "zeroth.core.execution_units.models",
+      "module": "zeroth.integrations.execution.models",
       "name": "WrappedCommandUnitManifest",
-      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.WRAPPED_COMMAND: 'wrapped_command'>] = <ExecutionMode.WRAPPED_COMMAND: 'wrapped_command'>, runtime: Literal[<RuntimeLanguage.COMMAND: 'command'>] = <RuntimeLanguage.COMMAND: 'command'>, artifact_source: zeroth.core.execution_units.models.CommandArtifactSource, build_config: zeroth.core.execution_units.models.BuildConfig | None = None, run_config: zeroth.core.execution_units.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.core.execution_units.models.InputMode, output_mode: zeroth.core.execution_units.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.core.execution_units.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.core.execution_units.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.core.execution_units.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.core.execution_units.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.core.execution_units.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.WRAPPED_COMMAND: 'wrapped_command'>] = <ExecutionMode.WRAPPED_COMMAND: 'wrapped_command'>, runtime: Literal[<RuntimeLanguage.COMMAND: 'command'>] = <RuntimeLanguage.COMMAND: 'command'>, artifact_source: zeroth.integrations.execution.models.CommandArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.runner",
-        "package_export:zeroth.core.execution_units.runner"
+        "__all__:zeroth.integrations.execution.runner",
+        "package_export:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitAdmissionError"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitAdmissionError",
       "signature": "(message: 'str', *, audit_record: 'Mapping[str, Any] | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.runner"
+        "__all__:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitBinding"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitBinding",
       "signature": "(manifest_ref: 'str', manifest: 'ExecutableUnitManifest', input_model: 'type[BaseModel]', output_model: 'type[BaseModel]', python_handler: 'PythonHandler | None' = None, allowed_env_keys: 'tuple[str, ...]' = ('PATH', 'PYTHONPATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP'), metadata: 'dict[str, Any]' = <factory>) -> None"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.execution_units.runner"
+        "package_export:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitError"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.runner",
-        "package_export:zeroth.core.execution_units.runner"
+        "__all__:zeroth.integrations.execution.runner",
+        "package_export:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitExecutionError"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.runner",
-        "package_export:zeroth.core.execution_units.runner"
+        "__all__:zeroth.integrations.execution.runner",
+        "package_export:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitInputError"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitInputError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.runner",
-        "package_export:zeroth.core.execution_units.runner"
+        "__all__:zeroth.integrations.execution.runner",
+        "package_export:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitNotFoundError"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitNotFoundError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.runner"
+        "__all__:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitRegistry"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitRegistry",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.runner"
+        "__all__:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitRunResult"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitRunResult",
       "signature": "(manifest_ref: 'str', input_data: 'dict[str, Any]', output_data: 'dict[str, Any]', sandbox_result: 'SandboxExecutionResult | None' = None, extracted_output: 'ExtractedOutput | None' = None, audit_record: 'dict[str, Any]' = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.runner"
+        "__all__:zeroth.integrations.execution.runner"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.runner:ExecutableUnitRunner"
       ],
-      "module": "zeroth.core.execution_units.runner",
+      "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitRunner",
       "signature": "(registry: 'ExecutableUnitRegistry | None' = None, *, sandbox_manager: 'SandboxManager | None' = None, python_adapter: 'PythonRuntimeAdapter | None' = None, secret_resolver: 'SecretResolver | None' = None, admission_controller: 'AdmissionController | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:DockerSandboxConfig"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "DockerSandboxConfig",
       "signature": "(container_name: 'str' = 'zeroth-sandbox', docker_binary: 'str' = 'docker', workspace_root: 'str' = '/tmp/zeroth-sandbox', hardened: 'bool' = True, run_as_user: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:EnvironmentCacheManager"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "EnvironmentCacheManager",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxBackendMode"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxBackendMode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox",
-        "package_export:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox",
+        "package_export:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxBackendUnavailableError"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxBackendUnavailableError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxConfig"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxConfig",
       "signature": "(backend: 'SandboxBackendMode' = <SandboxBackendMode.LOCAL: 'local'>, docker: 'DockerSandboxConfig' = <factory>, strictness_mode: 'SandboxStrictnessMode' = <SandboxStrictnessMode.STANDARD: 'standard'>, sidecar_url: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxEnvironment"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxEnvironment",
       "signature": "(cache_key: 'str', variables: 'dict[str, str]', metadata: 'dict[str, Any]' = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxExecutionResult"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxExecutionResult",
       "signature": "(command: 'tuple[str, ...]', returncode: 'int', stdout: 'str', stderr: 'str', workdir: 'str', environment: 'dict[str, str]', timed_out: 'bool' = False, duration_seconds: 'float | None' = None, cache_key: 'str | None' = None, backend: 'str' = 'local', container_name: 'str | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxManager"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxManager",
       "signature": "(*, base_env: 'Mapping[str, str] | None' = None, cache_manager: 'EnvironmentCacheManager | None' = None, config: 'SandboxConfig | None' = None, command_runner: 'Callable[..., subprocess.CompletedProcess[str]] | None' = None, container_inspector: 'Callable[[str], bool] | None' = None, sidecar_client: 'Any | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox",
-        "package_export:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox",
+        "package_export:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxPolicyViolationError"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxPolicyViolationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxStrictnessMode"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxStrictnessMode",
       "signature": "(*values)"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox",
-        "package_export:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox",
+        "package_export:zeroth.integrations.execution.sandbox"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:SandboxTimeoutError"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxTimeoutError",
       "signature": "(*, command: 'Sequence[str]', timeout_seconds: 'float | None', stdout: 'str' = '', stderr: 'str' = '') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:build_sandbox_environment"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "build_sandbox_environment",
       "signature": "(base_env: 'Mapping[str, str] | None', *, allowed_env_keys: 'Sequence[str] | None' = None, overlay: 'Mapping[str, str] | None' = None) -> 'dict[str, str]'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:compute_environment_cache_key"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "compute_environment_cache_key",
       "signature": "(*, runtime: 'str', runtime_version: 'str | None' = None, dependency_manifest: 'Mapping[str, Any] | Sequence[Any] | None' = None, build_config: 'Mapping[str, Any] | Sequence[Any] | None' = None, sandbox_policy: 'Mapping[str, Any] | Sequence[Any] | None' = None, identity: 'Mapping[str, Any] | Sequence[Any] | None' = None) -> 'str'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sandbox"
+        "__all__:zeroth.integrations.execution.sandbox"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.execution_units.sandbox:docker_container_running"
       ],
-      "module": "zeroth.core.execution_units.sandbox",
+      "module": "zeroth.integrations.execution.sandbox",
       "name": "docker_container_running",
       "signature": "(container_name: 'str', *, docker_binary: 'str' = 'docker', command_runner: 'Callable[..., subprocess.CompletedProcess[str]] | None' = None) -> 'bool'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.execution_units.sidecar_client"
+        "__all__:zeroth.integrations.execution.sidecar_client"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.execution_units.sidecar_client:SandboxSidecarClient"
       ],
-      "module": "zeroth.core.execution_units.sidecar_client",
+      "module": "zeroth.integrations.execution.sidecar_client",
       "name": "SandboxSidecarClient",
       "signature": "(base_url: 'str', *, timeout: 'float' = 60.0) -> 'None'"
     },
