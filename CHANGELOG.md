@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0.0.1] - 2026-07-20
+
+### Fixed
+
+- Formatting-only: collapse a wrapped list comprehension in
+  `runtime/context/tracker.py` (ruff format; missed in the v0.10.6 port
+  commit).
+
 ## [0.11] - 2026-07-20
 
 ### Added

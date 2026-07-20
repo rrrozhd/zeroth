@@ -152,9 +152,7 @@ class ContextWindowTracker:
             out["role"] = _TYPE_TO_ROLE[out["type"]]
         tool_calls = out.get("tool_calls")
         if isinstance(tool_calls, list) and tool_calls:
-            out["tool_calls"] = [
-                ContextWindowTracker._normalize_tool_call(tc) for tc in tool_calls
-            ]
+            out["tool_calls"] = [ContextWindowTracker._normalize_tool_call(tc) for tc in tool_calls]
             # litellm requires the tool-call carrier to be an assistant turn.
             out["role"] = "assistant"
         return out
