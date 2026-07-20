@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-07-20
+
+### Fixed
+
+- **F3 — cooperative run cancellation, full series ported from the public
+  main line** (main v0.10.1.6, v0.10.1.8, v0.10.1.11, v0.10.1.25). The drive
+  loop holds an in-memory `Run` and blind-writes `RUNNING` every hop, so an
+  operator's out-of-band cancel (`FAILED`) or interrupt (`WAITING_INTERRUPT`)
+  was clobbered and the run drove to completion. `GraphDriver.external_stop`
+  re-reads the persisted status at the loop head and before every `RUNNING`
+  write (ordinary nodes, sync/resumed subgraphs, parallel and resumed
+  fan-ins); it adopts the operator's status onto the in-memory run and
+  persists it (so `pending_node_ids` survives for replay), and yields to a
+  concurrent operator replay/resume rather than blind-writing the stale
+  status back. The refactor-era characterization pins gain the new
+  `run.get` observations — a deliberate contract change, not drift.
+
 ## [0.10.3] - 2026-07-20
 
 ### Fixed

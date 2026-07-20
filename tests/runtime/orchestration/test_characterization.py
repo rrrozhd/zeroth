@@ -228,17 +228,23 @@ async def test_successful_linear_run_side_effect_order_is_exact(sqlite_db) -> No
         ("run.create", "PENDING"),
         ("run.put", "RUNNING", ""),
         ("run.checkpoint", "RUNNING"),
-        # node "first"
+        # node "first" (each hop re-reads the persisted status twice — loop head
+        # and pre-RUNNING-write — for cooperative operator cancel, audit F3)
+        ("run.get",),
         ("run.put", "RUNNING", "first"),
         ("audit.write", "first", "completed"),
+        ("run.get",),
         ("run.put", "RUNNING", "first"),
         ("run.checkpoint", "RUNNING"),
         # node "second"
+        ("run.get",),
         ("run.put", "RUNNING", "second"),
         ("audit.write", "second", "completed"),
+        ("run.get",),
         ("run.put", "RUNNING", "second"),
         ("run.checkpoint", "RUNNING"),
-        # completion
+        # completion (the loop-head stop check precedes the COMPLETED close-out)
+        ("run.get",),
         ("run.put", "COMPLETED", "second"),
         ("run.checkpoint", "COMPLETED"),
         ("webhook", "run.completed"),
@@ -290,6 +296,7 @@ async def test_node_failure_writes_failed_audit_before_failing_the_run(sqlite_db
         ("run.create", "PENDING"),
         ("run.put", "RUNNING", ""),
         ("run.checkpoint", "RUNNING"),
+        ("run.get",),  # loop-head cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),
         ("audit.write", "first", "failed"),
         ("run.put", "FAILED", "first"),
@@ -374,6 +381,7 @@ async def test_error_carrying_an_audit_record_is_audited_as_rejected(sqlite_db) 
         ("run.create", "PENDING"),
         ("run.put", "RUNNING", ""),
         ("run.checkpoint", "RUNNING"),
+        ("run.get",),  # loop-head cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),
         ("audit.write", "first", "rejected"),
         ("run.put", "FAILED", "first"),
@@ -417,6 +425,7 @@ async def test_policy_denial_audits_rejected_then_persists_then_fails(sqlite_db)
         ("run.create", "PENDING"),
         ("run.put", "RUNNING", ""),
         ("run.checkpoint", "RUNNING"),
+        ("run.get",),  # loop-head cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),
         ("audit.write", "first", "rejected"),
         ("run.put", "RUNNING", "first"),
@@ -465,10 +474,13 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
         ("run.create", "PENDING"),
         ("run.put", "RUNNING", ""),
         ("run.checkpoint", "RUNNING"),
+        ("run.get",),  # loop-head cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),
         ("audit.write", "first", "completed"),
+        ("run.get",),  # pre-RUNNING-write cooperative stop check (audit F3)
         ("run.put", "RUNNING", "first"),
         ("run.checkpoint", "RUNNING"),
+        ("run.get",),  # loop-head cooperative stop check (audit F3)
         ("run.put", "RUNNING", "gate"),
         ("webhook", "approval.requested"),
         ("run.put", "WAITING_APPROVAL", "gate"),

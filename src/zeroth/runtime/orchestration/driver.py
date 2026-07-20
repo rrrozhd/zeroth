@@ -98,6 +98,57 @@ class GraphDriver:
         except Exception:
             logger.exception("artifact TTL refresh failed (non-fatal)")
 
+    async def external_stop(self, run: Run) -> Run | None:
+        """Detect an operator's out-of-band cancel/interrupt (audit F3).
+
+        An operator can cancel a run (``FAILED``, via the admin API) or interrupt
+        it (``WAITING_INTERRUPT``), which writes the persisted status directly. The
+        drive loop holds an in-memory ``Run`` and blind-writes ``RUNNING`` on every
+        node hop, so it must re-read the persisted status and stop — otherwise the
+        next ``RUNNING`` write clobbers the operator's decision and the run drives
+        to completion. Call this before every ``RUNNING`` write (and before marking
+        the run ``COMPLETED``): returns the persisted run to stop on, or ``None`` to
+        proceed. Neither status is ever produced by this loop (``WAITING_INTERRUPT``
+        is admin-only; ``FAILED`` is terminal-and-return), so it can't false-positive.
+        """
+        fresh = await self.run_repository.get(run.run_id)
+        if fresh is not None and fresh.status in (
+            RunStatus.FAILED,
+            RunStatus.WAITING_INTERRUPT,
+        ):
+            # Adopt the operator's terminal/paused status onto the in-memory run —
+            # which already holds this hop's execution_history and the successors
+            # queued for the next hop — and PERSIST it, rather than returning the
+            # freshly-read row (whose pending_node_ids is the stale pre-dispatch
+            # []). Otherwise a later FAILED->PENDING replay (or interrupt resume)
+            # would start from an empty queue and be marked COMPLETED with the
+            # remaining nodes silently skipped (F3 re-audit). save_run does not
+            # touch lease columns, so cancel_run's cleared lease is preserved.
+            run.status = fresh.status
+            run.failure_state = fresh.failure_state
+            run.touch()
+            # Concurrency guard (F3 re-audit follow-up): an operator replay/resume
+            # (FAILED->PENDING, WAITING_INTERRUPT->RUNNING) can land between the
+            # read above and this write; the drive loop shares the event loop with
+            # the API handlers (modular monolith). Re-read immediately before the
+            # write and yield to the operator if they already moved the run out of
+            # a stop state, rather than blind-writing the stale status back and
+            # silently reverting their transition. This shrinks the race window to
+            # these two adjacent DB round-trips (a residual micro-race remains, but
+            # it self-heals: pending_node_ids is persisted correctly, so re-issuing
+            # the replay resumes — the cost is a wasted replay cycle, not data
+            # corruption).
+            latest = await self.run_repository.get(run.run_id)
+            if latest is not None and latest.status not in (
+                RunStatus.FAILED,
+                RunStatus.WAITING_INTERRUPT,
+            ):
+                return latest
+            persisted = await self.run_repository.put(run)
+            await self.run_repository.write_checkpoint(persisted)
+            return persisted
+        return None
+
     async def drive(
         self,
         graph: Graph,
@@ -113,6 +164,12 @@ class GraphDriver:
         """
         started_at = perf_counter()
         while True:
+            # Cooperative cancellation (audit F3): observe an operator's out-of-band
+            # cancel/interrupt before completing the run or dispatching the next node.
+            stopped = await self.external_stop(run)
+            if stopped is not None:
+                return stopped
+
             failed_run = await self.policy_gate.enforce_loop_guards(graph, run, started_at)
             if failed_run is not None:
                 return failed_run
@@ -175,6 +232,10 @@ class GraphDriver:
                     post_fan_in_ids = self.plan_next_nodes(graph, run, ds_id, merged_output)
                     self.queue_next_nodes(graph, run, ds_id, merged_output, post_fan_in_ids)
                 run.metadata["last_output"] = merged_output
+                # Cooperative cancel across a resumed fan-in (audit F3 follow-up).
+                stopped = await self.external_stop(run)
+                if stopped is not None:
+                    return stopped
                 run.touch()
                 run = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(run)
@@ -317,6 +378,10 @@ class GraphDriver:
                     next_node_ids = self.plan_next_nodes(graph, run, node_id, output_data)
                     self.queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
                     run.metadata["last_output"] = output_data
+                    # Cooperative cancel across a resumed subgraph node (audit F3).
+                    stopped = await self.external_stop(run)
+                    if stopped is not None:
+                        return stopped
                     run.touch()
                     persisted = await self.run_repository.put(run)
                     await self.run_repository.write_checkpoint(persisted)
@@ -397,6 +462,10 @@ class GraphDriver:
                 next_node_ids = self.plan_next_nodes(graph, run, node_id, output_data)
                 self.queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
                 run.metadata["last_output"] = output_data
+                # Cooperative cancel across a synchronous subgraph node (audit F3).
+                stopped = await self.external_stop(run)
+                if stopped is not None:
+                    return stopped
                 run.touch()
                 persisted = await self.run_repository.put(run)
                 await self.run_repository.write_checkpoint(persisted)
@@ -478,6 +547,10 @@ class GraphDriver:
                     post_fan_in_ids = self.plan_next_nodes(graph, run, ds_id, merged_output)
                     self.queue_next_nodes(graph, run, ds_id, merged_output, post_fan_in_ids)
                 run.metadata["last_output"] = merged_output
+                # Cooperative cancel across a parallel fan-in (audit F3 follow-up).
+                stopped = await self.external_stop(run)
+                if stopped is not None:
+                    return stopped
                 run.status = RunStatus.RUNNING
                 run.current_node_ids = []
                 run.touch()
@@ -499,6 +572,11 @@ class GraphDriver:
             next_node_ids = self.plan_next_nodes(graph, run, node_id, output_data)
             self.queue_next_nodes(graph, run, node_id, output_data, next_node_ids)
             run.metadata["last_output"] = output_data
+            # An operator may have cancelled/interrupted while this node was
+            # dispatching; don't clobber that with our RUNNING write (audit F3).
+            stopped = await self.external_stop(run)
+            if stopped is not None:
+                return stopped
             run.status = RunStatus.RUNNING
             run.current_node_ids = []
             run.touch()
