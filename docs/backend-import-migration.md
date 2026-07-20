@@ -533,6 +533,31 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.context_window.errors:TokenCountError` | `zeroth.runtime.context.errors:TokenCountError` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.context_window.models:CompactionResult` | `zeroth.runtime.context.models:CompactionResult` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.context_window.models:CompactionState` | `zeroth.runtime.context.models:CompactionState` | Move runtime context | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:BranchContext` | `zeroth.runtime.parallel:BranchContext` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:BranchError` | `zeroth.runtime.parallel:BranchError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:BranchResult` | `zeroth.runtime.parallel:BranchResult` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:FanInResult` | `zeroth.runtime.parallel:FanInResult` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:FanOutValidationError` | `zeroth.runtime.parallel:FanOutValidationError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:GlobalStepTracker` | `zeroth.runtime.parallel:GlobalStepTracker` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:ParallelExecutionError` | `zeroth.runtime.parallel:ParallelExecutionError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:ParallelExecutor` | `zeroth.runtime.parallel:ParallelExecutor` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel:ParallelStepLimitError` | `zeroth.runtime.parallel:ParallelStepLimitError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.errors:BranchApprovalPauseSignal` | `zeroth.runtime.parallel.errors:BranchApprovalPauseSignal` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.errors:BranchError` | `zeroth.runtime.parallel.errors:BranchError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.errors:FanOutValidationError` | `zeroth.runtime.parallel.errors:FanOutValidationError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.errors:MergeStrategyError` | `zeroth.runtime.parallel.errors:MergeStrategyError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.errors:MergeStrategyValidationError` | `zeroth.runtime.parallel.errors:MergeStrategyValidationError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.errors:ParallelExecutionError` | `zeroth.runtime.parallel.errors:ParallelExecutionError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.errors:ParallelStepLimitError` | `zeroth.runtime.parallel.errors:ParallelStepLimitError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.errors:ReducerRefValidationError` | `zeroth.runtime.parallel.errors:ReducerRefValidationError` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.executor:ParallelExecutor` | `zeroth.runtime.parallel.executor:ParallelExecutor` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.models:BranchContext` | `zeroth.runtime.parallel.models:BranchContext` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.models:BranchResult` | `zeroth.runtime.parallel.models:BranchResult` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.models:FanInResult` | `zeroth.runtime.parallel.models:FanInResult` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.models:GlobalStepTracker` | `zeroth.runtime.parallel.models:GlobalStepTracker` | Move parallel runtime | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.parallel.models:ParallelConfig` | `zeroth.runtime.parallel.models:ParallelConfig` | Republish contract-owned model | Legacy path still re-exports | Same class object, defined in `zeroth.contracts.graph.models` | Not removed |
+| `zeroth.core.parallel.reducers:dispatch_strategy` | `zeroth.runtime.parallel.reducers:dispatch_strategy` | Move parallel runtime | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.parallel.reducers:resolve_reducer_ref` | `zeroth.runtime.parallel.reducers:resolve_reducer_ref` | Move parallel runtime | Legacy path still re-exports | Same function object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

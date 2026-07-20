@@ -7799,7 +7799,7 @@
       ],
       "module": "zeroth.core.orchestrator",
       "name": "RuntimeOrchestrator",
-      "signature": "(run_repository: 'RunRepository', agent_runners: 'Mapping[str, AgentRunner]', executable_unit_runner: 'ExecutableUnitRunner', audit_repository: 'AuditRepository | None' = None, policy_guard: 'PolicyGuard | None' = None, approval_service: 'ApprovalService | None' = None, secret_resolver: 'SecretResolver | None' = None, thread_resolver: 'RepositoryThreadResolver | None' = None, webhook_service: 'object | None' = None, regulus_client: 'object | None' = None, cost_estimator: 'object | None' = None, deployment_ref: 'str | None' = None, memory_resolver: 'object | None' = None, budget_enforcer: 'object | None' = None, per_run_cap_usd: 'float | None' = None, artifact_store: 'Any | None' = None, http_client: 'Any | None' = None, template_registry: 'Any | None' = None, template_renderer: 'Any | None' = None, context_window_enabled: 'bool' = True, parallel_executor: 'ParallelExecutor' = <zeroth.core.parallel.executor.ParallelExecutor object at 0x<address>>, branch_planner: 'NextStepPlanner' = <zeroth.contracts.conditions.branch.NextStepPlanner object at 0x<address>>, mapping_executor: 'MappingExecutor' = <zeroth.core.mappings.executor.MappingExecutor object at 0x<address>>, subgraph_executor: 'Any | None' = None) -> None"
+      "signature": "(run_repository: 'RunRepository', agent_runners: 'Mapping[str, AgentRunner]', executable_unit_runner: 'ExecutableUnitRunner', audit_repository: 'AuditRepository | None' = None, policy_guard: 'PolicyGuard | None' = None, approval_service: 'ApprovalService | None' = None, secret_resolver: 'SecretResolver | None' = None, thread_resolver: 'RepositoryThreadResolver | None' = None, webhook_service: 'object | None' = None, regulus_client: 'object | None' = None, cost_estimator: 'object | None' = None, deployment_ref: 'str | None' = None, memory_resolver: 'object | None' = None, budget_enforcer: 'object | None' = None, per_run_cap_usd: 'float | None' = None, artifact_store: 'Any | None' = None, http_client: 'Any | None' = None, template_registry: 'Any | None' = None, template_renderer: 'Any | None' = None, context_window_enabled: 'bool' = True, parallel_executor: 'ParallelExecutor' = <zeroth.runtime.parallel.executor.ParallelExecutor object at 0x<address>>, branch_planner: 'NextStepPlanner' = <zeroth.contracts.conditions.branch.NextStepPlanner object at 0x<address>>, mapping_executor: 'MappingExecutor' = <zeroth.core.mappings.executor.MappingExecutor object at 0x<address>>, subgraph_executor: 'Any | None' = None) -> None"
     },
     {
       "evidence": [
@@ -7839,79 +7839,79 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:BranchContext"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "BranchContext",
       "signature": "(branch_index: 'int', branch_id: 'str', input_payload: 'dict[str, Any]', node_visit_counts: 'dict[str, int]' = <factory>, execution_history: 'list[Any]' = <factory>, audit_refs: 'list[str]' = <factory>, condition_results: 'list[Any]' = <factory>, metadata: 'dict[str, Any]' = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:BranchError"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "BranchError",
       "signature": "(branch_index: 'int', original: 'BaseException') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:BranchResult"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "BranchResult",
       "signature": "(branch_index: 'int', output: 'dict[str, Any] | None', error: 'str | None' = None, audit_refs: 'list[str]' = <factory>, execution_history: 'list[Any]' = <factory>, cost_usd: 'float' = 0.0) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:FanInResult"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "FanInResult",
       "signature": "(results: 'list[BranchResult]', merged_output: 'dict[str, Any]' = <factory>, total_cost_usd: 'float' = 0.0, total_steps: 'int' = 0, pause_state: 'dict[str, Any] | None' = None) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:FanOutValidationError"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "FanOutValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:GlobalStepTracker"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "GlobalStepTracker",
       "signature": "(current_steps: 'int', max_steps: 'int') -> 'None'"
     },
@@ -7930,136 +7930,136 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:ParallelExecutionError"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "ParallelExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:ParallelExecutor"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "ParallelExecutor",
       "signature": "()"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.parallel",
-        "package_export:zeroth.core.parallel"
+        "__all__:zeroth.runtime.parallel",
+        "package_export:zeroth.runtime.parallel"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel:ParallelStepLimitError"
       ],
-      "module": "zeroth.core.parallel",
+      "module": "zeroth.runtime.parallel",
       "name": "ParallelStepLimitError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.parallel.errors"
+        "package_export:zeroth.runtime.parallel.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel.errors:BranchApprovalPauseSignal"
       ],
-      "module": "zeroth.core.parallel.errors",
+      "module": "zeroth.runtime.parallel.errors",
       "name": "BranchApprovalPauseSignal",
       "signature": "(*, branch_index: 'int', child_run_id: 'str', graph_ref: 'str', version: 'int | None', node_id: 'str') -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.parallel.errors"
+        "package_export:zeroth.runtime.parallel.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel.errors:BranchError"
       ],
-      "module": "zeroth.core.parallel.errors",
+      "module": "zeroth.runtime.parallel.errors",
       "name": "BranchError",
       "signature": "(branch_index: 'int', original: 'BaseException') -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.parallel.errors"
+        "package_export:zeroth.runtime.parallel.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel.errors:FanOutValidationError"
       ],
-      "module": "zeroth.core.parallel.errors",
+      "module": "zeroth.runtime.parallel.errors",
       "name": "FanOutValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.parallel.errors"
+        "package_export:zeroth.runtime.parallel.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel.errors:MergeStrategyError"
       ],
-      "module": "zeroth.core.parallel.errors",
+      "module": "zeroth.runtime.parallel.errors",
       "name": "MergeStrategyError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.parallel.errors"
+        "package_export:zeroth.runtime.parallel.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel.errors:MergeStrategyValidationError"
       ],
-      "module": "zeroth.core.parallel.errors",
+      "module": "zeroth.runtime.parallel.errors",
       "name": "MergeStrategyValidationError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.parallel.errors"
+        "package_export:zeroth.runtime.parallel.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel.errors:ParallelExecutionError"
       ],
-      "module": "zeroth.core.parallel.errors",
+      "module": "zeroth.runtime.parallel.errors",
       "name": "ParallelExecutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.parallel.errors"
+        "package_export:zeroth.runtime.parallel.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel.errors:ParallelStepLimitError"
       ],
-      "module": "zeroth.core.parallel.errors",
+      "module": "zeroth.runtime.parallel.errors",
       "name": "ParallelStepLimitError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.parallel.errors"
+        "package_export:zeroth.runtime.parallel.errors"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.parallel.errors:ReducerRefValidationError"
       ],
-      "module": "zeroth.core.parallel.errors",
+      "module": "zeroth.runtime.parallel.errors",
       "name": "ReducerRefValidationError",
       "signature": "<not-inspectable>"
     },
