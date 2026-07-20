@@ -992,6 +992,13 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.governed.integrations.tool_calls:NormalizedToolCall` | `zeroth.runtime.agents.tooling.tool_calls:NormalizedToolCall` | Move execution integrations | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.governed.integrations.tool_calls:build_tool_message` | `zeroth.runtime.agents.tooling.tool_calls:build_tool_message` | Move execution integrations | Legacy path still re-exports | Same function object | Not removed |
 | `zeroth.core.governed.integrations.tool_calls:extract_tool_calls` | `zeroth.runtime.agents.tooling.tool_calls:extract_tool_calls` | Move execution integrations | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.sandbox_sidecar:app` | `zeroth.integrations.sandbox:app` | Move sandbox integrations | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.sandbox_sidecar.app:app` | `zeroth.integrations.sandbox.app:app` | Move sandbox integrations | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.sandbox_sidecar.executor:SidecarExecutor` | `zeroth.integrations.sandbox.executor:SidecarExecutor` | Move sandbox integrations | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.sandbox_sidecar.models:SidecarExecuteRequest` | `zeroth.integrations.sandbox.models:SidecarExecuteRequest` | Move sandbox integrations | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.sandbox_sidecar.models:SidecarExecuteResponse` | `zeroth.integrations.sandbox.models:SidecarExecuteResponse` | Move sandbox integrations | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.sandbox_sidecar.models:SidecarHealthResponse` | `zeroth.integrations.sandbox.models:SidecarHealthResponse` | Move sandbox integrations | Legacy path still re-exports | Same class object | Not removed |
+| `zeroth.core.sandbox_sidecar.models:SidecarStatusResponse` | `zeroth.integrations.sandbox.models:SidecarStatusResponse` | Move sandbox integrations | Legacy path still re-exports | Same class object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than

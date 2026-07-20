@@ -8838,89 +8838,89 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.sandbox_sidecar"
+        "__all__:zeroth.integrations.sandbox"
       ],
       "kind": "callable",
       "legacy_ids": [
         "zeroth.core.sandbox_sidecar:app"
       ],
-      "module": "zeroth.core.sandbox_sidecar",
+      "module": "zeroth.integrations.sandbox",
       "name": "app",
       "signature": "(scope: collections.abc.MutableMapping[str, typing.Any], receive: collections.abc.Callable[[], collections.abc.Awaitable[collections.abc.MutableMapping[str, typing.Any]]], send: collections.abc.Callable[[collections.abc.MutableMapping[str, typing.Any]], collections.abc.Awaitable[None]]) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.sandbox_sidecar.app"
+        "__all__:zeroth.integrations.sandbox.app"
       ],
       "kind": "callable",
       "legacy_ids": [
         "zeroth.core.sandbox_sidecar.app:app"
       ],
-      "module": "zeroth.core.sandbox_sidecar.app",
+      "module": "zeroth.integrations.sandbox.app",
       "name": "app",
       "signature": "(scope: collections.abc.MutableMapping[str, typing.Any], receive: collections.abc.Callable[[], collections.abc.Awaitable[collections.abc.MutableMapping[str, typing.Any]]], send: collections.abc.Callable[[collections.abc.MutableMapping[str, typing.Any]], collections.abc.Awaitable[None]]) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.sandbox_sidecar.executor"
+        "__all__:zeroth.integrations.sandbox.executor"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.sandbox_sidecar.executor:SidecarExecutor"
       ],
-      "module": "zeroth.core.sandbox_sidecar.executor",
+      "module": "zeroth.integrations.sandbox.executor",
       "name": "SidecarExecutor",
       "signature": "(*, docker_binary: 'str' = 'docker') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.sandbox_sidecar.models",
-        "schema_model:zeroth.core.sandbox_sidecar.models"
+        "__all__:zeroth.integrations.sandbox.models",
+        "schema_model:zeroth.integrations.sandbox.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.sandbox_sidecar.models:SidecarExecuteRequest"
       ],
-      "module": "zeroth.core.sandbox_sidecar.models",
+      "module": "zeroth.integrations.sandbox.models",
       "name": "SidecarExecuteRequest",
       "signature": "(*, execution_id: str, image: str, command: list[str], input_text: str | None = None, timeout_seconds: float | None = None, environment: dict[str, str] = <factory>, working_directory: str = '/workspace', cpu_cores: float | None = None, memory_mb: int | None = None, max_processes: int | None = None, network_access: bool = False) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.sandbox_sidecar.models",
-        "schema_model:zeroth.core.sandbox_sidecar.models"
+        "__all__:zeroth.integrations.sandbox.models",
+        "schema_model:zeroth.integrations.sandbox.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.sandbox_sidecar.models:SidecarExecuteResponse"
       ],
-      "module": "zeroth.core.sandbox_sidecar.models",
+      "module": "zeroth.integrations.sandbox.models",
       "name": "SidecarExecuteResponse",
       "signature": "(*, execution_id: str, status: str, returncode: int | None = None, stdout: str = '', stderr: str = '', duration_seconds: float | None = None, timed_out: bool = False) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.sandbox_sidecar.models",
-        "schema_model:zeroth.core.sandbox_sidecar.models"
+        "__all__:zeroth.integrations.sandbox.models",
+        "schema_model:zeroth.integrations.sandbox.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.sandbox_sidecar.models:SidecarHealthResponse"
       ],
-      "module": "zeroth.core.sandbox_sidecar.models",
+      "module": "zeroth.integrations.sandbox.models",
       "name": "SidecarHealthResponse",
       "signature": "(*, status: str = 'ok', docker_available: bool = True) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.sandbox_sidecar.models",
-        "schema_model:zeroth.core.sandbox_sidecar.models"
+        "__all__:zeroth.integrations.sandbox.models",
+        "schema_model:zeroth.integrations.sandbox.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.sandbox_sidecar.models:SidecarStatusResponse"
       ],
-      "module": "zeroth.core.sandbox_sidecar.models",
+      "module": "zeroth.integrations.sandbox.models",
       "name": "SidecarStatusResponse",
       "signature": "(*, execution_id: str, status: str, returncode: int | None = None, stdout: str = '', stderr: str = '', duration_seconds: float | None = None, timed_out: bool = False) -> None"
     },
