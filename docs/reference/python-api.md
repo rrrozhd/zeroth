@@ -7,7 +7,7 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 ### Execution core
 - [Graph](python-api/graph.md) — `zeroth.contracts.graph`
 - [Orchestrator](python-api/orchestrator.md) — `zeroth.core.orchestrator`
-- [Agents](python-api/agents.md) — `zeroth.core.agent_runtime`
+- [Agents](python-api/agents.md) — `zeroth.runtime.agents`
 - [Execution units](python-api/execution-units.md) — `zeroth.core.execution_units`
 - [Conditions](python-api/conditions.md) — `zeroth.contracts.conditions`
 

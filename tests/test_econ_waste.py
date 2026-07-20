@@ -15,11 +15,11 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.errors import AgentOutputValidationError
-from zeroth.core.agent_runtime.models import RetryPolicy
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.agent_runtime.resilience import CachingProviderAdapter
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.errors import AgentOutputValidationError
+from zeroth.runtime.agents.models import RetryPolicy
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.agents.resilience import CachingProviderAdapter
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
 from zeroth.core.econ import (

@@ -19,8 +19,8 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from zeroth.core.agent_runtime.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 from zeroth.core.eval.models import EvalCase, Score
+from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 
 
 def _extract(output: Any, field: str | None) -> Any:

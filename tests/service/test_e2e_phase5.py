@@ -20,8 +20,8 @@ from tests.service.helpers import (
     service_app,
     wait_for,
 )
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner, RepositoryThreadStateStore
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.agents import AgentConfig, AgentRunner, RepositoryThreadStateStore
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.core.execution_units import (
     CommandArtifactSource,
     ExecutableUnitRegistry,

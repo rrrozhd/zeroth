@@ -17,8 +17,15 @@ Legend for the Disposition column:
 - **Governance (Task 13)** — moved to `zeroth.governance.audit.*` when the
   governance packages moved and `core/governed/audit` was consolidated with
   `core/audit`; the legacy module republishes the same object.
-- **Deferred (Task 14)** — stays in place; classified when the runtime and
-  integration implementations move behind owned protocols.
+- **Runtime (Task 14)** — moved into the maintained runtime packages when
+  the agent runtime consolidated; the legacy module republishes the same
+  object.
+- **Contracts (Task 14)** — definition moved to `zeroth.contracts.governed.*`
+  in Task 14; the legacy module republishes the same object.
+- **Integrations (Task 15)** — stays in place until the memory and
+  integration packages consolidate under `zeroth.integrations`; consumed by
+  the runtime through excepted edges documented in
+  `src/zeroth/_architecture.py`.
 
 ## Top-level aggregator (`zeroth.core.governed`)
 
@@ -26,7 +33,7 @@ Legend for the Disposition column:
 | --- | --- | --- |
 | `RunState` | `models/run_state.py` | Contracts (Task 12) — definition moves to `zeroth.contracts.governed.models.run_state`; aggregator keeps republishing |
 | `RunStatus` | `models/common.py` | Contracts (Task 12) — definition moves to `zeroth.contracts.governed.models.common`; aggregator keeps republishing |
-| `Tool` | `tools/base.py` | Deferred (Task 14) — runtime-owned tool primitive; aggregator keeps republishing |
+| `Tool` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base`; aggregator keeps republishing |
 
 ## `app/` — flow and step specifications → Contracts (Task 12)
 
@@ -67,61 +74,61 @@ Legend for the Disposition column:
 | `emit_event` | `audit/emitter.py` | Governance (Task 13) → `zeroth.governance.audit.emitter` |
 | `RedisAuditEmitter` | `audit/redis.py` | Governance (Task 13) → `zeroth.governance.audit.redis`; its only concrete dependency is the optional third-party `redis.asyncio` client, imported lazily, so no zeroth-internal edge leaves the governance domain |
 
-## `integrations/` — provider tool-call helpers → Deferred (Task 14)
+## `integrations/` — provider tool-call helpers → Integrations (Task 15)
 
 | Symbol | Module | Disposition |
 | --- | --- | --- |
-| `NormalizedToolCall` | `integrations/tool_calls.py` | Deferred (Task 14) |
-| `extract_tool_calls` | `integrations/tool_calls.py` | Deferred (Task 14) |
-| `build_tool_message` | `integrations/tool_calls.py` | Deferred (Task 14) |
-| `GovernedToolCallLoop` | `integrations/tool_calls.py` | Deferred (Task 14) |
+| `NormalizedToolCall` | `integrations/tool_calls.py` | Integrations (Task 15) |
+| `extract_tool_calls` | `integrations/tool_calls.py` | Integrations (Task 15) |
+| `build_tool_message` | `integrations/tool_calls.py` | Integrations (Task 15) |
+| `GovernedToolCallLoop` | `integrations/tool_calls.py` | Integrations (Task 15) |
 
-## `memory/` — memory type system and connector wrappers → Deferred (Task 14)
-
-| Symbol | Module | Disposition |
-| --- | --- | --- |
-| `AuditingMemoryConnector` | `memory/auditing.py` | Deferred (Task 14) |
-| `MemoryConnector` | `memory/connector.py` | Deferred (Task 14) |
-| `MemoryScope` | `memory/models.py` | Deferred (Task 14) — see the `zeroth.runtime.orchestration.dispatcher` exception reason in `src/zeroth/_architecture.py` |
-| `MemoryEntry` | `memory/models.py` | Deferred (Task 14) |
-| `ScopedMemoryConnector` | `memory/scoped.py` | Deferred (Task 14) |
-
-## `runtime/` — interrupt and run stores → Deferred (Task 14)
+## `memory/` — memory type system and connector wrappers → Integrations (Task 15), except the contract-owned scope enum
 
 | Symbol | Module | Disposition |
 | --- | --- | --- |
-| `InterruptRequest` | `runtime/interrupts.py` | Deferred (Task 14) |
-| `InterruptResolution` | `runtime/interrupts.py` | Deferred (Task 14) |
-| `InterruptStore` | `runtime/interrupts.py` | Deferred (Task 14) |
-| `InMemoryInterruptStore` | `runtime/interrupts.py` | Deferred (Task 14) |
-| `RedisInterruptStore` | `runtime/interrupts.py` | Deferred (Task 14) |
-| `InterruptManager` | `runtime/interrupts.py` | Deferred (Task 14) |
-| `StateConcurrencyError` | `runtime/run_store.py` | Deferred (Task 14) |
-| `ThreadAwareRunStore` | `runtime/run_store.py` | Deferred (Task 14) |
-| `RunStore` | `runtime/run_store.py` | Deferred (Task 14) |
-| `InMemoryRunStore` | `runtime/run_store.py` | Deferred (Task 14) |
-| `RedisRunStore` | `runtime/run_store.py` | Deferred (Task 14) |
+| `AuditingMemoryConnector` | `memory/auditing.py` | Integrations (Task 15) — moves with the `core/memory` consolidation |
+| `MemoryConnector` | `memory/connector.py` | Integrations (Task 15) — moves with the `core/memory` consolidation |
+| `MemoryScope` | `memory/models.py` | Contracts (Task 14) → `zeroth.contracts.governed.models.memory`; the legacy module republishes it |
+| `MemoryEntry` | `memory/models.py` | Integrations (Task 15) — moves with the `core/memory` consolidation |
+| `ScopedMemoryConnector` | `memory/scoped.py` | Integrations (Task 15) — moves with the `core/memory` consolidation |
 
-## `tools/` — tool primitives → Deferred (Task 14)
+## `runtime/` — interrupt and run stores → Runtime (Task 14)
 
 | Symbol | Module | Disposition |
 | --- | --- | --- |
-| `InModelT` | `tools/base.py` | Deferred (Task 14) |
-| `OutModelT` | `tools/base.py` | Deferred (Task 14) |
-| `ToolError` | `tools/base.py` | Deferred (Task 14) |
-| `ToolValidationError` | `tools/base.py` | Deferred (Task 14) |
-| `ToolExecutionError` | `tools/base.py` | Deferred (Task 14) |
-| `CLIToolError` | `tools/base.py` | Deferred (Task 14) |
-| `CLIToolProcessError` | `tools/base.py` | Deferred (Task 14) |
-| `CLIToolOutputError` | `tools/base.py` | Deferred (Task 14) |
-| `CLIToolTimeoutError` | `tools/base.py` | Deferred (Task 14) |
-| `Tool` | `tools/base.py` | Deferred (Task 14) |
-| `CLITool` | `tools/cli_tool.py` | Deferred (Task 14) |
-| `ToolManifest` | `tools/manifest.py` | Deferred (Task 14) |
-| `PythonReturn` | `tools/python_tool.py` | Deferred (Task 14) |
-| `PythonHandler` | `tools/python_tool.py` | Deferred (Task 14) |
-| `PythonTool` | `tools/python_tool.py` | Deferred (Task 14) |
-| `tool` | `tools/python_tool.py` | Deferred (Task 14) |
+| `InterruptRequest` | `runtime/interrupts.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.interrupts` |
+| `InterruptResolution` | `runtime/interrupts.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.interrupts` |
+| `InterruptStore` | `runtime/interrupts.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.interrupts` |
+| `InMemoryInterruptStore` | `runtime/interrupts.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.interrupts` |
+| `RedisInterruptStore` | `runtime/interrupts.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.interrupts` |
+| `InterruptManager` | `runtime/interrupts.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.interrupts` |
+| `StateConcurrencyError` | `runtime/run_store.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.run_store` |
+| `ThreadAwareRunStore` | `runtime/run_store.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.run_store` |
+| `RunStore` | `runtime/run_store.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.run_store` |
+| `InMemoryRunStore` | `runtime/run_store.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.run_store` |
+| `RedisRunStore` | `runtime/run_store.py` | Runtime (Task 14) → `zeroth.runtime.orchestration.run_store` |
+
+## `tools/` — tool primitives → Runtime (Task 14)
+
+| Symbol | Module | Disposition |
+| --- | --- | --- |
+| `InModelT` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `OutModelT` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `ToolError` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `ToolValidationError` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `ToolExecutionError` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `CLIToolError` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `CLIToolProcessError` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `CLIToolOutputError` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `CLIToolTimeoutError` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `Tool` | `tools/base.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.base` |
+| `CLITool` | `tools/cli_tool.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.cli_tool` |
+| `ToolManifest` | `tools/manifest.py` | Runtime (Task 14) → `zeroth.runtime.agents.tooling.manifest` |
+| `PythonReturn` | `tools/python_tool.py` | Runtime (Task 14) → `zeroth.runtime.agents.toolingthon_tool` |
+| `PythonHandler` | `tools/python_tool.py` | Runtime (Task 14) → `zeroth.runtime.agents.toolingthon_tool` |
+| `PythonTool` | `tools/python_tool.py` | Runtime (Task 14) → `zeroth.runtime.agents.toolingthon_tool` |
+| `tool` | `tools/python_tool.py` | Runtime (Task 14) → `zeroth.runtime.agents.toolingthon_tool` |
 
 Note: `ExecutionPlacement` formerly lived in `tools/base.py`; Task 12's
 registry row moved it to `zeroth.contracts.registry.tooling`, with

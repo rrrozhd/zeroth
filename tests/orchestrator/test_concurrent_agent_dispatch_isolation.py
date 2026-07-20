@@ -13,13 +13,13 @@ from zeroth.core.governed.memory.models import MemoryScope
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.provider import (
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import (
     CallableProviderAdapter,
     ProviderRequest,
     ProviderResponse,
 )
-from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
+from zeroth.runtime.agents.tools import ToolAttachmentManifest
 from zeroth.governance.audit.models import TokenUsage
 from zeroth.runtime.context import ContextWindowSettings
 from zeroth.core.econ.adapter import InstrumentedProviderAdapter

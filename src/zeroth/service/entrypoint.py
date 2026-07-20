@@ -86,7 +86,7 @@ async def _bootstrap():
     agent_runners = None
     auto_runners = os.environ.get("ZEROTH_AUTO_AGENT_RUNNERS", "true").lower()
     if auto_runners not in {"0", "false", "no"}:
-        from zeroth.core.agent_runtime.factory import build_runners_for_deployment
+        from zeroth.service.bootstrap.factory import build_runners_for_deployment
 
         agent_runners = await build_runners_for_deployment(
             database,

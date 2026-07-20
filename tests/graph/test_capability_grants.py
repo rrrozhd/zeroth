@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.agent_runtime.factory import tool_required_capabilities
+from zeroth.runtime.agents.factory import tool_required_capabilities
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,

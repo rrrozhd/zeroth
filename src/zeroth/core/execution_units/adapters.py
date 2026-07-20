@@ -20,7 +20,7 @@ from zeroth.core.execution_units.models import (
 )
 from zeroth.core.execution_units.validator import ExecutableUnitValidator
 from zeroth.core.governed import Tool
-from zeroth.core.governed.tools.python_tool import PythonHandler, PythonTool
+from zeroth.runtime.agents.tooling.python_tool import PythonHandler, PythonTool
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")

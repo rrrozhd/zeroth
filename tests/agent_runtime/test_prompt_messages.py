@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime.models import (
+from zeroth.runtime.agents.models import (
     AgentConfig,
     PromptConfig,
     ToolOutputSafetyConfig,
 )
-from zeroth.core.agent_runtime.prompt import PromptAssembler
+from zeroth.runtime.agents.prompt import PromptAssembler
 
 
 class ChatInput(BaseModel):

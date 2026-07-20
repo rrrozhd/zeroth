@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 from zeroth.contracts.governed.app.spec import GovernedFlowSpec, GovernedStepSpec
-from zeroth.core.governed.tools.python_tool import tool
+from zeroth.runtime.agents.tooling.python_tool import tool
 from pydantic import BaseModel, Field
 
 from zeroth.contracts.registry import ContractReference, ContractRegistry

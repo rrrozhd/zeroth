@@ -13,7 +13,7 @@ import inspect
 import pytest
 from langchain_core.messages import AIMessage
 
-from zeroth.core.agent_runtime.provider import (
+from zeroth.runtime.agents.provider import (
     LiteLLMProviderAdapter,
     ProviderRequest,
 )

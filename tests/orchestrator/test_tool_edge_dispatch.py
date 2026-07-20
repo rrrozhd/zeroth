@@ -12,8 +12,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import DeterministicProviderAdapter, ProviderResponse
-from zeroth.core.agent_runtime.factory import build_agent_runners
+from zeroth.runtime.agents import DeterministicProviderAdapter, ProviderResponse
+from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.governance.audit import AuditRepository
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.execution_units import (

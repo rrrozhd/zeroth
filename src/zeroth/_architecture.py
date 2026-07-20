@@ -128,19 +128,6 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.orchestrator.runtime", "zeroth.core.execution_units"),
-        reason=(
-            "RuntimeOrchestrator names ExecutableUnitRunner in its "
-            "executable_unit_runner field annotation, and that full __init__ "
-            "signature is pinned in the immutable backend_surface_legacy.json. "
-            "The type name cannot be renamed or dropped, and the dependency "
-            "scanner walks the AST, so even a TYPE_CHECKING-guarded import "
-            "still records the edge. Same wall as RepositoryThreadStateStore "
-            "in docs/backend-import-migration.md."
-        ),
-        removal_task="Task 14: move runtime packages and inject owned protocols.",
-    ),
-    **_exception_group(
         ("zeroth.runtime.orchestration.dispatcher", "zeroth.core.econ.adapter"),
         reason=(
             "NodeDispatcher wraps an agent's provider in InstrumentedProviderAdapter "
@@ -155,19 +142,6 @@ TEMPORARY_EXCEPTIONS = {
     ),
     **_exception_group(
         (
-            "zeroth.runtime.orchestration.dispatcher",
-            "zeroth.core.governed.memory.models",
-        ),
-        reason=(
-            "NodeDispatcher maps the authored string scope names on retrieval and "
-            "template-memory bindings onto MemoryScope members before calling a "
-            "connector. The enum cannot move: its module path is embedded in "
-            "signature strings pinned by the immutable legacy fixture."
-        ),
-        removal_task="Task 14: move runtime packages and inject owned protocols.",
-    ),
-    **_exception_group(
-        (
             "zeroth.runtime.orchestration.tool_executor",
             "zeroth.core.execution_units.inline",
         ),
@@ -178,7 +152,7 @@ TEMPORARY_EXCEPTIONS = {
             "cannot move to contracts; removing the edge needs a new run-inline-source "
             "method on ExecutableUnitRunner, which is outside this task's boundary."
         ),
-        removal_task="Task 14: move runtime packages and inject owned protocols.",
+        removal_task="Task 15: move integrations and evaluation.",
     ),
     **_exception_group(
         ("zeroth.governance.retention.erasure_service", "zeroth.integrations.persistence.runs"),
@@ -272,32 +246,42 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 18: retire the zeroth.core compatibility shell.",
     ),
     **_exception_group(
-        ("zeroth.core.agent_runtime.factory", "zeroth.core.deployments"),
         (
-            "zeroth.core.agent_runtime.thread_store",
-            "zeroth.integrations.persistence.runs",
-        ),
-        (
-            "zeroth.core.agent_runtime.provider",
+            "zeroth.runtime.agents.provider",
             "zeroth.core.governed.integrations.tool_calls",
         ),
         (
-            "zeroth.core.agent_runtime.runner",
+            "zeroth.runtime.agents.runner",
             "zeroth.core.governed.integrations.tool_calls",
         ),
-        ("zeroth.core.agent_runtime.runner", "zeroth.core.governed.memory.models"),
-        ("zeroth.core.agent_runtime.runner", "zeroth.core.memory"),
-        reason="Legacy runtime packages resolve concrete service and integration objects.",
-        removal_task="Task 14: move runtime packages and inject owned protocols.",
+        ("zeroth.runtime.agents.runner", "zeroth.core.memory"),
+        reason=(
+            "The agent runtime still calls the provider tool-call helpers and "
+            "resolves memory connectors from their concrete integration modules; "
+            "the seams become runtime-owned protocols when the memory and "
+            "integration packages consolidate."
+        ),
+        removal_task="Task 15: move integrations and evaluation.",
     ),
     **_exception_group(
-        ("zeroth.core.econ.adapter", "zeroth.core.agent_runtime.provider"),
+        ("zeroth.core.agent_runtime.factory", "zeroth.service.bootstrap.factory"),
+        reason=(
+            "zeroth.core.agent_runtime.factory:build_runners_for_deployment is "
+            "deployment-fetch wiring that moved to service bootstrap, and the "
+            "legacy factory path keeps republishing it. Resolution stays lazy: "
+            "an eager import would put the service domain on the import path "
+            "of the legacy agent runtime package."
+        ),
+        removal_task="Task 18: retire the zeroth.core compatibility shell.",
+    ),
+    **_exception_group(
+        ("zeroth.core.econ.adapter", "zeroth.runtime.agents.provider"),
         ("zeroth.core.econ.opportunities", "zeroth.governance.audit.models"),
         ("zeroth.core.econ.quality", "zeroth.governance.audit.models"),
         ("zeroth.core.econ.quality", "zeroth.core.runs.models"),
         (
             "zeroth.core.econ.rightsizing_experiment",
-            "zeroth.core.agent_runtime.provider",
+            "zeroth.runtime.agents.provider",
         ),
         ("zeroth.core.econ.rightsizing_experiment", "zeroth.governance.audit.models"),
         ("zeroth.core.econ.rightsizing_experiment", "zeroth.core.eval.models"),

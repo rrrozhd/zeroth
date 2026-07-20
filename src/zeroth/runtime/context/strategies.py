@@ -282,7 +282,7 @@ class LLMSummarizationStrategy:
         model_name: str,
     ) -> CompactionResult:
         """Summarize older messages via an LLM call."""
-        from zeroth.core.agent_runtime.provider import ProviderRequest
+        from zeroth.runtime.agents.provider import ProviderRequest
 
         system_msg, middle, recent = _split_messages(
             messages, settings.preserve_recent_messages_count

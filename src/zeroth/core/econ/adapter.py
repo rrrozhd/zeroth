@@ -18,10 +18,10 @@ from __future__ import annotations
 from decimal import Decimal
 from time import perf_counter
 
-from zeroth.core.agent_runtime.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.econ.cost import CostEstimator
 from zeroth.core.econ.instrumentation import ExecutionEvent
+from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 
 
 class InstrumentedProviderAdapter:

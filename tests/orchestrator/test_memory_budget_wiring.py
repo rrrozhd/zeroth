@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.contracts.graph import AgentNode, AgentNodeData, Graph
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver

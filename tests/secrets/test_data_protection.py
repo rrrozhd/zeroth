@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from zeroth.core.agent_runtime.thread_store import (
+from zeroth.runtime.agents.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )

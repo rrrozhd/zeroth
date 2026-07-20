@@ -18,9 +18,10 @@ if TYPE_CHECKING:
     # Imported for annotations only, preserving the lazy behavior this factory
     # had inside the storage layer: the governed stores are loaded when a
     # store is actually built, not when this module is imported.
-    from zeroth.core.governed.runtime import RedisInterruptStore, RedisRunStore
     from zeroth.governance.audit.redis import RedisAuditEmitter
     from zeroth.platform.storage.redis import RedisConfig
+    from zeroth.runtime.orchestration.interrupts import RedisInterruptStore
+    from zeroth.runtime.orchestration.run_store import RedisRunStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +51,9 @@ def build_governai_redis_runtime(
     It resolves the Redis URL and wires up the run store, interrupt store,
     and audit emitter with the right prefixes and TTLs.
     """
-    from zeroth.core.governed.runtime import RedisInterruptStore, RedisRunStore
     from zeroth.governance.audit.redis import RedisAuditEmitter
+    from zeroth.runtime.orchestration.interrupts import RedisInterruptStore
+    from zeroth.runtime.orchestration.run_store import RedisRunStore
 
     redis_url = config.redis_url(
         require_docker_available=require_docker_available,

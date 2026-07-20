@@ -32,9 +32,9 @@ import pytest
 from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.models import ModelParams
-from zeroth.core.agent_runtime.provider import (
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.models import ModelParams
+from zeroth.runtime.agents.provider import (
     CallableProviderAdapter,
     LiteLLMProviderAdapter,
     ProviderResponse,

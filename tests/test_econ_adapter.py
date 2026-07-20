@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from zeroth.core.agent_runtime.provider import (
+from zeroth.runtime.agents.provider import (
     DeterministicProviderAdapter,
     ProviderRequest,
     ProviderResponse,
@@ -233,8 +233,8 @@ async def test_cache_hit_attributes_zero_cost_and_emits_no_event(mock_regulus_cl
     re-estimate cost on the cached tokens, stamp a fresh cost_usd, and fire a
     duplicate ExecutionEvent for a call that never reached a model.
     """
-    from zeroth.core.agent_runtime.provider import CallableProviderAdapter
-    from zeroth.core.agent_runtime.resilience import CachingProviderAdapter
+    from zeroth.runtime.agents.provider import CallableProviderAdapter
+    from zeroth.runtime.agents.resilience import CachingProviderAdapter
     from zeroth.core.econ.adapter import InstrumentedProviderAdapter
     from zeroth.core.econ.cost import CostEstimator
 

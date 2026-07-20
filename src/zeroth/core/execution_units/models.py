@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.core.execution_units.integrity import ManifestIntegrityRecord
-from zeroth.core.governed.tools.base import ExecutionPlacement
+from zeroth.runtime.agents.tooling.base import ExecutionPlacement
 
 
 class ExecutionMode(StrEnum):

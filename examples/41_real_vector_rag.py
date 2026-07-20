@@ -65,13 +65,13 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.agent_runtime import (
+from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.core.memory.chroma_connector import ChromaDBMemoryConnector
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     LiteLLMProviderAdapter,
 )
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.memory.chroma_connector import ChromaDBMemoryConnector
 
 # A tiny knowledge base. Each fact is stored as its own document so the
 # vector search has something to discriminate between.

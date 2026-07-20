@@ -3,22 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from zeroth.contracts.governed.models.common import JSONValue
+from zeroth.contracts.governed.models.memory import MemoryScope
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-class MemoryScope(str, Enum):
-    RUN = "run"
-    THREAD = "thread"
-    SHARED = "shared"
 
 
 class MemoryEntry(BaseModel):

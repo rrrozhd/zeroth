@@ -10,7 +10,6 @@ from zeroth.contracts.graph import GraphRepository
 from zeroth.contracts.graph.serialization import deserialize_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.econ.client import RegulusClient
 from zeroth.core.execution_units import ExecutableUnitRunner
@@ -34,6 +33,9 @@ from zeroth.platform.observability.tracing import configure_tracing
 from zeroth.platform.secrets import SecretProvider, build_secret_provider
 from zeroth.platform.signing import build_signing_provider_async
 from zeroth.platform.storage import AsyncDatabase
+from zeroth.runtime.agents import AgentRunner
+from zeroth.runtime.agents.factory import build_agent_runners
+from zeroth.runtime.agents.provider import ProviderAdapter
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.service.api.authentication import (
@@ -538,4 +540,41 @@ async def bootstrap_app(
             auth_config=auth_config,
             bearer_token_verifier=bearer_token_verifier,
         )
+    )
+
+
+async def build_runners_for_deployment(
+    database: AsyncDatabase,
+    deployment_ref: str,
+    *,
+    provider: ProviderAdapter | None = None,
+    secret_provider: SecretProvider | None = None,
+    allow_env_fallback: bool = True,
+    llm_key_map: dict[str, str] | None = None,
+) -> dict[str, AgentRunner] | None:
+    """Build runners for the graph behind a deployment ref.
+
+    Returns None when the deployment does not exist — bootstrap_service
+    raises its own, clearer error for that case.
+
+    ``tenant_id`` for key resolution is taken from ``deployment.tenant_id`` —
+    one value per deployment under the single-tenant model.
+
+    This is deployment-fetch wiring, so it lives with service bootstrap: the
+    runtime factory builds runners from a graph it is handed, while this
+    helper resolves the deployment and constructs the concrete repository.
+    """
+    deployment = await SQLiteDeploymentRepository(database).get(deployment_ref)
+    if deployment is None:
+        return None
+    graph = deserialize_graph(deployment.serialized_graph)
+    registry = ContractRegistry(database)
+    return await build_agent_runners(
+        graph,
+        registry,
+        provider=provider,
+        secret_provider=secret_provider,
+        tenant_id=deployment.tenant_id,
+        allow_env_fallback=allow_env_fallback,
+        llm_key_map=llm_key_map,
     )

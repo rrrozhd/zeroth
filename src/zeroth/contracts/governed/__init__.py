@@ -8,6 +8,7 @@ integrations, memory, runtime, and tools implementations remain under
 """
 
 from zeroth.contracts.governed.models.common import RunStatus
+from zeroth.contracts.governed.models.memory import MemoryScope
 from zeroth.contracts.governed.models.run_state import RunState
 
-__all__ = ["RunState", "RunStatus"]
+__all__ = ["MemoryScope", "RunState", "RunStatus"]

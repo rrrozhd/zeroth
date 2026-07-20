@@ -64,13 +64,13 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.agent_runtime import (
+from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     LiteLLMProviderAdapter,
 )
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector
 
 KEY_PREFIX = "zeroth:example:chat"
 HISTORY_KEY = "messages"

@@ -6,14 +6,14 @@ import pytest
 from zeroth.core.governed.memory.models import MemoryScope
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,
     ProviderResponse,
     ToolAttachmentManifest,
 )
-from zeroth.core.agent_runtime.mcp import MCPServerConfig
+from zeroth.runtime.agents.mcp import MCPServerConfig
 from zeroth.core.memory.connectors import KeyValueMemoryConnector
 from zeroth.core.memory.models import ConnectorManifest
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
@@ -222,7 +222,7 @@ async def test_mcp_startup_denied_before_any_process_spawn(monkeypatch, granted)
         constructions.append(configs)
 
     monkeypatch.setattr(
-        "zeroth.core.agent_runtime.runner.MCPClientManager.__init__", _record_construction
+        "zeroth.runtime.agents.runner.MCPClientManager.__init__", _record_construction
     )
     provider = DeterministicProviderAdapter([ProviderResponse(content='{"answer":"a","score":1}')])
     runner = AgentRunner(_mcp_config(), provider)
@@ -245,8 +245,8 @@ async def test_mcp_startup_allowed_with_both_capabilities(monkeypatch) -> None:
     async def _fake_stop(self):  # noqa: ANN001
         return None
 
-    monkeypatch.setattr("zeroth.core.agent_runtime.runner.MCPClientManager.start", _fake_start)
-    monkeypatch.setattr("zeroth.core.agent_runtime.runner.MCPClientManager.stop", _fake_stop)
+    monkeypatch.setattr("zeroth.runtime.agents.runner.MCPClientManager.start", _fake_start)
+    monkeypatch.setattr("zeroth.runtime.agents.runner.MCPClientManager.stop", _fake_stop)
     provider = DeterministicProviderAdapter([ProviderResponse(content='{"answer":"a","score":1}')])
     runner = AgentRunner(_mcp_config(), provider)
     result = await runner.run(
@@ -270,8 +270,8 @@ async def test_mcp_startup_ungated_when_enforcement_inactive(monkeypatch) -> Non
     async def _fake_stop(self):  # noqa: ANN001
         return None
 
-    monkeypatch.setattr("zeroth.core.agent_runtime.runner.MCPClientManager.start", _fake_start)
-    monkeypatch.setattr("zeroth.core.agent_runtime.runner.MCPClientManager.stop", _fake_stop)
+    monkeypatch.setattr("zeroth.runtime.agents.runner.MCPClientManager.start", _fake_start)
+    monkeypatch.setattr("zeroth.runtime.agents.runner.MCPClientManager.stop", _fake_stop)
     provider = DeterministicProviderAdapter([ProviderResponse(content='{"answer":"a","score":1}')])
     runner = AgentRunner(_mcp_config(), provider)
     result = await runner.run({"query": "hi"})

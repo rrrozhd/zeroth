@@ -34,7 +34,7 @@ from zeroth.contracts.graph.models import (
 )
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.agent_runtime.models import AgentRunResult, PromptAssembly
+from zeroth.runtime.agents.models import AgentRunResult, PromptAssembly
 from zeroth.core.runs.models import RunStatus
 from zeroth.core.runs.repository import RunRepository
 from zeroth.core.service.bootstrap import run_migrations

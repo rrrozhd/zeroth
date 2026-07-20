@@ -68,7 +68,7 @@ def test_regulus_client_delegates_to_instrumentation_client():
 
 def test_provider_response_accepts_cost_fields():
     """ProviderResponse accepts cost_usd and cost_event_id as optional fields."""
-    from zeroth.core.agent_runtime.provider import ProviderResponse
+    from zeroth.runtime.agents.provider import ProviderResponse
 
     resp = ProviderResponse(cost_usd=0.5, cost_event_id="evt-123")
     assert resp.cost_usd == 0.5

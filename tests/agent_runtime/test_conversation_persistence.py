@@ -7,14 +7,14 @@ from types import SimpleNamespace
 
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.agent_runtime.models import InMemoryThreadStateStore, PromptConfig
-from zeroth.core.agent_runtime.prompt import PromptAssembler
+from zeroth.runtime.agents.models import InMemoryThreadStateStore, PromptConfig
+from zeroth.runtime.agents.prompt import PromptAssembler
 from zeroth.contracts.graph.models import AgentNode, AgentNodeData
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.contracts.graph.validation_errors import ValidationCode

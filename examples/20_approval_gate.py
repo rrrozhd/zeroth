@@ -58,17 +58,17 @@ from zeroth.contracts.graph import (
 )
 from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    DeterministicProviderAdapter,
-    ProviderResponse,
-)
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.service.app import create_app
 from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
 from zeroth.platform.storage import AsyncSQLiteDatabase
+from zeroth.runtime.agents import (
+    AgentConfig,
+    AgentRunner,
+    DeterministicProviderAdapter,
+    ProviderResponse,
+)
 
 DEPLOYMENT_REF = "approval-demo"
 DB_PATH = Path("examples_approval.sqlite")

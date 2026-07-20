@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
 from zeroth.core.econ.rightsizing import ModelOption
 from zeroth.core.econ.rightsizing_experiment import (

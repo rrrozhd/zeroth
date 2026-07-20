@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import zeroth.core.agent_runtime.thread_store as thread_store
-from zeroth.core.agent_runtime.thread_store import (
+import zeroth.runtime.agents.thread_store as thread_store
+from zeroth.runtime.agents.thread_store import (
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )

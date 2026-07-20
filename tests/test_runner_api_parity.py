@@ -5,15 +5,15 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,
     ProviderResponse,
     ToolAttachmentManifest,
 )
-from zeroth.core.agent_runtime.models import ModelParams
-from zeroth.core.agent_runtime.response_format import build_response_format
+from zeroth.runtime.agents.models import ModelParams
+from zeroth.runtime.agents.response_format import build_response_format
 
 # -- Fixtures -----------------------------------------------------------------
 

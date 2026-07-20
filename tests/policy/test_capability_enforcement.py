@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from zeroth.core.governed.memory.models import MemoryScope
 
-from zeroth.core.agent_runtime.tools import ToolAttachmentBinding, ToolAttachmentBridge
+from zeroth.runtime.agents.tools import ToolAttachmentBinding, ToolAttachmentBridge
 from zeroth.core.memory.capability_guard import CapabilityEnforcingMemoryConnector
 from zeroth.core.memory.connectors import KeyValueMemoryConnector
 from zeroth.core.memory.models import ConnectorManifest

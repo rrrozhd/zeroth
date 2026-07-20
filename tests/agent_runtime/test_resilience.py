@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     CachingProviderAdapter,
     DeterministicProviderAdapter,
     FallbackProviderAdapter,
@@ -12,7 +12,7 @@ from zeroth.core.agent_runtime import (
     ModelParams,
     ProviderTarget,
 )
-from zeroth.core.agent_runtime.provider import ProviderRequest, ProviderResponse
+from zeroth.runtime.agents.provider import ProviderRequest, ProviderResponse
 
 
 def _req(model: str = "openai/gpt-4o", **kwargs) -> ProviderRequest:

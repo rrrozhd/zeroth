@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime.models import AgentConfig
-from zeroth.core.agent_runtime.provider import ModelParams, ProviderRequest
-from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
+from zeroth.runtime.agents.models import AgentConfig
+from zeroth.runtime.agents.provider import ModelParams, ProviderRequest
+from zeroth.runtime.agents.tools import ToolAttachmentManifest
 from zeroth.contracts.graph.models import AgentNodeData
 
 # ---------------------------------------------------------------------------

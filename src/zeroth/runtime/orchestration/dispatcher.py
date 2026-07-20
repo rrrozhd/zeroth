@@ -32,9 +32,9 @@ from zeroth.contracts.graph import (
     Node,
     RetrievalNode,
 )
-from zeroth.core.agent_runtime import AgentRunner
 from zeroth.core.runs import Run
 from zeroth.platform.observability import start_span
+from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.orchestration.errors import (
     MemoryBindingResolutionError,
     NodeDispatcherError,
@@ -284,7 +284,7 @@ class NodeDispatcher:
                 and getattr(agent_data, "cheap_model", None)
                 and getattr(agent_data, "criticality", "medium") == "low"
             ):
-                from zeroth.core.agent_runtime.cascade import CascadingProviderAdapter
+                from zeroth.runtime.agents.cascade import CascadingProviderAdapter
 
                 runner.provider = CascadingProviderAdapter(
                     inner=runner.provider,
@@ -468,7 +468,7 @@ class NodeDispatcher:
                 f"retrieval node '{node.node_id}': input field '{data.query_key}' "
                 "must be a non-empty string"
             )
-        from zeroth.core.governed.memory.models import MemoryScope
+        from zeroth.contracts.governed import MemoryScope
 
         scope = {
             "run": MemoryScope.RUN,
@@ -561,7 +561,7 @@ class NodeDispatcher:
         if not bindings or self.memory_resolver is None:
             return {}, []
 
-        from zeroth.core.governed.memory.models import MemoryScope
+        from zeroth.contracts.governed import MemoryScope
 
         _scope_map = {
             "run": MemoryScope.RUN,

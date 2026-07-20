@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.governance.audit import AuditRepository
 from zeroth.core.execution_units import (
     ExecutableUnitRegistry,

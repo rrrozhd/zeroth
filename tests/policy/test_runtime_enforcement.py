@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentProviderError,
     AgentRunner,
@@ -310,7 +310,7 @@ async def test_agent_runner_applies_timeout_override_and_blocks_side_effecting_t
         )
 
     monkeypatch.setattr(
-        "zeroth.core.agent_runtime.runner.run_provider_with_timeout",
+        "zeroth.runtime.agents.runner.run_provider_with_timeout",
         fake_run_provider_with_timeout,
     )
     runner = AgentRunner(

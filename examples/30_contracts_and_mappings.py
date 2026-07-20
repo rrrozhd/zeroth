@@ -50,7 +50,7 @@ from zeroth.contracts.mappings.models import (
     PassthroughMappingOperation,
     RenameMappingOperation,
 )
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,

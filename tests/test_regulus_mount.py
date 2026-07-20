@@ -36,13 +36,13 @@ pytest.importorskip("zeroth.econ_plane", reason="requires the 'regulus' extra")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from zeroth.core.agent_runtime.errors import BudgetExceededError  # noqa: E402
-from zeroth.core.agent_runtime.models import AgentConfig  # noqa: E402
-from zeroth.core.agent_runtime.provider import (  # noqa: E402
+from zeroth.runtime.agents.errors import BudgetExceededError  # noqa: E402
+from zeroth.runtime.agents.models import AgentConfig  # noqa: E402
+from zeroth.runtime.agents.provider import (  # noqa: E402
     DeterministicProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.agent_runtime.runner import AgentRunner  # noqa: E402
+from zeroth.runtime.agents.runner import AgentRunner  # noqa: E402
 from zeroth.core.econ.budget import BudgetEnforcer  # noqa: E402
 from zeroth.core.econ.service_auth import (  # noqa: E402
     make_self_auth_headers_provider,

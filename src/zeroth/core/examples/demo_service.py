@@ -4,7 +4,7 @@ Registers demo contracts, publishes a minimal single-agent graph, and
 creates a deployment for it — everything the stock service entrypoint
 needs so that a fresh install can serve a real run without writing any
 Python. The agent runner itself is constructed at serve time by
-``zeroth.core.agent_runtime.factory`` from the graph's own node data.
+``zeroth.runtime.agents.factory`` from the graph's own node data.
 
 Contract classes live in this module so their ``module:Class`` paths
 resolve inside the installed wheel.

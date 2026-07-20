@@ -30,9 +30,9 @@ from zeroth.contracts.conditions import NextStepPlanner
 from zeroth.contracts.conditions.models import ConditionContext, TraversalState
 from zeroth.contracts.graph import Graph, HumanApprovalNode, SubgraphNode
 from zeroth.contracts.mappings import MappingExecutor
-from zeroth.core.agent_runtime.errors import BudgetExceededError
 from zeroth.core.runs import Run, RunFailureState, RunStatus
 from zeroth.platform.observability import start_span
+from zeroth.runtime.agents.errors import BudgetExceededError
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.errors import OrchestratorError
