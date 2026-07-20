@@ -1,4 +1,8 @@
-"""Data retention governance: the decomposed right-to-erasure surface.
+"""Data retention governance: retention TTLs, legal holds, and right-to-erasure.
+
+Per-tenant retention TTLs, legal holds, and a full-surface erasure service that
+removes PII WITHOUT breaking the append-only audit hash-chain (commitment-digest
+crypto-erasure — see docs/retention-and-erasure.md for the honest GDPR posture).
 
 The erasure service is a facade over five collaborators, each owning one
 concern:
@@ -12,64 +16,62 @@ concern:
 | ``compatibility`` | the legacy per-step retention log entries |
 | ``errors`` | the two public exception types |
 
-``RetentionErasureService`` itself resolves lazily. Its definition stays in
-:mod:`zeroth.core.retention.erasure_service` (a pinned legacy capability), and
-that module's body imports this package's collaborators — so resolving it
-eagerly here would re-enter a partially initialized module the moment a cold
-interpreter starts from either side. ``tests/governance/retention/test_cold_import.py``
-pins both directions from subprocesses, because the in-process suite always has
-``zeroth.core`` warm and cannot see the cycle.
+Task 13 merged the remaining legacy modules — the erasure facade, worker,
+coordination, econ eraser, models, cleanup manifest, and the four
+repositories — into this package, so the whole retention surface now
+resolves eagerly from one home. ``zeroth.core.retention`` keeps
+republishing the same objects, resolving the erasure service lazily for
+the reason documented there;
+``tests/governance/retention/test_cold_import.py`` pins both directions
+from subprocesses.
 """
 
 from __future__ import annotations
 
-import importlib
-from typing import TYPE_CHECKING
-
+from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
 from zeroth.governance.retention.claims import CleanupClaims
 from zeroth.governance.retention.compatibility import CompatibilityLog, result_detail
+from zeroth.governance.retention.econ_eraser import EconEventEraser, SqlAlchemyEconEventEraser
+from zeroth.governance.retention.erasure_service import RetentionErasureService
 from zeroth.governance.retention.errors import LegalHoldError, StaleCleanupClaimError
 from zeroth.governance.retention.executor import CleanupExecutor
+from zeroth.governance.retention.legal_hold_repository import LegalHoldRepository
 from zeroth.governance.retention.manifests import (
     build_cleanup_manifest,
     manifest_complete,
     result_from_manifest,
 )
+from zeroth.governance.retention.models import (
+    ErasureResult,
+    LegalHold,
+    RetentionPolicy,
+    TenantHolds,
+)
+from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
-
-if TYPE_CHECKING:
-    from zeroth.governance.retention.service import RetentionErasureService
-
-_EXPORTS = {
-    "RetentionErasureService": "zeroth.governance.retention.service",
-}
+from zeroth.governance.retention.worker import RetentionPurgeWorker
 
 __all__ = [
     "CleanupClaims",
     "CleanupExecutor",
     "CleanupReplayState",
     "CompatibilityLog",
+    "EconEventEraser",
+    "ErasureResult",
+    "LegalHold",
     "LegalHoldError",
+    "LegalHoldRepository",
+    "RetentionAuditLogRepository",
     "RetentionErasureService",
+    "RetentionPolicy",
+    "RetentionPolicyRepository",
+    "RetentionPurgeWorker",
+    "SqlAlchemyEconEventEraser",
     "StaleCleanupClaimError",
+    "TenantHolds",
     "build_cleanup_manifest",
     "manifest_complete",
     "replay_cleanup_state",
     "result_detail",
     "result_from_manifest",
 ]
-
-
-def __getattr__(name: str) -> object:
-    """Resolve the erasure service from its module on first access."""
-    module = _EXPORTS.get(name)
-    if module is None:
-        msg = f"module {__name__!r} has no attribute {name!r}"
-        raise AttributeError(msg)
-    value = getattr(importlib.import_module(module), name)
-    globals()[name] = value
-    return value
-
-
-def __dir__() -> list[str]:
-    return sorted(set(__all__) | set(_EXPORTS))

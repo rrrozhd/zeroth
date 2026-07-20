@@ -9,7 +9,7 @@ import pytest
 
 from tests.retention.conftest import make_audit_record
 from zeroth.governance.audit.verifier import _compute_pii_commitments, compute_chained_record
-from zeroth.core.retention.erasure_service import LegalHoldError
+from zeroth.governance.retention.erasure_service import LegalHoldError
 from zeroth.platform.storage.json import to_json_value
 
 

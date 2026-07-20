@@ -28,8 +28,8 @@ from typing import TYPE_CHECKING, Any
 from zeroth.governance.retention.manifests import result_from_manifest
 
 if TYPE_CHECKING:
-    from zeroth.core.retention.cleanup_manifest import CleanupManifest, CleanupOperation
     from zeroth.governance.retention.claims import CleanupClaims
+    from zeroth.governance.retention.cleanup_manifest import CleanupManifest, CleanupOperation
     from zeroth.governance.retention.compatibility import CompatibilityLog
 
 logger = logging.getLogger(__name__)

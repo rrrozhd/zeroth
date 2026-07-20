@@ -11,13 +11,13 @@ sweep, then each harvested key, then the econ deletion.
 
 from __future__ import annotations
 
-from zeroth.core.retention.cleanup_manifest import (
+from zeroth.governance.retention.cleanup_manifest import (
     CleanupManifest,
     CleanupOperation,
     DatabaseErasureOutcome,
     operation_id,
 )
-from zeroth.core.retention.models import ErasureResult
+from zeroth.governance.retention.models import ErasureResult
 
 
 def build_cleanup_manifest(

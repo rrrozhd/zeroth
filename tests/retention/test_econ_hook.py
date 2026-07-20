@@ -5,8 +5,8 @@ from __future__ import annotations
 from tests.retention.conftest import make_audit_record
 
 from zeroth.core.runs import Run
-from zeroth.core.retention import RetentionErasureService, SqlAlchemyEconEventEraser
-from zeroth.core.retention.econ_eraser import EconEventEraser
+from zeroth.governance.retention import RetentionErasureService, SqlAlchemyEconEventEraser
+from zeroth.governance.retention.econ_eraser import EconEventEraser
 
 
 class _RecordingEconEraser:

@@ -7,12 +7,12 @@ import pytest
 
 from zeroth.governance.audit import AuditRepository
 from tests.conftest import requires_docker
-from zeroth.core.retention.coordination import RetentionCoordinator, RetentionTransaction
-from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
-from zeroth.core.retention.erasure_service import RetentionErasureService
-from zeroth.core.retention.legal_hold_repository import LegalHoldRepository
-from zeroth.core.retention.models import LegalHold
-from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+from zeroth.governance.retention.coordination import RetentionCoordinator, RetentionTransaction
+from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
+from zeroth.governance.retention.erasure_service import RetentionErasureService
+from zeroth.governance.retention.legal_hold_repository import LegalHoldRepository
+from zeroth.governance.retention.models import LegalHold
+from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 from zeroth.core.runs import RunRepository
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase

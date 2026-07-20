@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.retention.cleanup_manifest import CleanupManifest, operation_id
-from zeroth.core.retention.models import ErasureResult
+from zeroth.governance.retention.cleanup_manifest import CleanupManifest, operation_id
+from zeroth.governance.retention.models import ErasureResult
 from zeroth.governance.retention.manifests import (
     build_cleanup_manifest,
     manifest_complete,

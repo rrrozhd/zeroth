@@ -2,7 +2,7 @@
 
 The definitions live here because the collaborators that raise them may not
 import the service facade -- the same import constraint that moved the
-orchestration exceptions in Task 8. ``zeroth.core.retention.erasure_service``
+orchestration exceptions in Task 8. ``zeroth.governance.retention.erasure_service``
 re-exports both names, so every documented import path is unchanged, and the
 protected surface keeps recording that module as their location.
 """

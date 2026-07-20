@@ -27,19 +27,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from zeroth.core.retention.cleanup_manifest import CleanupManifest, parse_cleanup_manifest
+from zeroth.governance.retention.cleanup_manifest import CleanupManifest, parse_cleanup_manifest
 from zeroth.governance.retention.errors import StaleCleanupClaimError
 from zeroth.governance.retention.replay import CleanupReplayState
 from zeroth.platform.storage.json import from_json_value
 
 if TYPE_CHECKING:
-    from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
-    from zeroth.core.retention.cleanup_manifest import CleanupOperation
-    from zeroth.core.retention.cleanup_state_repository import (
+    from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
+    from zeroth.governance.retention.cleanup_manifest import CleanupOperation
+    from zeroth.governance.retention.cleanup_state_repository import (
         CleanupStateRecord,
         CleanupStateRepository,
     )
-    from zeroth.core.retention.coordination import RetentionCoordinator
+    from zeroth.governance.retention.coordination import RetentionCoordinator
 
 logger = logging.getLogger(__name__)
 

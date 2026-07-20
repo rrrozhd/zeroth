@@ -1,21 +1,13 @@
-"""WS-E retention & right-to-erasure.
+"""Legacy import path for the governance retention package.
 
-Per-tenant retention TTLs, legal holds, and a full-surface erasure service that
-removes PII WITHOUT breaking the append-only audit hash-chain (commitment-digest
-crypto-erasure — see docs/retention-and-erasure.md for the honest GDPR posture).
+The retention subsystem lives in :mod:`zeroth.governance.retention`; this
+package republishes the same objects for compatibility. Import from the
+canonical location instead (see docs/backend-import-migration.md).
 
-The erasure service is decomposed across :mod:`zeroth.governance.retention` and
-is resolved from :mod:`zeroth.core.retention.erasure_service` on first access,
-so ``from zeroth.core.retention import RetentionErasureService`` is unchanged.
-
-That resolution stays lazy for the reason that made the decomposition possible.
-Every extracted collaborator imports the manifest and state models, which still
-live in this package -- so importing one executes this ``__init__``. Resolving
-the service here eagerly would import the collaborators back while they are
-still initializing, and the canonical package would stop being importable in a
-cold interpreter. ``tests/governance/retention/test_cold_import.py`` pins both
-directions from subprocesses, because the in-process suite always has
-``zeroth.core`` warm and cannot see the cycle.
+The erasure service keeps resolving lazily, mirroring the layout this
+package had while the decomposition was in flight; eager resolution here
+would put the whole erasure surface on the import path of anything that
+touches a retention model.
 """
 
 from __future__ import annotations
@@ -23,27 +15,28 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING
 
-from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
-from zeroth.core.retention.econ_eraser import EconEventEraser, SqlAlchemyEconEventEraser
-from zeroth.core.retention.legal_hold_repository import LegalHoldRepository
-from zeroth.core.retention.models import (
+from zeroth.governance.retention import (
+    EconEventEraser,
     ErasureResult,
     LegalHold,
+    LegalHoldRepository,
+    RetentionAuditLogRepository,
     RetentionPolicy,
+    RetentionPolicyRepository,
+    RetentionPurgeWorker,
+    SqlAlchemyEconEventEraser,
     TenantHolds,
 )
-from zeroth.core.retention.policy_repository import RetentionPolicyRepository
-from zeroth.core.retention.worker import RetentionPurgeWorker
 
 if TYPE_CHECKING:
-    from zeroth.core.retention.erasure_service import (
+    from zeroth.governance.retention.erasure_service import (
         LegalHoldError,
         RetentionErasureService,
     )
 
 _EXPORTS = {
-    "LegalHoldError": "zeroth.core.retention.erasure_service",
-    "RetentionErasureService": "zeroth.core.retention.erasure_service",
+    "LegalHoldError": "zeroth.governance.retention.erasure_service",
+    "RetentionErasureService": "zeroth.governance.retention.erasure_service",
 }
 
 __all__ = [
@@ -71,7 +64,3 @@ def __getattr__(name: str) -> object:
     value = getattr(importlib.import_module(module), name)
     globals()[name] = value
     return value
-
-
-def __dir__() -> list[str]:
-    return sorted(set(__all__) | set(_EXPORTS))

@@ -26,8 +26,8 @@ from typing import Any
 
 import pytest
 
-from zeroth.core.retention.models import RetentionPolicy
-from zeroth.core.retention.erasure_service import RetentionErasureService
+from zeroth.governance.retention.models import RetentionPolicy
+from zeroth.governance.retention.erasure_service import RetentionErasureService
 
 
 class _Journal:
@@ -200,7 +200,7 @@ async def test_legal_hold_refusal_records_the_refusal_and_destroys_nothing(env, 
     await env.hold_repo.place(tenant_id="default", run_id="run-held", reason="litigation")
     _instrument(env.service, journal)
 
-    from zeroth.core.retention.erasure_service import LegalHoldError
+    from zeroth.governance.retention.erasure_service import LegalHoldError
 
     with pytest.raises(LegalHoldError):
         await env.service.erase_run("run-held", "rte")

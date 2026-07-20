@@ -428,7 +428,7 @@ async def bootstrap_service(
     # the background purge worker is only built when retention.enabled is True.
     # The econ-event eraser is intentionally left unwired here (None) — see
     # docs/retention-and-erasure.md for the run->join_key deferral.
-    from zeroth.core.retention import (
+    from zeroth.governance.retention import (
         LegalHoldRepository,
         RetentionAuditLogRepository,
         RetentionErasureService,
@@ -441,7 +441,7 @@ async def bootstrap_service(
         settings.retention.default_audit_ttl_seconds is not None
         or settings.retention.default_run_ttl_seconds is not None
     ):
-        from zeroth.core.retention.models import SYSTEM_DEFAULT_TENANT, RetentionPolicy
+        from zeroth.governance.retention.models import SYSTEM_DEFAULT_TENANT, RetentionPolicy
 
         retention_default_policy = RetentionPolicy(
             tenant_id=SYSTEM_DEFAULT_TENANT,

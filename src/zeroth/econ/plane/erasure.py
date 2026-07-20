@@ -1,7 +1,7 @@
 """Concrete econ-event erasure over the econ_plane SQLAlchemy models.
 
 This is the econ plane's side of right-to-erasure: the
-:class:`~zeroth.core.retention.econ_eraser.EconEventEraser` protocol stays with
+:class:`~zeroth.governance.retention.econ_eraser.EconEventEraser` protocol stays with
 retention, which defines *what* erasure needs; this adapter lives with the
 database it deletes from and is injected into the erasure service. Keeping it
 here is what lets the governance domain not import ``zeroth.econ_plane``.

@@ -15,9 +15,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from zeroth.core.retention.cleanup_manifest import CleanupOperation, operation_id
-from zeroth.core.retention.cleanup_state_repository import CleanupStateRepository
-from zeroth.core.retention.coordination import RetentionCoordinator
+from zeroth.governance.retention.cleanup_manifest import CleanupOperation, operation_id
+from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
+from zeroth.governance.retention.coordination import RetentionCoordinator
 from zeroth.governance.retention.claims import CleanupClaims
 from zeroth.governance.retention.errors import StaleCleanupClaimError
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state

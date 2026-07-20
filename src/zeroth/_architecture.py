@@ -181,7 +181,7 @@ TEMPORARY_EXCEPTIONS = {
         removal_task="Task 14: move runtime packages and inject owned protocols.",
     ),
     **_exception_group(
-        ("zeroth.core.retention.erasure_service", "zeroth.integrations.persistence.runs"),
+        ("zeroth.governance.retention.erasure_service", "zeroth.integrations.persistence.runs"),
         reason=(
             "RetentionErasureService's pinned __init__ names RunRepository in the "
             "run_repository annotation, and the dependency scanner walks the AST, "

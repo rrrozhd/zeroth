@@ -17,9 +17,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
-    from zeroth.core.retention.cleanup_manifest import CleanupManifest
-    from zeroth.core.retention.models import ErasureResult
+    from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
+    from zeroth.governance.retention.cleanup_manifest import CleanupManifest
+    from zeroth.governance.retention.models import ErasureResult
 
 logger = logging.getLogger(__name__)
 

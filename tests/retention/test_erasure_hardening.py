@@ -14,16 +14,16 @@ from zeroth.governance.audit.erasure_schema import (
     ERASED_PII_VALUES,
     pii_commitment_fields,
 )
-from zeroth.core.retention import RetentionErasureService
-from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
-from zeroth.core.retention.cleanup_manifest import (
+from zeroth.governance.retention import RetentionErasureService
+from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
+from zeroth.governance.retention.cleanup_manifest import (
     CleanupManifest,
     CleanupOperation,
     DatabaseErasureOutcome,
     operation_id,
     parse_cleanup_manifest,
 )
-from zeroth.core.retention.erasure_service import StaleCleanupClaimError
+from zeroth.governance.retention.erasure_service import StaleCleanupClaimError
 from zeroth.core.runs import Run
 
 

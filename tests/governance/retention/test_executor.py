@@ -14,7 +14,7 @@ import asyncio
 
 import pytest
 
-from zeroth.core.retention.models import ErasureResult
+from zeroth.governance.retention.models import ErasureResult
 from zeroth.governance.retention.executor import CleanupExecutor
 from zeroth.governance.retention.manifests import build_cleanup_manifest
 

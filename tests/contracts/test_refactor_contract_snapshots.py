@@ -22,14 +22,14 @@ from zeroth.contracts.graph.validation_errors import (
     ValidationSeverity,
 )
 from zeroth.governance.policy import Capability, CapabilityDeniedError
-from zeroth.core.retention.audit_log_repository import RetentionAuditLogRepository
-from zeroth.core.retention.cleanup_manifest import (
+from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
+from zeroth.governance.retention.cleanup_manifest import (
     CleanupManifest,
     CleanupOperation,
     DatabaseErasureOutcome,
     operation_id,
 )
-from zeroth.core.retention.cleanup_state_repository import CleanupStateRepository
+from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
 from zeroth.core.runs import (
     Run,
     RunHistoryEntry,

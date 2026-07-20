@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.retention.models import ErasureResult
+from zeroth.governance.retention.models import ErasureResult
 from zeroth.governance.retention.compatibility import CompatibilityLog
 from zeroth.governance.retention.manifests import build_cleanup_manifest
 

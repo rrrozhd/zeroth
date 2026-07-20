@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from zeroth.core.retention.models import RetentionPolicy
-from zeroth.core.retention.worker import RetentionPurgeWorker
+from zeroth.governance.retention.models import RetentionPolicy
+from zeroth.governance.retention.worker import RetentionPurgeWorker
 
 
 @dataclass

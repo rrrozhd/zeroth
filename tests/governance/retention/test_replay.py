@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from zeroth.core.retention.cleanup_manifest import operation_id
+from zeroth.governance.retention.cleanup_manifest import operation_id
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
 
 TENANT = "default"

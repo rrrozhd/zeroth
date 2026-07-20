@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from zeroth.core.retention.cleanup_manifest import CleanupManifest, parse_cleanup_manifest
+from zeroth.governance.retention.cleanup_manifest import CleanupManifest, parse_cleanup_manifest
 from zeroth.platform.storage.json import from_json_value
 
 

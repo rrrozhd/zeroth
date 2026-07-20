@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-import zeroth.core.retention.models as retention_models
-from zeroth.core.retention.models import RetentionPolicy
+import zeroth.governance.retention.models as retention_models
+from zeroth.governance.retention.models import RetentionPolicy
 from zeroth.platform.primitives import utc_now
 
 
@@ -142,7 +142,7 @@ def test_settings_worker_poll_interval_stays_float() -> None:
 
 
 async def test_missing_tenant_policy_inherits_configured_defaults(sqlite_db) -> None:
-    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+    from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
     repo = RetentionPolicyRepository(
         sqlite_db,
@@ -157,7 +157,7 @@ async def test_missing_tenant_policy_inherits_configured_defaults(sqlite_db) -> 
 
 
 async def test_explicit_none_ttl_beats_configured_default(sqlite_db) -> None:
-    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+    from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
     repo = RetentionPolicyRepository(
         sqlite_db,
@@ -170,7 +170,7 @@ async def test_explicit_none_ttl_beats_configured_default(sqlite_db) -> None:
 
 
 async def test_configured_defaults_are_not_persisted_as_rows(sqlite_db) -> None:
-    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+    from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
     repo = RetentionPolicyRepository(
         sqlite_db,
