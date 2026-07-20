@@ -5787,13 +5787,13 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.governed.memory.models"
+        "schema_model:zeroth.integrations.memory.governed.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.governed.memory.models:MemoryEntry"
       ],
-      "module": "zeroth.core.governed.memory.models",
+      "module": "zeroth.integrations.memory.governed.models",
       "name": "MemoryEntry",
       "signature": "(*, key: str, value: Union[Dict[str, Any], List[Any], str, int, float, bool, NoneType], scope: zeroth.contracts.governed.models.memory.MemoryScope, scope_target: str, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
@@ -7453,228 +7453,228 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory",
+        "__all__:zeroth.integrations.memory",
         "docs:docs/reference/python-api/memory.md",
         "examples:examples/05_memory.py",
-        "package_export:zeroth.core.memory"
+        "package_export:zeroth.integrations.memory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory:ConnectorManifest"
       ],
-      "module": "zeroth.core.memory",
+      "module": "zeroth.integrations.memory",
       "name": "ConnectorManifest",
       "signature": "(*, connector_type: str, scope: zeroth.contracts.governed.models.memory.MemoryScope, instance_id: str | None = None, config: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory",
+        "__all__:zeroth.integrations.memory",
         "docs:docs/reference/python-api/memory.md",
         "examples:examples/05_memory.py",
-        "package_export:zeroth.core.memory"
+        "package_export:zeroth.integrations.memory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory:InMemoryConnectorRegistry"
       ],
-      "module": "zeroth.core.memory",
+      "module": "zeroth.integrations.memory",
       "name": "InMemoryConnectorRegistry",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory",
+        "__all__:zeroth.integrations.memory",
         "docs:docs/reference/python-api/memory.md",
-        "package_export:zeroth.core.memory"
+        "package_export:zeroth.integrations.memory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory:KeyValueMemoryConnector"
       ],
-      "module": "zeroth.core.memory",
+      "module": "zeroth.integrations.memory",
       "name": "KeyValueMemoryConnector",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory",
+        "__all__:zeroth.integrations.memory",
         "docs:docs/reference/python-api/memory.md",
         "examples:examples/05_memory.py",
-        "package_export:zeroth.core.memory"
+        "package_export:zeroth.integrations.memory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory:MemoryConnectorResolver"
       ],
-      "module": "zeroth.core.memory",
+      "module": "zeroth.integrations.memory",
       "name": "MemoryConnectorResolver",
       "signature": "(*, registry: 'InMemoryConnectorRegistry | None' = None, thread_repository: 'ThreadRepository | None' = None, audit_emitter: 'AuditEmitter | None' = None, workflow_name: 'str' = '') -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory",
+        "__all__:zeroth.integrations.memory",
         "docs:docs/reference/python-api/memory.md",
-        "package_export:zeroth.core.memory"
+        "package_export:zeroth.integrations.memory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory:ResolvedMemoryBinding"
       ],
-      "module": "zeroth.core.memory",
+      "module": "zeroth.integrations.memory",
       "name": "ResolvedMemoryBinding",
-      "signature": "(*, memory_ref: str, manifest: zeroth.core.memory.models.ConnectorManifest, connector: Any) -> None"
+      "signature": "(*, memory_ref: str, manifest: zeroth.integrations.memory.models.ConnectorManifest, connector: Any) -> None"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory",
+        "__all__:zeroth.integrations.memory",
         "docs:docs/how-to/memory.md",
         "docs:docs/reference/python-api/memory.md",
-        "package_export:zeroth.core.memory"
+        "package_export:zeroth.integrations.memory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory:RunEphemeralMemoryConnector"
       ],
-      "module": "zeroth.core.memory",
+      "module": "zeroth.integrations.memory",
       "name": "RunEphemeralMemoryConnector",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory",
+        "__all__:zeroth.integrations.memory",
         "docs:docs/reference/python-api/memory.md",
         "examples:examples/05_memory.py",
-        "package_export:zeroth.core.memory"
+        "package_export:zeroth.integrations.memory"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory:ThreadMemoryConnector"
       ],
-      "module": "zeroth.core.memory",
+      "module": "zeroth.integrations.memory",
       "name": "ThreadMemoryConnector",
       "signature": "() -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory",
+        "__all__:zeroth.integrations.memory",
         "docs:docs/reference/python-api/memory.md",
-        "package_export:zeroth.core.memory"
+        "package_export:zeroth.integrations.memory"
       ],
       "kind": "function",
       "legacy_ids": [
         "zeroth.core.memory:register_memory_connectors"
       ],
-      "module": "zeroth.core.memory",
+      "module": "zeroth.integrations.memory",
       "name": "register_memory_connectors",
       "signature": "(registry: 'InMemoryConnectorRegistry', settings: 'Any', *, redis_client: 'Any | None' = None, pg_conninfo: 'str | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.memory.capability_guard"
+        "__all__:zeroth.integrations.memory.capability_guard"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.capability_guard:CapabilityEnforcingMemoryConnector"
       ],
-      "module": "zeroth.core.memory.capability_guard",
+      "module": "zeroth.integrations.memory.capability_guard",
       "name": "CapabilityEnforcingMemoryConnector",
       "signature": "(inner: 'object', *, effective_capabilities: 'set[Capability]', node_id: 'str') -> 'None'"
     },
     {
       "evidence": [
         "examples:examples/41_real_vector_rag.py",
-        "optional_integration:zeroth.core.memory.chroma_connector"
+        "optional_integration:zeroth.integrations.memory.chroma_connector"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.chroma_connector:ChromaDBMemoryConnector"
       ],
-      "module": "zeroth.core.memory.chroma_connector",
+      "module": "zeroth.integrations.memory.chroma_connector",
       "name": "ChromaDBMemoryConnector",
       "signature": "(client: 'chromadb.HttpClient', *, collection_prefix: 'str' = 'zeroth_memory', embedding_model: 'str | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "optional_integration:zeroth.core.memory.elastic_connector"
+        "optional_integration:zeroth.integrations.memory.elastic_connector"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.elastic_connector:ElasticsearchMemoryConnector"
       ],
-      "module": "zeroth.core.memory.elastic_connector",
+      "module": "zeroth.integrations.memory.elastic_connector",
       "name": "ElasticsearchMemoryConnector",
       "signature": "(client: 'AsyncElasticsearch', *, index_prefix: 'str' = 'zeroth_memory') -> 'None'"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.memory.models"
+        "schema_model:zeroth.integrations.memory.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.models:ConnectorManifest"
       ],
-      "module": "zeroth.core.memory.models",
+      "module": "zeroth.integrations.memory.models",
       "name": "ConnectorManifest",
       "signature": "(*, connector_type: str, scope: zeroth.contracts.governed.models.memory.MemoryScope, instance_id: str | None = None, config: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.memory.models"
+        "schema_model:zeroth.integrations.memory.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.models:ResolvedMemoryBinding"
       ],
-      "module": "zeroth.core.memory.models",
+      "module": "zeroth.integrations.memory.models",
       "name": "ResolvedMemoryBinding",
-      "signature": "(*, memory_ref: str, manifest: zeroth.core.memory.models.ConnectorManifest, connector: Any) -> None"
+      "signature": "(*, memory_ref: str, manifest: zeroth.integrations.memory.models.ConnectorManifest, connector: Any) -> None"
     },
     {
       "evidence": [
-        "optional_integration:zeroth.core.memory.pgvector_connector"
+        "optional_integration:zeroth.integrations.memory.pgvector_connector"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.pgvector_connector:PgvectorMemoryConnector"
       ],
-      "module": "zeroth.core.memory.pgvector_connector",
+      "module": "zeroth.integrations.memory.pgvector_connector",
       "name": "PgvectorMemoryConnector",
       "signature": "(conn_factory: 'Callable[[], Awaitable[psycopg.AsyncConnection]] | str', *, table_name: 'str' = 'zeroth_memory_vectors', embedding_model: 'str | None' = None, embedding_dimensions: 'int | None' = None) -> 'None'"
     },
     {
       "evidence": [
-        "optional_integration:zeroth.core.memory.redis_kv"
+        "optional_integration:zeroth.integrations.memory.redis_kv"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.redis_kv:RedisKVMemoryConnector"
       ],
-      "module": "zeroth.core.memory.redis_kv",
+      "module": "zeroth.integrations.memory.redis_kv",
       "name": "RedisKVMemoryConnector",
       "signature": "(redis_client: 'aioredis.Redis', *, key_prefix: 'str' = 'zeroth:mem:kv') -> 'None'"
     },
     {
       "evidence": [
         "examples:examples/40_real_redis_memory.py",
-        "optional_integration:zeroth.core.memory.redis_thread"
+        "optional_integration:zeroth.integrations.memory.redis_thread"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.redis_thread:RedisThreadMemoryConnector"
       ],
-      "module": "zeroth.core.memory.redis_thread",
+      "module": "zeroth.integrations.memory.redis_thread",
       "name": "RedisThreadMemoryConnector",
       "signature": "(redis_client: 'aioredis.Redis', *, key_prefix: 'str' = 'zeroth:mem:thread') -> 'None'"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.memory.tenant_scoped"
+        "package_export:zeroth.integrations.memory.tenant_scoped"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.memory.tenant_scoped:TenantScopeError"
       ],
-      "module": "zeroth.core.memory.tenant_scoped",
+      "module": "zeroth.integrations.memory.tenant_scoped",
       "name": "TenantScopeError",
       "signature": "<not-inspectable>"
     },
