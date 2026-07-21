@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from fastapi import FastAPI
 
 from zeroth.contracts.graph import GraphRepository
-from zeroth.contracts.graph.serialization import deserialize_graph
+from zeroth.contracts.graph.serialization import hydrate_deployed_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.orchestrator import RuntimeOrchestrator
@@ -77,7 +77,7 @@ async def bootstrap_service(
         raise DeploymentBootstrapError(f"deployment {deployment_ref!r} not found")
 
     try:
-        graph = deserialize_graph(deployment.serialized_graph)
+        graph = hydrate_deployed_graph(deployment)
     except Exception as exc:  # pragma: no cover - defensive wrapper
         raise DeploymentBootstrapError(
             f"failed to deserialize deployment {deployment_ref!r}"
@@ -567,7 +567,7 @@ async def build_runners_for_deployment(
     deployment = await SQLiteDeploymentRepository(database).get(deployment_ref)
     if deployment is None:
         return None
-    graph = deserialize_graph(deployment.serialized_graph)
+    graph = hydrate_deployed_graph(deployment)
     registry = ContractRegistry(database)
     return await build_agent_runners(
         graph,

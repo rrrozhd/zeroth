@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from zeroth.contracts.graph.models import Graph
-from zeroth.contracts.graph.serialization import deserialize_graph
+from zeroth.contracts.graph.serialization import hydrate_deployed_graph
 from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
 
 
@@ -20,6 +20,7 @@ class ResolvedDeployment(Protocol):
     """The deployment fields subgraph resolution reads."""
 
     serialized_graph: str
+    engine_mode: object
 
 
 class DeploymentLookup(Protocol):
@@ -94,7 +95,7 @@ class SubgraphResolver:
             raise SubgraphResolutionError(msg)
 
         try:
-            graph = deserialize_graph(deployment.serialized_graph)
+            graph = hydrate_deployed_graph(deployment)
         except Exception as exc:
             msg = f"subgraph reference '{graph_ref}' deserialization failed: {exc}"
             raise SubgraphResolutionError(msg) from exc

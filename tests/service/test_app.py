@@ -96,10 +96,13 @@ async def test_bootstrap_service_rejects_mismatched_graph_snapshot(sqlite_db, mo
     original_graph = deployment.graph_id
     broken_graph = build_graph().model_copy(update={"graph_id": "graph-2", "version": 2})
 
-    def fake_deserialize_graph(_serialized_graph: str):
+    def fake_hydrate_deployed_graph(_deployment):
         return broken_graph
 
-    monkeypatch.setattr("zeroth.service.bootstrap.factory.deserialize_graph", fake_deserialize_graph)
+    monkeypatch.setattr(
+        "zeroth.service.bootstrap.factory.hydrate_deployed_graph",
+        fake_hydrate_deployed_graph,
+    )
 
     with pytest.raises(DeploymentBootstrapError, match=original_graph):
         await bootstrap_service(sqlite_db, deployment_ref=deployment.deployment_ref)
