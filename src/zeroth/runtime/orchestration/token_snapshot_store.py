@@ -34,6 +34,14 @@ class TokenSnapshotCorruptionError(RuntimeError):
     """Persisted row metadata contradicts its serialized snapshot."""
 
 
+class TokenSnapshotWriteDisabledError(RuntimeError):
+    """A durable erasure fence forbids recreating token state for a run."""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        super().__init__(f"token snapshot writes are disabled for erased run {run_id!r}")
+
+
 @runtime_checkable
 class TokenSnapshotStore(Protocol):
     """Persistence operations the token scheduler drives."""
@@ -54,4 +62,5 @@ __all__ = [
     "TokenSnapshotCorruptionError",
     "TokenSnapshotStore",
     "TokenSnapshotTransitionError",
+    "TokenSnapshotWriteDisabledError",
 ]

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from zeroth.contracts.graph.tokens import (
     CancellationFence,
     ForkInstance,
+    ForkObligationOutcome,
     InFlightDispatch,
     IterationMemberState,
     JoinInstance,
@@ -166,6 +167,11 @@ class TokenEngineSnapshot(BaseModel):
                 source = tokens.get(obligation.source_token_id)
                 if source is None:
                     raise ValueError("join obligation references a missing source token")
+                if (
+                    obligation.outcome is not None
+                    and source.scheduling_state is not SchedulingState.SETTLED
+                ):
+                    raise ValueError("a settled obligation source token must be durably SETTLED")
                 if obligation.outcome is None:
                     waiting_locations[source.token_id] = (
                         waiting_locations.get(source.token_id, 0) + 1
@@ -181,6 +187,17 @@ class TokenEngineSnapshot(BaseModel):
                     raise ValueError(
                         "join obligation must match exactly one fork cohort obligation"
                     )
+            joined_fork_keys = {
+                (item.child_token_id, item.child_ordinal)
+                for item in fork.obligations
+                if item.outcome is ForkObligationOutcome.JOINED
+                and item.join_instance_id == join.join_instance_id
+            }
+            join_keys = {(item.source_token_id, item.child_ordinal) for item in join.obligations}
+            if joined_fork_keys != join_keys:
+                raise ValueError(
+                    "JOINED fork obligations and join obligations must form a bijection"
+                )
 
         queued_locations = {token_id: queued_ids.count(token_id) for token_id in queued_ids}
         for token in self.tokens:
@@ -259,6 +276,13 @@ class TokenEngineSnapshot(BaseModel):
                 raise ValueError("fork references a missing parent fork")
             if any(child.token_id not in tokens for child in fork.children):
                 raise ValueError("fork references a missing child token")
+            if any(
+                obligation.outcome is not None
+                and tokens[obligation.child_token_id].scheduling_state
+                is not SchedulingState.SETTLED
+                for obligation in fork.obligations
+            ):
+                raise ValueError("a settled obligation source token must be durably SETTLED")
             for child in fork.children:
                 token = tokens[child.token_id]
                 if token.parent_token_id != fork.parent_token_id:

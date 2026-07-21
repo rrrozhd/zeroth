@@ -337,6 +337,72 @@ def test_snapshot_rejects_duplicate_obligation_id_across_structured_scopes() -> 
         TokenEngineSnapshot.model_validate(data)
 
 
+def test_snapshot_rejects_live_source_for_settled_join_and_fork_obligations() -> None:
+    data = _closed_join_snapshot_data()
+    parent, source, continuation = data["tokens"]  # type: ignore[misc]
+    live_source = source.model_copy(
+        update={
+            "lifecycle_state": TokenLifecycleState.ACTIVE,
+            "scheduling_state": SchedulingState.QUEUED,
+            "settled_revision": None,
+        }
+    )
+    data["tokens"] = (parent, live_source, continuation)
+    data["queue"] = (live_source, continuation)
+
+    with pytest.raises(ValidationError, match="settled obligation source"):
+        TokenEngineSnapshot.model_validate(data)
+
+
+def test_snapshot_rejects_joined_fork_obligation_without_reverse_join_mapping() -> None:
+    data = _closed_join_snapshot_data()
+    parent, source, continuation = data["tokens"]  # type: ignore[misc]
+    second = source.model_copy(
+        update={
+            "token_id": "token-source-2",
+            "fork_lineage": (
+                ForkLineageFrame(
+                    fork_id="fork-1",
+                    child_ordinal=1,
+                    join_instance_id="join-1",
+                ),
+            ),
+        }
+    )
+    fork = data["forks"][0]  # type: ignore[index]
+    expanded = ForkInstance(
+        fork_id=fork.fork_id,
+        parent_token_id=fork.parent_token_id,
+        children=(
+            *fork.children,
+            ForkChild(token_id=second.token_id, creation_ordinal=1),
+        ),
+        obligations=(
+            *fork.obligations,
+            ForkObligation(
+                obligation_id="fork-obligation-2",
+                fork_id=fork.fork_id,
+                child_token_id=second.token_id,
+                child_ordinal=1,
+                outcome=ForkObligationOutcome.JOINED,
+                join_instance_id="join-1",
+                settled_revision=0,
+            ),
+        ),
+        outstanding_child_count=0,
+        lifecycle_state=ForkLifecycleState.CLOSED,
+        created_revision=0,
+        updated_revision=0,
+        closed_revision=0,
+    )
+    data["tokens"] = (parent, source, second, continuation)
+    data["forks"] = (expanded,)
+    data["next_token_ordinal"] = 4
+
+    with pytest.raises(ValidationError, match="bijection"):
+        TokenEngineSnapshot.model_validate(data)
+
+
 def test_snapshot_rejects_continuation_parent_cycle() -> None:
     first = _token("token-a", SchedulingState.SETTLED).model_copy(
         update={"continuation_parent_token_ids": ("token-b",)}

@@ -10,6 +10,8 @@ import pytest
 
 from zeroth.contracts.graph import (
     CancellationFence,
+    DispatchLifecycleState,
+    InFlightDispatch,
     SchedulingState,
     TokenEngineSnapshot,
     TokenEngineSnapshotState,
@@ -17,11 +19,13 @@ from zeroth.contracts.graph import (
     TokenLifecycleState,
 )
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
 from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotCorruptionError,
     TokenSnapshotStore,
     TokenSnapshotTransitionError,
+    TokenSnapshotWriteDisabledError,
 )
 from zeroth.runtime.runs import Run
 from tests.conftest import requires_docker
@@ -174,6 +178,22 @@ async def test_cas_fails_loudly_when_row_metadata_contradicts_snapshot(sqlite_db
         )
 
 
+@pytest.mark.parametrize("field", ["revision", "schema_version", "next_token_ordinal"])
+async def test_malformed_numeric_row_metadata_is_typed_corruption(sqlite_db, field: str) -> None:
+    snapshot = _snapshot(0)
+    row: dict[str, object] = {
+        "run_id": snapshot.run_id,
+        "revision": snapshot.revision,
+        "schema_version": snapshot.schema_version,
+        "next_token_ordinal": snapshot.next_token_ordinal,
+        "snapshot_json": snapshot.model_dump_json(),
+    }
+    row[field] = "not-an-integer"
+
+    with pytest.raises(TokenSnapshotCorruptionError, match=field):
+        TokenSnapshotRowStore(sqlite_db)._decode_row(row)
+
+
 @pytest.mark.parametrize("next_revision", [0, 2])
 async def test_cas_rejects_revision_reuse_or_skip(sqlite_db, next_revision: int) -> None:
     repository = RunRepository(sqlite_db)
@@ -201,6 +221,238 @@ async def test_cas_rejects_backward_next_token_ordinal(sqlite_db) -> None:
         await repository.compare_and_swap_token_snapshot(
             "run-1", expected_revision=0, snapshot=_snapshot(1, ordinal=3)
         )
+
+
+def _snapshot_with_fence(
+    revision: int,
+    *,
+    fence_generation: int,
+    token_generation: int | None = None,
+    acknowledgements: tuple[str, ...] = (),
+    requested_revision: int | None = None,
+) -> TokenEngineSnapshot:
+    snapshot = _snapshot(revision)
+    token = snapshot.tokens[0].model_copy(
+        update={
+            "cancellation_generation": (
+                fence_generation if token_generation is None else token_generation
+            )
+        }
+    )
+    return snapshot.model_copy(
+        update={
+            "queue": (token,),
+            "tokens": (token,),
+            "cancellation_fence": CancellationFence(
+                generation=fence_generation,
+                requested_revision=(
+                    None
+                    if not fence_generation
+                    else revision
+                    if requested_revision is None
+                    else requested_revision
+                ),
+                acknowledged_token_ids=acknowledgements,
+                state_revision=revision,
+            ),
+        }
+    )
+
+
+async def test_cas_rejects_cancellation_generation_rollback(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    await repository.compare_and_swap_token_snapshot(
+        "run-1",
+        expected_revision=None,
+        snapshot=_snapshot_with_fence(0, fence_generation=1),
+    )
+
+    with pytest.raises(TokenSnapshotTransitionError, match="generation cannot decrease"):
+        await repository.compare_and_swap_token_snapshot(
+            "run-1",
+            expected_revision=0,
+            snapshot=_snapshot_with_fence(1, fence_generation=0),
+        )
+
+
+async def test_cas_rejects_cancellation_acknowledgement_regression(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    await repository.compare_and_swap_token_snapshot(
+        "run-1",
+        expected_revision=None,
+        snapshot=_snapshot_with_fence(
+            0,
+            fence_generation=1,
+            acknowledgements=("retired-token",),
+        ),
+    )
+
+    with pytest.raises(TokenSnapshotTransitionError, match="acknowledgements cannot regress"):
+        await repository.compare_and_swap_token_snapshot(
+            "run-1",
+            expected_revision=0,
+            snapshot=_snapshot_with_fence(
+                1,
+                fence_generation=1,
+                requested_revision=0,
+            ),
+        )
+
+
+async def test_cas_rejects_request_revision_change_within_generation(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    await repository.compare_and_swap_token_snapshot(
+        "run-1",
+        expected_revision=None,
+        snapshot=_snapshot_with_fence(0, fence_generation=1),
+    )
+
+    with pytest.raises(TokenSnapshotTransitionError, match="request metadata"):
+        await repository.compare_and_swap_token_snapshot(
+            "run-1",
+            expected_revision=0,
+            snapshot=_snapshot_with_fence(1, fence_generation=1),
+        )
+
+
+async def test_cas_rejects_terminal_snapshot_resurrection(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    terminal = TokenEngineSnapshot(
+        run_id="run-1",
+        revision=0,
+        state=TokenEngineSnapshotState.COMPLETED,
+        next_token_ordinal=1,
+    )
+    await repository.compare_and_swap_token_snapshot(
+        "run-1", expected_revision=None, snapshot=terminal
+    )
+
+    with pytest.raises(TokenSnapshotTransitionError, match="terminal snapshot state is absorbing"):
+        await repository.compare_and_swap_token_snapshot(
+            "run-1", expected_revision=0, snapshot=_snapshot(1)
+        )
+
+
+async def test_cas_rejects_live_token_from_stale_cancellation_generation(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+
+    with pytest.raises(TokenSnapshotTransitionError, match="current cancellation fence"):
+        await repository.compare_and_swap_token_snapshot(
+            "run-1",
+            expected_revision=None,
+            snapshot=_snapshot_with_fence(
+                0,
+                fence_generation=2,
+                token_generation=1,
+            ),
+        )
+
+
+async def test_cas_allows_executing_dispatch_with_newer_cancellation_request(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    token = TokenEnvelope(
+        token_id="token-1",
+        current_node_id="node-a",
+        payload={},
+        lifecycle_state=TokenLifecycleState.ACTIVE,
+        scheduling_state=SchedulingState.EXECUTING,
+        cancellation_generation=1,
+        state_revision=0,
+    )
+    executing_dispatch = InFlightDispatch(
+        dispatch_id="dispatch-1",
+        idempotency_key="run-1:token-1:start",
+        token=token,
+        attempt=0,
+        cancellation_generation=1,
+        lifecycle_state=DispatchLifecycleState.EXECUTING,
+        started_revision=0,
+        updated_revision=0,
+    )
+    initial = TokenEngineSnapshot(
+        run_id="run-1",
+        revision=0,
+        state=TokenEngineSnapshotState.RUNNING,
+        next_token_ordinal=1,
+        tokens=(token,),
+        cancellation_fence=CancellationFence(
+            generation=1,
+            requested_revision=0,
+            state_revision=0,
+        ),
+        in_flight_dispatches=(executing_dispatch,),
+    )
+    await repository.compare_and_swap_token_snapshot(
+        "run-1", expected_revision=None, snapshot=initial
+    )
+    requested_dispatch = executing_dispatch.model_copy(
+        update={
+            "lifecycle_state": DispatchLifecycleState.CANCELLATION_REQUESTED,
+            "cancellation_requested_generation": 2,
+            "cancellation_requested_revision": 1,
+            "updated_revision": 1,
+        }
+    )
+    snapshot = TokenEngineSnapshot(
+        run_id="run-1",
+        revision=1,
+        state=TokenEngineSnapshotState.RUNNING,
+        next_token_ordinal=1,
+        tokens=(token,),
+        cancellation_fence=CancellationFence(
+            generation=2,
+            requested_revision=1,
+            state_revision=1,
+        ),
+        in_flight_dispatches=(requested_dispatch,),
+    )
+
+    assert (
+        await repository.compare_and_swap_token_snapshot(
+            "run-1",
+            expected_revision=0,
+            snapshot=snapshot,
+        )
+        == snapshot
+    )
+
+
+async def test_token_snapshot_write_is_rejected_after_durable_erasure_fence(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    async with sqlite_db.transaction(write_lock=True) as connection:
+        await repository.fence_and_erase_token_snapshot_for_run_in_transaction(
+            connection,
+            "run-1",
+        )
+
+    with pytest.raises(TokenSnapshotWriteDisabledError):
+        await repository.compare_and_swap_token_snapshot(
+            "run-1", expected_revision=None, snapshot=_snapshot(0)
+        )
+    assert await repository.get_token_snapshot("run-1") is None
+
+
+async def test_deleting_and_recreating_run_resets_token_snapshot_erasure_fence(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    async with sqlite_db.transaction(write_lock=True) as connection:
+        await repository.fence_and_erase_token_snapshot_for_run_in_transaction(
+            connection,
+            "run-1",
+        )
+    await repository.delete("run-1")
+    await repository.create(_run())
+
+    assert await repository.compare_and_swap_token_snapshot(
+        "run-1", expected_revision=None, snapshot=_snapshot(0)
+    ) == _snapshot(0)
 
 
 async def test_snapshot_survives_repository_reopen(tmp_path) -> None:

@@ -55,6 +55,30 @@ async def erase_token_snapshot_for_run(connection: AsyncConnection, run_id: str)
     return int(row is not None)
 
 
+async def fence_token_snapshot_writes(connection: AsyncConnection, run_id: str) -> bool:
+    """Lock a run and durably prevent token state from being recreated."""
+    existing = await connection.fetch_one(
+        "SELECT run_id FROM runs WHERE run_id = ?",
+        (run_id,),
+    )
+    if existing is None:
+        return False
+    await connection.execute(
+        "UPDATE runs SET token_snapshot_write_disabled = 1 WHERE run_id = ?",
+        (run_id,),
+    )
+    return True
+
+
+async def fence_and_erase_token_snapshot_for_run(
+    connection: AsyncConnection,
+    run_id: str,
+) -> int:
+    """Fence future writes and delete current token state in one transaction."""
+    await fence_token_snapshot_writes(connection, run_id)
+    return await erase_token_snapshot_for_run(connection, run_id)
+
+
 async def redact_run(connection: AsyncConnection, run_id: str) -> bool:
     """Null a run's PII-bearing output columns while keeping the row.
 

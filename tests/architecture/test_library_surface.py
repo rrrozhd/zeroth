@@ -101,6 +101,7 @@ def test_lazy_orchestration_surface_retains_static_type_bindings() -> None:
         "TokenSnapshotConcurrencyError",
         "TokenSnapshotCorruptionError",
         "TokenSnapshotTransitionError",
+        "TokenSnapshotWriteDisabledError",
     } <= imported
 
 

@@ -755,6 +755,25 @@ class RunRepository:
         """Delete token-engine state through an existing erasure transaction."""
         return await retention_queries.erase_token_snapshot_for_run(connection, run_id)
 
+    async def fence_token_snapshot_writes_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> bool:
+        """Lock the run row and fence token writes during erasure."""
+        return await retention_queries.fence_token_snapshot_writes(connection, run_id)
+
+    async def fence_and_erase_token_snapshot_for_run_in_transaction(
+        self,
+        connection: AsyncConnection,
+        run_id: str,
+    ) -> int:
+        """Fence future writes and delete token state through one transaction."""
+        return await retention_queries.fence_and_erase_token_snapshot_for_run(
+            connection,
+            run_id,
+        )
+
     async def redact_run(self, run_id: str) -> bool:
         """WS-E: null a run's PII-bearing output columns, keeping the row.
 

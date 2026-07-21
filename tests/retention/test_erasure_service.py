@@ -2,15 +2,126 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 
 import pytest
 
-from tests.retention.conftest import make_audit_record, seed_token_snapshot
+from tests.conftest import requires_docker
+from tests.retention.conftest import _build_env, make_audit_record, seed_token_snapshot
 from zeroth.governance.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.governance.retention.erasure_service import LegalHoldError
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
 from zeroth.platform.storage.json import to_json_value
+from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotWriteDisabledError
+
+
+async def _assert_erasure_wins_snapshot_race(retention_env, monkeypatch) -> None:
+    run_id = "run-erasure-wins"
+    artifact_key = f"{run_id}/token/blob"
+    await retention_env.seed_run(run_id, n_audits=0)
+    await seed_token_snapshot(
+        retention_env,
+        run_id,
+        artifact_key=artifact_key,
+        ssn="111-22-3333",
+    )
+    current = await retention_env.run_repo.get_token_snapshot(run_id)
+    assert current is not None
+    proposed = current.model_copy(update={"revision": 1})
+
+    fenced = asyncio.Event()
+    release_erasure = asyncio.Event()
+    original = RunRepository.fence_token_snapshot_writes_in_transaction
+
+    async def pause_after_fence(self, connection, fenced_run_id):
+        result = await original(self, connection, fenced_run_id)
+        if self is retention_env.run_repo and fenced_run_id == run_id:
+            fenced.set()
+            await release_erasure.wait()
+        return result
+
+    monkeypatch.setattr(
+        RunRepository,
+        "fence_token_snapshot_writes_in_transaction",
+        pause_after_fence,
+    )
+    erasure = asyncio.create_task(retention_env.service.erase_run(run_id, "rte"))
+    await asyncio.wait_for(fenced.wait(), timeout=5)
+    writer = asyncio.create_task(
+        retention_env.run_repo.compare_and_swap_token_snapshot(
+            run_id,
+            expected_revision=0,
+            snapshot=proposed,
+        )
+    )
+    await asyncio.sleep(0.05)
+    assert not writer.done()
+    release_erasure.set()
+    await erasure
+    result = await asyncio.gather(writer, return_exceptions=True)
+
+    assert isinstance(result[0], TokenSnapshotWriteDisabledError)
+    assert await retention_env.run_repo.get_token_snapshot(run_id) is None
+    assert artifact_key not in retention_env.artifact_store.blobs
+
+
+async def _assert_snapshot_writer_wins_race(retention_env, monkeypatch) -> None:
+    run_id = "run-writer-wins"
+    artifact_key = f"{run_id}/token/blob"
+    await retention_env.seed_run(run_id, n_audits=0)
+
+    committed = asyncio.Event()
+    release_writer = asyncio.Event()
+    original = TokenSnapshotRowStore.compare_and_swap
+
+    async def pause_after_commit(self, *args, **kwargs):
+        result = await original(self, *args, **kwargs)
+        if args and args[0] == run_id:
+            committed.set()
+            await release_writer.wait()
+        return result
+
+    monkeypatch.setattr(TokenSnapshotRowStore, "compare_and_swap", pause_after_commit)
+    writer = asyncio.create_task(
+        seed_token_snapshot(
+            retention_env,
+            run_id,
+            artifact_key=artifact_key,
+            ssn="444-55-6666",
+        )
+    )
+    await asyncio.wait_for(committed.wait(), timeout=5)
+    erasure = asyncio.create_task(retention_env.service.erase_run(run_id, "rte"))
+    await erasure
+    assert not writer.done()
+    release_writer.set()
+    await writer
+
+    assert await retention_env.run_repo.get_token_snapshot(run_id) is None
+    assert artifact_key not in retention_env.artifact_store.blobs
+
+
+async def test_erasure_and_snapshot_cas_are_serialized_both_orders_on_sqlite(
+    env,
+    monkeypatch,
+) -> None:
+    await _assert_erasure_wins_snapshot_race(env, monkeypatch)
+    monkeypatch.undo()
+    await _assert_snapshot_writer_wins_race(env, monkeypatch)
+
+
+@requires_docker
+async def test_erasure_and_snapshot_cas_are_serialized_both_orders_on_postgres(
+    postgres_database,
+    monkeypatch,
+) -> None:
+    retention_env = _build_env(postgres_database)
+    await _assert_erasure_wins_snapshot_race(retention_env, monkeypatch)
+    monkeypatch.undo()
+    await _assert_snapshot_writer_wins_race(retention_env, monkeypatch)
 
 
 async def _pii_present(database, ssn: str) -> dict[str, bool]:

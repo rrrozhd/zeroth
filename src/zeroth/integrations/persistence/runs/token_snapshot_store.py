@@ -5,14 +5,22 @@ from __future__ import annotations
 from contextlib import suppress
 from dataclasses import dataclass
 
-from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
+from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
+from zeroth.contracts.graph.tokens import DispatchLifecycleState, SchedulingState
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotCorruptionError,
     TokenSnapshotTransitionError,
+    TokenSnapshotWriteDisabledError,
 )
+
+_TERMINAL_STATES = {
+    TokenEngineSnapshotState.COMPLETED,
+    TokenEngineSnapshotState.CANCELLED,
+    TokenEngineSnapshotState.FAILED,
+}
 
 
 @dataclass(slots=True)
@@ -40,18 +48,89 @@ class TokenSnapshotRowStore:
             raise TokenSnapshotCorruptionError(
                 "persisted token snapshot payload cannot be decoded"
             ) from exc
-        expected = {
-            "run_id": str(row["run_id"]),
-            "revision": int(row["revision"]),
-            "schema_version": int(row["schema_version"]),
-            "next_token_ordinal": int(row["next_token_ordinal"]),
+        expected: dict[str, object] = {}
+        converters = {
+            "run_id": str,
+            "revision": int,
+            "schema_version": int,
+            "next_token_ordinal": int,
         }
+        for field, converter in converters.items():
+            try:
+                expected[field] = converter(row[field])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise TokenSnapshotCorruptionError(
+                    f"persisted {field} metadata is malformed"
+                ) from exc
         for field, value in expected.items():
             if getattr(snapshot, field) != value:
                 raise TokenSnapshotCorruptionError(
                     f"persisted {field} metadata contradicts serialized token snapshot"
                 )
         return snapshot
+
+    @staticmethod
+    def _integer_metadata(row: dict[str, object], field: str) -> int:
+        try:
+            return int(row[field])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise TokenSnapshotCorruptionError(f"persisted {field} metadata is malformed") from exc
+
+    @staticmethod
+    def _validate_fence_coherence(snapshot: TokenEngineSnapshot) -> None:
+        generation = (
+            0 if snapshot.cancellation_fence is None else snapshot.cancellation_fence.generation
+        )
+        dispatches = {item.token.token_id: item for item in snapshot.in_flight_dispatches}
+        for token in snapshot.tokens:
+            if token.scheduling_state is SchedulingState.SETTLED:
+                continue
+            if token.cancellation_generation == generation:
+                continue
+            dispatch = dispatches.get(token.token_id)
+            older_cancellation_request = (
+                dispatch is not None
+                and dispatch.lifecycle_state is DispatchLifecycleState.CANCELLATION_REQUESTED
+                and dispatch.cancellation_generation == token.cancellation_generation
+                and token.cancellation_generation < generation
+                and dispatch.cancellation_requested_generation == generation
+                and snapshot.cancellation_fence is not None
+                and dispatch.cancellation_requested_revision
+                == snapshot.cancellation_fence.requested_revision
+            )
+            if not older_cancellation_request:
+                raise TokenSnapshotTransitionError(
+                    "every live token must match the current cancellation fence"
+                )
+
+    @classmethod
+    def _validate_transition(
+        cls,
+        current: TokenEngineSnapshot | None,
+        proposed: TokenEngineSnapshot,
+    ) -> None:
+        cls._validate_fence_coherence(proposed)
+        if current is None:
+            return
+        current_fence = current.cancellation_fence
+        proposed_fence = proposed.cancellation_fence
+        current_generation = 0 if current_fence is None else current_fence.generation
+        proposed_generation = 0 if proposed_fence is None else proposed_fence.generation
+        if proposed_generation < current_generation:
+            raise TokenSnapshotTransitionError("cancellation generation cannot decrease")
+        if proposed_generation == current_generation and current_fence is not None:
+            if proposed_fence is None or (
+                proposed_fence.requested_revision != current_fence.requested_revision
+            ):
+                raise TokenSnapshotTransitionError(
+                    "cancellation request metadata cannot change within a generation"
+                )
+            if not set(current_fence.acknowledged_token_ids).issubset(
+                proposed_fence.acknowledged_token_ids
+            ):
+                raise TokenSnapshotTransitionError("cancellation acknowledgements cannot regress")
+        if current.state in _TERMINAL_STATES and proposed.state is not current.state:
+            raise TokenSnapshotTransitionError("terminal snapshot state is absorbing")
 
     async def get(self, run_id: str) -> TokenEngineSnapshot | None:
         async with self.database.transaction() as connection:
@@ -82,12 +161,21 @@ class TokenSnapshotRowStore:
         encoded = self._encode(snapshot)
         updated_at = utc_now().isoformat()
         async with self.database.transaction(write_lock=True) as connection:
+            lock_suffix = " FOR UPDATE" if self.database.backend == "postgres" else ""
             run = await connection.fetch_one(
-                "SELECT run_id FROM runs WHERE run_id = ?",
+                "SELECT run_id, token_snapshot_write_disabled FROM runs WHERE run_id = ?"
+                + lock_suffix,
                 (run_id,),
             )
             if run is None:
                 raise KeyError(run_id)
+            write_disabled = self._integer_metadata(run, "token_snapshot_write_disabled")
+            if write_disabled not in {0, 1}:
+                raise TokenSnapshotCorruptionError(
+                    "persisted token_snapshot_write_disabled metadata is malformed"
+                )
+            if write_disabled:
+                raise TokenSnapshotWriteDisabledError(run_id)
 
             current_row = await connection.fetch_one(
                 "SELECT run_id, revision, schema_version, next_token_ordinal, snapshot_json "
@@ -95,6 +183,7 @@ class TokenSnapshotRowStore:
                 (run_id,),
             )
             current = None if current_row is None else self._decode_row(current_row)
+            self._validate_transition(current, snapshot)
             actual_revision = None if current is None else current.revision
             if actual_revision != expected_revision:
                 raise TokenSnapshotConcurrencyError(
@@ -153,7 +242,9 @@ class TokenSnapshotRowStore:
                 raise TokenSnapshotConcurrencyError(
                     run_id,
                     expected_revision=expected_revision,
-                    actual_revision=None if winner is None else int(winner["revision"]),
+                    actual_revision=(
+                        None if winner is None else self._integer_metadata(winner, "revision")
+                    ),
                 )
         return snapshot
 

@@ -41,6 +41,9 @@ if TYPE_CHECKING:
     from zeroth.runtime.orchestration.token_snapshot_store import (
         TokenSnapshotTransitionError as TokenSnapshotTransitionError,
     )
+    from zeroth.runtime.orchestration.token_snapshot_store import (
+        TokenSnapshotWriteDisabledError as TokenSnapshotWriteDisabledError,
+    )
     from zeroth.runtime.orchestration.tool_executor import (
         RuntimeToolExecutor as RuntimeToolExecutor,
     )
@@ -68,6 +71,10 @@ _EXPORTS = {
     "TokenSnapshotTransitionError": (
         "token_snapshot_store",
         "TokenSnapshotTransitionError",
+    ),
+    "TokenSnapshotWriteDisabledError": (
+        "token_snapshot_store",
+        "TokenSnapshotWriteDisabledError",
     ),
 }
 

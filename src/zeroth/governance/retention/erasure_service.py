@@ -216,6 +216,13 @@ class RetentionErasureService:
                     raise ValueError(
                         f"run {run_id!r} does not belong to tenant {resolved_tenant!r}"
                     )
+                # Acquire the run-row write fence before harvesting its token
+                # payload. CAS takes the same row lock, so no new snapshot can
+                # appear between artifact discovery and database deletion.
+                await self._runs.fence_token_snapshot_writes_in_transaction(
+                    transaction.connection,
+                    run_id,
+                )
                 records = await self._audits.list_by_run_in_transaction(
                     transaction.connection,
                     run_id,
