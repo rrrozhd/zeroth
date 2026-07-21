@@ -241,7 +241,7 @@ def _repository_probe() -> dict[str, object]:
 
 
 def _join_probe(
-    case: _ProbeInput, edge_ids: tuple[str, ...]
+    case: _ProbeInput, edge_ids: tuple[str, ...], mutation: str | None
 ) -> tuple[dict[str, object], _SnapshotRepository] | None:
     if len(edge_ids) < 2:
         return None
@@ -282,6 +282,8 @@ def _join_probe(
         child.token_id: edge_ids[child.creation_ordinal] for child in fork.children
     }
     failure_mode = "best_effort" if case.state.retry == "fail-first" else "fail_fast"
+    if mutation == "failure_policy_globalized":
+        failure_mode = "fail_fast" if failure_mode == "best_effort" else "best_effort"
     for index, edge_id in enumerate(edge_ids):
         child_box = []
 
@@ -342,6 +344,16 @@ def _join_probe(
                 failure_mode=ready.failure_mode,
             )
         )
+        if mutation == "join_closes_twice":
+            repository.apply(
+                lambda snapshot: close_ready_join(
+                    snapshot,
+                    ready.join_instance_id,
+                    JoinConfig(),
+                    reducer=reducer,
+                    failure_mode=ready.failure_mode,
+                )
+            )
         join = closed.joins[0]
     else:
         join = ready
@@ -358,7 +370,10 @@ def _join_probe(
 
 
 def _loop_probe(
-    case: _ProbeInput, back_edge_id: str | None, exit_edge_id: str | None
+    case: _ProbeInput,
+    back_edge_id: str | None,
+    exit_edge_id: str | None,
+    mutation: str | None,
 ) -> tuple[dict[str, object], _SnapshotRepository] | None:
     if back_edge_id is None or exit_edge_id is None:
         return None
@@ -407,13 +422,16 @@ def _loop_probe(
             payload=case.state.payload,
         )
     )
-    completed = repository.apply(
-        lambda snapshot: close_ready_loop(
-            snapshot,
-            final_ready.loops[0].loop_instance_id,
-            continuation_config=JoinConfig(),
+    if mutation == "loop_owner_leaks":
+        completed = final_ready
+    else:
+        completed = repository.apply(
+            lambda snapshot: close_ready_loop(
+                snapshot,
+                final_ready.loops[0].loop_instance_id,
+                continuation_config=JoinConfig(),
+            )
         )
-    )
     loop = completed.loops[0]
     return (
         {
@@ -430,7 +448,9 @@ def _loop_probe(
     )
 
 
-def _lifecycle_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotRepository]:
+def _lifecycle_probe(
+    case: _ProbeInput, mutation: str | None
+) -> tuple[dict[str, object], _SnapshotRepository]:
     repository = _SnapshotRepository(
         initialize_token_snapshot(
             run_id=f"checker-life-{case.state.checkpoint}-{case.state.cancellation}",
@@ -454,7 +474,11 @@ def _lifecycle_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotRep
             lambda snapshot: acknowledge_cancellation(
                 snapshot,
                 dispatch_id=dispatch.dispatch_id,
-                cancellation_generation=requested.cancellation_fence.generation,
+                cancellation_generation=(
+                    0
+                    if mutation == "cancellation_generation_lost"
+                    else requested.cancellation_fence.generation
+                ),
             )
         )
     else:
@@ -493,11 +517,12 @@ def _production_probe(
     join_edge_ids: tuple[str, ...],
     back_edge_id: str | None,
     exit_edge_id: str | None,
+    mutation: str | None,
 ) -> dict[str, object]:
     probe = _ProbeInput(State(payload_json, reducer, retry, checkpoint, cancellation))
-    join_result = _join_probe(probe, join_edge_ids)
-    loop_result = _loop_probe(probe, back_edge_id, exit_edge_id)
-    lifecycle, _lifecycle_repository = _lifecycle_probe(probe)
+    join_result = _join_probe(probe, join_edge_ids, mutation)
+    loop_result = _loop_probe(probe, back_edge_id, exit_edge_id, mutation)
+    lifecycle, _lifecycle_repository = _lifecycle_probe(probe, mutation)
     if join_result is None:
         join = {
             "state": "not_applicable",
@@ -537,12 +562,7 @@ class ProductionAdapter:
             raise ValueError(f"invalid case: {classification.reason}")
         try:
             effective_schedule = None if self.mutation == "schedule_input_discarded" else schedule
-            trace = self._run(case, schedule=effective_schedule)
-            if self.mutation is None or self.mutation == "schedule_input_discarded":
-                return trace
-            from .mutations import apply_sut_mutation
-
-            return apply_sut_mutation(trace, self.mutation)
+            return self._run(case, schedule=effective_schedule)
         except Exception as error:
             if isinstance(error, UnsupportedValidCaseError):
                 raise
@@ -565,14 +585,22 @@ class ProductionAdapter:
         lifecycle: list[tuple[str, str]] = []
         terminals: list[tuple[str, object]] = []
         checkpoint_done = False
+        checkpoint_reloads = 0
         graph_cancelled = False
         schedule_rank = {
             token_id: index for index, token_id in enumerate(schedule or ())
         }
+        pending = (
+            tuple(logical_by_actual[token.token_id] for token in snapshot.queue)
+            if self.mutation == "retain_pending"
+            else ()
+        )
 
-        while snapshot.queue:
+        while snapshot.queue and not pending:
             if not checkpoint_done and case.state.checkpoint == "before-claim":
-                snapshot = _round_trip(snapshot)
+                if self.mutation != "checkpoint_reload_skipped":
+                    snapshot = _round_trip(snapshot)
+                    checkpoint_reloads += 1
                 checkpoint_done = True
                 if case.state.cancellation == "after-cut":
                     snapshot = _cancel_all(snapshot)
@@ -605,7 +633,9 @@ class ProductionAdapter:
                 "after-claim",
                 "before-dispatch",
             }:
-                snapshot = _round_trip(snapshot)
+                if self.mutation != "checkpoint_reload_skipped":
+                    snapshot = _round_trip(snapshot)
+                    checkpoint_reloads += 1
                 checkpoint_done = True
                 cancel_after_claim = case.state.cancellation == "after-cut"
             dispatches.append(
@@ -617,13 +647,16 @@ class ProductionAdapter:
                     _plain(dispatch.token.payload),
                 )
             )
+            if self.mutation == "duplicate_dispatch":
+                dispatches.append(dispatches[-1])
             if cancel_after_claim:
                 snapshot = _cancel_all(snapshot)
                 lifecycle.append((logical_id, "cancelled-after-claim"))
                 graph_cancelled = True
                 break
             if case.state.retry == "fail-first":
-                lifecycle.append((logical_id, "retry"))
+                if self.mutation != "retry_lifecycle_lost":
+                    lifecycle.append((logical_id, "retry"))
                 retried = retry_dispatch(
                     snapshot,
                     dispatch_id=dispatch.dispatch_id,
@@ -644,7 +677,11 @@ class ProductionAdapter:
             lifecycle.append((logical_id, "complete"))
             node = dispatch.token.current_node_id
             if node == case.topology.nodes[-1]:
-                terminals.append((logical_id, _plain(dispatch.token.payload)))
+                if self.mutation != "persisted_terminal_dropped":
+                    terminal_payload = _plain(dispatch.token.payload)
+                    if self.mutation == "terminal_output_corrupted":
+                        terminal_payload = {"corrupted_terminal": True}
+                    terminals.append((logical_id, terminal_payload))
                 snapshot = complete_dispatch(
                     snapshot,
                     dispatch_id=dispatch.dispatch_id,
@@ -652,7 +689,9 @@ class ProductionAdapter:
                     cancellation_generation=dispatch.cancellation_generation,
                 )
                 if not checkpoint_done and case.state.checkpoint == "after-resolve":
-                    snapshot = _round_trip(snapshot)
+                    if self.mutation != "checkpoint_reload_skipped":
+                        snapshot = _round_trip(snapshot)
+                        checkpoint_reloads += 1
                     checkpoint_done = True
                     if case.state.cancellation == "after-cut":
                         snapshot = _cancel_all(snapshot)
@@ -678,16 +717,20 @@ class ProductionAdapter:
                     "token": child_id,
                     "value": _plain(dispatch.token.payload),
                 }
-                resolutions.append(
-                    Resolution(
-                        edge.edge_id,
-                        logical_id,
-                        edge.source,
-                        edge.target,
-                        is_delivered,
-                        payload,
-                    )
+                if self.mutation == "corrupt_payload":
+                    payload = {"corrupted": True}
+                resolution = Resolution(
+                    edge.edge_id,
+                    logical_id,
+                    edge.source,
+                    edge.target,
+                    is_delivered,
+                    payload,
                 )
+                if self.mutation != "drop_resolution" or resolutions:
+                    resolutions.append(resolution)
+                if self.mutation == "duplicate_resolution" and len(resolutions) == 1:
+                    resolutions.append(resolution)
                 if is_delivered:
                     child_counts = dict(back_counts)
                     if is_back:
@@ -739,7 +782,9 @@ class ProductionAdapter:
                     logical_by_actual[child.token_id] = child_id
                     counts_by_actual[child.token_id] = child_counts
             if not checkpoint_done and case.state.checkpoint == "after-resolve":
-                snapshot = _round_trip(snapshot)
+                if self.mutation != "checkpoint_reload_skipped":
+                    snapshot = _round_trip(snapshot)
+                    checkpoint_reloads += 1
                 checkpoint_done = True
                 if case.state.cancellation == "after-cut":
                     snapshot = _cancel_all(snapshot)
@@ -757,6 +802,7 @@ class ProductionAdapter:
             join_edge_ids,
             back_edge_id,
             exit_edge_id,
+            self.mutation,
         )
         lifecycle.extend(
             (
@@ -774,6 +820,7 @@ class ProductionAdapter:
                     logical_by_actual[token.token_id] for token in snapshot.queue
                 ),
                 "dispatch_count": len(dispatches),
+                "checkpoint_reloads": checkpoint_reloads,
             },
         }
         return Trace(
@@ -781,6 +828,7 @@ class ProductionAdapter:
             tuple(resolutions),
             tuple(dispatches),
             _reduce(case.state.reducer, terminals),
+            pending=pending,
             lifecycle=tuple(lifecycle),
             persisted_state={
                 "terminal": terminals,

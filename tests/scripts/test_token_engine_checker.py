@@ -11,7 +11,7 @@ from scripts.token_engine_checker.generator import enumerate_cases, generate_top
 from scripts.token_engine_checker.models import (
     Case,
 )
-from scripts.token_engine_checker.mutations import evaluate_mutations
+from scripts.token_engine_checker.mutations import _seed_case, evaluate_mutations
 from scripts.token_engine_checker.reporting import write_report
 from scripts.token_engine_checker.runner import run_check
 from scripts.token_engine_checker.shrinker import shrink_case
@@ -54,6 +54,41 @@ def test_every_registered_mutation_is_caught() -> None:
     } <= {outcome.name for outcome in outcomes}
     assert all(outcome.caught for outcome in outcomes)
     assert len({outcome.name for outcome in outcomes}) == len(outcomes)
+
+
+def test_structured_mutation_seeds_exercise_the_defect_precondition() -> None:
+    base = _case_with_extra_edges()
+
+    join_case, _ = _seed_case(base, "join_closes_twice")
+    policy_case, _ = _seed_case(base, "failure_policy_globalized")
+    loop_case, _ = _seed_case(base, "loop_owner_leaks")
+    checkpoint_case, _ = _seed_case(base, "checkpoint_reload_skipped")
+
+    join = ProductionAdapter().run(join_case).persisted_state["production"]["join"]
+    policy = ProductionAdapter().run(policy_case).persisted_state["production"]["join"]
+    loop = ProductionAdapter().run(loop_case).persisted_state["production"]["loop"]
+
+    assert join["state"] == "closed"
+    assert len(join["edge_ids"]) >= 2
+    assert policy["state"] == "closed"
+    assert policy["failure_policy"] == "best_effort"
+    assert loop["state"] == "completed"
+    assert checkpoint_case.state.checkpoint != "none"
+
+
+def test_mutations_change_production_execution_before_trace_construction() -> None:
+    base = _case_with_extra_edges()
+    seeded, schedule = _seed_case(base, "checkpoint_reload_skipped")
+
+    normal = ProductionAdapter().run(seeded, schedule)
+    mutated = ProductionAdapter(mutation="checkpoint_reload_skipped").run(
+        seeded, schedule
+    )
+
+    normal_graph = normal.persisted_state["production"]["graph_execution"]
+    mutated_graph = mutated.persisted_state["production"]["graph_execution"]
+    assert normal_graph["checkpoint_reloads"] == 1
+    assert mutated_graph["checkpoint_reloads"] == 0
 
 
 def test_shrinker_preserves_failure_while_reducing_case() -> None:

@@ -297,6 +297,7 @@ class Oracle:
                 "cancelled": graph_cancelled,
                 "pending_token_ids": sorted(item[0] for item in queue),
                 "dispatch_count": len(dispatches),
+                "checkpoint_reloads": 0 if case.state.checkpoint == "none" else 1,
             },
         }
         lifecycle.extend(
