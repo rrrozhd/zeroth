@@ -353,9 +353,7 @@ async def test_cas_rejects_live_token_from_stale_cancellation_generation(sqlite_
         )
 
 
-async def test_cas_allows_executing_dispatch_with_newer_cancellation_request(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
-    await repository.create(_run())
+def _executing_snapshot() -> TokenEngineSnapshot:
     token = TokenEnvelope(
         token_id="token-1",
         current_node_id="node-a",
@@ -375,7 +373,7 @@ async def test_cas_allows_executing_dispatch_with_newer_cancellation_request(sql
         started_revision=0,
         updated_revision=0,
     )
-    initial = TokenEngineSnapshot(
+    return TokenEngineSnapshot(
         run_id="run-1",
         revision=0,
         state=TokenEngineSnapshotState.RUNNING,
@@ -388,9 +386,17 @@ async def test_cas_allows_executing_dispatch_with_newer_cancellation_request(sql
         ),
         in_flight_dispatches=(executing_dispatch,),
     )
+
+
+async def test_cas_allows_executing_dispatch_with_newer_cancellation_request(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    initial = _executing_snapshot()
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=initial
     )
+    token = initial.tokens[0]
+    executing_dispatch = initial.in_flight_dispatches[0]
     requested_dispatch = executing_dispatch.model_copy(
         update={
             "lifecycle_state": DispatchLifecycleState.CANCELLATION_REQUESTED,
@@ -421,6 +427,66 @@ async def test_cas_allows_executing_dispatch_with_newer_cancellation_request(sql
         )
         == snapshot
     )
+
+
+def _contradictory_cancellation_request(
+    initial: TokenEngineSnapshot,
+) -> TokenEngineSnapshot:
+    dispatch = initial.in_flight_dispatches[0].model_copy(
+        update={
+            "lifecycle_state": DispatchLifecycleState.CANCELLATION_REQUESTED,
+            "cancellation_requested_generation": 2,
+            "cancellation_requested_revision": 1,
+            "updated_revision": 1,
+        }
+    )
+    return initial.model_copy(
+        update={
+            "revision": 1,
+            "cancellation_fence": CancellationFence(
+                generation=1,
+                requested_revision=0,
+                state_revision=1,
+            ),
+            "in_flight_dispatches": (dispatch,),
+        }
+    )
+
+
+async def test_cas_rejects_cancellation_request_newer_than_durable_fence(sqlite_db) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    initial = _executing_snapshot()
+    await repository.compare_and_swap_token_snapshot(
+        "run-1", expected_revision=None, snapshot=initial
+    )
+
+    with pytest.raises(TokenSnapshotTransitionError, match="cancellation-requested dispatch"):
+        await repository.compare_and_swap_token_snapshot(
+            "run-1",
+            expected_revision=0,
+            snapshot=_contradictory_cancellation_request(initial),
+        )
+
+
+async def test_read_wraps_cancellation_request_fence_contradiction_as_corruption(
+    sqlite_db,
+) -> None:
+    repository = RunRepository(sqlite_db)
+    await repository.create(_run())
+    initial = _executing_snapshot()
+    await repository.compare_and_swap_token_snapshot(
+        "run-1", expected_revision=None, snapshot=initial
+    )
+    contradictory = _contradictory_cancellation_request(initial)
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
+            "UPDATE token_engine_snapshots SET revision = ?, snapshot_json = ? WHERE run_id = ?",
+            (1, contradictory.model_dump_json(), "run-1"),
+        )
+
+    with pytest.raises(TokenSnapshotCorruptionError, match="cannot be decoded"):
+        await repository.get_token_snapshot("run-1")
 
 
 async def test_token_snapshot_write_is_rejected_after_durable_erasure_fence(sqlite_db) -> None:

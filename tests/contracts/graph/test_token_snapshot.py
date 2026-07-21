@@ -142,6 +142,39 @@ def _closed_join_snapshot_data() -> dict[str, object]:
     return data
 
 
+def _partial_join_snapshot_data() -> dict[str, object]:
+    data = _closed_join_snapshot_data()
+    parent, source, _continuation = data["tokens"]  # type: ignore[misc]
+    waiting = source.model_copy(
+        update={
+            "lifecycle_state": TokenLifecycleState.ACTIVE,
+            "scheduling_state": SchedulingState.JOIN_WAITING,
+            "settled_revision": None,
+        }
+    )
+    join = data["joins"][0]  # type: ignore[index]
+    obligation = join.obligations[0].model_copy(
+        update={"outcome": None, "delivery": None, "settled_revision": None}
+    )
+    data.update(
+        queue=(),
+        tokens=(parent, waiting),
+        joins=(
+            join.model_copy(
+                update={
+                    "obligations": (obligation,),
+                    "lifecycle_state": JoinLifecycleState.OPEN,
+                    "continuation_token_id": None,
+                    "consumed_parent_token_ids": (),
+                    "closed_revision": None,
+                }
+            ),
+        ),
+        next_token_ordinal=2,
+    )
+    return data
+
+
 def test_snapshot_round_trips_exact_structured_state() -> None:
     snapshot = TokenEngineSnapshot.model_validate(_snapshot_data())
 
@@ -208,6 +241,98 @@ def test_snapshot_rejects_join_waiter_without_matching_unsettled_obligation() ->
     data["tokens"] = (waiting,)
 
     with pytest.raises(ValidationError, match="join-waiting token"):
+        TokenEngineSnapshot.model_validate(data)
+
+
+def test_snapshot_accepts_joined_fork_source_waiting_in_partial_join() -> None:
+    snapshot = TokenEngineSnapshot.model_validate(_partial_join_snapshot_data())
+
+    assert snapshot.tokens[1].scheduling_state is SchedulingState.JOIN_WAITING
+    assert snapshot.joins[0].obligations[0].outcome is None
+
+
+def test_snapshot_rejects_settled_source_for_unsettled_join_obligation() -> None:
+    data = _partial_join_snapshot_data()
+    parent, waiting = data["tokens"]  # type: ignore[misc]
+    settled = waiting.model_copy(
+        update={
+            "lifecycle_state": TokenLifecycleState.SETTLED,
+            "scheduling_state": SchedulingState.SETTLED,
+            "settled_revision": 0,
+        }
+    )
+    data["tokens"] = (parent, settled)
+
+    with pytest.raises(ValidationError, match="unsettled join obligation"):
+        TokenEngineSnapshot.model_validate(data)
+
+
+def test_snapshot_rejects_join_waiting_source_for_settled_join_obligation() -> None:
+    data = _closed_join_snapshot_data()
+    parent, source, continuation = data["tokens"]  # type: ignore[misc]
+    waiting = source.model_copy(
+        update={
+            "lifecycle_state": TokenLifecycleState.ACTIVE,
+            "scheduling_state": SchedulingState.JOIN_WAITING,
+            "settled_revision": None,
+        }
+    )
+    data["tokens"] = (parent, waiting, continuation)
+
+    with pytest.raises(ValidationError, match="settled join obligation"):
+        TokenEngineSnapshot.model_validate(data)
+
+
+def _cancellation_requested_snapshot_data() -> dict[str, object]:
+    token = _token("token-executing", SchedulingState.EXECUTING).model_copy(
+        update={"cancellation_generation": 1}
+    )
+    dispatch = InFlightDispatch(
+        dispatch_id="dispatch-1",
+        idempotency_key="key-1",
+        token=token,
+        attempt=0,
+        cancellation_generation=1,
+        lifecycle_state=DispatchLifecycleState.CANCELLATION_REQUESTED,
+        cancellation_requested_generation=2,
+        cancellation_requested_revision=1,
+        started_revision=0,
+        updated_revision=1,
+    )
+    return {
+        "run_id": "run-1",
+        "revision": 1,
+        "state": TokenEngineSnapshotState.RUNNING,
+        "next_token_ordinal": 1,
+        "tokens": (token,),
+        "cancellation_fence": CancellationFence(
+            generation=2,
+            requested_revision=1,
+            state_revision=1,
+        ),
+        "in_flight_dispatches": (dispatch,),
+    }
+
+
+def test_snapshot_accepts_cancellation_requested_dispatch_matching_fence() -> None:
+    snapshot = TokenEngineSnapshot.model_validate(_cancellation_requested_snapshot_data())
+
+    assert snapshot.in_flight_dispatches[0].cancellation_requested_generation == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("generation", 1), ("requested_revision", 0)],
+)
+def test_snapshot_rejects_cancellation_request_that_contradicts_fence(
+    field: str,
+    value: int,
+) -> None:
+    data = _cancellation_requested_snapshot_data()
+    fence = data["cancellation_fence"]
+    data["cancellation_fence"] = fence.model_copy(update={field: value})  # type: ignore[union-attr]
+
+    with pytest.raises(ValidationError, match="cancellation-requested dispatch"):
         TokenEngineSnapshot.model_validate(data)
 
 
@@ -350,7 +475,7 @@ def test_snapshot_rejects_live_source_for_settled_join_and_fork_obligations() ->
     data["tokens"] = (parent, live_source, continuation)
     data["queue"] = (live_source, continuation)
 
-    with pytest.raises(ValidationError, match="settled obligation source"):
+    with pytest.raises(ValidationError, match="settled join obligation source"):
         TokenEngineSnapshot.model_validate(data)
 
 

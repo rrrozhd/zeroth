@@ -81,24 +81,32 @@ class TokenSnapshotRowStore:
         generation = (
             0 if snapshot.cancellation_fence is None else snapshot.cancellation_fence.generation
         )
-        dispatches = {item.token.token_id: item for item in snapshot.in_flight_dispatches}
+        cancellation_requested_token_ids: set[str] = set()
+        for dispatch in snapshot.in_flight_dispatches:
+            if dispatch.lifecycle_state is not DispatchLifecycleState.CANCELLATION_REQUESTED:
+                if dispatch.cancellation_generation != generation:
+                    raise TokenSnapshotTransitionError(
+                        "ordinary executing dispatch must match the current cancellation fence"
+                    )
+                continue
+            fence = snapshot.cancellation_fence
+            if (
+                fence is None
+                or dispatch.cancellation_generation >= fence.generation
+                or dispatch.cancellation_requested_generation != fence.generation
+                or dispatch.cancellation_requested_revision != fence.requested_revision
+            ):
+                raise TokenSnapshotTransitionError(
+                    "cancellation-requested dispatch must match the current cancellation fence"
+                )
+            cancellation_requested_token_ids.add(dispatch.token.token_id)
+
         for token in snapshot.tokens:
             if token.scheduling_state is SchedulingState.SETTLED:
                 continue
-            if token.cancellation_generation == generation:
+            if token.token_id in cancellation_requested_token_ids:
                 continue
-            dispatch = dispatches.get(token.token_id)
-            older_cancellation_request = (
-                dispatch is not None
-                and dispatch.lifecycle_state is DispatchLifecycleState.CANCELLATION_REQUESTED
-                and dispatch.cancellation_generation == token.cancellation_generation
-                and token.cancellation_generation < generation
-                and dispatch.cancellation_requested_generation == generation
-                and snapshot.cancellation_fence is not None
-                and dispatch.cancellation_requested_revision
-                == snapshot.cancellation_fence.requested_revision
-            )
-            if not older_cancellation_request:
+            if token.cancellation_generation != generation:
                 raise TokenSnapshotTransitionError(
                     "every live token must match the current cancellation fence"
                 )

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.contracts.graph.tokens import (
     CancellationFence,
+    DispatchLifecycleState,
     ForkInstance,
     ForkObligationOutcome,
     InFlightDispatch,
@@ -119,6 +120,18 @@ class TokenEngineSnapshot(BaseModel):
         _require_unique(frame_ids, "iteration frame IDs")
         _require_unique(obligation_ids, "structured obligation IDs")
 
+        if self.state in _TERMINAL_STATES and any(
+            (
+                self.queue,
+                self.tokens,
+                self.forks,
+                self.joins,
+                self.loops,
+                self.in_flight_dispatches,
+            )
+        ):
+            raise ValueError("a terminal snapshot must contain no token-engine work state")
+
         tokens = {token.token_id: token for token in self.tokens}
         forks = {item.fork_id: item for item in self.forks}
         loops = {item.loop_instance_id: item for item in self.loops}
@@ -137,6 +150,10 @@ class TokenEngineSnapshot(BaseModel):
                 raise ValueError("queued token envelope must exactly match its durable token")
 
         dispatch_locations: dict[TokenId, int] = {}
+        cancellation_requested_token_ids: set[TokenId] = set()
+        cancellation_generation = (
+            0 if self.cancellation_fence is None else self.cancellation_fence.generation
+        )
         for dispatch in self.in_flight_dispatches:
             canonical = tokens.get(dispatch.token.token_id)
             if canonical is None:
@@ -146,6 +163,30 @@ class TokenEngineSnapshot(BaseModel):
             dispatch_locations[dispatch.token.token_id] = (
                 dispatch_locations.get(dispatch.token.token_id, 0) + 1
             )
+            if dispatch.lifecycle_state is DispatchLifecycleState.CANCELLATION_REQUESTED:
+                fence = self.cancellation_fence
+                if (
+                    fence is None
+                    or dispatch.cancellation_generation >= fence.generation
+                    or dispatch.cancellation_requested_generation != fence.generation
+                    or dispatch.cancellation_requested_revision != fence.requested_revision
+                ):
+                    raise ValueError(
+                        "cancellation-requested dispatch must match the durable cancellation fence"
+                    )
+                cancellation_requested_token_ids.add(dispatch.token.token_id)
+            elif dispatch.cancellation_generation != cancellation_generation:
+                raise ValueError(
+                    "ordinary executing dispatch must match the durable cancellation fence"
+                )
+
+        if any(
+            token.scheduling_state is not SchedulingState.SETTLED
+            and token.token_id not in cancellation_requested_token_ids
+            and token.cancellation_generation != cancellation_generation
+            for token in self.tokens
+        ):
+            raise ValueError("every live token must match the durable cancellation fence")
 
         waiting_locations: dict[TokenId, int] = {}
         for join in self.joins:
@@ -167,11 +208,15 @@ class TokenEngineSnapshot(BaseModel):
                 source = tokens.get(obligation.source_token_id)
                 if source is None:
                     raise ValueError("join obligation references a missing source token")
-                if (
-                    obligation.outcome is not None
-                    and source.scheduling_state is not SchedulingState.SETTLED
-                ):
-                    raise ValueError("a settled obligation source token must be durably SETTLED")
+                if obligation.outcome is None:
+                    if source.scheduling_state is not SchedulingState.JOIN_WAITING:
+                        raise ValueError(
+                            "an unsettled join obligation source must be durably JOIN_WAITING"
+                        )
+                elif source.scheduling_state is not SchedulingState.SETTLED:
+                    raise ValueError(
+                        "a settled join obligation source token must be durably SETTLED"
+                    )
                 if obligation.outcome is None:
                     waiting_locations[source.token_id] = (
                         waiting_locations.get(source.token_id, 0) + 1
@@ -278,6 +323,7 @@ class TokenEngineSnapshot(BaseModel):
                 raise ValueError("fork references a missing child token")
             if any(
                 obligation.outcome is not None
+                and obligation.outcome is not ForkObligationOutcome.JOINED
                 and tokens[obligation.child_token_id].scheduling_state
                 is not SchedulingState.SETTLED
                 for obligation in fork.obligations
@@ -373,17 +419,6 @@ class TokenEngineSnapshot(BaseModel):
         ):
             raise ValueError("a CANCELLED snapshot requires a positive cancellation fence")
 
-        if self.state in _TERMINAL_STATES and any(
-            (
-                self.queue,
-                self.tokens,
-                self.forks,
-                self.joins,
-                self.loops,
-                self.in_flight_dispatches,
-            )
-        ):
-            raise ValueError("a terminal snapshot must contain no token-engine work state")
         return self
 
 
