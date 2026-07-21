@@ -29,6 +29,42 @@ if TYPE_CHECKING:
     )
     from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate as RuntimePolicyGate
     from zeroth.runtime.orchestration.run_worker import RunWorker as RunWorker
+    from zeroth.runtime.orchestration.token_scheduler import (
+        DispatchClaim as DispatchClaim,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        FanOutBranch as FanOutBranch,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        TokenSchedulerTransitionError as TokenSchedulerTransitionError,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        apply_token_transition as apply_token_transition,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        claim_next_token as claim_next_token,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        complete_dispatch as complete_dispatch,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        enqueue_dispatch as enqueue_dispatch,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        fail_dispatch as fail_dispatch,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        fan_out_dispatch as fan_out_dispatch,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        initialize_token_snapshot as initialize_token_snapshot,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        recover_dispatch as recover_dispatch,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        retry_dispatch as retry_dispatch,
+    )
     from zeroth.runtime.orchestration.token_snapshot_store import (
         TokenSnapshotConcurrencyError as TokenSnapshotConcurrencyError,
     )
@@ -49,6 +85,8 @@ if TYPE_CHECKING:
     )
 
 _EXPORTS = {
+    "DispatchClaim": ("token_scheduler", "DispatchClaim"),
+    "FanOutBranch": ("token_scheduler", "FanOutBranch"),
     "GraphDriver": ("driver", "GraphDriver"),
     "MemoryBindingResolutionError": ("errors", "MemoryBindingResolutionError"),
     "NodeDispatcher": ("dispatcher", "NodeDispatcher"),
@@ -76,6 +114,19 @@ _EXPORTS = {
         "token_snapshot_store",
         "TokenSnapshotWriteDisabledError",
     ),
+    "TokenSchedulerTransitionError": (
+        "token_scheduler",
+        "TokenSchedulerTransitionError",
+    ),
+    "apply_token_transition": ("token_scheduler", "apply_token_transition"),
+    "claim_next_token": ("token_scheduler", "claim_next_token"),
+    "complete_dispatch": ("token_scheduler", "complete_dispatch"),
+    "enqueue_dispatch": ("token_scheduler", "enqueue_dispatch"),
+    "fail_dispatch": ("token_scheduler", "fail_dispatch"),
+    "fan_out_dispatch": ("token_scheduler", "fan_out_dispatch"),
+    "initialize_token_snapshot": ("token_scheduler", "initialize_token_snapshot"),
+    "recover_dispatch": ("token_scheduler", "recover_dispatch"),
+    "retry_dispatch": ("token_scheduler", "retry_dispatch"),
 }
 
 __all__ = sorted(_EXPORTS)
