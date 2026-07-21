@@ -47,10 +47,11 @@ The port must preserve the rebuilt navigation groups and screens:
 Reimplement the source PR's proxy through the refactored service layer rather
 than copying the old `zeroth.core.service` files. The proxy must:
 
-- require an admin-only `ECON_ADMIN` permission;
+- introduce a reserved `ServiceRole.PLATFORM_ADMIN` authority and require its
+  `ECON_ADMIN` permission; ordinary tenant-scoped `ServiceRole.ADMIN`
+  principals never receive `ECON_ADMIN`;
 - mint the econ-plane credential in process without exposing the issuer;
-- forward only the declared read-only GET allowlist and enforcement decision
-  operations;
+- forward only the exact route table declared below;
 - reject authentication paths, path traversal, and unapproved methods;
 - return a clear unavailable response when Regulus is not mounted; and
 - remain behind the existing service authentication and dependency-injection
@@ -60,12 +61,64 @@ Authorization changes must compose with the refactored role model. This port
 does not import the unrelated custom-role and approval-notification feature from
 PR #5.
 
+`PLATFORM_ADMIN` is a reserved built-in role delivered only by a trusted static
+credential configuration or verified bearer-token claim. It may use ordinary
+admin console functions in its configured tenant, but it is the only role with
+cross-tenant Regulus authority. Tests must prove that tenant admins from the
+same and different tenants receive 403 for both Regulus reads and enforcement
+decisions.
+
+### Proxy route contract
+
+The proxy uses an exact, segment-aware route table. It accepts these GET route
+templates and no others:
+
+- `dashboard/kpis`, `dashboard/top-creators`,
+  `dashboard/capital-destroyers`, `dashboard/capability-ranking`,
+  `dashboard/confidence-trend`, `dashboard/efficiency-trend`,
+  `dashboard/calibration-trend`, `dashboard/action-suppression`,
+  `dashboard/confidence-gate-status`, and `dashboard/data-quality-mix`;
+- `dashboard/policy-timeline`, `dashboard/drift-timeline/{capability_id}`, and
+  `dashboard/implementation-compare/{capability_id}`;
+- `registry/capabilities`, `registry/capabilities/{capability_id}`, and
+  `registry/implementations/{implementation_id}`;
+- `evaluations/{capability_id}/latest` and
+  `evaluations/{capability_id}/history`;
+- `enforcement/actions` and `enforcement/policy-actions`;
+- `costing/profiles/{profile_id}` and
+  `costing/estimates/{capability_id}/latest`;
+- `performance/summary`, `performance/capabilities`; and
+- `reconciliation/calibration-summary`.
+
+The only accepted POST templates are
+`enforcement/actions/{positive_integer_action_id}/approve` and
+`enforcement/actions/{positive_integer_action_id}/reject`. Their body is a
+strict JSON object containing only `reason`, a string of at most 2,000
+characters; the raw request body is capped at 8 KiB before parsing. Existing UI
+GETs send no query parameters. The route table therefore declares no query
+parameters initially, and the proxy rejects unexpected query keys instead of
+forwarding them.
+
+Before matching, the proxy inspects the raw path and the framework-decoded path,
+rejects encoded or decoded dot segments, encoded path separators, backslashes,
+absolute paths, repeated separators, NULs, and control characters, and then
+matches complete path segments. The upstream client does not follow redirects.
+
 ### Generated contracts
 
 Treat the source PR's `openapi.json`, generated TypeScript API types, and
 Regulus schema as evidence of intended UI consumption, not artifacts to copy
 unchanged. Generate fresh schemas and clients from the integrated refactored
 backend, then reconcile only intentional differences.
+
+Fix `scripts/dump_openapi.py` to construct the application from
+`zeroth.service.app`; the legacy `zeroth.core.service.app` compatibility path is
+not a generator dependency. Add a separate deterministic Regulus schema dump
+from `zeroth.econ.plane.main` because mounted FastAPI sub-application routes do
+not appear in the parent OpenAPI document. Frontend scripts generate
+`openapi.json`/`api-types.ts` and
+`openapi.regulus.json`/`api-types.regulus.ts` independently. CI runs both
+generators in check mode and fails on any JSON or TypeScript diff.
 
 The console must not retain references to routes, fields, or enum members that
 do not exist in the generated new-core contracts.
@@ -86,7 +139,8 @@ authority for the refactored line.
 The browser continues to call the Zeroth service using the configured API base
 and API key. Normal console requests use the regenerated typed client. Regulus
 requests call the authenticated `/v1/econ/regulus/*` service surface. The proxy
-authorizes `ECON_ADMIN`, obtains an internal econ-plane credential, validates
+authorizes the reserved platform role's `ECON_ADMIN`, obtains an internal
+econ-plane credential, validates
 the requested operation against its allowlist, and forwards the request to the
 mounted Regulus application.
 
@@ -97,10 +151,15 @@ No browser-visible econ administrative credential is introduced.
 - Loading, empty, permission-denied, unavailable, and mutation-failure states
   remain explicit in the console.
 - Regulus navigation remains hidden unless an authenticated admin can reach the
-  proxy.
+  proxy; only `PLATFORM_ADMIN` can make that probe succeed.
+- Tenant-scoped admins cannot read or mutate global Regulus state, regardless
+  of whether their tenant matches another configured service resource.
 - Proxy transport and upstream failures are converted into stable service
-  errors without leaking credentials or internal exception details.
+  errors without including exception text, request URLs, credentials, or
+  internal response bodies.
 - Path normalization is performed before allowlist matching.
+- Missing internal credentials, disallowed redirects, invalid bodies, and
+  unknown query parameters fail closed.
 - Existing tenant and service authentication behavior remains unchanged.
 
 ## Testing Strategy
@@ -111,9 +170,17 @@ Generated artifacts are verified by regeneration and clean-diff checks.
 Required focused verification includes:
 
 - console unit tests and production build;
-- proxy authorization, allowlist, traversal, unavailable-mount, and forwarding
-  tests against the refactored service assembly;
-- OpenAPI and generated-client consistency checks;
+- a source-tip route and interaction inventory that records every PR #4 page,
+  navigation entry, loading/empty/error state, polling flow, optimistic
+  mutation, and Studio React Flow interaction before transplanting files;
+- navigation and API-mock smoke tests for all route groups in addition to the
+  existing focused unit tests;
+- proxy platform-versus-tenant authorization, exact route table, unexpected
+  query, decoded and encoded traversal/separator, redirect, body size/schema,
+  missing credential, unavailable mount, sanitized upstream error, and
+  forwarding tests against the refactored service assembly;
+- deterministic main-app and Regulus OpenAPI generation plus clean-diff checks
+  for both generated TypeScript clients;
 - service route inventory and authorization tests;
 - architecture, cold-import, and public-surface checks; and
 - Python full-suite and Ruff checks.
@@ -128,7 +195,8 @@ review of the final release SHA.
 Use normal atomic commits without bypassing hooks:
 
 1. preserve the approved design and implementation plan;
-2. transplant console-only source files;
+2. capture the source interaction inventory, then transplant console-only
+   source files while retaining the destination-only `/webhooks` route;
 3. add the refactored Regulus authorization and proxy with tests;
 4. regenerate and reconcile API contracts;
 5. resolve integration defects with focused regression tests; and
@@ -137,11 +205,16 @@ Use normal atomic commits without bypassing hooks:
 ## Acceptance Criteria
 
 - Every intended PR #4 screen and navigation path exists on the refactored
-  branch.
+  branch, and the destination-only `/webhooks` page remains reachable.
+- The source interaction inventory is represented by automated route,
+  navigation, state, polling, mutation, and Studio behavior checks.
 - The console builds from freshly generated new-core API contracts.
 - Regulus screens use the secure refactored proxy and cannot bypass its
   authorization or allowlist.
 - No pre-refactor backend module is restored or newly depended upon.
 - PR #4's obsolete version metadata is not imported.
+- Copied font imports have their required frontend dependencies and lockfile
+  entries. The sidebar version is derived from generated project metadata, or a
+  test proves it equals the Python package version; `0.10.6` is never hardcoded.
 - Focused and full verification pass with a clean worktree at the integrated
   commit.
