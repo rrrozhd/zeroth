@@ -252,10 +252,16 @@ class TokenRuntimeSupport:
             run.metadata["join_state"] = compatibility
         else:
             run.metadata.pop("join_state", None)
-        continuation = (
-            next(token for token in closed.queue if token.token_id == ready.continuation_token_id)
-            if ready.continuation_token_id is not None
-            else closed.queue[-1]
+        closed_join = next(
+            join
+            for join in closed.joins
+            if join.join_instance_id == ready.join_instance_id
+        )
+        continuation_id = closed_join.continuation_token_id
+        if continuation_id is None:
+            raise OrchestratorError("closed join has no durable continuation token")
+        continuation = next(
+            token for token in closed.tokens if token.token_id == continuation_id
         )
         reduced = continuation.model_dump(mode="json")["payload"]
         if isinstance(reduced, Mapping):

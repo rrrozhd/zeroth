@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import zeroth.runtime.orchestration.token_runtime_support as runtime_support
 
 from zeroth.contracts.graph.models import JoinConfig
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
@@ -22,6 +23,8 @@ from zeroth.runtime.orchestration.token_scheduler import (
 )
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 from zeroth.runtime.orchestration.token_joins import (
+    JoinReductionClaim,
+    close_ready_join,
     close_ready_join_with_cas,
     deliver_to_join,
 )
@@ -56,6 +59,7 @@ class _MemoryStore:
 class _Driver:
     def __init__(self) -> None:
         self.stops = 0
+        self.orchestrator = None
 
     async def external_stop(self, run: Run) -> Run:
         self.stops += 1
@@ -220,3 +224,84 @@ async def test_graceful_stop_recovers_and_drains_persisted_loop_claim() -> None:
 
     assert drained.loops[0].reduction_claim_id is None
     assert drained.revision > store.snapshot.revision - 1
+
+
+async def test_join_claim_replay_resolves_already_claimed_continuation_from_tokens(
+    monkeypatch,
+) -> None:
+    root = initialize_token_snapshot(run_id="run-join-race", root_node_id="root", payload={})
+    parent = claim_next_token(root)
+    snapshot = fan_out_dispatch(
+        parent.snapshot,
+        dispatch_id=parent.dispatch.dispatch_id,
+        attempt=parent.dispatch.attempt,
+        cancellation_generation=parent.dispatch.cancellation_generation,
+        branches=(
+            FanOutBranch(node_id="left", inbound_edge_id="root-left", payload="left"),
+            FanOutBranch(node_id="right", inbound_edge_id="root-right", payload="right"),
+        ),
+    )
+    routes = {
+        child.token_id: f"join-{child.creation_ordinal}"
+        for child in snapshot.forks[0].children
+    }
+    for payload in ("left", "right"):
+        claim = claim_next_token(snapshot)
+        snapshot = deliver_to_join(
+            claim.snapshot,
+            dispatch_id=claim.dispatch.dispatch_id,
+            attempt=claim.dispatch.attempt,
+            cancellation_generation=claim.dispatch.cancellation_generation,
+            target_node_id="join",
+            inbound_edge_id=routes[claim.dispatch.token.token_id],
+            cohort_inbound_edges=routes,
+            payload=payload,
+        )
+    store = _MemoryStore(snapshot)
+
+    class _Crash(BaseException):
+        pass
+
+    def crash_reducer(_config, _inputs):
+        raise _Crash
+
+    with pytest.raises(_Crash):
+        await close_ready_join_with_cas(
+            store,
+            snapshot.run_id,
+            snapshot.joins[0].join_instance_id,
+            JoinConfig(),
+            reducer=crash_reducer,
+            claim_owner_id="crashed-worker",
+        )
+    stale_reducing = store.snapshot
+    closed = close_ready_join(
+        stale_reducing,
+        stale_reducing.joins[0].join_instance_id,
+        JoinConfig(),
+        claimed_reduction=JoinReductionClaim.from_join(stale_reducing.joins[0]),
+    )
+    raced = claim_next_token(closed).snapshot
+    assert raced.queue == ()
+
+    async def replayed_close(*_args, **_kwargs):
+        return raced
+
+    monkeypatch.setattr(runtime_support, "close_ready_join_with_cas", replayed_close)
+    coordinator = TokenRuntimeCoordinator(_Driver(), store)
+    edge = SimpleNamespace(edge_id=next(iter(routes.values())), target_node_id="join")
+    graph = SimpleNamespace(
+        edges=(edge,),
+        nodes=(SimpleNamespace(node_id="join", join_config=JoinConfig()),),
+        execution_settings=SimpleNamespace(failure_policy="fail_fast"),
+    )
+
+    result = await coordinator._close_join_if_ready(
+        graph,
+        _run(snapshot.run_id, RunStatus.WAITING_INTERRUPT),
+        stale_reducing,
+        edge,
+        (),
+    )
+
+    assert result is raced
