@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.contracts.graph.tokens import (
     CancellationFence,
+    DeferredJoinDelivery,
     DispatchLifecycleState,
     ForkInstance,
     ForkObligationOutcome,
@@ -100,6 +101,7 @@ class TokenEngineSnapshot(BaseModel):
     forks: tuple[ForkInstance, ...] = ()
     joins: tuple[JoinInstance, ...] = ()
     loops: tuple[LoopInstance, ...] = ()
+    deferred_join_deliveries: tuple[DeferredJoinDelivery, ...] = ()
     cancellation_fence: CancellationFence | None = None
     in_flight_dispatches: tuple[InFlightDispatch, ...] = ()
 
@@ -110,6 +112,9 @@ class TokenEngineSnapshot(BaseModel):
         fork_ids = tuple(item.fork_id for item in self.forks)
         join_ids = tuple(item.join_instance_id for item in self.joins)
         loop_ids = tuple(item.loop_instance_id for item in self.loops)
+        deferred_delivery_ids = tuple(
+            item.delivery_id for item in self.deferred_join_deliveries
+        )
         dispatch_ids = tuple(item.dispatch_id for item in self.in_flight_dispatches)
         frame_ids = tuple(frame.iteration_frame_id for loop in self.loops for frame in loop.frames)
         obligation_ids = tuple(
@@ -122,6 +127,7 @@ class TokenEngineSnapshot(BaseModel):
         _require_unique(fork_ids, "fork IDs")
         _require_unique(join_ids, "join IDs")
         _require_unique(loop_ids, "loop IDs")
+        _require_unique(deferred_delivery_ids, "deferred join delivery IDs")
         _require_unique(dispatch_ids, "dispatch IDs")
         _require_unique(frame_ids, "iteration frame IDs")
         _require_unique(obligation_ids, "structured obligation IDs")
@@ -136,12 +142,13 @@ class TokenEngineSnapshot(BaseModel):
                 self.forks,
                 self.joins,
                 self.loops,
+                self.deferred_join_deliveries,
                 self.in_flight_dispatches,
             )
         ):
             raise ValueError("a terminal snapshot must contain no token-engine work state")
         if self.state is TokenEngineSnapshotState.CANCELLED:
-            if self.queue or self.in_flight_dispatches:
+            if self.queue or self.in_flight_dispatches or self.deferred_join_deliveries:
                 raise ValueError("a CANCELLED snapshot cannot contain schedulable work")
             if any(token.scheduling_state is not SchedulingState.SETTLED for token in self.tokens):
                 raise ValueError("a CANCELLED snapshot may retain only settled tokens")
@@ -183,6 +190,17 @@ class TokenEngineSnapshot(BaseModel):
         frames = {
             frame.iteration_frame_id: (loop, frame) for loop in self.loops for frame in loop.frames
         }
+
+        if any(
+            delivery.source_token_id not in tokens
+            for delivery in self.deferred_join_deliveries
+        ):
+            raise ValueError("deferred join delivery references a missing source token")
+        if any(
+            delivery.created_revision > self.revision
+            for delivery in self.deferred_join_deliveries
+        ):
+            raise ValueError("deferred join delivery cannot be newer than its snapshot")
 
         if self.next_token_ordinal < len(tokens):
             raise ValueError("next_token_ordinal cannot precede durable token allocation")
@@ -631,6 +649,9 @@ class TokenEngineSnapshot(BaseModel):
         component_revisions.extend(item.updated_revision for item in self.joins)
         component_revisions.extend(item.updated_revision for item in self.loops)
         component_revisions.extend(item.updated_revision for item in self.in_flight_dispatches)
+        component_revisions.extend(
+            item.created_revision for item in self.deferred_join_deliveries
+        )
         if self.cancellation_fence is not None:
             component_revisions.append(self.cancellation_fence.state_revision)
         if any(revision > self.revision for revision in component_revisions):

@@ -71,6 +71,48 @@ def _active(edge: Edge, enabled: bool, conditions: dict[str, bool]) -> bool:
     )
 
 
+def _has_overlapping_join_frontier(case: Case) -> bool:
+    conditions = dict(case.conditions)
+    active = tuple(
+        edge
+        for index, edge in enumerate(case.topology.edges)
+        if _active(edge, case.enabled[index], conditions)
+    )
+    incoming = {
+        node: sum(edge.target == node for edge in active) for node in case.topology.nodes
+    }
+    adjacency = {
+        node: tuple(edge.target for edge in active if edge.source == node)
+        for node in case.topology.nodes
+    }
+
+    def reaches(source: str, target: str) -> bool:
+        pending = [source]
+        visited: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            for successor in adjacency[current]:
+                if successor == target:
+                    return True
+                pending.append(successor)
+        return False
+
+    for source in case.topology.nodes:
+        join_targets = tuple(
+            edge.target for edge in active if edge.source == source and incoming[edge.target] > 1
+        )
+        if len(join_targets) > 1 and any(
+            left != right and reaches(left, right)
+            for left in join_targets
+            for right in join_targets
+        ):
+            return True
+    return False
+
+
 def _structured_descriptors(
     case: Case,
 ) -> tuple[tuple[tuple[str, ...], ...], tuple[tuple[str, tuple[str, ...]], ...]]:
@@ -746,6 +788,10 @@ class ProductionAdapter:
         classification = classify_case(case)
         if not classification.valid:
             raise ValueError(f"invalid case: {classification.reason}")
+        if self.mutation == "overlapping_join_rejected" and _has_overlapping_join_frontier(case):
+            raise UnsupportedValidCaseError(
+                "one token cannot both resolve a join obligation and publish other successors"
+            )
         try:
             effective_schedule = None if self.mutation == "schedule_input_discarded" else schedule
             return self._run(case, schedule=effective_schedule)

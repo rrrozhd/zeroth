@@ -30,6 +30,7 @@ MUTATIONS = (
     "cancellation_generation_lost",
     "checkpoint_reload_skipped",
     "persisted_terminal_dropped",
+    "overlapping_join_rejected",
 )
 
 
@@ -62,6 +63,25 @@ def _loop_case(state: State) -> Case:
             ),
         ),
         (True,) * 4,
+        (),
+        state,
+    )
+
+
+def _overlapping_join_case(state: State) -> Case:
+    return Case(
+        Topology(
+            ("n0", "n1", "n2", "n3", "n4"),
+            (
+                Edge("e0", "n0", "n1", 0),
+                Edge("e1", "n0", "n2", 0),
+                Edge("e2", "n1", "n3", 0),
+                Edge("e3", "n1", "n4", 0),
+                Edge("e4", "n2", "n3", 0),
+                Edge("e5", "n3", "n4", 0),
+            ),
+        ),
+        (True,) * 6,
         (),
         state,
     )
@@ -108,6 +128,9 @@ def _seed_case(case: Case, name: str) -> tuple[Case, tuple[str, ...] | None]:
         return _diamond_case(state), None
     elif name == "loop_owner_leaks":
         return _loop_case(state), None
+    elif name == "overlapping_join_rejected":
+        state = replace(state, checkpoint="after-resolve", cancellation="none")
+        return _overlapping_join_case(state), None
     elif name in {"terminal_output_corrupted", "persisted_terminal_dropped"}:
         state = replace(state, checkpoint="none", cancellation="none")
         return _diamond_case(state), None

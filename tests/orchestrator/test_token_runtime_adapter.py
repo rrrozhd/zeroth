@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from pydantic import BaseModel
 
 from zeroth.contracts.graph import (
@@ -24,7 +25,9 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
+from zeroth.runtime.orchestration.token_runtime_support import TokenRuntimeSupport
 from zeroth.runtime.parallel.models import JoinConfig
+from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.runtime.runs import Run, RunStatus
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
@@ -57,6 +60,33 @@ class MemoryTokenStore:
         self.snapshot = snapshot
         self.history.append(snapshot)
         return snapshot
+
+
+class ReloadingMemoryTokenStore(MemoryTokenStore):
+    """Force every CAS/reload through the persisted JSON representation."""
+
+    async def get_token_snapshot(self, run_id: str) -> TokenEngineSnapshot | None:
+        snapshot = await super().get_token_snapshot(run_id)
+        return (
+            None
+            if snapshot is None
+            else TokenEngineSnapshot.model_validate_json(snapshot.model_dump_json())
+        )
+
+    async def compare_and_swap_token_snapshot(
+        self,
+        run_id: str,
+        *,
+        expected_revision: int | None,
+        snapshot: TokenEngineSnapshot,
+    ) -> TokenEngineSnapshot:
+        restored = TokenEngineSnapshot.model_validate_json(snapshot.model_dump_json())
+        committed = await super().compare_and_swap_token_snapshot(
+            run_id,
+            expected_revision=expected_revision,
+            snapshot=restored,
+        )
+        return TokenEngineSnapshot.model_validate_json(committed.model_dump_json())
 
 
 class RunOnlyRepository:
@@ -201,6 +231,80 @@ async def test_flag_on_diamond_closes_structured_join_once(sqlite_db) -> None:
 
     assert [entry.node_id for entry in run.execution_history] == ["A", "L", "R", "J"]
     assert sum(entry.node_id == "J" for entry in run.execution_history) == 1
+
+
+@pytest.mark.parametrize(
+    ("downstream_condition", "expected_final"),
+    [
+        (None, {"value": 4}),
+        (Condition(expression="payload.value < 0"), {"value": 3}),
+    ],
+    ids=("both-delivered", "downstream-suppressed"),
+)
+async def test_default_on_nested_diamond_resolves_join_and_other_successor_once(
+    sqlite_db, downstream_condition, expected_final
+) -> None:
+    nodes = {node_id: _node(node_id) for node_id in ("A", "B", "C", "J", "T")}
+    for node in nodes.values():
+        node.input_contract_ref = "contract://input"
+        node.output_contract_ref = "contract://output"
+    nodes["J"].join_config = JoinConfig(merge_strategy="merge")
+    nodes["T"].join_config = JoinConfig(merge_strategy="merge")
+    graph = Graph(
+        graph_id="token-nested-diamond",
+        name="token-nested-diamond",
+        entry_step="A",
+        execution_settings=ExecutionSettings(),
+        nodes=list(nodes.values()),
+        edges=[
+            Edge(edge_id="A-B", source_node_id="A", target_node_id="B"),
+            Edge(edge_id="A-C", source_node_id="A", target_node_id="C"),
+            Edge(edge_id="B-J", source_node_id="B", target_node_id="J"),
+            Edge(edge_id="B-T", source_node_id="B", target_node_id="T"),
+            Edge(edge_id="C-J", source_node_id="C", target_node_id="J"),
+            Edge(
+                edge_id="J-T",
+                source_node_id="J",
+                target_node_id="T",
+                condition=downstream_condition,
+            ),
+        ],
+    )
+    report = await GraphValidator().validate(graph)
+    assert report.is_valid, report.issues
+    store = ReloadingMemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in nodes},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert run.status is RunStatus.COMPLETED, run.error
+    assert [entry.node_id for entry in run.execution_history] == ["A", "B", "C", "J", "T"]
+    assert sum(entry.node_id == "J" for entry in run.execution_history) == 1
+    assert sum(entry.node_id == "T" for entry in run.execution_history) == 1
+    assert run.final_output == expected_final
+    deferred = next(snapshot for snapshot in store.history if snapshot.deferred_join_deliveries)
+    assert TokenEngineSnapshot.model_validate_json(deferred.model_dump_json()) == deferred
+    assert [
+        delivery.delivery.model_dump(mode="json")["payload"]
+        for delivery in deferred.deferred_join_deliveries
+    ] == [{"value": 2}]
+    persisted_delivery = deferred.deferred_join_deliveries[0]
+    persisted_dispatch = deferred.in_flight_dispatches[0]
+    assert (
+        TokenRuntimeSupport._append_deferred_join_delivery(
+            deferred,
+            parent=persisted_dispatch.token,
+            target_node_id=persisted_delivery.target_node_id,
+            inbound_edge_id=persisted_delivery.inbound_edge_id,
+            payload=persisted_delivery.delivery.model_dump(mode="json")["payload"],
+            dispatch_id=persisted_dispatch.dispatch_id,
+        )
+        is deferred
+    )
 
 
 async def test_flag_on_loop_persists_iteration_ownership(sqlite_db) -> None:

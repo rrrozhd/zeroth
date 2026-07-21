@@ -615,12 +615,138 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     f"sequential join barrier for {join_edges[0].target_node_id} "
                     "has unreachable inbound source(s): " + ", ".join(unreachable),
                 )
+        deferred_target = next(
+            (
+                edge.target_node_id
+                for edge in (*active, *suppressed)
+                if self._deferred_join_waiters(claim.snapshot, edge.target_node_id)
+            ),
+            None,
+        )
         if loop_handled:
+            transition = None
+        elif deferred_target is not None:
+            deferred_edge = next(
+                edge
+                for edge in (*active, *suppressed)
+                if edge.target_node_id == deferred_target
+            )
+            waiters = self._deferred_join_waiters(claim.snapshot, deferred_target)
+            edge_order = {edge.edge_id: index for index, edge in enumerate(graph.edges)}
+            deliveries = [
+                (
+                    waiter.inbound_edge_id,
+                    waiter.delivery.model_dump(mode="json")["payload"],
+                )
+                for waiter in waiters
+            ]
+            if deferred_edge in active:
+                current_payload = cast(
+                    JsonValue,
+                    self.driver.edge_payload(
+                        graph,
+                        run,
+                        node.node_id,
+                        deferred_target,
+                        output_data,
+                        deferred_edge,
+                    ),
+                )
+                deliveries.append((deferred_edge.edge_id, current_payload))
+            deliveries.sort(key=lambda item: edge_order[item[0]])
+            merged_payload = cast(
+                JsonValue,
+                self.driver._merge_join_payloads(
+                    graph,
+                    deferred_target,
+                    [payload for _, payload in deliveries],
+                ),
+            )
+            committed = await self._transition(
+                claim.snapshot,
+                partial(
+                    self._close_deferred_join,
+                    dispatch_id=dispatch.dispatch_id,
+                    attempt=dispatch.attempt,
+                    cancellation_generation=dispatch.cancellation_generation,
+                    target_node_id=deferred_target,
+                    inbound_edge_id=deferred_edge.edge_id,
+                    merged_payload=merged_payload,
+                ),
+            )
             transition = None
         elif join_edges and envelope.fork_lineage:
             mixed_active = [edge for edge in active if edge not in join_edges]
+            active_join = [edge for edge in join_edges if edge in active]
             suppressed_join = [edge for edge in join_edges if edge not in active]
-            if len(join_edges) == 1 and mixed_active and suppressed_join:
+            primary_join = next(
+                (
+                    edge
+                    for edge in active_join
+                    if all(
+                        other is edge
+                        or self._reachable_inbound_edges(
+                            graph, edge.target_node_id, other.target_node_id
+                        )
+                        for other in active_join
+                    )
+                ),
+                None,
+            )
+            if primary_join is not None:
+                committed = claim.snapshot
+                for deferred_edge in active_join:
+                    if deferred_edge is primary_join:
+                        continue
+                    next_payload = self.driver.edge_payload(
+                        graph,
+                        run,
+                        node.node_id,
+                        deferred_edge.target_node_id,
+                        output_data,
+                        deferred_edge,
+                    )
+                    committed = await self._transition(
+                        committed,
+                        partial(
+                            self._append_deferred_join_delivery,
+                            parent=envelope,
+                            target_node_id=deferred_edge.target_node_id,
+                            inbound_edge_id=deferred_edge.edge_id,
+                            payload=cast(JsonValue, next_payload),
+                            dispatch_id=dispatch.dispatch_id,
+                        ),
+                    )
+                for next_edge in mixed_active:
+                    next_payload = self.driver.edge_payload(
+                        graph,
+                        run,
+                        node.node_id,
+                        next_edge.target_node_id,
+                        output_data,
+                        next_edge,
+                    )
+                    committed = await self._transition(
+                        committed,
+                        partial(
+                            self._append_detached,
+                            parent=envelope,
+                            node_id=next_edge.target_node_id,
+                            inbound_edge_id=next_edge.edge_id,
+                            payload=cast(JsonValue, next_payload),
+                        ),
+                    )
+                routed_claim = DispatchClaim(snapshot=committed, dispatch=dispatch)
+                committed = await self._route_join(
+                    graph,
+                    run,
+                    routed_claim,
+                    primary_join,
+                    output_data,
+                    delivered=True,
+                )
+                transition = None
+            elif len(join_edges) == 1 and mixed_active and suppressed_join:
                 committed = await self._route_join(
                     graph,
                     run,
@@ -844,6 +970,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             forks=(),
             joins=(),
             loops=(),
+            deferred_join_deliveries=(),
             in_flight_dispatches=(),
         )
         proposed = TokenEngineSnapshot.model_validate(data)

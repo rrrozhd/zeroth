@@ -4,6 +4,7 @@ import pytest
 
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
 from zeroth.contracts.graph.tokens import (
+    DeferredJoinDelivery,
     DispatchLifecycleState,
     ForkObligationOutcome,
     IterationFrameState,
@@ -11,6 +12,7 @@ from zeroth.contracts.graph.tokens import (
     JoinLifecycleState,
     JoinObligationOutcome,
     LoopLifecycleState,
+    PayloadDelivery,
     SchedulingState,
     TokenLifecycleState,
 )
@@ -470,3 +472,29 @@ async def test_cancellation_cas_race_preserves_a_winning_completion() -> None:
     assert completed.cancellation_generation == dispatch.cancellation_generation
     assert completed.cancellation_acknowledged_generation is None
     assert completed.settled_revision is not None
+
+
+async def test_cancellation_discards_persisted_deferred_join_deliveries() -> None:
+    root = _root()
+    snapshot = TokenEngineSnapshot.model_validate(
+        {
+            **{name: getattr(root, name) for name in type(root).model_fields},
+            "deferred_join_deliveries": (
+                DeferredJoinDelivery(
+                    delivery_id="delivery-1",
+                    source_token_id=root.tokens[0].token_id,
+                    target_node_id="join",
+                    inbound_edge_id="root-join",
+                    delivery=PayloadDelivery(payload={"v": 1}),
+                    cancellation_generation=0,
+                    created_revision=0,
+                ),
+            ),
+        }
+    )
+    store = _MemoryStore(snapshot)
+
+    cancelled = await TokenLifecycleAdapter(store).cancel("run-lifecycle")
+
+    assert cancelled.state is TokenEngineSnapshotState.CANCELLED
+    assert cancelled.deferred_join_deliveries == ()

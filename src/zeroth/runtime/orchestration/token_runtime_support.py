@@ -17,8 +17,10 @@ from pydantic import JsonValue
 from zeroth.contracts.graph import Graph
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
 from zeroth.contracts.graph.tokens import (
+    DeferredJoinDelivery,
     JoinLifecycleState,
     JoinObligationOutcome,
+    PayloadDelivery,
     SchedulingState,
     TokenEnvelope,
     TokenLifecycleState,
@@ -36,7 +38,11 @@ from zeroth.runtime.orchestration.token_joins import (
 from zeroth.runtime.orchestration.token_scheduler import (
     DispatchClaim,
     FanOutBranch,
+    _matching_dispatch,
+    _next_snapshot,
+    _replace_token,
     _stable_id,
+    _updated_token,
     fan_out_dispatch,
 )
 from zeroth.runtime.orchestration.tool_executor import node_by_id
@@ -115,6 +121,135 @@ class TokenRuntimeSupport:
             tokens=(*snapshot.tokens, token),
         )
         return TokenEngineSnapshot.model_validate(data)
+
+    @staticmethod
+    def _append_deferred_join_delivery(
+        snapshot: TokenEngineSnapshot,
+        *,
+        parent: TokenEnvelope,
+        target_node_id: str,
+        inbound_edge_id: str,
+        payload: JsonValue,
+        dispatch_id: str,
+    ) -> TokenEngineSnapshot:
+        """Persist one overlapping-join delivery without making it runnable."""
+        delivery_id = _stable_id(
+            "delivery",
+            snapshot.run_id,
+            f"deferred-join:{dispatch_id}:{inbound_edge_id}",
+            0,
+        )
+        if any(
+            delivery.delivery_id == delivery_id
+            for delivery in snapshot.deferred_join_deliveries
+        ):
+            return snapshot
+        revision = snapshot.revision + 1
+        delivery = DeferredJoinDelivery(
+            delivery_id=delivery_id,
+            source_token_id=parent.token_id,
+            target_node_id=target_node_id,
+            inbound_edge_id=inbound_edge_id,
+            delivery=PayloadDelivery(payload=payload),
+            cancellation_generation=parent.cancellation_generation,
+            created_revision=revision,
+        )
+        data = {name: getattr(snapshot, name) for name in type(snapshot).model_fields}
+        data.update(
+            revision=revision,
+            deferred_join_deliveries=(*snapshot.deferred_join_deliveries, delivery),
+        )
+        return TokenEngineSnapshot.model_validate(data)
+
+    @staticmethod
+    def _close_deferred_join(
+        snapshot: TokenEngineSnapshot,
+        *,
+        dispatch_id: str,
+        attempt: int,
+        cancellation_generation: int,
+        target_node_id: str,
+        inbound_edge_id: str,
+        merged_payload: JsonValue,
+    ) -> TokenEngineSnapshot:
+        dispatch = _matching_dispatch(
+            snapshot,
+            dispatch_id=dispatch_id,
+            attempt=attempt,
+            cancellation_generation=cancellation_generation,
+        )
+        deliveries = tuple(
+            delivery
+            for delivery in snapshot.deferred_join_deliveries
+            if delivery.target_node_id == target_node_id
+        )
+        if not deliveries:
+            raise TokenRuntimeUnsupportedError(
+                f"deferred join {target_node_id!r} has no persisted delivery"
+            )
+        if dispatch.token.fork_lineage:
+            raise TokenRuntimeUnsupportedError(
+                "overlapping deferred join continuation remains fork-owned"
+            )
+        revision = snapshot.revision + 1
+        settled_current = _updated_token(
+            dispatch.token,
+            lifecycle_state=TokenLifecycleState.SETTLED,
+            scheduling_state=SchedulingState.SETTLED,
+            state_revision=revision,
+            settled_revision=revision,
+        )
+        tokens = _replace_token(snapshot.tokens, settled_current)
+        parent_ids = list(
+            dict.fromkeys(
+                (
+                    *(delivery.source_token_id for delivery in deliveries),
+                    dispatch.token.token_id,
+                )
+            )
+        )
+        continuation = TokenEnvelope(
+            token_id=_stable_id(
+                "tok",
+                snapshot.run_id,
+                f"deferred-join:{target_node_id}",
+                snapshot.next_token_ordinal,
+            ),
+            continuation_parent_token_ids=tuple(parent_ids),
+            current_node_id=target_node_id,
+            causal_inbound_edge_id=inbound_edge_id,
+            payload=merged_payload,
+            lifecycle_state=TokenLifecycleState.ACTIVE,
+            scheduling_state=SchedulingState.QUEUED,
+            cancellation_generation=dispatch.token.cancellation_generation,
+            state_revision=revision,
+        )
+        return _next_snapshot(
+            snapshot,
+            next_token_ordinal=snapshot.next_token_ordinal + 1,
+            queue=(*snapshot.queue, continuation),
+            tokens=(*tokens, continuation),
+            deferred_join_deliveries=tuple(
+                delivery
+                for delivery in snapshot.deferred_join_deliveries
+                if delivery.target_node_id != target_node_id
+            ),
+            in_flight_dispatches=tuple(
+                item
+                for item in snapshot.in_flight_dispatches
+                if item.dispatch_id != dispatch_id
+            ),
+        )
+
+    @staticmethod
+    def _deferred_join_waiters(
+        snapshot: TokenEngineSnapshot, target_node_id: str
+    ) -> tuple[DeferredJoinDelivery, ...]:
+        return tuple(
+            delivery
+            for delivery in snapshot.deferred_join_deliveries
+            if delivery.target_node_id == target_node_id
+        )
 
     def _merge_closed_fanout(
         self,

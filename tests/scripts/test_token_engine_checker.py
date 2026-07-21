@@ -80,6 +80,7 @@ def test_structured_mutation_seeds_exercise_the_defect_precondition() -> None:
     policy_case, _ = _seed_case(base, "failure_policy_globalized")
     loop_case, _ = _seed_case(base, "loop_owner_leaks")
     checkpoint_case, _ = _seed_case(base, "checkpoint_reload_skipped")
+    overlapping_case, _ = _seed_case(base, "overlapping_join_rejected")
 
     join = ProductionAdapter().run(join_case).persisted_state["production"]["join"]
     policy = ProductionAdapter().run(policy_case).persisted_state["production"]["join"]
@@ -91,6 +92,15 @@ def test_structured_mutation_seeds_exercise_the_defect_precondition() -> None:
     assert policy["failure_policy"] == "best_effort"
     assert loop["state"] == "completed"
     assert checkpoint_case.state.checkpoint != "none"
+    assert len(overlapping_case.topology.nodes) == 5
+    assert {(edge.source, edge.target) for edge in overlapping_case.topology.edges} == {
+        ("n0", "n1"),
+        ("n0", "n2"),
+        ("n1", "n3"),
+        ("n1", "n4"),
+        ("n2", "n3"),
+        ("n3", "n4"),
+    }
 
 
 def test_mutations_change_production_execution_before_trace_construction() -> None:

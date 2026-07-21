@@ -171,6 +171,18 @@ class PayloadDelivery(_FrozenContract):
         return _thaw_json(value)
 
 
+class DeferredJoinDelivery(_FrozenContract):
+    """A durable edge delivery held until an overlapping join frontier arrives."""
+
+    delivery_id: StableId
+    source_token_id: TokenId
+    target_node_id: NodeId
+    inbound_edge_id: EdgeId
+    delivery: PayloadDelivery
+    cancellation_generation: CancellationGeneration
+    created_revision: StateRevision
+
+
 class ProvenanceFrame(_FrozenContract):
     loop_header_node_id: NodeId
     iteration_index: IterationIndex
@@ -1249,6 +1261,7 @@ __all__ = [
     "CancellationGeneration",
     "CanonicalTokenOrder",
     "CreationOrdinal",
+    "DeferredJoinDelivery",
     "DispatchId",
     "DispatchLifecycleState",
     "EdgeId",

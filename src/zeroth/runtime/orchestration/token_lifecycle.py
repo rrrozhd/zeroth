@@ -72,7 +72,7 @@ def has_pending_structured_owner_work(snapshot: TokenEngineSnapshot) -> bool:
         for loop in snapshot.loops
         if loop.lifecycle_state
         not in {LoopLifecycleState.CANCELLED, LoopLifecycleState.COMPLETED}
-    )
+    ) or bool(snapshot.deferred_join_deliveries)
 
 
 def pause_snapshot(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
@@ -501,6 +501,7 @@ def _terminal_cancelled(
             revision=revision,
             best_effort=best_effort,
         ),
+        deferred_join_deliveries=(),
         in_flight_dispatches=(),
         cancellation_fence=CancellationFence(
             generation=generation,
