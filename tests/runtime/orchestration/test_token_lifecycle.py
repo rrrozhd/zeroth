@@ -6,8 +6,11 @@ from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngi
 from zeroth.contracts.graph.tokens import (
     DispatchLifecycleState,
     ForkObligationOutcome,
+    IterationFrameState,
     IterationMemberState,
+    JoinLifecycleState,
     JoinObligationOutcome,
+    LoopLifecycleState,
     SchedulingState,
     TokenLifecycleState,
 )
@@ -28,7 +31,7 @@ from zeroth.runtime.orchestration.token_scheduler import (
     initialize_token_snapshot,
 )
 from zeroth.runtime.orchestration.token_joins import deliver_to_join
-from zeroth.runtime.orchestration.token_loops import enter_loop
+from zeroth.runtime.orchestration.token_loops import enter_loop, settle_loop_member
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 
 
@@ -144,6 +147,65 @@ def test_graceful_stop_never_starts_unowned_top_level_work() -> None:
         claim_next_token(stopped)
 
 
+def test_graceful_stop_from_pause_waits_for_barrier_ready_loop_owner() -> None:
+    root = _root()
+    entered = enter_loop(
+        root,
+        token_id=root.tokens[0].token_id,
+        loop_header_node_id="root",
+        body_node_id="body",
+        inbound_edge_id="root-body",
+        exit_routes={"body-exit": "done"},
+    )
+    member = entered.queue[0]
+    ready = settle_loop_member(
+        entered,
+        token_id=member.token_id,
+        outcome=IterationMemberState.INTERNAL_COMPLETION,
+    )
+
+    stopping = stop_snapshot(pause_snapshot(ready))
+
+    assert ready.loops[0].frames[-1].state is IterationFrameState.BARRIER_READY
+    assert stopping.state is TokenEngineSnapshotState.STOPPING
+
+
+def test_graceful_stop_waits_for_ready_join_owner() -> None:
+    root = _root()
+    parent = claim_next_token(root)
+    snapshot = fan_out_dispatch(
+        parent.snapshot,
+        dispatch_id=parent.dispatch.dispatch_id,
+        attempt=parent.dispatch.attempt,
+        cancellation_generation=parent.dispatch.cancellation_generation,
+        branches=(
+            FanOutBranch(node_id="left", inbound_edge_id="root-left", payload="left"),
+            FanOutBranch(node_id="right", inbound_edge_id="root-right", payload="right"),
+        ),
+    )
+    routes = {
+        child.token_id: f"join-{child.creation_ordinal}"
+        for child in snapshot.forks[0].children
+    }
+    for value in ("left", "right"):
+        claim = claim_next_token(snapshot)
+        snapshot = deliver_to_join(
+            claim.snapshot,
+            dispatch_id=claim.dispatch.dispatch_id,
+            attempt=claim.dispatch.attempt,
+            cancellation_generation=claim.dispatch.cancellation_generation,
+            target_node_id="join",
+            inbound_edge_id=routes[claim.dispatch.token.token_id],
+            cohort_inbound_edges=routes,
+            payload=value,
+        )
+
+    stopping = stop_snapshot(snapshot)
+
+    assert snapshot.joins[0].lifecycle_state is JoinLifecycleState.READY
+    assert stopping.state is TokenEngineSnapshotState.STOPPING
+
+
 def test_cancel_settles_queued_children_and_requests_executing_child_stop() -> None:
     snapshot, dispatch = _fork_with_one_executing_child()
     queued_id = snapshot.queue[0].token_id
@@ -256,6 +318,8 @@ def test_nested_cancellation_settles_inner_first_and_propagates_once(
     assert cancelled.state is TokenEngineSnapshotState.CANCELLED
     inner = next(loop for loop in cancelled.loops if loop.loop_header_node_id == "inner")
     outer = next(loop for loop in cancelled.loops if loop.loop_header_node_id == "outer")
+    assert inner.lifecycle_state is LoopLifecycleState.CANCELLED
+    assert outer.lifecycle_state is LoopLifecycleState.CANCELLED
     assert sum(member.state is expected for member in inner.frames[-1].members) == 2
     assert sum(member.state is expected for member in outer.frames[-1].members) == 1
     assert all(
@@ -311,11 +375,13 @@ def test_cancellation_policy_preserves_delivered_join_and_settles_only_pending(
         inbound_edge_id=routes[first.dispatch.token.token_id],
         cohort_inbound_edges=routes,
         payload={"delivered": True},
+        failure_mode=failure_mode,
     )
 
     cancelled = request_cancellation(arrived)
     outcomes = tuple(item.outcome for item in cancelled.joins[0].obligations)
 
+    assert cancelled.joins[0].lifecycle_state is JoinLifecycleState.CANCELLED
     assert outcomes == (JoinObligationOutcome.DELIVERED, expected)
     assert cancelled.forks[0].obligations[0].outcome is ForkObligationOutcome.JOINED
 

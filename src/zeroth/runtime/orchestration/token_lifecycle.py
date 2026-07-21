@@ -28,6 +28,7 @@ from zeroth.contracts.graph.tokens import (
     JoinLifecycleState,
     JoinObligation,
     JoinObligationOutcome,
+    LoopExitResolutionOutcome,
     LoopInstance,
     LoopLifecycleState,
     SchedulingState,
@@ -54,6 +55,24 @@ def _next(snapshot: TokenEngineSnapshot, **updates: object) -> TokenEngineSnapsh
     data = _data(snapshot)
     data.update(updates, revision=snapshot.revision + 1)
     return TokenEngineSnapshot.model_validate(data)
+
+
+def has_pending_structured_owner_work(snapshot: TokenEngineSnapshot) -> bool:
+    """Return whether a durable join/loop still requires an owner transition."""
+    return any(
+        join.lifecycle_state in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
+        for join in snapshot.joins
+    ) or any(
+        loop.lifecycle_state is LoopLifecycleState.STOPPING
+        or loop.reduction_claim_id is not None
+        or (
+            loop.frames
+            and loop.frames[-1].state is IterationFrameState.BARRIER_READY
+        )
+        for loop in snapshot.loops
+        if loop.lifecycle_state
+        not in {LoopLifecycleState.CANCELLED, LoopLifecycleState.COMPLETED}
+    )
 
 
 def pause_snapshot(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
@@ -91,8 +110,8 @@ def stop_snapshot(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
         raise TokenSchedulerTransitionError(f"cannot stop a {snapshot.state.value} token snapshot")
     needs_drain = bool(snapshot.in_flight_dispatches) or any(
         token.fork_lineage or token.iteration_memberships for token in snapshot.queue
-    )
-    if snapshot.state is not TokenEngineSnapshotState.PAUSED and needs_drain:
+    ) or has_pending_structured_owner_work(snapshot)
+    if needs_drain:
         if snapshot.state is TokenEngineSnapshotState.STOPPING:
             return snapshot
         return _next(snapshot, state=TokenEngineSnapshotState.STOPPING)
@@ -183,10 +202,15 @@ def _cancel_joins(
     token_ids: set[str],
     *,
     revision: int,
-    best_effort: bool,
 ) -> tuple[JoinInstance, ...]:
     updated_joins: list[JoinInstance] = []
     for join in joins:
+        if join.lifecycle_state in {
+            JoinLifecycleState.CANCELLED,
+            JoinLifecycleState.CLOSED,
+        }:
+            updated_joins.append(join)
+            continue
         obligations: list[JoinObligation] = []
         changed = False
         for obligation in join.obligations:
@@ -203,7 +227,7 @@ def _cancel_joins(
                         **_data(obligation),
                         "outcome": (
                             JoinObligationOutcome.SUPPRESSED
-                            if best_effort
+                            if join.failure_mode == "best_effort"
                             else JoinObligationOutcome.CANCELLED
                         ),
                         "delivery": None,
@@ -211,17 +235,13 @@ def _cancel_joins(
                     }
                 )
             )
-        if not changed:
+        affected = any(item.source_token_id in token_ids for item in join.obligations)
+        if not changed and not affected:
             updated_joins.append(join)
             continue
         all_settled = all(item.outcome is not None for item in obligations)
-        any_delivered = any(
-            item.outcome is JoinObligationOutcome.DELIVERED for item in obligations
-        )
         lifecycle_state = (
-            JoinLifecycleState.READY
-            if all_settled and any_delivered
-            else JoinLifecycleState.CLOSED
+            JoinLifecycleState.CANCELLED
             if all_settled
             else JoinLifecycleState.OPEN
         )
@@ -233,13 +253,17 @@ def _cancel_joins(
                     "lifecycle_state": lifecycle_state,
                     "consumed_parent_token_ids": (
                         tuple(item.source_token_id for item in obligations)
-                        if lifecycle_state is JoinLifecycleState.CLOSED
+                        if lifecycle_state is JoinLifecycleState.CANCELLED
                         else ()
                     ),
                     "continuation_token_id": None,
+                    "reducer_fingerprint": None,
+                    "reduction_claim_id": None,
+                    "reduction_claim_owner_id": None,
+                    "reduction_claim_revision": None,
                     "updated_revision": revision,
                     "closed_revision": (
-                        revision if lifecycle_state is JoinLifecycleState.CLOSED else None
+                        revision if lifecycle_state is JoinLifecycleState.CANCELLED else None
                     ),
                 }
             )
@@ -277,6 +301,11 @@ def _cancel_loops(
     ordered = sorted(loops, key=depth, reverse=True)
     for original in ordered:
         loop = by_id[original.loop_instance_id]
+        if loop.lifecycle_state in {
+            LoopLifecycleState.CANCELLED,
+            LoopLifecycleState.COMPLETED,
+        }:
+            continue
         frames: list[IterationFrame] = []
         changed = False
         for frame in loop.frames:
@@ -360,6 +389,12 @@ def _cancel_loops(
                     )
                 )
             frames = propagated_frames
+        if (
+            not changed
+            and loop.frames
+            and loop.frames[-1].state is IterationFrameState.BARRIER_READY
+        ):
+            changed = True
         if not changed:
             continue
         live_ids = tuple(
@@ -370,13 +405,53 @@ def _cancel_loops(
                 if member.state is IterationMemberState.ACTIVE
             )
         )
+        terminal = not live_ids
+        if terminal:
+            frames = [
+                IterationFrame.model_validate(
+                    {
+                        **_data(frame),
+                        "state": IterationFrameState.SETTLED,
+                        "updated_revision": revision,
+                        "settled_revision": revision,
+                    }
+                )
+                for frame in frames
+            ]
+        exits = tuple(
+            type(exit_state).model_validate(
+                {
+                    **_data(exit_state),
+                    "resolution_outcome": (
+                        LoopExitResolutionOutcome.DELIVERED
+                        if any(record.delivery is not None for record in exit_state.records)
+                        else LoopExitResolutionOutcome.SUPPRESSED
+                    ),
+                    "resolved_revision": revision,
+                }
+            )
+            if terminal
+            else exit_state
+            for exit_state in loop.exits
+        )
         by_id[loop.loop_instance_id] = LoopInstance.model_validate(
             {
                 **_data(loop),
                 "frames": tuple(frames),
                 "live_child_token_ids": live_ids,
-                "lifecycle_state": LoopLifecycleState.STOPPING,
+                "exits": exits,
+                "emitted_continuation_token_ids": (),
+                "reducer_fingerprint": None,
+                "reduction_claim_id": None,
+                "reduction_claim_owner_id": None,
+                "reduction_claim_revision": None,
+                "lifecycle_state": (
+                    LoopLifecycleState.CANCELLED
+                    if terminal
+                    else LoopLifecycleState.STOPPING
+                ),
                 "updated_revision": revision,
+                "completed_revision": revision if terminal else None,
             }
         )
     return tuple(by_id[loop.loop_instance_id] for loop in loops)
@@ -419,7 +494,6 @@ def _terminal_cancelled(
             snapshot.joins,
             set(settling_token_ids),
             revision=revision,
-            best_effort=best_effort,
         ),
         loops=_cancel_loops(
             snapshot.loops,
@@ -517,7 +591,6 @@ def request_cancellation(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
             snapshot.joins,
             structured_cancelled_ids,
             revision=requested_revision,
-            best_effort=best_effort,
         ),
         loops=_cancel_loops(
             snapshot.loops,
@@ -602,7 +675,6 @@ def acknowledge_cancellation(
             snapshot.joins,
             cancelled_ids,
             revision=revision,
-            best_effort=best_effort,
         ),
         loops=_cancel_loops(
             snapshot.loops,
@@ -674,6 +746,7 @@ class TokenLifecycleAdapter:
 __all__ = [
     "TokenLifecycleAdapter",
     "acknowledge_cancellation",
+    "has_pending_structured_owner_work",
     "pause_snapshot",
     "request_cancellation",
     "resume_snapshot",

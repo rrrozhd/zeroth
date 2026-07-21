@@ -16,12 +16,20 @@ from pydantic import JsonValue
 
 from zeroth.contracts.graph import Graph, HumanApprovalNode, SubgraphNode
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
-from zeroth.contracts.graph.tokens import DispatchLifecycleState
+from zeroth.contracts.graph.tokens import (
+    DispatchLifecycleState,
+    IterationFrameState,
+    JoinLifecycleState,
+)
 from zeroth.core.runs import Run, RunStatus
 from zeroth.runtime.orchestration import token_scope as _ts
 from zeroth.runtime.orchestration.dispatcher import dispatch_subgraph_node
 from zeroth.runtime.orchestration.errors import OrchestratorError
-from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
+from zeroth.runtime.orchestration.token_lifecycle import (
+    TokenLifecycleAdapter,
+    has_pending_structured_owner_work,
+)
+from zeroth.runtime.orchestration.token_loops import close_ready_loop
 from zeroth.runtime.orchestration.token_runtime_loops import TokenRuntimeLoopSupport
 from zeroth.runtime.orchestration.token_runtime_support import (
     TokenRuntimeSupport,
@@ -84,7 +92,14 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             ):
                 claim = await self._claim(snapshot)
             elif snapshot.state is TokenEngineSnapshotState.STOPPING:
+                drained = await self._drain_stopping_owner(graph, run, snapshot)
+                if drained is not snapshot:
+                    continue
                 await TokenLifecycleAdapter(self.store).stop(run.run_id)
+                current = await self.store.get_token_snapshot(run.run_id)
+                if current is not None and current.state is TokenEngineSnapshotState.STOPPING:
+                    stopped = await self.driver.external_stop(run)
+                    return stopped or run
                 continue
             else:
                 if any(token.settled_revision is None for token in snapshot.tokens):
@@ -94,6 +109,59 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             terminal = await self._dispatch_claim(graph, run, claim)
             if terminal is not None:
                 return terminal
+
+    async def _drain_stopping_owner(
+        self,
+        graph: Graph,
+        run: Run,
+        snapshot: TokenEngineSnapshot,
+    ) -> TokenEngineSnapshot:
+        ready_join = next(
+            (
+                join
+                for join in snapshot.joins
+                if join.lifecycle_state is JoinLifecycleState.READY
+            ),
+            None,
+        )
+        if ready_join is not None:
+            edge = next(
+                edge
+                for edge in graph.edges
+                if edge.target_node_id == ready_join.target_node_id
+                and edge.edge_id
+                in {item.inbound_edge_id for item in ready_join.obligations}
+            )
+            return await self._close_join_if_ready(
+                graph,
+                run,
+                snapshot,
+                edge,
+                ready_join.provenance_tag,
+            )
+        ready_loop = next(
+            (
+                loop
+                for loop in reversed(snapshot.loops)
+                if loop.frames
+                and loop.frames[-1].state is IterationFrameState.BARRIER_READY
+                and loop.reduction_claim_id is None
+            ),
+            None,
+        )
+        if ready_loop is not None:
+            header = node_by_id(graph, ready_loop.loop_header_node_id)
+            return await self._transition(
+                snapshot,
+                partial(
+                    close_ready_loop,
+                    loop_instance_id=ready_loop.loop_instance_id,
+                    continuation_config=getattr(header, "join_config", None),
+                ),
+            )
+        if has_pending_structured_owner_work(snapshot):
+            return snapshot
+        return snapshot
 
     async def _ensure_snapshot(self, graph: Graph, run: Run) -> TokenEngineSnapshot:
         current = await self.store.get_token_snapshot(run.run_id)

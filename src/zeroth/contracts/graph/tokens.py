@@ -66,12 +66,14 @@ class JoinLifecycleState(StrEnum):
     OPEN = "open"
     READY = "ready"
     REDUCING = "reducing"
+    CANCELLED = "cancelled"
     CLOSED = "closed"
 
 
 class LoopLifecycleState(StrEnum):
     RUNNING = "running"
     STOPPING = "stopping"
+    CANCELLED = "cancelled"
     COMPLETED = "completed"
 
 
@@ -592,6 +594,16 @@ class JoinInstance(_FrozenContract):
                 raise ValueError("a REDUCING join requires a positive reduction attempt")
             if self.reduction_claim_revision != self.updated_revision:
                 raise ValueError("a REDUCING join claim revision must match join revision")
+        elif self.lifecycle_state is JoinLifecycleState.CANCELLED:
+            if not all_settled:
+                raise ValueError("a CANCELLED join cannot have unsettled obligations")
+            expected_parents = tuple(item.source_token_id for item in self.obligations)
+            if self.consumed_parent_token_ids != expected_parents:
+                raise ValueError("a CANCELLED join must record every consumed parent")
+            if self.continuation_token_id is not None:
+                raise ValueError("a CANCELLED join cannot publish a continuation")
+            if any(item is not None for item in (*claim_fields, *completed_claim_fields)):
+                raise ValueError("a CANCELLED join cannot retain reduction claim state")
         else:
             if not all_settled:
                 raise ValueError("a CLOSED join cannot have unsettled obligations")
@@ -616,7 +628,10 @@ class JoinInstance(_FrozenContract):
                 ):
                     raise ValueError("completed claim revision is outside the join window")
 
-        closed = self.lifecycle_state is JoinLifecycleState.CLOSED
+        closed = self.lifecycle_state in {
+            JoinLifecycleState.CANCELLED,
+            JoinLifecycleState.CLOSED,
+        }
         if closed != (self.closed_revision is not None):
             raise ValueError("closed_revision is required exactly when a join is CLOSED")
         if self.closed_revision is not None and not (
@@ -1087,8 +1102,11 @@ class LoopInstance(_FrozenContract):
         ):
             raise ValueError("a loop reduction claim requires complete reducer ownership")
         if all(item is not None for item in claim_fields):
-            if self.lifecycle_state is LoopLifecycleState.COMPLETED:
-                raise ValueError("a completed loop cannot retain a reduction claim")
+            if self.lifecycle_state in {
+                LoopLifecycleState.CANCELLED,
+                LoopLifecycleState.COMPLETED,
+            }:
+                raise ValueError("a terminal loop cannot retain a reduction claim")
             if not self.frames or self.frames[-1].state is not IterationFrameState.BARRIER_READY:
                 raise ValueError("only a barrier-ready loop may retain a reduction claim")
             if self.reduction_attempt < 1:
@@ -1096,10 +1114,13 @@ class LoopInstance(_FrozenContract):
             if self.reduction_claim_revision != self.updated_revision:
                 raise ValueError("a loop reduction claim revision must match loop revision")
 
-        completed = self.lifecycle_state is LoopLifecycleState.COMPLETED
+        completed = self.lifecycle_state in {
+            LoopLifecycleState.CANCELLED,
+            LoopLifecycleState.COMPLETED,
+        }
         if completed != (self.completed_revision is not None):
-            raise ValueError("completed_revision is required exactly when a loop is COMPLETED")
-        if completed:
+            raise ValueError("completed_revision is required exactly when a loop is terminal")
+        if self.lifecycle_state is LoopLifecycleState.COMPLETED:
             if nonsettled or self.live_child_token_ids:
                 raise ValueError("a COMPLETED loop cannot retain a live iteration frame")
             if any(item.resolution_outcome is None for item in self.exits):
@@ -1112,6 +1133,13 @@ class LoopInstance(_FrozenContract):
                 raise ValueError(
                     "a COMPLETED loop must record one emitted continuation per delivered exit"
                 )
+        elif self.lifecycle_state is LoopLifecycleState.CANCELLED:
+            if nonsettled or self.live_child_token_ids:
+                raise ValueError("a CANCELLED loop cannot retain a live iteration frame")
+            if any(item.resolution_outcome is None for item in self.exits):
+                raise ValueError("a CANCELLED loop must resolve every owned exit")
+            if emitted_ids:
+                raise ValueError("a CANCELLED loop cannot publish exit continuations")
         else:
             if not nonsettled:
                 raise ValueError("a RUNNING or STOPPING loop must retain its current frame")

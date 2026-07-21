@@ -19,6 +19,7 @@ from zeroth.contracts.graph.tokens import (
     JoinObligationOutcome,
     LoopExitResolutionOutcome,
     LoopInstance,
+    LoopLifecycleState,
     SchedulingState,
     StateRevision,
     TokenEnvelope,
@@ -157,12 +158,24 @@ class TokenEngineSnapshot(BaseModel):
             ):
                 raise ValueError("a CANCELLED snapshot cannot retain open join obligations")
             if any(
+                join.lifecycle_state
+                not in {JoinLifecycleState.CANCELLED, JoinLifecycleState.CLOSED}
+                for join in self.joins
+            ):
+                raise ValueError("a CANCELLED snapshot cannot retain nonterminal joins")
+            if any(
                 member.state is IterationMemberState.ACTIVE
                 for loop in self.loops
                 for frame in loop.frames
                 for member in frame.members
             ):
                 raise ValueError("a CANCELLED snapshot cannot retain active iteration members")
+            if any(
+                loop.lifecycle_state
+                not in {LoopLifecycleState.CANCELLED, LoopLifecycleState.COMPLETED}
+                for loop in self.loops
+            ):
+                raise ValueError("a CANCELLED snapshot cannot retain nonterminal loops")
 
         tokens = {token.token_id: token for token in self.tokens}
         forks = {item.fork_id: item for item in self.forks}
@@ -248,7 +261,10 @@ class TokenEngineSnapshot(BaseModel):
                     raise ValueError(
                         "join obligation source iteration membership must exactly match its join"
                     )
-                if join.lifecycle_state is JoinLifecycleState.CLOSED:
+                if join.lifecycle_state in {
+                    JoinLifecycleState.CANCELLED,
+                    JoinLifecycleState.CLOSED,
+                }:
                     if source.scheduling_state is not SchedulingState.SETTLED:
                         raise ValueError("a settled join obligation source must be durably SETTLED")
                 elif (
