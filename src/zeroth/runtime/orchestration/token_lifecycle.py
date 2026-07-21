@@ -29,6 +29,7 @@ from zeroth.contracts.graph.tokens import (
     JoinObligation,
     JoinObligationOutcome,
     LoopInstance,
+    LoopLifecycleState,
     SchedulingState,
     TokenEnvelope,
     TokenLifecycleState,
@@ -118,7 +119,11 @@ def _cancelled_token(
 
 
 def _cancel_forks(
-    forks: tuple[ForkInstance, ...], token_ids: set[str], *, revision: int
+    forks: tuple[ForkInstance, ...],
+    token_ids: set[str],
+    *,
+    revision: int,
+    best_effort: bool,
 ) -> tuple[ForkInstance, ...]:
     by_id = {fork.fork_id: fork for fork in forks}
     changed = True
@@ -131,11 +136,19 @@ def _cancel_forks(
                 if obligation.child_token_id not in token_ids:
                     obligations.append(obligation)
                     continue
-                if obligation.outcome is not ForkObligationOutcome.CANCELLED:
+                if obligation.outcome is not None:
+                    obligations.append(obligation)
+                    continue
+                outcome = (
+                    ForkObligationOutcome.SUPPRESSED
+                    if best_effort
+                    else ForkObligationOutcome.CANCELLED
+                )
+                if obligation.outcome is not outcome:
                     obligation = ForkObligation.model_validate(
                         {
                             **_data(obligation),
-                            "outcome": ForkObligationOutcome.CANCELLED,
+                            "outcome": outcome,
                             "join_instance_id": None,
                             "settled_revision": revision,
                         }
@@ -166,7 +179,11 @@ def _cancel_forks(
 
 
 def _cancel_joins(
-    joins: tuple[JoinInstance, ...], token_ids: set[str], *, revision: int
+    joins: tuple[JoinInstance, ...],
+    token_ids: set[str],
+    *,
+    revision: int,
+    best_effort: bool,
 ) -> tuple[JoinInstance, ...]:
     updated_joins: list[JoinInstance] = []
     for join in joins:
@@ -176,12 +193,19 @@ def _cancel_joins(
             if obligation.source_token_id not in token_ids:
                 obligations.append(obligation)
                 continue
+            if obligation.outcome is not None:
+                obligations.append(obligation)
+                continue
             changed = True
             obligations.append(
                 JoinObligation.model_validate(
                     {
                         **_data(obligation),
-                        "outcome": JoinObligationOutcome.CANCELLED,
+                        "outcome": (
+                            JoinObligationOutcome.SUPPRESSED
+                            if best_effort
+                            else JoinObligationOutcome.CANCELLED
+                        ),
                         "delivery": None,
                         "settled_revision": revision,
                     }
@@ -191,20 +215,32 @@ def _cancel_joins(
             updated_joins.append(join)
             continue
         all_settled = all(item.outcome is not None for item in obligations)
+        any_delivered = any(
+            item.outcome is JoinObligationOutcome.DELIVERED for item in obligations
+        )
+        lifecycle_state = (
+            JoinLifecycleState.READY
+            if all_settled and any_delivered
+            else JoinLifecycleState.CLOSED
+            if all_settled
+            else JoinLifecycleState.OPEN
+        )
         updated_joins.append(
             JoinInstance.model_validate(
                 {
                     **_data(join),
                     "obligations": tuple(obligations),
-                    "lifecycle_state": (
-                        JoinLifecycleState.CLOSED if all_settled else JoinLifecycleState.OPEN
-                    ),
+                    "lifecycle_state": lifecycle_state,
                     "consumed_parent_token_ids": (
-                        tuple(item.source_token_id for item in obligations) if all_settled else ()
+                        tuple(item.source_token_id for item in obligations)
+                        if lifecycle_state is JoinLifecycleState.CLOSED
+                        else ()
                     ),
                     "continuation_token_id": None,
                     "updated_revision": revision,
-                    "closed_revision": revision if all_settled else None,
+                    "closed_revision": (
+                        revision if lifecycle_state is JoinLifecycleState.CLOSED else None
+                    ),
                 }
             )
         )
@@ -212,10 +248,35 @@ def _cancel_joins(
 
 
 def _cancel_loops(
-    loops: tuple[LoopInstance, ...], token_ids: set[str], *, revision: int
+    loops: tuple[LoopInstance, ...],
+    token_ids: set[str],
+    *,
+    revision: int,
+    best_effort: bool,
 ) -> tuple[LoopInstance, ...]:
-    updated_loops: list[LoopInstance] = []
+    by_id = {loop.loop_instance_id: loop for loop in loops}
+    member_loop_ids: dict[str, set[str]] = {}
     for loop in loops:
+        for frame in loop.frames:
+            for member in frame.members:
+                member_loop_ids.setdefault(member.token_id, set()).add(loop.loop_instance_id)
+
+    def depth(loop: LoopInstance) -> int:
+        result = 0
+        parent_id = loop.enclosing_owner.enclosing_loop_instance_id
+        while parent_id is not None:
+            result += 1
+            parent_id = by_id[parent_id].enclosing_owner.enclosing_loop_instance_id
+        return result
+
+    outcome = (
+        IterationMemberState.SUPPRESSED
+        if best_effort
+        else IterationMemberState.CANCELLED
+    )
+    ordered = sorted(loops, key=depth, reverse=True)
+    for original in ordered:
+        loop = by_id[original.loop_instance_id]
         frames: list[IterationFrame] = []
         changed = False
         for frame in loop.frames:
@@ -228,10 +289,17 @@ def _cancel_loops(
                     members.append(member)
                     continue
                 changed = True
+                owned_loop_ids = member_loop_ids.get(member.token_id, set())
+                member_outcome = (
+                    outcome
+                    if loop.loop_instance_id
+                    == max(owned_loop_ids, key=lambda item: depth(by_id[item]))
+                    else IterationMemberState.INTERNAL_COMPLETION
+                )
                 members.append(
                     IterationMember(
                         token_id=member.token_id,
-                        state=IterationMemberState.CANCELLED,
+                        state=member_outcome,
                         settled_revision=revision,
                     )
                 )
@@ -250,8 +318,49 @@ def _cancel_loops(
                     }
                 )
             )
+        child_loops = tuple(
+            child
+            for child in by_id.values()
+            if child.enclosing_owner.enclosing_loop_instance_id == loop.loop_instance_id
+            and child.updated_revision == revision
+            and all(
+                member.state is not IterationMemberState.ACTIVE
+                for child_frame in child.frames
+                for member in child_frame.members
+            )
+        )
+        propagated_owner_ids = {child.enclosing_owner.token_id for child in child_loops}
+        if propagated_owner_ids:
+            changed = True
+            propagated_frames: list[IterationFrame] = []
+            for frame in frames:
+                members = tuple(
+                    IterationMember(
+                        token_id=member.token_id,
+                        state=outcome,
+                        settled_revision=revision,
+                    )
+                    if member.token_id in propagated_owner_ids
+                    else member
+                    for member in frame.members
+                )
+                active = any(item.state is IterationMemberState.ACTIVE for item in members)
+                propagated_frames.append(
+                    IterationFrame.model_validate(
+                        {
+                            **_data(frame),
+                            "members": members,
+                            "state": (
+                                IterationFrameState.ACTIVE
+                                if active
+                                else IterationFrameState.BARRIER_READY
+                            ),
+                            "updated_revision": revision,
+                        }
+                    )
+                )
+            frames = propagated_frames
         if not changed:
-            updated_loops.append(loop)
             continue
         live_ids = tuple(
             sorted(
@@ -261,17 +370,16 @@ def _cancel_loops(
                 if member.state is IterationMemberState.ACTIVE
             )
         )
-        updated_loops.append(
-            LoopInstance.model_validate(
-                {
-                    **_data(loop),
-                    "frames": tuple(frames),
-                    "live_child_token_ids": live_ids,
-                    "updated_revision": revision,
-                }
-            )
+        by_id[loop.loop_instance_id] = LoopInstance.model_validate(
+            {
+                **_data(loop),
+                "frames": tuple(frames),
+                "live_child_token_ids": live_ids,
+                "lifecycle_state": LoopLifecycleState.STOPPING,
+                "updated_revision": revision,
+            }
         )
-    return tuple(updated_loops)
+    return tuple(by_id[loop.loop_instance_id] for loop in loops)
 
 
 def _terminal_cancelled(
@@ -280,17 +388,45 @@ def _terminal_cancelled(
     generation: int,
     requested_revision: int,
     acknowledged_token_ids: tuple[str, ...],
+    settling_token_ids: set[str],
     acknowledged_dispatch_ids: tuple[str, ...] = (),
 ) -> TokenEngineSnapshot:
     revision = snapshot.revision + 1
+    best_effort = snapshot.failure_mode == "best_effort"
+    tokens = tuple(
+        _cancelled_token(
+            token,
+            generation=generation,
+            revision=revision,
+            acknowledged=token.token_id in acknowledged_token_ids,
+        )
+        if token.token_id in settling_token_ids
+        else token
+        for token in snapshot.tokens
+    )
     return _next(
         snapshot,
         state=TokenEngineSnapshotState.CANCELLED,
         queue=(),
-        tokens=(),
-        forks=(),
-        joins=(),
-        loops=(),
+        tokens=tokens,
+        forks=_cancel_forks(
+            snapshot.forks,
+            set(settling_token_ids),
+            revision=revision,
+            best_effort=best_effort,
+        ),
+        joins=_cancel_joins(
+            snapshot.joins,
+            set(settling_token_ids),
+            revision=revision,
+            best_effort=best_effort,
+        ),
+        loops=_cancel_loops(
+            snapshot.loops,
+            set(settling_token_ids),
+            revision=revision,
+            best_effort=best_effort,
+        ),
         in_flight_dispatches=(),
         cancellation_fence=CancellationFence(
             generation=generation,
@@ -319,11 +455,17 @@ def request_cancellation(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
     generation = previous_generation + 1
     requested_revision = snapshot.revision + 1
     if not snapshot.in_flight_dispatches:
+        settling_ids = {
+            token.token_id
+            for token in snapshot.tokens
+            if token.scheduling_state is not SchedulingState.SETTLED
+        }
         return _terminal_cancelled(
             snapshot,
             generation=generation,
             requested_revision=requested_revision,
             acknowledged_token_ids=(),
+            settling_token_ids=settling_ids,
         )
 
     executing_ids = {item.token.token_id for item in snapshot.in_flight_dispatches}
@@ -359,14 +501,30 @@ def request_cancellation(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
         for dispatch in snapshot.in_flight_dispatches
     )
     structured_cancelled_ids = set(cancelled_ids)
+    best_effort = snapshot.failure_mode == "best_effort"
     return _next(
         snapshot,
         state=TokenEngineSnapshotState.RUNNING,
         queue=(),
         tokens=tokens,
-        forks=_cancel_forks(snapshot.forks, structured_cancelled_ids, revision=requested_revision),
-        joins=_cancel_joins(snapshot.joins, structured_cancelled_ids, revision=requested_revision),
-        loops=_cancel_loops(snapshot.loops, structured_cancelled_ids, revision=requested_revision),
+        forks=_cancel_forks(
+            snapshot.forks,
+            structured_cancelled_ids,
+            revision=requested_revision,
+            best_effort=best_effort,
+        ),
+        joins=_cancel_joins(
+            snapshot.joins,
+            structured_cancelled_ids,
+            revision=requested_revision,
+            best_effort=best_effort,
+        ),
+        loops=_cancel_loops(
+            snapshot.loops,
+            structured_cancelled_ids,
+            revision=requested_revision,
+            best_effort=best_effort,
+        ),
         in_flight_dispatches=dispatches,
         cancellation_fence=CancellationFence(
             generation=generation,
@@ -415,6 +573,7 @@ def acknowledge_cancellation(
             requested_revision=fence.requested_revision or revision,
             acknowledged_token_ids=acknowledged_ids,
             acknowledged_dispatch_ids=acknowledged_dispatch_ids,
+            settling_token_ids={token_id},
         )
 
     tokens = tuple(
@@ -429,12 +588,28 @@ def acknowledge_cancellation(
         for token in snapshot.tokens
     )
     cancelled_ids = {token_id}
+    best_effort = snapshot.failure_mode == "best_effort"
     return _next(
         snapshot,
         tokens=tokens,
-        forks=_cancel_forks(snapshot.forks, cancelled_ids, revision=revision),
-        joins=_cancel_joins(snapshot.joins, cancelled_ids, revision=revision),
-        loops=_cancel_loops(snapshot.loops, cancelled_ids, revision=revision),
+        forks=_cancel_forks(
+            snapshot.forks,
+            cancelled_ids,
+            revision=revision,
+            best_effort=best_effort,
+        ),
+        joins=_cancel_joins(
+            snapshot.joins,
+            cancelled_ids,
+            revision=revision,
+            best_effort=best_effort,
+        ),
+        loops=_cancel_loops(
+            snapshot.loops,
+            cancelled_ids,
+            revision=revision,
+            best_effort=best_effort,
+        ),
         in_flight_dispatches=remaining,
         cancellation_fence=CancellationFence(
             generation=cancellation_generation,

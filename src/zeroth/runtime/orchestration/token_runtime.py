@@ -104,6 +104,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             run_id=run.run_id,
             root_node_id=self.driver.entry_step(graph),
             payload=payload,
+            failure_mode=graph.execution_settings.failure_policy,
         )
         try:
             return await self.store.compare_and_swap_token_snapshot(

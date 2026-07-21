@@ -124,6 +124,7 @@ def initialize_token_snapshot(
     root_node_id: str,
     payload: JsonValue,
     causal_inbound_edge_id: str | None = None,
+    failure_mode: str = "fail_fast",
 ) -> TokenEngineSnapshot:
     """Create the exact revision-zero snapshot for a run's root token."""
     root_scope = f"run:{run_id}"
@@ -140,6 +141,7 @@ def initialize_token_snapshot(
         run_id=run_id,
         revision=0,
         state=TokenEngineSnapshotState.RUNNING,
+        failure_mode=failure_mode,
         next_token_ordinal=1,
         queue=(root,),
         tokens=(root,),

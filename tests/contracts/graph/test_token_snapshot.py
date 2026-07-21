@@ -589,7 +589,7 @@ def test_snapshot_rejects_orphan_parent_token() -> None:
         TokenEngineSnapshot.model_validate(data)
 
 
-def test_terminal_snapshot_must_be_empty_but_retains_cancellation_fence() -> None:
+def test_cancelled_snapshot_rejects_schedulable_work_and_retains_fence() -> None:
     data = _snapshot_data()
     data["state"] = TokenEngineSnapshotState.CANCELLED
     data["cancellation_fence"] = CancellationFence(
@@ -598,7 +598,7 @@ def test_terminal_snapshot_must_be_empty_but_retains_cancellation_fence() -> Non
         state_revision=0,
     )
 
-    with pytest.raises(ValidationError, match="terminal snapshot"):
+    with pytest.raises(ValidationError, match="CANCELLED snapshot"):
         TokenEngineSnapshot.model_validate(data)
 
     data["queue"] = ()

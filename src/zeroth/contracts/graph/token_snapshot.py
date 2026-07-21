@@ -92,6 +92,7 @@ class TokenEngineSnapshot(BaseModel):
     run_id: Annotated[str, Field(min_length=1, pattern=r"^\S+$")]
     revision: StateRevision
     state: TokenEngineSnapshotState
+    failure_mode: Literal["fail_fast", "best_effort"] = "fail_fast"
     next_token_ordinal: TokenOrdinal
     queue: tuple[TokenEnvelope, ...] = ()
     tokens: tuple[TokenEnvelope, ...] = ()
@@ -124,7 +125,10 @@ class TokenEngineSnapshot(BaseModel):
         _require_unique(frame_ids, "iteration frame IDs")
         _require_unique(obligation_ids, "structured obligation IDs")
 
-        if self.state in _TERMINAL_STATES and any(
+        if self.state in {
+            TokenEngineSnapshotState.COMPLETED,
+            TokenEngineSnapshotState.FAILED,
+        } and any(
             (
                 self.queue,
                 self.tokens,
@@ -135,6 +139,30 @@ class TokenEngineSnapshot(BaseModel):
             )
         ):
             raise ValueError("a terminal snapshot must contain no token-engine work state")
+        if self.state is TokenEngineSnapshotState.CANCELLED:
+            if self.queue or self.in_flight_dispatches:
+                raise ValueError("a CANCELLED snapshot cannot contain schedulable work")
+            if any(token.scheduling_state is not SchedulingState.SETTLED for token in self.tokens):
+                raise ValueError("a CANCELLED snapshot may retain only settled tokens")
+            if any(
+                obligation.outcome is None
+                for fork in self.forks
+                for obligation in fork.obligations
+            ):
+                raise ValueError("a CANCELLED snapshot cannot retain open fork obligations")
+            if any(
+                obligation.outcome is None
+                for join in self.joins
+                for obligation in join.obligations
+            ):
+                raise ValueError("a CANCELLED snapshot cannot retain open join obligations")
+            if any(
+                member.state is IterationMemberState.ACTIVE
+                for loop in self.loops
+                for frame in loop.frames
+                for member in frame.members
+            ):
+                raise ValueError("a CANCELLED snapshot cannot retain active iteration members")
 
         tokens = {token.token_id: token for token in self.tokens}
         forks = {item.fork_id: item for item in self.forks}
@@ -224,11 +252,19 @@ class TokenEngineSnapshot(BaseModel):
                     if source.scheduling_state is not SchedulingState.SETTLED:
                         raise ValueError("a settled join obligation source must be durably SETTLED")
                 elif (
-                    obligation.outcome is JoinObligationOutcome.CANCELLED
-                    and source.scheduling_state is SchedulingState.SETTLED
+                    source.scheduling_state is SchedulingState.SETTLED
                     and (
-                        source.cancellation_acknowledged_generation is not None
-                        or join.failure_mode == "fail_fast"
+                        (
+                            self.state is TokenEngineSnapshotState.CANCELLED
+                            and obligation.outcome is not None
+                        )
+                        or (
+                            obligation.outcome is JoinObligationOutcome.CANCELLED
+                            and (
+                                source.cancellation_acknowledged_generation is not None
+                                or join.failure_mode == "fail_fast"
+                            )
+                        )
                     )
                 ):
                     pass
