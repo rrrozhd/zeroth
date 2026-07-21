@@ -69,6 +69,26 @@ if TYPE_CHECKING:
     from zeroth.runtime.orchestration.token_joins import (
         settle_join_without_delivery as settle_join_without_delivery,
     )
+    from zeroth.runtime.orchestration.token_loops import LoopReducer as LoopReducer
+    from zeroth.runtime.orchestration.token_loops import (
+        LoopReductionClaim as LoopReductionClaim,
+    )
+    from zeroth.runtime.orchestration.token_loops import (
+        TokenLoopTransitionError as TokenLoopTransitionError,
+    )
+    from zeroth.runtime.orchestration.token_loops import (
+        close_ready_loop as close_ready_loop,
+    )
+    from zeroth.runtime.orchestration.token_loops import (
+        close_ready_loop_with_cas as close_ready_loop_with_cas,
+    )
+    from zeroth.runtime.orchestration.token_loops import enter_loop as enter_loop
+    from zeroth.runtime.orchestration.token_loops import (
+        reclaim_abandoned_loop_reduction_with_cas as reclaim_abandoned_loop_reduction_with_cas,
+    )
+    from zeroth.runtime.orchestration.token_loops import (
+        settle_loop_member as settle_loop_member,
+    )
     from zeroth.runtime.orchestration.token_scheduler import (
         DispatchClaim as DispatchClaim,
     )
@@ -147,6 +167,8 @@ _EXPORTS = {
     ),
     "JoinReductionRecoveryError": ("token_joins", "JoinReductionRecoveryError"),
     "JoinReductionReleaseError": ("token_joins", "JoinReductionReleaseError"),
+    "LoopReducer": ("token_loops", "LoopReducer"),
+    "LoopReductionClaim": ("token_loops", "LoopReductionClaim"),
     "MemoryBindingResolutionError": ("errors", "MemoryBindingResolutionError"),
     "NodeDispatcher": ("dispatcher", "NodeDispatcher"),
     "NodeDispatcherError": ("errors", "NodeDispatcherError"),
@@ -179,14 +201,18 @@ _EXPORTS = {
         "TokenSchedulerTransitionError",
     ),
     "TokenJoinTransitionError": ("token_joins", "TokenJoinTransitionError"),
+    "TokenLoopTransitionError": ("token_loops", "TokenLoopTransitionError"),
     "TokenPostCommitError": ("token_scheduler", "TokenPostCommitError"),
     "TokenTransition": ("token_scheduler", "TokenTransition"),
     "apply_token_transition": ("token_scheduler", "apply_token_transition"),
     "claim_next_token": ("token_scheduler", "claim_next_token"),
     "close_ready_join": ("token_joins", "close_ready_join"),
     "close_ready_join_with_cas": ("token_joins", "close_ready_join_with_cas"),
+    "close_ready_loop": ("token_loops", "close_ready_loop"),
+    "close_ready_loop_with_cas": ("token_loops", "close_ready_loop_with_cas"),
     "complete_dispatch": ("token_scheduler", "complete_dispatch"),
     "enqueue_dispatch": ("token_scheduler", "enqueue_dispatch"),
+    "enter_loop": ("token_loops", "enter_loop"),
     "deliver_to_join": ("token_joins", "deliver_to_join"),
     "fail_dispatch": ("token_scheduler", "fail_dispatch"),
     "fan_out_dispatch": ("token_scheduler", "fan_out_dispatch"),
@@ -196,9 +222,14 @@ _EXPORTS = {
         "token_joins",
         "reclaim_abandoned_join_reduction_with_cas",
     ),
+    "reclaim_abandoned_loop_reduction_with_cas": (
+        "token_loops",
+        "reclaim_abandoned_loop_reduction_with_cas",
+    ),
     "reduce_join_inputs": ("token_joins", "reduce_join_inputs"),
     "retry_dispatch": ("token_scheduler", "retry_dispatch"),
     "settle_join_without_delivery": ("token_joins", "settle_join_without_delivery"),
+    "settle_loop_member": ("token_loops", "settle_loop_member"),
 }
 
 __all__ = sorted(_EXPORTS)

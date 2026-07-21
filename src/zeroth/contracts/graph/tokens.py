@@ -656,6 +656,7 @@ class IterationMember(_FrozenContract):
     token_id: TokenId
     state: IterationMemberState
     causal_edge_id: EdgeId | None = None
+    settlement_command_fingerprint: StableId | None = None
     settled_revision: StateRevision | None = None
 
     @model_validator(mode="after")
@@ -663,6 +664,8 @@ class IterationMember(_FrozenContract):
         active = self.state is IterationMemberState.ACTIVE
         if active == (self.settled_revision is not None):
             raise ValueError("ACTIVE members are unsettled; all other member states are settled")
+        if active and self.settlement_command_fingerprint is not None:
+            raise ValueError("an ACTIVE member cannot retain a settlement command fingerprint")
         needs_edge = self.state in {
             IterationMemberState.BACK_EDGE_CONTINUATION,
             IterationMemberState.EXIT_DELIVERY,
@@ -857,6 +860,7 @@ class LoopInstance(_FrozenContract):
 
     loop_instance_id: LoopInstanceId
     loop_header_node_id: NodeId
+    entry_command_fingerprint: StableId | None = None
     enclosing_owner: LoopEnclosingOwner
     outer_provenance_tag: tuple[ProvenanceFrame, ...] = ()
     frames: tuple[IterationFrame, ...] = ()
@@ -869,6 +873,11 @@ class LoopInstance(_FrozenContract):
     )
     exits: tuple[LoopExit, ...] = ()
     emitted_continuation_token_ids: tuple[TokenId, ...] = ()
+    reducer_fingerprint: StableId | None = None
+    reduction_claim_id: StableId | None = None
+    reduction_claim_owner_id: StableId | None = None
+    reduction_claim_revision: StateRevision | None = None
+    reduction_attempt: RetryAttempt = 0
     lifecycle_state: LoopLifecycleState
     created_revision: StateRevision
     updated_revision: StateRevision
@@ -1038,6 +1047,26 @@ class LoopInstance(_FrozenContract):
                 for revision in revisions
             ):
                 raise ValueError("loop-exit revisions are outside the loop revision window")
+
+        claim_fields = (
+            self.reducer_fingerprint,
+            self.reduction_claim_id,
+            self.reduction_claim_owner_id,
+            self.reduction_claim_revision,
+        )
+        if any(item is not None for item in claim_fields) and not all(
+            item is not None for item in claim_fields
+        ):
+            raise ValueError("a loop reduction claim requires complete reducer ownership")
+        if all(item is not None for item in claim_fields):
+            if self.lifecycle_state is LoopLifecycleState.COMPLETED:
+                raise ValueError("a completed loop cannot retain a reduction claim")
+            if not self.frames or self.frames[-1].state is not IterationFrameState.BARRIER_READY:
+                raise ValueError("only a barrier-ready loop may retain a reduction claim")
+            if self.reduction_attempt < 1:
+                raise ValueError("a loop reduction claim requires a positive attempt")
+            if self.reduction_claim_revision != self.updated_revision:
+                raise ValueError("a loop reduction claim revision must match loop revision")
 
         completed = self.lifecycle_state is LoopLifecycleState.COMPLETED
         if completed != (self.completed_revision is not None):

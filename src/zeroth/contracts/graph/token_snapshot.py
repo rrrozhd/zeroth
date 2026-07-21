@@ -348,7 +348,16 @@ class TokenEngineSnapshot(BaseModel):
                             for nested in self.forks
                         )
                     )
-                    if not retired_nested_parent:
+                    loop_descendant = any(
+                        nested.enclosing_owner.token_id == token.parent_token_id
+                        and any(
+                            member.token_id == token.token_id
+                            for nested_frame in nested.frames
+                            for member in nested_frame.members
+                        )
+                        for nested in self.loops
+                    )
+                    if not retired_nested_parent and not loop_descendant:
                         raise ValueError("token is not a child of its innermost fork owner")
             for membership in token.iteration_memberships:
                 loop = loops.get(membership.loop_instance_id)
@@ -364,7 +373,24 @@ class TokenEngineSnapshot(BaseModel):
                 if membership.iteration_index != frame.iteration_index:
                     raise ValueError("token iteration membership uses the wrong frame index")
                 is_live_member = member.state is IterationMemberState.ACTIVE
-                if is_live_member != (token.scheduling_state is not SchedulingState.SETTLED):
+                owns_unresolved_nested_scope = any(
+                    nested.lifecycle_state.value != "completed"
+                    and (
+                        nested.enclosing_owner.token_id == token.token_id
+                        or any(
+                            member.token_id == token.token_id
+                            for nested_frame in nested.frames
+                            for member in nested_frame.members
+                        )
+                    )
+                    for nested in self.loops
+                    if nested.enclosing_owner.enclosing_loop_instance_id
+                    == membership.loop_instance_id
+                )
+                token_is_live = token.scheduling_state is not SchedulingState.SETTLED
+                if (is_live_member and not token_is_live and not owns_unresolved_nested_scope) or (
+                    not is_live_member and token_is_live
+                ):
                     raise ValueError("token settlement contradicts its iteration member state")
 
         token_parent_map = {
