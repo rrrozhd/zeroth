@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+import zeroth.runtime.orchestration as orchestration
+
 from zeroth.contracts.graph import (
     DispatchLifecycleState,
     ForkLifecycleState,
@@ -275,17 +277,19 @@ def test_canonical_reducer_input_preserves_edge_labels_across_arrival_orders() -
     continuation = next(
         token for token in closed.tokens if token.token_id == closed.joins[0].continuation_token_id
     )
-    assert continuation.model_dump(mode="json")["payload"] == [
-        {"ordinal": 0},
-        {"ordinal": 1},
-        {"ordinal": 2},
-    ]
+    assert continuation.model_dump(mode="json")["payload"] == {
+        "result": [
+            {"ordinal": 0},
+            {"ordinal": 1},
+            {"ordinal": 2},
+        ]
+    }
 
 
 @pytest.mark.parametrize(
     ("config", "expected"),
     [
-        (JoinConfig(merge_strategy="collect"), [{"a": 1}, {"b": 2}]),
+        (JoinConfig(merge_strategy="collect"), {"result": [{"a": 1}, {"b": 2}]}),
         (JoinConfig(merge_strategy="merge"), {"a": 1, "b": 2}),
         (JoinConfig(merge_strategy="reduce"), {"b": 2}),
         (
@@ -305,6 +309,59 @@ def test_all_reducer_strategies_share_one_deterministic_seam(
         ({"total": 1}, {"total": 2}) if config.merge_strategy == "custom" else ({"a": 1}, {"b": 2})
     )
     ready = _deliver_head(_deliver_head(start, payload=payloads[0]), payload=payloads[1])
+    closed = close_ready_join(ready, ready.joins[0].join_instance_id, config)
+    continuation = next(
+        token for token in closed.tokens if token.token_id == closed.joins[0].continuation_token_id
+    )
+    assert continuation.model_dump(mode="json")["payload"] == expected
+
+
+@pytest.mark.parametrize(
+    ("config", "payloads", "expected"),
+    [
+        (
+            JoinConfig(merge_strategy="collect"),
+            ({"a": 1}, {"b": 2}),
+            {"result": [{"a": 1}, {"b": 2}]},
+        ),
+        (
+            JoinConfig(merge_strategy="collect", merge_path="joined.items"),
+            ({"a": 1}, {"b": 2}),
+            {"joined": {"items": [{"a": 1}, {"b": 2}]}},
+        ),
+        (
+            JoinConfig(merge_strategy="merge", merge_path="ignored"),
+            ({"a": 1}, {"b": 2}),
+            {"a": 1, "b": 2},
+        ),
+        (
+            JoinConfig(merge_strategy="reduce", merge_path="value"),
+            (1, 2),
+            {"value": 2},
+        ),
+        (
+            JoinConfig(
+                merge_strategy="custom",
+                reducer_ref="tests._fixtures.reducers.sum_ints",
+            ),
+            (1, 2),
+            {"result": 3},
+        ),
+        (
+            JoinConfig(
+                merge_strategy="custom",
+                reducer_ref="tests._fixtures.reducers.sum_scores",
+                merge_path="ignored",
+            ),
+            ({"total": 1}, {"total": 2}),
+            {"total": 3},
+        ),
+    ],
+)
+def test_join_config_result_shaping_matches_established_driver(
+    config: JoinConfig, payloads: tuple[object, object], expected: object
+) -> None:
+    ready = _deliver_head(_deliver_head(_fanout(2), payload=payloads[0]), payload=payloads[1])
     closed = close_ready_join(ready, ready.joins[0].join_instance_id, config)
     continuation = next(
         token for token in closed.tokens if token.token_id == closed.joins[0].continuation_token_id
@@ -337,7 +394,7 @@ def test_suppressed_obligations_do_not_fabricate_payloads() -> None:
     continuation = next(
         token for token in closed.tokens if token.token_id == closed.joins[0].continuation_token_id
     )
-    assert continuation.model_dump(mode="json")["payload"] == [{"kept": True}]
+    assert continuation.model_dump(mode="json")["payload"] == {"result": [{"kept": True}]}
 
 
 def test_all_suppressed_cohort_closes_without_continuation() -> None:
@@ -632,6 +689,181 @@ def test_close_cas_retry_invokes_reducer_once() -> None:
     assert calls == 1
 
 
+def test_reducer_exception_releases_exact_claim_before_surfacing() -> None:
+    ready = _deliver_head(_deliver_head(_fanout(2), payload={"a": 1}), payload={"b": 2})
+    store = _CASStore(ready)
+    store.failures = 0
+
+    def broken_reducer(_config: JoinConfig, _inputs: tuple[JoinReducerInput, ...]) -> object:
+        raise RuntimeError("broken reducer")
+
+    with pytest.raises(RuntimeError, match="broken reducer"):
+        asyncio.run(
+            close_ready_join_with_cas(
+                store,
+                ready.run_id,
+                ready.joins[0].join_instance_id,
+                JoinConfig(),
+                reducer=broken_reducer,
+                claim_owner_id="worker-a",
+            )
+        )
+    released = store.snapshot.joins[0]
+    assert released.lifecycle_state is JoinLifecycleState.READY
+    assert released.reduction_attempt == 1
+    assert released.reduction_claim_id is None
+    assert released.reduction_claim_owner_id is None
+    assert released.reduction_claim_revision is None
+
+    closed = asyncio.run(
+        close_ready_join_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            JoinConfig(),
+            claim_owner_id="worker-b",
+        )
+    )
+    assert closed.joins[0].lifecycle_state is JoinLifecycleState.CLOSED
+    assert closed.joins[0].reduction_attempt == 2
+
+
+class _SimulatedProcessCrash(BaseException):
+    pass
+
+
+def _crash_after_reduction_claim(ready: TokenEngineSnapshot, store: _CASStore) -> object:
+    def crash(_config: JoinConfig, _inputs: tuple[JoinReducerInput, ...]) -> object:
+        raise _SimulatedProcessCrash
+
+    with pytest.raises(_SimulatedProcessCrash):
+        asyncio.run(
+            close_ready_join_with_cas(
+                store,
+                ready.run_id,
+                ready.joins[0].join_instance_id,
+                JoinConfig(),
+                reducer=crash,
+                claim_owner_id="crashed-worker",
+            )
+        )
+    return orchestration.JoinReductionClaim.from_join(store.snapshot.joins[0])
+
+
+def test_crashed_claim_can_be_reclaimed_and_stale_owner_cannot_close() -> None:
+    ready = _deliver_head(_deliver_head(_fanout(2), payload={"a": 1}), payload={"b": 2})
+    store = _CASStore(ready)
+    store.failures = 0
+    abandoned = _crash_after_reduction_claim(ready, store)
+
+    with pytest.raises(orchestration.JoinReductionRecoveryError):
+        asyncio.run(
+            orchestration.reclaim_abandoned_join_reduction_with_cas(
+                store,
+                ready.run_id,
+                ready.joins[0].join_instance_id,
+                observed_claim=abandoned,
+                new_owner_id="",
+            )
+        )
+
+    reclaimed = asyncio.run(
+        orchestration.reclaim_abandoned_join_reduction_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            observed_claim=abandoned,
+            new_owner_id="recovery-worker",
+        )
+    )
+    assert reclaimed.attempt == abandoned.attempt + 1
+    assert reclaimed.claim_id != abandoned.claim_id
+    assert reclaimed.owner_id == "recovery-worker"
+
+    with pytest.raises(orchestration.JoinReductionClaimChangedError):
+        asyncio.run(
+            close_ready_join_with_cas(
+                store,
+                ready.run_id,
+                ready.joins[0].join_instance_id,
+                JoinConfig(),
+                claimed_reduction=abandoned,
+            )
+        )
+
+    closed = asyncio.run(
+        close_ready_join_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            JoinConfig(),
+            claimed_reduction=reclaimed,
+        )
+    )
+    replayed = asyncio.run(
+        close_ready_join_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            JoinConfig(),
+            claimed_reduction=reclaimed,
+        )
+    )
+    assert closed.joins[0].lifecycle_state is JoinLifecycleState.CLOSED
+    assert replayed is store.snapshot
+    with pytest.raises(orchestration.JoinReductionClaimChangedError):
+        asyncio.run(
+            close_ready_join_with_cas(
+                store,
+                ready.run_id,
+                ready.joins[0].join_instance_id,
+                JoinConfig(),
+                claimed_reduction=abandoned,
+            )
+        )
+
+
+def test_two_reclaimers_race_and_only_one_replaces_abandoned_claim() -> None:
+    ready = _deliver_head(_deliver_head(_fanout(2), payload={"a": 1}), payload={"b": 2})
+    store = _YieldingCASStore(ready)
+    store.failures = 0
+    abandoned = _crash_after_reduction_claim(ready, store)
+
+    async def reclaim(owner_id: str) -> object:
+        return await orchestration.reclaim_abandoned_join_reduction_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            observed_claim=abandoned,
+            new_owner_id=owner_id,
+            max_attempts=32,
+        )
+
+    async def race() -> tuple[object, ...]:
+        return await asyncio.gather(
+            reclaim("recovery-a"), reclaim("recovery-b"), return_exceptions=True
+        )
+
+    results = asyncio.run(race())
+    winners = [item for item in results if isinstance(item, orchestration.JoinReductionClaim)]
+    losers = [
+        item for item in results if isinstance(item, orchestration.JoinReductionClaimChangedError)
+    ]
+    assert len(winners) == 1
+    assert len(losers) == 1
+
+    closed = asyncio.run(
+        close_ready_join_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            JoinConfig(),
+            claimed_reduction=winners[0],
+        )
+    )
+    assert closed.joins[0].lifecycle_state is JoinLifecycleState.CLOSED
+
+
 class _YieldingCASStore(_CASStore):
     async def get_token_snapshot(self, run_id: str) -> TokenEngineSnapshot:
         await asyncio.sleep(0)
@@ -868,6 +1100,88 @@ def test_join_close_inside_iteration_transfers_frame_ownership_to_continuation()
         members[child.token_id].state is IterationMemberState.INTERNAL_COMPLETION
         for child in closed.forks[0].children
     )
+
+
+def _ready_loop_join() -> TokenEngineSnapshot:
+    snapshot = _loop_fanout()
+    routes = _routes(snapshot)
+    for child in snapshot.forks[0].children:
+        snapshot = deliver_to_join(
+            snapshot,
+            token_id=child.token_id,
+            target_node_id="inside-join",
+            inbound_edge_id=routes[child.token_id],
+            cohort_inbound_edges=routes,
+            payload={"child": child.creation_ordinal},
+        )
+    return snapshot
+
+
+def test_join_persists_exact_iteration_ownership_scope() -> None:
+    ready = _ready_loop_join()
+    join = ready.joins[0]
+    sources = [
+        next(token for token in ready.tokens if token.token_id == obligation.source_token_id)
+        for obligation in join.obligations
+    ]
+    assert all(source.provenance_tag == join.provenance_tag for source in sources)
+    assert all(source.iteration_memberships == join.iteration_memberships for source in sources)
+
+
+def test_snapshot_rejects_join_whose_sources_have_different_provenance() -> None:
+    data = _ready_loop_join().model_dump()
+    data["joins"][0]["provenance_tag"] = ()
+    data["joins"][0]["iteration_memberships"] = ()
+    with pytest.raises(ValueError, match="provenance"):
+        TokenEngineSnapshot.model_validate(data)
+
+
+def test_snapshot_rejects_join_whose_sources_have_different_iteration_chain() -> None:
+    data = _ready_loop_join().model_dump()
+    membership = data["joins"][0]["iteration_memberships"][0]
+    membership["loop_instance_id"] = "foreign-loop"
+    membership["iteration_frame_id"] = "foreign-frame"
+    with pytest.raises(ValueError, match="iteration membership"):
+        TokenEngineSnapshot.model_validate(data)
+
+
+def test_arrival_rejects_fork_cohort_crossing_iteration_scope() -> None:
+    snapshot = _loop_fanout()
+    routes = _routes(snapshot)
+    first, foreign = snapshot.forks[0].children
+    original = next(token for token in snapshot.tokens if token.token_id == foreign.token_id)
+    foreign_membership = original.iteration_memberships[0].model_copy(
+        update={"iteration_frame_id": "foreign-frame", "iteration_index": 1}
+    )
+    foreign_token = original.model_copy(
+        update={
+            "provenance_tag": (
+                ProvenanceFrame(loop_header_node_id="loop-header", iteration_index=1),
+            ),
+            "iteration_memberships": (foreign_membership,),
+        }
+    )
+    unsafe = snapshot.model_copy(
+        update={
+            "tokens": tuple(
+                foreign_token if token.token_id == foreign.token_id else token
+                for token in snapshot.tokens
+            ),
+            "queue": tuple(
+                foreign_token if token.token_id == foreign.token_id else token
+                for token in snapshot.queue
+            ),
+        }
+    )
+    with pytest.raises(TokenJoinTransitionError, match="iteration scope"):
+        deliver_to_join(
+            unsafe,
+            token_id=first.token_id,
+            target_node_id="inside-join",
+            inbound_edge_id=routes[first.token_id],
+            cohort_inbound_edges=routes,
+            payload={"value": 1},
+        )
 
 
 def test_mixed_delivered_suppressed_join_transfers_iteration_ownership_once() -> None:

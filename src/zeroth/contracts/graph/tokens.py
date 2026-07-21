@@ -454,13 +454,21 @@ class JoinInstance(_FrozenContract):
     fork_id: ForkId
     target_node_id: NodeId
     provenance_tag: tuple[ProvenanceFrame, ...] = ()
+    iteration_memberships: tuple[IterationMembership, ...] = ()
     obligations: Annotated[tuple[JoinObligation, ...], Field(min_length=1)]
     failure_mode: Literal["fail_fast", "best_effort"] = "fail_fast"
     lifecycle_state: JoinLifecycleState
     continuation_token_id: TokenId | None = None
     consumed_parent_token_ids: tuple[TokenId, ...] = ()
     reducer_fingerprint: str | None = None
+    reduction_attempt: Annotated[int, Field(ge=0)] = 0
     reduction_claim_id: str | None = None
+    reduction_claim_owner_id: str | None = None
+    reduction_claim_revision: StateRevision | None = None
+    completed_reduction_claim_id: str | None = None
+    completed_reduction_claim_owner_id: str | None = None
+    completed_reduction_attempt: Annotated[int, Field(ge=1)] | None = None
+    completed_reduction_claim_revision: StateRevision | None = None
     created_revision: StateRevision
     updated_revision: StateRevision
     closed_revision: StateRevision | None = None
@@ -473,6 +481,24 @@ class JoinInstance(_FrozenContract):
     def _validate_join(self) -> JoinInstance:
         _require_revision_window(self.created_revision, self.updated_revision)
         _require_canonical_provenance(self.provenance_tag, "provenance_tag")
+        loop_ids = tuple(item.loop_instance_id for item in self.iteration_memberships)
+        frame_ids = tuple(item.iteration_frame_id for item in self.iteration_memberships)
+        if len(loop_ids) != len(set(loop_ids)) or len(frame_ids) != len(set(frame_ids)):
+            raise ValueError("join iteration_memberships must name unique owners")
+        for index, membership in enumerate(self.iteration_memberships):
+            expected_parent = (
+                None if index == 0 else self.iteration_memberships[index - 1].loop_instance_id
+            )
+            if membership.parent_loop_instance_id != expected_parent:
+                raise ValueError("join iteration_memberships contain an orphan loop parent")
+        tag_members = {
+            frame.loop_header_node_id: frame.iteration_index for frame in self.provenance_tag
+        }
+        owner_members = {
+            item.loop_header_node_id: item.iteration_index for item in self.iteration_memberships
+        }
+        if tag_members != owner_members:
+            raise ValueError("join provenance_tag must exactly match its iteration memberships")
         if any(item.join_instance_id != self.join_instance_id for item in self.obligations):
             raise ValueError("every obligation join_instance_id must match its JoinInstance")
         if any(item.fork_id != self.fork_id for item in self.obligations):
@@ -501,6 +527,29 @@ class JoinInstance(_FrozenContract):
 
         all_settled = all(item.outcome is not None for item in self.obligations)
         any_delivered = self.delivered_obligation_count > 0
+        claim_fields = (
+            self.reduction_claim_id,
+            self.reduction_claim_owner_id,
+            self.reduction_claim_revision,
+        )
+        if any(item is not None for item in claim_fields) and not all(
+            item is not None for item in claim_fields
+        ):
+            raise ValueError("reduction claim identity fields must be recorded together")
+        completed_claim_fields = (
+            self.completed_reduction_claim_id,
+            self.completed_reduction_claim_owner_id,
+            self.completed_reduction_attempt,
+            self.completed_reduction_claim_revision,
+        )
+        if any(item is not None for item in completed_claim_fields) and not all(
+            item is not None for item in completed_claim_fields
+        ):
+            raise ValueError("completed reduction claim fields must be recorded together")
+        if self.lifecycle_state is not JoinLifecycleState.CLOSED and any(
+            item is not None for item in completed_claim_fields
+        ):
+            raise ValueError("only a CLOSED join may retain completed claim identity")
         if len(self.consumed_parent_token_ids) != len(set(self.consumed_parent_token_ids)):
             raise ValueError("consumed_parent_token_ids must be unique")
         if self.continuation_token_id in self.consumed_parent_token_ids:
@@ -513,6 +562,9 @@ class JoinInstance(_FrozenContract):
                 or self.consumed_parent_token_ids
                 or self.reducer_fingerprint is not None
                 or self.reduction_claim_id is not None
+                or self.reduction_claim_owner_id is not None
+                or self.reduction_claim_revision is not None
+                or self.reduction_attempt != 0
             ):
                 raise ValueError("an OPEN join cannot have continuation state")
         elif self.lifecycle_state is JoinLifecycleState.READY:
@@ -523,6 +575,8 @@ class JoinInstance(_FrozenContract):
                 or self.consumed_parent_token_ids
                 or self.reducer_fingerprint is not None
                 or self.reduction_claim_id is not None
+                or self.reduction_claim_owner_id is not None
+                or self.reduction_claim_revision is not None
             ):
                 raise ValueError("a READY join cannot have continuation state")
         elif self.lifecycle_state is JoinLifecycleState.REDUCING:
@@ -530,8 +584,14 @@ class JoinInstance(_FrozenContract):
                 raise ValueError("a REDUCING join requires settled delivered input")
             if self.continuation_token_id is not None or self.consumed_parent_token_ids:
                 raise ValueError("a REDUCING join cannot consume parents early")
-            if self.reducer_fingerprint is None or self.reduction_claim_id is None:
+            if self.reducer_fingerprint is None or not all(
+                item is not None for item in claim_fields
+            ):
                 raise ValueError("a REDUCING join requires reducer and claim identity")
+            if self.reduction_attempt < 1:
+                raise ValueError("a REDUCING join requires a positive reduction attempt")
+            if self.reduction_claim_revision != self.updated_revision:
+                raise ValueError("a REDUCING join claim revision must match join revision")
         else:
             if not all_settled:
                 raise ValueError("a CLOSED join cannot have unsettled obligations")
@@ -544,8 +604,17 @@ class JoinInstance(_FrozenContract):
                 raise ValueError(
                     "a CLOSED join has a continuation exactly when an obligation delivered"
                 )
-            if self.reduction_claim_id is not None:
+            if any(item is not None for item in claim_fields):
                 raise ValueError("a CLOSED join cannot retain a reduction claim")
+            if self.completed_reduction_attempt is not None:
+                if self.completed_reduction_attempt != self.reduction_attempt:
+                    raise ValueError("completed claim attempt must match reduction_attempt")
+                if self.completed_reduction_claim_revision is None or not (
+                    self.created_revision
+                    <= self.completed_reduction_claim_revision
+                    <= self.updated_revision
+                ):
+                    raise ValueError("completed claim revision is outside the join window")
 
         closed = self.lifecycle_state is JoinLifecycleState.CLOSED
         if closed != (self.closed_revision is not None):

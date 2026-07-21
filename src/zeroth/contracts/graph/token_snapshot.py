@@ -210,6 +210,14 @@ class TokenEngineSnapshot(BaseModel):
                 source = tokens.get(obligation.source_token_id)
                 if source is None:
                     raise ValueError("join obligation references a missing source token")
+                if source.provenance_tag != join.provenance_tag:
+                    raise ValueError(
+                        "join obligation source provenance must exactly match its join"
+                    )
+                if source.iteration_memberships != join.iteration_memberships:
+                    raise ValueError(
+                        "join obligation source iteration membership must exactly match its join"
+                    )
                 if join.lifecycle_state is JoinLifecycleState.CLOSED:
                     if source.scheduling_state is not SchedulingState.SETTLED:
                         raise ValueError("a settled join obligation source must be durably SETTLED")

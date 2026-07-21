@@ -33,6 +33,10 @@ from zeroth.runtime.orchestration.token_join_models import (
     FailureMode,
     JoinReducer,
     JoinReducerInput,
+    JoinReductionClaim,
+    JoinReductionClaimChangedError,
+    JoinReductionRecoveryError,
+    JoinReductionReleaseError,
     TokenJoinTransitionError,
 )
 from zeroth.runtime.orchestration.token_join_reducers import (
@@ -55,6 +59,26 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotStore,
 )
+
+
+def _claim_matches(join: JoinInstance, claim: JoinReductionClaim) -> bool:
+    return (
+        join.lifecycle_state is JoinLifecycleState.REDUCING
+        and join.reduction_claim_id == claim.claim_id
+        and join.reduction_claim_owner_id == claim.owner_id
+        and join.reduction_attempt == claim.attempt
+        and join.reduction_claim_revision == claim.claimed_revision
+    )
+
+
+def _completed_claim_matches(join: JoinInstance, claim: JoinReductionClaim) -> bool:
+    return (
+        join.lifecycle_state is JoinLifecycleState.CLOSED
+        and join.completed_reduction_claim_id == claim.claim_id
+        and join.completed_reduction_claim_owner_id == claim.owner_id
+        and join.completed_reduction_attempt == claim.attempt
+        and join.completed_reduction_claim_revision == claim.claimed_revision
+    )
 
 
 def _transfer_outer_fork(
@@ -112,7 +136,7 @@ def close_ready_join(
     *,
     reducer: JoinReducer = reduce_join_inputs,
     failure_mode: FailureMode | None = None,
-    reduction_claim_id: str | None = None,
+    claimed_reduction: JoinReductionClaim | None = None,
 ) -> TokenEngineSnapshot:
     """Consume one READY cohort and publish at most one continuation revision."""
     join = next(
@@ -127,10 +151,14 @@ def close_ready_join(
     if join.lifecycle_state is JoinLifecycleState.CLOSED:
         if join.reducer_fingerprint is not None and join.reducer_fingerprint != fingerprint:
             raise TokenJoinTransitionError("replayed close contradicts persisted reducer config")
+        if claimed_reduction is not None and not _completed_claim_matches(join, claimed_reduction):
+            raise JoinReductionClaimChangedError(
+                "completed join belongs to a different reduction claim"
+            )
         return snapshot
     if join.lifecycle_state is JoinLifecycleState.REDUCING:
-        if reduction_claim_id != join.reduction_claim_id:
-            raise TokenJoinTransitionError("join reduction claim is owned by another closer")
+        if claimed_reduction is None or not _claim_matches(join, claimed_reduction):
+            raise JoinReductionClaimChangedError("join reduction claim is owned by another closer")
         if join.reducer_fingerprint != fingerprint:
             raise TokenJoinTransitionError("join reduction config contradicts persisted claim")
     elif join.lifecycle_state is not JoinLifecycleState.READY:
@@ -163,7 +191,7 @@ def close_ready_join(
         lifecycle_state=TokenLifecycleState.ACTIVE,
         scheduling_state=SchedulingState.QUEUED,
         fork_lineage=first.fork_lineage[:-1],
-        iteration_memberships=first.iteration_memberships,
+        iteration_memberships=join.iteration_memberships,
         cancellation_generation=first.cancellation_generation,
         state_revision=revision,
     )
@@ -190,6 +218,20 @@ def close_ready_join(
             "consumed_parent_token_ids": consumed_ids,
             "reducer_fingerprint": fingerprint,
             "reduction_claim_id": None,
+            "reduction_claim_owner_id": None,
+            "reduction_claim_revision": None,
+            "completed_reduction_claim_id": (
+                None if claimed_reduction is None else claimed_reduction.claim_id
+            ),
+            "completed_reduction_claim_owner_id": (
+                None if claimed_reduction is None else claimed_reduction.owner_id
+            ),
+            "completed_reduction_attempt": (
+                None if claimed_reduction is None else claimed_reduction.attempt
+            ),
+            "completed_reduction_claim_revision": (
+                None if claimed_reduction is None else claimed_reduction.claimed_revision
+            ),
             "updated_revision": revision,
             "closed_revision": revision,
         }
@@ -238,16 +280,27 @@ async def close_ready_join_with_cas(
     *,
     reducer: JoinReducer = reduce_join_inputs,
     failure_mode: FailureMode | None = None,
+    claim_owner_id: str | None = None,
+    claimed_reduction: JoinReductionClaim | None = None,
     max_attempts: int = 8,
 ) -> TokenEngineSnapshot:
     """Claim reduction through CAS, then evaluate one deterministic reducer.
 
     The durable claim makes concurrent losers wait/reload without invoking the
-    reducer. A process crash after claiming leaves an explicit REDUCING record;
-    recovery of that ambiguity is intentionally a later lifecycle operation.
-    Reducers must remain deterministic and side-effect free.
+    reducer. Reducers must remain deterministic and side-effect free.
     """
-    claim_id = uuid.uuid4().hex
+    if claimed_reduction is not None and (
+        claim_owner_id is not None and claim_owner_id != claimed_reduction.owner_id
+    ):
+        raise JoinReductionClaimChangedError("claimed reduction owner contradicts command")
+    owner_id = (
+        claimed_reduction.owner_id
+        if claimed_reduction is not None
+        else claim_owner_id or uuid.uuid4().hex
+    )
+    if not owner_id:
+        raise TokenJoinTransitionError("reduction claim owner cannot be empty")
+    claim_id = claimed_reduction.claim_id if claimed_reduction is not None else uuid.uuid4().hex
     fingerprint = _config_fingerprint(config)
     claimed: TokenEngineSnapshot | None = None
     last_error: TokenSnapshotConcurrencyError | None = None
@@ -266,24 +319,38 @@ async def close_ready_join_with_cas(
                 join_instance_id,
                 config,
                 failure_mode=failure_mode,
+                claimed_reduction=claimed_reduction,
             )
         if join.lifecycle_state is JoinLifecycleState.REDUCING:
+            if claimed_reduction is not None:
+                if not _claim_matches(join, claimed_reduction):
+                    raise JoinReductionClaimChangedError(
+                        "observed reduction claim changed before close"
+                    )
+                claimed = current
+                break
             if join.reduction_claim_id == claim_id:
                 claimed = current
                 break
             await asyncio.sleep(0)
             continue
+        if claimed_reduction is not None:
+            raise JoinReductionClaimChangedError("observed reduction claim is no longer active")
         if join.lifecycle_state is not JoinLifecycleState.READY:
             raise TokenJoinTransitionError("only a READY join may claim reduction")
         if failure_mode is not None and failure_mode != join.failure_mode:
             raise TokenJoinTransitionError("close failure policy contradicts persisted join")
         revision = current.revision + 1
+        attempt = join.reduction_attempt + 1
         claimed_join = JoinInstance.model_validate(
             {
                 **_model_data(join),
                 "lifecycle_state": JoinLifecycleState.REDUCING,
                 "reducer_fingerprint": fingerprint,
+                "reduction_attempt": attempt,
                 "reduction_claim_id": claim_id,
+                "reduction_claim_owner_id": owner_id,
+                "reduction_claim_revision": revision,
                 "updated_revision": revision,
             }
         )
@@ -307,7 +374,23 @@ async def close_ready_join_with_cas(
         raise TokenJoinTransitionError("join reduction is claimed by another live closer")
 
     claimed_join = next(item for item in claimed.joins if item.join_instance_id == join_instance_id)
-    reduced = _json_value(reducer(config, _join_inputs(claimed, claimed_join)))
+    active_claim = JoinReductionClaim.from_join(claimed_join)
+    try:
+        reduced = _json_value(reducer(config, _join_inputs(claimed, claimed_join)))
+    except Exception:
+        try:
+            await _release_reduction_claim_with_cas(
+                store,
+                run_id,
+                join_instance_id,
+                active_claim,
+                max_attempts=max_attempts,
+            )
+        except Exception as release_exc:
+            raise JoinReductionReleaseError(
+                "failed reducer claim could not be atomically returned to READY"
+            ) from release_exc
+        raise
 
     def prepared_reducer(_config: JoinConfig, _inputs: tuple[JoinReducerInput, ...]) -> JsonValue:
         return reduced
@@ -321,10 +404,119 @@ async def close_ready_join_with_cas(
             config,
             reducer=prepared_reducer,
             failure_mode=failure_mode,
-            reduction_claim_id=claim_id,
+            claimed_reduction=active_claim,
         ),
         max_attempts=max_attempts,
     )
 
 
-__all__ = ["close_ready_join", "close_ready_join_with_cas"]
+async def _release_reduction_claim_with_cas(
+    store: TokenSnapshotStore,
+    run_id: str,
+    join_instance_id: str,
+    observed_claim: JoinReductionClaim,
+    *,
+    max_attempts: int,
+) -> TokenEngineSnapshot:
+    for _ in range(max_attempts):
+        current = await store.get_token_snapshot(run_id)
+        if current is None:
+            raise JoinReductionReleaseError(f"run {run_id!r} has no token snapshot")
+        join = next(
+            (item for item in current.joins if item.join_instance_id == join_instance_id), None
+        )
+        if join is None or not _claim_matches(join, observed_claim):
+            raise JoinReductionClaimChangedError(
+                "reduction claim changed before failed reducer release"
+            )
+        revision = current.revision + 1
+        released_join = JoinInstance.model_validate(
+            {
+                **_model_data(join),
+                "lifecycle_state": JoinLifecycleState.READY,
+                "reducer_fingerprint": None,
+                "reduction_claim_id": None,
+                "reduction_claim_owner_id": None,
+                "reduction_claim_revision": None,
+                "updated_revision": revision,
+            }
+        )
+        proposed = _next_snapshot(
+            current,
+            joins=_replace_join(current.joins, released_join),
+        )
+        try:
+            return await store.compare_and_swap_token_snapshot(
+                run_id,
+                expected_revision=current.revision,
+                snapshot=proposed,
+            )
+        except TokenSnapshotConcurrencyError:
+            continue
+    raise JoinReductionReleaseError("failed reducer claim release exhausted CAS attempts")
+
+
+async def reclaim_abandoned_join_reduction_with_cas(
+    store: TokenSnapshotStore,
+    run_id: str,
+    join_instance_id: str,
+    *,
+    observed_claim: JoinReductionClaim,
+    new_owner_id: str,
+    max_attempts: int = 8,
+) -> JoinReductionClaim:
+    """Replace exactly one explicitly observed abandoned claim through CAS."""
+    if not new_owner_id:
+        raise JoinReductionRecoveryError("recovery owner cannot be empty")
+    replacement_id = uuid.uuid4().hex
+    for _ in range(max_attempts):
+        current = await store.get_token_snapshot(run_id)
+        if current is None:
+            raise JoinReductionRecoveryError(f"run {run_id!r} has no token snapshot")
+        join = next(
+            (item for item in current.joins if item.join_instance_id == join_instance_id), None
+        )
+        if join is None:
+            raise JoinReductionRecoveryError(f"join {join_instance_id!r} does not exist")
+        if not _claim_matches(join, observed_claim):
+            raise JoinReductionClaimChangedError(
+                "abandoned reduction claim changed before recovery"
+            )
+        revision = current.revision + 1
+        replacement = JoinReductionClaim(
+            claim_id=replacement_id,
+            owner_id=new_owner_id,
+            attempt=observed_claim.attempt + 1,
+            claimed_revision=revision,
+        )
+        reclaimed_join = JoinInstance.model_validate(
+            {
+                **_model_data(join),
+                "reduction_attempt": replacement.attempt,
+                "reduction_claim_id": replacement.claim_id,
+                "reduction_claim_owner_id": replacement.owner_id,
+                "reduction_claim_revision": replacement.claimed_revision,
+                "updated_revision": revision,
+            }
+        )
+        proposed = _next_snapshot(
+            current,
+            joins=_replace_join(current.joins, reclaimed_join),
+        )
+        try:
+            await store.compare_and_swap_token_snapshot(
+                run_id,
+                expected_revision=current.revision,
+                snapshot=proposed,
+            )
+        except TokenSnapshotConcurrencyError:
+            continue
+        return replacement
+    raise JoinReductionClaimChangedError("reduction recovery exhausted CAS attempts")
+
+
+__all__ = [
+    "close_ready_join",
+    "close_ready_join_with_cas",
+    "reclaim_abandoned_join_reduction_with_cas",
+]

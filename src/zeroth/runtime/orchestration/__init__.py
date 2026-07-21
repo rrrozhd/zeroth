@@ -37,6 +37,18 @@ if TYPE_CHECKING:
         JoinReducerInput as JoinReducerInput,
     )
     from zeroth.runtime.orchestration.token_joins import (
+        JoinReductionClaim as JoinReductionClaim,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        JoinReductionClaimChangedError as JoinReductionClaimChangedError,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        JoinReductionRecoveryError as JoinReductionRecoveryError,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        JoinReductionReleaseError as JoinReductionReleaseError,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
         TokenJoinTransitionError as TokenJoinTransitionError,
     )
     from zeroth.runtime.orchestration.token_joins import (
@@ -47,6 +59,9 @@ if TYPE_CHECKING:
     )
     from zeroth.runtime.orchestration.token_joins import (
         deliver_to_join as deliver_to_join,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        reclaim_abandoned_join_reduction_with_cas as reclaim_abandoned_join_reduction_with_cas,
     )
     from zeroth.runtime.orchestration.token_joins import (
         reduce_join_inputs as reduce_join_inputs,
@@ -125,6 +140,13 @@ _EXPORTS = {
     "GraphDriver": ("driver", "GraphDriver"),
     "JoinReducer": ("token_joins", "JoinReducer"),
     "JoinReducerInput": ("token_joins", "JoinReducerInput"),
+    "JoinReductionClaim": ("token_joins", "JoinReductionClaim"),
+    "JoinReductionClaimChangedError": (
+        "token_joins",
+        "JoinReductionClaimChangedError",
+    ),
+    "JoinReductionRecoveryError": ("token_joins", "JoinReductionRecoveryError"),
+    "JoinReductionReleaseError": ("token_joins", "JoinReductionReleaseError"),
     "MemoryBindingResolutionError": ("errors", "MemoryBindingResolutionError"),
     "NodeDispatcher": ("dispatcher", "NodeDispatcher"),
     "NodeDispatcherError": ("errors", "NodeDispatcherError"),
@@ -170,6 +192,10 @@ _EXPORTS = {
     "fan_out_dispatch": ("token_scheduler", "fan_out_dispatch"),
     "initialize_token_snapshot": ("token_scheduler", "initialize_token_snapshot"),
     "recover_dispatch": ("token_scheduler", "recover_dispatch"),
+    "reclaim_abandoned_join_reduction_with_cas": (
+        "token_joins",
+        "reclaim_abandoned_join_reduction_with_cas",
+    ),
     "reduce_join_inputs": ("token_joins", "reduce_join_inputs"),
     "retry_dispatch": ("token_scheduler", "retry_dispatch"),
     "settle_join_without_delivery": ("token_joins", "settle_join_without_delivery"),

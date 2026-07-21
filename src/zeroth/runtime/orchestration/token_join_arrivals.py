@@ -136,6 +136,13 @@ def _settle_arrival(
     )
     fork = _fork_for_token(snapshot, token)
     routes = _canonical_routes(fork, cohort_inbound_edges)
+    tokens_by_id = {item.token_id: item for item in snapshot.tokens}
+    if any(
+        tokens_by_id[source_id].provenance_tag != token.provenance_tag
+        or tokens_by_id[source_id].iteration_memberships != token.iteration_memberships
+        for source_id, _, _ in routes
+    ):
+        raise TokenJoinTransitionError("join fork cohort crosses iteration scope")
     if cohort_inbound_edges[token.token_id] != inbound_edge_id:
         raise TokenJoinTransitionError("arrival edge contradicts its registered cohort route")
     join_id = _join_id(snapshot, fork, target_node_id, token)
@@ -144,6 +151,7 @@ def _settle_arrival(
         join.fork_id != fork.fork_id
         or join.target_node_id != target_node_id
         or join.provenance_tag != token.provenance_tag
+        or join.iteration_memberships != token.iteration_memberships
     ):
         raise TokenJoinTransitionError("deterministic join identity contradicts persisted cohort")
     if join is not None and join.failure_mode != failure_mode:
@@ -237,7 +245,6 @@ def _settle_arrival(
         JoinObligationOutcome.FAILED,
         JoinObligationOutcome.CANCELLED,
     }:
-        tokens_by_id = {item.token_id: item for item in snapshot.tokens}
         for index, obligation in enumerate(updated_obligations):
             if obligation.outcome is not None:
                 continue
@@ -283,6 +290,7 @@ def _settle_arrival(
         fork_id=fork.fork_id,
         target_node_id=target_node_id,
         provenance_tag=token.provenance_tag,
+        iteration_memberships=token.iteration_memberships,
         obligations=tuple(updated_obligations),
         failure_mode=failure_mode,
         lifecycle_state=lifecycle,

@@ -69,7 +69,9 @@ def reduce_join_inputs(config: JoinConfig, inputs: tuple[JoinReducerInput, ...])
         cast(list[dict[str, object] | None], payloads),
         reducer_ref=config.reducer_ref,
     )
-    return _at_path(cast(JsonValue, reduced), config.merge_path)
+    if isinstance(reduced, dict):
+        return cast(JsonValue, dict(reduced))
+    return _at_path(cast(JsonValue, reduced), config.merge_path or "result")
 
 
 def _json_value(value: object) -> JsonValue:

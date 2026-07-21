@@ -21,10 +21,17 @@ from zeroth.runtime.orchestration.token_join_closure import (
 from zeroth.runtime.orchestration.token_join_closure import (
     close_ready_join_with_cas as _close_ready_join_with_cas,
 )
+from zeroth.runtime.orchestration.token_join_closure import (
+    reclaim_abandoned_join_reduction_with_cas as _reclaim_abandoned_join_reduction_with_cas,
+)
 from zeroth.runtime.orchestration.token_join_models import (
     FailureMode,
     JoinReducer,
     JoinReducerInput,
+    JoinReductionClaim,
+    JoinReductionClaimChangedError,
+    JoinReductionRecoveryError,
+    JoinReductionReleaseError,
     TokenJoinTransitionError,
 )
 from zeroth.runtime.orchestration.token_join_reducers import (
@@ -101,7 +108,7 @@ def close_ready_join(
     *,
     reducer: JoinReducer = reduce_join_inputs,
     failure_mode: FailureMode | None = None,
-    reduction_claim_id: str | None = None,
+    claimed_reduction: JoinReductionClaim | None = None,
 ) -> TokenEngineSnapshot:
     """Consume one READY cohort and publish at most one continuation revision."""
     return _close_ready_join(
@@ -110,7 +117,7 @@ def close_ready_join(
         config,
         reducer=reducer,
         failure_mode=failure_mode,
-        reduction_claim_id=reduction_claim_id,
+        claimed_reduction=claimed_reduction,
     )
 
 
@@ -122,6 +129,8 @@ async def close_ready_join_with_cas(
     *,
     reducer: JoinReducer = reduce_join_inputs,
     failure_mode: FailureMode | None = None,
+    claim_owner_id: str | None = None,
+    claimed_reduction: JoinReductionClaim | None = None,
     max_attempts: int = 8,
 ) -> TokenEngineSnapshot:
     """Claim a reducer and close a READY join through snapshot CAS."""
@@ -132,12 +141,38 @@ async def close_ready_join_with_cas(
         config,
         reducer=reducer,
         failure_mode=failure_mode,
+        claim_owner_id=claim_owner_id,
+        claimed_reduction=claimed_reduction,
+        max_attempts=max_attempts,
+    )
+
+
+async def reclaim_abandoned_join_reduction_with_cas(
+    store: TokenSnapshotStore,
+    run_id: str,
+    join_instance_id: str,
+    *,
+    observed_claim: JoinReductionClaim,
+    new_owner_id: str,
+    max_attempts: int = 8,
+) -> JoinReductionClaim:
+    """Explicitly replace one observed abandoned reducer claim through CAS."""
+    return await _reclaim_abandoned_join_reduction_with_cas(
+        store,
+        run_id,
+        join_instance_id,
+        observed_claim=observed_claim,
+        new_owner_id=new_owner_id,
         max_attempts=max_attempts,
     )
 
 
 __all__ = [
     "FailureMode",
+    "JoinReductionClaim",
+    "JoinReductionClaimChangedError",
+    "JoinReductionRecoveryError",
+    "JoinReductionReleaseError",
     "JoinReducer",
     "JoinReducerInput",
     "TokenJoinTransitionError",
@@ -145,5 +180,6 @@ __all__ = [
     "close_ready_join_with_cas",
     "deliver_to_join",
     "reduce_join_inputs",
+    "reclaim_abandoned_join_reduction_with_cas",
     "settle_join_without_delivery",
 ]
