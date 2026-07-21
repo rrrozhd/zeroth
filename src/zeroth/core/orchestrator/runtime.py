@@ -130,9 +130,7 @@ class RuntimeOrchestrator:
     # across orchestrators that reuse a graph id for a different topology.
     _back_edge_cache: dict = field(default_factory=dict)
     _scopes_cache: dict = field(default_factory=dict)
-    _token_snapshot_store: TokenSnapshotStore | None = field(
-        default=None, init=False, repr=False
-    )
+    _token_snapshot_store: TokenSnapshotStore | None = field(default=None, init=False, repr=False)
 
     def use_token_snapshot_store(self, store: TokenSnapshotStore) -> RuntimeOrchestrator:
         """Inject durable token persistence for library-hosted flag-on execution."""
@@ -160,7 +158,7 @@ class RuntimeOrchestrator:
             current_node_ids=[],
             pending_node_ids=(
                 []
-                if graph.execution_settings.sequential_join_enabled
+                if graph.execution_settings.sequential_join_enabled is True
                 else [self._entry_step(graph)]
             ),
             metadata=self._initial_metadata(graph, initial_input),
@@ -497,6 +495,32 @@ class RuntimeOrchestrator:
         the run history, plans the next nodes, and sets the run back to
         RUNNING status so it can be resumed.
         """
+        if graph.execution_settings.sequential_join_enabled is True:
+            action = (
+                approval_record.resolution.decision.value
+                if approval_record.resolution
+                else "approve"
+            )
+            run.metadata["token_approval_result"] = {
+                "node_id": node.node_id,
+                "input": approval_record.proposed_payload or {},
+                "output": dict(output_payload),
+                "audit": {
+                    "approval_id": approval_record.approval_id,
+                    "decision": action,
+                    "actor": (
+                        approval_record.resolution.actor.model_dump(mode="json")
+                        if approval_record.resolution
+                        else None
+                    ),
+                },
+            }
+            run.pending_approval = None
+            run.status = RunStatus.RUNNING
+            run.touch()
+            run = await self.run_repository.put(run)
+            await self.run_repository.write_checkpoint(run)
+            return run
         if run.pending_node_ids and run.pending_node_ids[0] == node.node_id:
             run.pending_node_ids.pop(0)
         action = (

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from zeroth.contracts.graph import AgentNode, AgentNodeData, Edge, ExecutionSettings, Graph
+from zeroth.contracts.graph import (
+    AgentNode,
+    AgentNodeData,
+    Edge,
+    ExecutionSettings,
+    Graph,
+)
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
@@ -10,6 +16,7 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
+from zeroth.runtime.parallel.models import JoinConfig
 
 
 class Payload(BaseModel):
@@ -98,8 +105,8 @@ async def test_flag_on_linear_run_uses_injected_snapshot_store(sqlite_db) -> Non
     assert [entry.node_id for entry in run.execution_history] == ["A", "B"]
     assert run.final_output == {"value": 3}
     assert run.pending_node_ids == []
-    assert "node_payloads" not in run.metadata
-    assert "node_tags" not in run.metadata
+    assert run.metadata["node_payloads"] == {}
+    assert run.metadata["node_tags"] == {}
     assert store.snapshot is not None
     assert store.snapshot.state is TokenEngineSnapshotState.COMPLETED
     assert store.snapshot.queue == ()
@@ -153,3 +160,32 @@ async def test_flag_on_graph_fanout_creates_one_durable_child_per_edge(sqlite_db
     assert [entry.node_id for entry in run.execution_history] == ["A", "B", "C"]
     assert store.snapshot is not None
     assert store.snapshot.state is TokenEngineSnapshotState.COMPLETED
+
+
+async def test_flag_on_diamond_closes_structured_join_once(sqlite_db) -> None:
+    join = _node("J")
+    join.join_config = JoinConfig(merge_strategy="merge")
+    graph = Graph(
+        graph_id="token-adapter",
+        name="token-adapter",
+        entry_step="A",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[_node("A"), _node("L"), _node("R"), join],
+        edges=[
+            Edge(edge_id="A-L", source_node_id="A", target_node_id="L"),
+            Edge(edge_id="A-R", source_node_id="A", target_node_id="R"),
+            Edge(edge_id="L-J", source_node_id="L", target_node_id="J"),
+            Edge(edge_id="R-J", source_node_id="R", target_node_id="J"),
+        ],
+    )
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in ("A", "L", "R", "J")},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 1})
+
+    assert [entry.node_id for entry in run.execution_history] == ["A", "L", "R", "J"]
+    assert sum(entry.node_id == "J" for entry in run.execution_history) == 1

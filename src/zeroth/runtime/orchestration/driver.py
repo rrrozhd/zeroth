@@ -216,7 +216,7 @@ class GraphDriver:
         run.metadata["node_payloads"] = payloads
         tags = dict(run.metadata.get("node_tags", {}))
         existing_tag = tags.get(node_id)
-        if graph.execution_settings.sequential_join_enabled:
+        if graph.execution_settings.sequential_join_enabled is True:
             if token_tag is None:
                 raise OrchestratorError(
                     f"in-flight token node {node_id} is missing its provenance tag"
@@ -244,7 +244,7 @@ class GraphDriver:
     ) -> None:
         """Durably bind a popped node to its exact payload and provenance tag."""
         token_tag: Any = None
-        if graph.execution_settings.sequential_join_enabled:
+        if graph.execution_settings.sequential_join_enabled is True:
             tags = run.metadata.get("node_tags", {})
             if node_id not in tags:
                 raise OrchestratorError(
@@ -279,11 +279,9 @@ class GraphDriver:
         next steps, and repeating until there are no more nodes to run,
         or until a guard/policy/approval stops execution.
         """
-        if graph.execution_settings.sequential_join_enabled:
+        if graph.execution_settings.sequential_join_enabled is True:
             if self.token_snapshot_store is None:
-                raise RuntimeError(
-                    "sequential_join_enabled requires a durable TokenSnapshotStore"
-                )
+                raise RuntimeError("sequential_join_enabled requires a durable TokenSnapshotStore")
             from zeroth.runtime.orchestration.token_runtime import TokenRuntimeCoordinator
 
             return await TokenRuntimeCoordinator(self, self.token_snapshot_store).drive(
@@ -914,7 +912,7 @@ class GraphDriver:
         loop-exit edge resolves only when its loop terminates.
         """
         plan = self.run_branch_planner(graph, run, source_node_id, output_data)
-        if not graph.execution_settings.sequential_join_enabled:
+        if graph.execution_settings.sequential_join_enabled is not True:
             self.queue_next_nodes(graph, run, source_node_id, output_data, list(plan.next_node_ids))
             return
         source_tag = self._consume_node_tag(run, source_node_id)
@@ -1514,8 +1512,12 @@ class GraphDriver:
             "path": [],
             "audits": {},
         }
-        if graph.execution_settings.sequential_join_enabled:
+        if graph.execution_settings.sequential_join_enabled is True:
             metadata["initial_input"] = dict(initial_input)
+            # Empty compatibility containers preserve the public Run metadata
+            # shape without using node-keyed state as scheduler storage.
+            metadata["node_payloads"] = {}
+            metadata["node_tags"] = {}
         else:
             metadata["node_payloads"] = {entry: dict(initial_input)}
         return metadata
