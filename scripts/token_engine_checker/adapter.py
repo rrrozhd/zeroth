@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
+import tempfile
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import cache
+from pathlib import Path
 
 from zeroth.contracts.graph.models import JoinConfig
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
-from zeroth.contracts.graph.tokens import IterationMemberState
-from zeroth.runtime.orchestration.token_joins import close_ready_join, deliver_to_join
+from zeroth.contracts.graph.tokens import (
+    IterationMemberState,
+    JoinLifecycleState,
+    JoinObligationOutcome,
+)
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.runtime.orchestration.token_joins import (
+    close_ready_join,
+    deliver_to_join,
+    settle_join_without_delivery,
+)
 from zeroth.runtime.orchestration.token_lifecycle import (
     acknowledge_cancellation,
     pause_snapshot,
@@ -32,6 +45,9 @@ from zeroth.runtime.orchestration.token_scheduler import (
     initialize_token_snapshot,
     retry_dispatch,
 )
+from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
+from zeroth.runtime.runs import Run
+from zeroth.service.bootstrap.migrations import run_migrations
 
 from .models import Case, Edge, State, classify_case
 from .oracle import Dispatch, Resolution, Trace
@@ -45,6 +61,49 @@ def _active(edge: Edge, enabled: bool, conditions: dict[str, bool]) -> bool:
     return enabled and (
         edge.condition is None or conditions[edge.condition] is edge.condition_value
     )
+
+
+def _structured_edge_ids(case: Case) -> tuple[tuple[str, ...], str | None, str | None]:
+    conditions = dict(case.conditions)
+    active = tuple(
+        edge
+        for index, edge in enumerate(case.topology.edges)
+        if _active(edge, case.enabled[index], conditions)
+    )
+    join_edges = tuple(
+        sorted(
+            max(
+                (
+                    tuple(edge.edge_id for edge in active if edge.target == target)
+                    for target in case.topology.nodes
+                ),
+                key=lambda edge_ids: (len(edge_ids), edge_ids),
+                default=(),
+            )
+        )
+    )
+    back_edges = tuple(
+        edge for edge in active if int(edge.target[1:]) <= int(edge.source[1:])
+    )
+    if not back_edges:
+        return join_edges, None, None
+    back = min(back_edges, key=lambda edge: edge.edge_id)
+    exits = tuple(
+        edge
+        for edge in active
+        if edge.edge_id != back.edge_id
+        and edge.source == back.source
+        and int(edge.target[1:]) > int(edge.source[1:])
+    )
+    if not exits:
+        exits = tuple(
+            edge
+            for edge in active
+            if edge.edge_id != back.edge_id
+            and int(edge.target[1:]) > int(edge.source[1:])
+        )
+    exit_id = min(exits, key=lambda edge: edge.edge_id).edge_id if exits else "bounded-exit"
+    return join_edges, back.edge_id, exit_id
 
 
 def _reduce(reducer: str, values: list[tuple[str, object]]) -> object:
@@ -69,6 +128,20 @@ def _reduce(reducer: str, values: list[tuple[str, object]]) -> object:
 
 def _round_trip(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
     return TokenEngineSnapshot.model_validate_json(snapshot.model_dump_json())
+
+
+def _cancel_all(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
+    cancelled = request_cancellation(snapshot)
+    fence = cancelled.cancellation_fence
+    if fence is None:
+        return cancelled
+    for dispatch in tuple(cancelled.in_flight_dispatches):
+        cancelled = acknowledge_cancellation(
+            cancelled,
+            dispatch_id=dispatch.dispatch_id,
+            cancellation_generation=fence.generation,
+        )
+    return cancelled
 
 
 def _plain(value: object) -> object:
@@ -108,7 +181,70 @@ class _ProbeInput:
     state: State
 
 
-def _join_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotRepository]:
+@cache
+def _repository_probe() -> dict[str, object]:
+    """Exercise the production SQL repository's reload and stale-CAS fence."""
+
+    async def exercise(path: Path) -> dict[str, object]:
+        database = AsyncSQLiteDatabase(path=str(path))
+        repository = RunRepository(database)
+        try:
+            run = Run(
+                run_id="checker-repository-probe",
+                workflow_name="token-checker",
+                graph_version_ref="checker:v1",
+                deployment_ref="checker",
+                tenant_id="checker",
+            )
+            await repository.create(run)
+            initial = initialize_token_snapshot(
+                run_id=run.run_id,
+                root_node_id="probe-root",
+                payload=None,
+            )
+            await repository.compare_and_swap_token_snapshot(
+                run.run_id, expected_revision=None, snapshot=initial
+            )
+            reloaded = await repository.get_token_snapshot(run.run_id)
+            assert reloaded is not None
+            claimed = claim_next_token(reloaded).snapshot
+            await repository.compare_and_swap_token_snapshot(
+                run.run_id,
+                expected_revision=reloaded.revision,
+                snapshot=claimed,
+            )
+            conflict_fenced = False
+            try:
+                await repository.compare_and_swap_token_snapshot(
+                    run.run_id,
+                    expected_revision=reloaded.revision,
+                    snapshot=claimed,
+                )
+            except TokenSnapshotConcurrencyError:
+                conflict_fenced = True
+            final = await repository.get_token_snapshot(run.run_id)
+            assert final is not None
+            return {
+                "implementation": "RunRepository",
+                "cas_writes": 2,
+                "reloads": 2,
+                "conflict_fenced": conflict_fenced,
+                "final_revision": final.revision,
+            }
+        finally:
+            await database.close()
+
+    with tempfile.TemporaryDirectory(prefix="zeroth-checker-repository-") as directory:
+        path = Path(directory) / "checker.db"
+        run_migrations(f"sqlite:///{path}")
+        return asyncio.run(exercise(path))
+
+
+def _join_probe(
+    case: _ProbeInput, edge_ids: tuple[str, ...]
+) -> tuple[dict[str, object], _SnapshotRepository] | None:
+    if len(edge_ids) < 2:
+        return None
     repository = _SnapshotRepository(
         initialize_token_snapshot(
             run_id=f"checker-join-{case.state.reducer}-{case.state.retry}",
@@ -131,25 +267,22 @@ def _join_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotReposito
             dispatch_id=parent.dispatch_id,
             attempt=parent.attempt,
             cancellation_generation=parent.cancellation_generation,
-            branches=(
+            branches=tuple(
                 FanOutBranch(
-                    node_id="probe-left",
-                    inbound_edge_id="probe-split-left",
-                    payload={"branch": "left"},
-                ),
-                FanOutBranch(
-                    node_id="probe-right",
-                    inbound_edge_id="probe-split-right",
-                    payload={"branch": "right"},
-                ),
+                    node_id=f"probe-branch-{index}",
+                    inbound_edge_id=f"probe-split-{edge_id}",
+                    payload={"branch": edge_id},
+                )
+                for index, edge_id in enumerate(edge_ids)
             ),
         )
     )
     fork = repository.load().forks[0]
     routes = {
-        child.token_id: f"probe-join-{child.creation_ordinal}" for child in fork.children
+        child.token_id: edge_ids[child.creation_ordinal] for child in fork.children
     }
-    for payload in ({"left": 1}, {"right": 2}):
+    failure_mode = "best_effort" if case.state.retry == "fail-first" else "fail_fast"
+    for index, edge_id in enumerate(edge_ids):
         child_box = []
 
         def claim_child(
@@ -161,21 +294,36 @@ def _join_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotReposito
 
         repository.apply(claim_child)
         child = child_box.pop()
-        repository.apply(
-            lambda snapshot, child=child, payload=payload: deliver_to_join(
-                snapshot,
-                dispatch_id=child.dispatch_id,
-                attempt=child.attempt,
-                cancellation_generation=child.cancellation_generation,
-                target_node_id="probe-join",
-                inbound_edge_id=routes[child.token.token_id],
-                cohort_inbound_edges=routes,
-                payload=payload,
-                failure_mode=(
-                    "best_effort" if case.state.retry == "fail-first" else "fail_fast"
-                ),
+        if index == 0:
+            repository.apply(
+                lambda snapshot, child=child: settle_join_without_delivery(
+                    snapshot,
+                    dispatch_id=child.dispatch_id,
+                    attempt=child.attempt,
+                    cancellation_generation=child.cancellation_generation,
+                    target_node_id="probe-join",
+                    inbound_edge_id=routes[child.token.token_id],
+                    cohort_inbound_edges=routes,
+                    outcome=JoinObligationOutcome.FAILED,
+                    failure_mode=failure_mode,
+                )
             )
-        )
+            if failure_mode == "fail_fast":
+                break
+        else:
+            repository.apply(
+                lambda snapshot, child=child, edge_id=edge_id: deliver_to_join(
+                    snapshot,
+                    dispatch_id=child.dispatch_id,
+                    attempt=child.attempt,
+                    cancellation_generation=child.cancellation_generation,
+                    target_node_id="probe-join",
+                    inbound_edge_id=routes[child.token.token_id],
+                    cohort_inbound_edges=routes,
+                    payload={"edge": edge_id},
+                    failure_mode=failure_mode,
+                )
+            )
     ready = repository.load().joins[0]
 
     def reducer(_config, inputs):
@@ -184,28 +332,36 @@ def _join_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotReposito
             [(item.inbound_edge_id, _plain(item.payload)) for item in inputs],
         )
 
-    closed = repository.apply(
-        lambda snapshot: close_ready_join(
-            snapshot,
-            ready.join_instance_id,
-            JoinConfig(),
-            reducer=reducer,
-            failure_mode=ready.failure_mode,
+    if ready.lifecycle_state is JoinLifecycleState.READY:
+        closed = repository.apply(
+            lambda snapshot: close_ready_join(
+                snapshot,
+                ready.join_instance_id,
+                JoinConfig(),
+                reducer=reducer,
+                failure_mode=ready.failure_mode,
+            )
         )
-    )
-    join = closed.joins[0]
+        join = closed.joins[0]
+    else:
+        join = ready
     return (
         {
             "state": join.lifecycle_state.value,
             "continuation_created": join.continuation_token_id is not None,
             "failure_policy": join.failure_mode,
+            "edge_ids": list(edge_ids),
             "obligation_outcomes": [item.outcome.value for item in join.obligations],
         },
         repository,
     )
 
 
-def _loop_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotRepository]:
+def _loop_probe(
+    case: _ProbeInput, back_edge_id: str | None, exit_edge_id: str | None
+) -> tuple[dict[str, object], _SnapshotRepository] | None:
+    if back_edge_id is None or exit_edge_id is None:
+        return None
     repository = _SnapshotRepository(
         initialize_token_snapshot(
             run_id=f"checker-loop-{case.state.payload_json}",
@@ -220,16 +376,33 @@ def _loop_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotReposito
             loop_header_node_id="probe-header",
             body_node_id="probe-body",
             inbound_edge_id="probe-body-edge",
-            exit_routes={"probe-exit": "probe-done"},
+            exit_routes={exit_edge_id: "probe-done"},
         )
     )
     member_id = entered.queue[0].token_id
-    ready = repository.apply(
+    first_ready = repository.apply(
         lambda snapshot: settle_loop_member(
             snapshot,
             token_id=member_id,
+            outcome=IterationMemberState.BACK_EDGE_CONTINUATION,
+            edge_id=back_edge_id,
+            payload=case.state.payload,
+        )
+    )
+    continued = repository.apply(
+        lambda snapshot: close_ready_loop(
+            snapshot,
+            first_ready.loops[0].loop_instance_id,
+            continuation_config=JoinConfig(),
+        )
+    )
+    second_member_id = continued.queue[0].token_id
+    final_ready = repository.apply(
+        lambda snapshot: settle_loop_member(
+            snapshot,
+            token_id=second_member_id,
             outcome=IterationMemberState.EXIT_DELIVERY,
-            edge_id="probe-exit",
+            edge_id=exit_edge_id,
             target_node_id="probe-done",
             payload=case.state.payload,
         )
@@ -237,7 +410,7 @@ def _loop_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotReposito
     completed = repository.apply(
         lambda snapshot: close_ready_loop(
             snapshot,
-            ready.loops[0].loop_instance_id,
+            final_ready.loops[0].loop_instance_id,
             continuation_config=JoinConfig(),
         )
     )
@@ -250,6 +423,7 @@ def _loop_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotReposito
                 for exit_state in loop.exits
                 if exit_state.resolution_outcome is not None
             ],
+            "back_edge_id": back_edge_id,
             "frames": [frame.state.value for frame in loop.frames],
         },
         repository,
@@ -316,32 +490,59 @@ def _production_probe(
     retry: str,
     checkpoint: str,
     cancellation: str,
+    join_edge_ids: tuple[str, ...],
+    back_edge_id: str | None,
+    exit_edge_id: str | None,
 ) -> dict[str, object]:
     probe = _ProbeInput(State(payload_json, reducer, retry, checkpoint, cancellation))
-    join, join_repository = _join_probe(probe)
-    loop, loop_repository = _loop_probe(probe)
-    lifecycle, lifecycle_repository = _lifecycle_probe(probe)
-    repositories = (join_repository, loop_repository, lifecycle_repository)
+    join_result = _join_probe(probe, join_edge_ids)
+    loop_result = _loop_probe(probe, back_edge_id, exit_edge_id)
+    lifecycle, _lifecycle_repository = _lifecycle_probe(probe)
+    if join_result is None:
+        join = {
+            "state": "not_applicable",
+            "continuation_created": False,
+            "failure_policy": "best_effort" if retry == "fail-first" else "fail_fast",
+            "edge_ids": [],
+            "obligation_outcomes": [],
+        }
+    else:
+        join, _join_repository = join_result
+    if loop_result is None:
+        loop = {
+            "state": "not_applicable",
+            "resolved_exit_edges": [],
+            "frames": [],
+            "back_edge_id": None,
+        }
+    else:
+        loop, _loop_repository = loop_result
     return {
         "join": join,
         "loop": loop,
         "lifecycle": lifecycle,
-        "repository": {
-            "cas_writes": sum(item.cas_writes for item in repositories),
-            "reloads": sum(item.reloads for item in repositories),
-        },
+        "repository": _repository_probe(),
     }
 
 
 class ProductionAdapter:
     """Drive only production functions whose input and output are snapshots."""
 
+    def __init__(self, *, mutation: str | None = None) -> None:
+        self.mutation = mutation
+
     def run(self, case: Case, schedule: tuple[str, ...] | None = None) -> Trace:
         classification = classify_case(case)
         if not classification.valid:
             raise ValueError(f"invalid case: {classification.reason}")
         try:
-            return self._run(case, schedule=schedule)
+            effective_schedule = None if self.mutation == "schedule_input_discarded" else schedule
+            trace = self._run(case, schedule=effective_schedule)
+            if self.mutation is None or self.mutation == "schedule_input_discarded":
+                return trace
+            from .mutations import apply_sut_mutation
+
+            return apply_sut_mutation(trace, self.mutation)
         except Exception as error:
             if isinstance(error, UnsupportedValidCaseError):
                 raise
@@ -364,14 +565,20 @@ class ProductionAdapter:
         lifecycle: list[tuple[str, str]] = []
         terminals: list[tuple[str, object]] = []
         checkpoint_done = False
+        graph_cancelled = False
         schedule_rank = {
             token_id: index for index, token_id in enumerate(schedule or ())
         }
 
         while snapshot.queue:
-            if not checkpoint_done and case.state.checkpoint in {"before-claim", "before-dispatch"}:
+            if not checkpoint_done and case.state.checkpoint == "before-claim":
                 snapshot = _round_trip(snapshot)
                 checkpoint_done = True
+                if case.state.cancellation == "after-cut":
+                    snapshot = _cancel_all(snapshot)
+                    lifecycle.append(("snapshot", "cancelled-before-claim"))
+                    graph_cancelled = True
+                    break
             if schedule_rank:
                 snapshot = snapshot.model_copy(
                     update={
@@ -393,9 +600,14 @@ class ProductionAdapter:
             dispatch = claim.dispatch
             actual_id = dispatch.token.token_id
             logical_id = logical_by_actual[actual_id]
-            if not checkpoint_done and case.state.checkpoint == "after-claim":
+            cancel_after_claim = False
+            if not checkpoint_done and case.state.checkpoint in {
+                "after-claim",
+                "before-dispatch",
+            }:
                 snapshot = _round_trip(snapshot)
                 checkpoint_done = True
+                cancel_after_claim = case.state.cancellation == "after-cut"
             dispatches.append(
                 Dispatch(
                     dispatch.token.current_node_id,
@@ -405,6 +617,11 @@ class ProductionAdapter:
                     _plain(dispatch.token.payload),
                 )
             )
+            if cancel_after_claim:
+                snapshot = _cancel_all(snapshot)
+                lifecycle.append((logical_id, "cancelled-after-claim"))
+                graph_cancelled = True
+                break
             if case.state.retry == "fail-first":
                 lifecycle.append((logical_id, "retry"))
                 retried = retry_dispatch(
@@ -434,6 +651,14 @@ class ProductionAdapter:
                     attempt=dispatch.attempt,
                     cancellation_generation=dispatch.cancellation_generation,
                 )
+                if not checkpoint_done and case.state.checkpoint == "after-resolve":
+                    snapshot = _round_trip(snapshot)
+                    checkpoint_done = True
+                    if case.state.cancellation == "after-cut":
+                        snapshot = _cancel_all(snapshot)
+                        lifecycle.append((logical_id, "cancelled-after-resolve"))
+                        graph_cancelled = True
+                        break
                 continue
 
             active_edges = [
@@ -516,13 +741,22 @@ class ProductionAdapter:
             if not checkpoint_done and case.state.checkpoint == "after-resolve":
                 snapshot = _round_trip(snapshot)
                 checkpoint_done = True
+                if case.state.cancellation == "after-cut":
+                    snapshot = _cancel_all(snapshot)
+                    lifecycle.append((logical_id, "cancelled-after-resolve"))
+                    graph_cancelled = True
+                    break
 
+        join_edge_ids, back_edge_id, exit_edge_id = _structured_edge_ids(case)
         production = _production_probe(
             case.state.payload_json,
             case.state.reducer,
             case.state.retry,
             case.state.checkpoint,
             case.state.cancellation,
+            join_edge_ids,
+            back_edge_id,
+            exit_edge_id,
         )
         lifecycle.extend(
             (
@@ -531,6 +765,17 @@ class ProductionAdapter:
                 ("snapshot", str(production["lifecycle"]["state"])),
             )
         )
+        production = {
+            **production,
+            "graph_execution": {
+                "state": snapshot.state.value,
+                "cancelled": graph_cancelled,
+                "pending_token_ids": sorted(
+                    logical_by_actual[token.token_id] for token in snapshot.queue
+                ),
+                "dispatch_count": len(dispatches),
+            },
+        }
         return Trace(
             case.digest,
             tuple(resolutions),
@@ -540,6 +785,7 @@ class ProductionAdapter:
             persisted_state={
                 "terminal": terminals,
                 "checkpoint": case.state.checkpoint,
+                "dispatch_order": [item.token_id for item in dispatches],
                 "production": production,
             },
         )

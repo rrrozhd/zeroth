@@ -89,6 +89,22 @@ def test_sampled_run_reports_requested_eligible_and_executed_counts(tmp_path: Pa
     assert json.loads(path.read_text(encoding="utf-8")) == report
 
 
+def test_exhaustive_report_counts_invalid_topology_candidates(monkeypatch) -> None:
+    monkeypatch.setattr(checker_runner, "enumerate_cases", lambda _topology: ())
+    monkeypatch.setattr(
+        checker_runner,
+        "compare_case",
+        lambda *_args, **_kwargs: Comparison(True, 1, 1),
+    )
+
+    report = run_check(nodes=4, exhaustive=True)
+
+    topology = report["coverage"]["topology"]
+    assert topology["candidate"] == 2002
+    assert topology["invalid"] == 1714
+    assert topology["eligible"] == 288
+
+
 def test_cached_cases_do_not_inflate_executed_schedule_coverage(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -8,8 +8,23 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .explorer import Comparison, compare_case
-from .generator import enumerate_cases, generate_topologies, sample_cases
-from .models import GRAMMAR_VERSION, Case, classify_case
+from .generator import (
+    enumerate_cases,
+    generate_topology_candidates,
+    sample_cases,
+)
+from .models import (
+    CANCELLATIONS,
+    CHECKPOINTS,
+    GRAMMAR_VERSION,
+    PAYLOAD_JSON,
+    REDUCERS,
+    RETRIES,
+    Case,
+    Topology,
+    classify_case,
+    classify_topology,
+)
 from .mutations import evaluate_mutations
 from .reporting import write_report
 from .shrinker import shrink_case
@@ -54,6 +69,17 @@ def _failure(case: Case, comparison: Comparison, seed: int) -> dict[str, object]
     }
 
 
+def _case_candidate_count(topology: Topology) -> int:
+    state_atoms = (
+        len(PAYLOAD_JSON)
+        * len(REDUCERS)
+        * len(RETRIES)
+        * len(CHECKPOINTS)
+        * len(CANCELLATIONS)
+    )
+    return 2 ** (len(topology.edges) + len(topology.condition_names)) * state_atoms
+
+
 def run_check(
     *,
     nodes: int,
@@ -69,10 +95,13 @@ def run_check(
         raise ValueError("sampled mode requires N=5 or N=6, --cases, and --seed")
 
     started = time.perf_counter()
-    topology_candidates = tuple(generate_topologies(nodes))
+    topology_candidates = tuple(generate_topology_candidates(nodes))
+    valid_topologies = tuple(
+        topology for topology in topology_candidates if classify_topology(topology).valid
+    )
     if exhaustive:
         stream: Iterable[Case] = (
-            case for topology in topology_candidates for case in enumerate_cases(topology)
+            case for topology in valid_topologies for case in enumerate_cases(topology)
         )
         mode = "exhaustive"
     else:
@@ -81,6 +110,17 @@ def run_check(
 
     count_names = ("candidate", "invalid", "eligible", "executed", "passed", "failed")
     counts = {key: 0 for key in count_names}
+    invalid_topology_cases = (
+        sum(
+            _case_candidate_count(topology)
+            for topology in topology_candidates
+            if not classify_topology(topology).valid
+        )
+        if exhaustive
+        else 0
+    )
+    counts["candidate"] = invalid_topology_cases
+    counts["invalid"] = invalid_topology_cases
     schedule_eligible = 0
     schedule_executed = 0
     eligible_topologies: set[str] = set()
@@ -153,7 +193,8 @@ def run_check(
         "coverage": {
             "topology": {
                 "candidate": len(topology_candidates),
-                "eligible": len(eligible_topologies),
+                "invalid": len(topology_candidates) - len(valid_topologies),
+                "eligible": len(valid_topologies),
                 "executed": len(executed_topologies),
             },
             "state": {"eligible": counts["eligible"], "executed": counts["executed"]},

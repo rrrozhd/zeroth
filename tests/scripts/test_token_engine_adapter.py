@@ -27,6 +27,23 @@ def _case() -> Case:
     )
 
 
+def _structured_case() -> Case:
+    return Case(
+        Topology(
+            ("n0", "n1", "n2", "n3"),
+            (
+                Edge("e0", "n0", "n1", 0),
+                Edge("e1", "n0", "n2", 0),
+                Edge("e2", "n1", "n3", 0),
+                Edge("e3", "n2", "n3", 0),
+            ),
+        ),
+        (True, True, True, True),
+        (),
+        State('{"p":1}', "collect", "fail-first", "after-claim", "none"),
+    )
+
+
 def test_only_adapter_imports_production_runtime() -> None:
     source = inspect.getsource(inspect.getmodule(ProductionAdapter))
 
@@ -43,16 +60,39 @@ def test_production_pure_transitions_match_independent_oracle() -> None:
 
 
 def test_production_adapter_exercises_structured_scopes_and_repository_cas() -> None:
-    trace = ProductionAdapter().run(_case())
+    trace = ProductionAdapter().run(_structured_case())
     production = trace.persisted_state["production"]
 
     assert production["join"]["state"] == "closed"
     assert production["join"]["continuation_created"] is True
-    assert production["loop"]["state"] == "completed"
-    assert production["loop"]["resolved_exit_edges"] == ["probe-exit"]
+    assert production["loop"]["state"] == "not_applicable"
     assert production["lifecycle"]["checkpoint"] == "after-claim"
     assert production["repository"]["cas_writes"] > 0
     assert production["repository"]["reloads"] > 0
+
+
+def test_production_adapter_exercises_actual_back_edge_loop_lifecycle() -> None:
+    case = Case(
+        Topology(
+            ("n0", "n1", "n2", "n3"),
+            (
+                Edge("e0", "n0", "n1", 0),
+                Edge("e1", "n1", "n0", 0),
+                Edge("e2", "n1", "n2", 0),
+                Edge("e3", "n2", "n3", 0),
+            ),
+        ),
+        (True, True, True, True),
+        (),
+        State("null", "collect", "none", "none", "none"),
+    )
+
+    loop = ProductionAdapter().run(case).persisted_state["production"]["loop"]
+
+    assert loop["state"] == "completed"
+    assert loop["back_edge_id"] == "e1"
+    assert loop["resolved_exit_edges"] == ["e2"]
+    assert loop["frames"] == ["settled", "settled"]
 
 
 def test_cancellation_materially_changes_compared_lifecycle_trace() -> None:
@@ -74,6 +114,9 @@ def test_cancellation_materially_changes_compared_lifecycle_trace() -> None:
     assert first.persisted_state["production"]["lifecycle"]["state"] != (
         second.persisted_state["production"]["lifecycle"]["state"]
     )
+    assert first.persisted_state["production"]["graph_execution"]["cancelled"] is False
+    assert second.persisted_state["production"]["graph_execution"]["cancelled"] is True
+    assert second.persisted_state["production"]["graph_execution"]["state"] == "cancelled"
     assert normalize_trace(first) != normalize_trace(second)
 
 

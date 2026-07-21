@@ -5,6 +5,7 @@ from itertools import combinations_with_replacement
 
 from scripts.token_engine_checker.generator import (
     enumerate_cases,
+    generate_topology_candidates,
     generate_topologies,
     sample_cases,
 )
@@ -79,6 +80,13 @@ def test_n4_generator_matches_every_topology_accepted_by_classifier() -> None:
 
     assert len(classified) == 288
     assert generated == classified
+
+
+def test_n4_candidate_generator_retains_invalid_topologies_for_reporting() -> None:
+    candidates = tuple(generate_topology_candidates(4))
+
+    assert len(candidates) == 2002
+    assert sum(classify_topology(topology).valid for topology in candidates) == 288
 
 
 def test_case_classifier_rejects_cancellation_without_checkpoint() -> None:

@@ -77,28 +77,99 @@ def _reduce(reducer: str, values: list[tuple[str, object]]) -> object:
 
 def _abstract_production_state(case: Case) -> dict[str, object]:
     cancelled = case.state.cancellation == "after-cut"
-    return {
-        "join": {
-            "state": "closed",
-            "continuation_created": True,
-            "failure_policy": (
-                "best_effort" if case.state.retry == "fail-first" else "fail_fast"
-            ),
-            "obligation_outcomes": ["delivered", "delivered"],
-        },
-        "loop": {
+    conditions = dict(case.conditions)
+    active_edges = tuple(
+        edge
+        for index, edge in enumerate(case.topology.edges)
+        if _active(edge, case.enabled[index], conditions)
+    )
+    incoming = tuple(
+        sorted(
+            max(
+                (
+                    tuple(
+                        edge.edge_id
+                        for edge in active_edges
+                        if edge.target == target
+                    )
+                    for target in case.topology.nodes
+                ),
+                key=lambda edge_ids: (len(edge_ids), edge_ids),
+                default=(),
+            )
+        )
+    )
+    best_effort = case.state.retry == "fail-first"
+    back_edges = tuple(
+        edge
+        for edge in active_edges
+        if int(edge.target[1:]) <= int(edge.source[1:])
+    )
+    if back_edges:
+        back = min(back_edges, key=lambda edge: edge.edge_id)
+        exits = tuple(
+            edge
+            for edge in active_edges
+            if edge.edge_id != back.edge_id
+            and edge.source == back.source
+            and int(edge.target[1:]) > int(edge.source[1:])
+        )
+        if not exits:
+            exits = tuple(
+                edge
+                for edge in active_edges
+                if edge.edge_id != back.edge_id
+                and int(edge.target[1:]) > int(edge.source[1:])
+            )
+        exit_id = min(exits, key=lambda edge: edge.edge_id).edge_id if exits else "bounded-exit"
+        loop = {
             "state": "completed",
-            "resolved_exit_edges": ["probe-exit"],
-            "frames": ["settled"],
-        },
+            "resolved_exit_edges": [exit_id],
+            "frames": ["settled", "settled"],
+            "back_edge_id": back.edge_id,
+        }
+    else:
+        loop = {
+            "state": "not_applicable",
+            "resolved_exit_edges": [],
+            "frames": [],
+            "back_edge_id": None,
+        }
+    join = (
+        {
+            "state": "closed",
+            "continuation_created": best_effort,
+            "failure_policy": "best_effort" if best_effort else "fail_fast",
+            "edge_ids": list(incoming),
+            "obligation_outcomes": (
+                ["failed", *(["delivered"] * (len(incoming) - 1))]
+                if best_effort
+                else ["failed", *(["cancelled"] * (len(incoming) - 1))]
+            ),
+        }
+        if len(incoming) >= 2
+        else {
+            "state": "not_applicable",
+            "continuation_created": False,
+            "failure_policy": "best_effort" if best_effort else "fail_fast",
+            "edge_ids": [],
+            "obligation_outcomes": [],
+        }
+    )
+    return {
+        "join": join,
+        "loop": loop,
         "lifecycle": {
             "state": "cancelled" if cancelled else "stopped",
             "checkpoint": case.state.checkpoint,
             "cancellation_generation": 1 if cancelled else 0,
         },
         "repository": {
-            "cas_writes": 16 if cancelled else 18,
-            "reloads": 15 if cancelled else 17,
+            "implementation": "RunRepository",
+            "cas_writes": 2,
+            "reloads": 2,
+            "conflict_fenced": True,
+            "final_revision": 1,
         },
     }
 
@@ -108,16 +179,16 @@ class Oracle:
 
     def ready_sets(self, case: Case) -> tuple[tuple[str, ...], ...]:
         """Return canonical logical token IDs for each observed concurrent state."""
-        observed: list[tuple[str, ...]] = []
-        self.run(case, _ready_sets=observed)
-        return tuple(dict.fromkeys(observed))
+        observed: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+        self.run(case, _ready_states=observed)
+        return tuple(dict.fromkeys(ready for _prefix, ready in observed))
 
     def run(
         self,
         case: Case,
         schedule: tuple[str, ...] | None = None,
         *,
-        _ready_sets: list[tuple[str, ...]] | None = None,
+        _ready_states: list[tuple[tuple[str, ...], tuple[str, ...]]] | None = None,
     ) -> Trace:
         classification = classify_case(case)
         if not classification.valid:
@@ -134,20 +205,53 @@ class Oracle:
         dispatches: list[Dispatch] = []
         lifecycle: list[tuple[str, str]] = []
         terminals: list[tuple[str, object]] = []
+        dispatch_prefix: list[str] = []
+        checkpoint_done = False
+        graph_cancelled = False
         steps = 0
         while queue:
-            if _ready_sets is not None and len(queue) > 1:
-                _ready_sets.append(tuple(sorted(item[0] for item in queue)))
+            if not checkpoint_done and case.state.checkpoint == "before-claim":
+                checkpoint_done = True
+                if case.state.cancellation == "after-cut":
+                    queue.clear()
+                    lifecycle.append(("snapshot", "cancelled-before-claim"))
+                    graph_cancelled = True
+                    break
+            if _ready_states is not None and len(queue) > 1:
+                _ready_states.append(
+                    (tuple(dispatch_prefix), tuple(sorted(item[0] for item in queue)))
+                )
             if schedule:
                 rank = {token_id: index for index, token_id in enumerate(schedule)}
                 queue.sort(key=lambda item: (rank.get(item[0], len(rank)), item[0]))
             token_id, node, payload, inbound, back_counts = queue.pop(0)
+            dispatch_prefix.append(token_id)
+            cancel_after_claim = False
+            if not checkpoint_done and case.state.checkpoint in {
+                "after-claim",
+                "before-dispatch",
+            }:
+                checkpoint_done = True
+                cancel_after_claim = case.state.cancellation == "after-cut"
+            if cancel_after_claim:
+                dispatches.append(Dispatch(node, token_id, 0, inbound, payload))
+                lifecycle.append((token_id, "cancelled-after-claim"))
+                queue.clear()
+                graph_cancelled = True
+                break
             attempts = 2 if case.state.retry == "fail-first" else 1
             for attempt in range(attempts):
                 dispatches.append(Dispatch(node, token_id, attempt, inbound, payload))
                 lifecycle.append((token_id, "retry" if attempt + 1 < attempts else "complete"))
             if node == case.topology.nodes[-1]:
                 terminals.append((token_id, payload))
+                if not checkpoint_done and case.state.checkpoint == "after-resolve":
+                    checkpoint_done = True
+                    if case.state.cancellation == "after-cut":
+                        queue.clear()
+                        lifecycle.append((token_id, "cancelled-after-resolve"))
+                        graph_cancelled = True
+                        break
                 continue
             active = [
                 edge
@@ -175,10 +279,26 @@ class Oracle:
                     if is_back:
                         child_counts[edge.edge_id] = traversals + 1
                     queue.append((child_id, edge.target, edge_payload, edge.edge_id, child_counts))
+            if not checkpoint_done and case.state.checkpoint == "after-resolve":
+                checkpoint_done = True
+                if case.state.cancellation == "after-cut":
+                    queue.clear()
+                    lifecycle.append((token_id, "cancelled-after-resolve"))
+                    graph_cancelled = True
+                    break
             steps += 1
             if steps > 10_000:
                 raise OracleViolation("bounded grammar exceeded transition limit")
         production = _abstract_production_state(case)
+        production = {
+            **production,
+            "graph_execution": {
+                "state": "cancelled" if graph_cancelled else "running",
+                "cancelled": graph_cancelled,
+                "pending_token_ids": sorted(item[0] for item in queue),
+                "dispatch_count": len(dispatches),
+            },
+        }
         lifecycle.extend(
             (
                 ("structured-join", str(production["join"]["state"])),
@@ -195,6 +315,7 @@ class Oracle:
             persisted_state={
                 "terminal": terminals,
                 "checkpoint": case.state.checkpoint,
+                "dispatch_order": [item.token_id for item in dispatches],
                 "production": production,
             },
         )

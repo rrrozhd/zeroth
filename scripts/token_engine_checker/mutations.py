@@ -6,9 +6,9 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, replace
 
-from .models import Case
+from .models import Case, Edge, State, Topology
 from .normalization import normalize_trace
-from .oracle import Oracle, OracleViolation, Resolution, Trace
+from .oracle import Oracle, Resolution, Trace
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,18 +130,53 @@ MUTATIONS: tuple[tuple[str, Mutation], ...] = (
 )
 
 
+def apply_sut_mutation(trace: Trace, name: str) -> Trace:
+    mutation = dict(MUTATIONS).get(name)
+    if mutation is None:
+        raise ValueError(f"unknown checker mutation: {name}")
+    return mutation(trace)
+
+
+def _seed_case(case: Case, name: str) -> tuple[Case, tuple[str, ...] | None]:
+    if name == "schedule_input_discarded":
+        topology = Topology(
+            ("n0", "n1", "n2", "n3"),
+            (
+                Edge("e0", "n0", "n1", 0),
+                Edge("e1", "n0", "n2", 0),
+                Edge("e2", "n1", "n3", 0),
+                Edge("e3", "n2", "n3", 0),
+            ),
+        )
+        scheduled = Case(
+            topology,
+            (True, True, True, True),
+            (),
+            State("null", "collect", "none", "none", "none"),
+        )
+        return scheduled, ("t0", "t0.e1.0", "t0.e0.0")
+    state = case.state
+    if name == "retry_lifecycle_lost":
+        state = replace(state, retry="fail-first")
+    elif name == "cancellation_generation_lost":
+        state = replace(state, checkpoint="after-claim", cancellation="after-cut")
+    return replace(case, state=state), None
+
+
 def evaluate_mutations(case: Case) -> tuple[MutationOutcome, ...]:
-    oracle = Oracle()
-    baseline = oracle.run(case)
-    normalized = normalize_trace(baseline)
+    from .adapter import ProductionAdapter
+
     outcomes: list[MutationOutcome] = []
-    for name, mutation in MUTATIONS:
-        mutated = mutation(baseline)
+    for name, _mutation in MUTATIONS:
+        seeded_case, schedule = _seed_case(case, name)
+        expected = normalize_trace(Oracle().run(seeded_case, schedule))
         try:
-            oracle.validate(mutated)
-        except OracleViolation:
+            observed = normalize_trace(
+                ProductionAdapter(mutation=name).run(seeded_case, schedule)
+            )
+        except Exception:
             caught = True
         else:
-            caught = normalize_trace(mutated) != normalized
+            caught = observed != expected
         outcomes.append(MutationOutcome(name, caught))
     return tuple(outcomes)

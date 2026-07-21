@@ -22,7 +22,7 @@ from .models import (
 )
 
 
-def generate_topologies(nodes: int) -> Iterator[Topology]:
+def generate_topology_candidates(nodes: int) -> Iterator[Topology]:
     if nodes < 2:
         raise ValueError("nodes must be at least two")
     labels = tuple(f"n{index}" for index in range(nodes))
@@ -32,19 +32,20 @@ def generate_topologies(nodes: int) -> Iterator[Topology]:
     seen: set[str] = set()
     if nodes == 4:
         accepted: list[Topology] = []
-        for edge_count in range(1, nodes + 2):
+        for edge_count in range(0, nodes + 2):
             for pairs in combinations_with_replacement(allowed, edge_count):
                 topology = Topology(
                     labels,
                     condition_edges(canonicalize_edges(pairs)),
                 )
-                if topology.digest in seen or not classify_topology(topology).valid:
+                if topology.digest in seen:
                     continue
                 seen.add(topology.digest)
                 accepted.append(topology)
         yield from sorted(
             accepted,
             key=lambda topology: (
+                not classify_topology(topology).valid,
                 len(topology.condition_names),
                 len(topology.edges),
                 topology.digest,
@@ -58,9 +59,15 @@ def generate_topologies(nodes: int) -> Iterator[Topology]:
         for extra in extras:
             edges = condition_edges(canonicalize_edges((*spine, *extra)))
             topology = Topology(labels, edges)
-            if topology.digest in seen or not classify_topology(topology).valid:
+            if topology.digest in seen:
                 continue
             seen.add(topology.digest)
+            yield topology
+
+
+def generate_topologies(nodes: int) -> Iterator[Topology]:
+    for topology in generate_topology_candidates(nodes):
+        if classify_topology(topology).valid:
             yield topology
 
 

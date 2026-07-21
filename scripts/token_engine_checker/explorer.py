@@ -53,9 +53,29 @@ def schedule_plans(
     return tuple(plans)
 
 
+def discover_schedule_plans(
+    case: Case, *, seed: int
+) -> tuple[tuple[str, ...], ...]:
+    """Reach a fixed point over ready states exposed by alternate choices."""
+    pending = [("t0",)]
+    discovered: dict[tuple[str, ...], None] = {}
+    while pending:
+        schedule = pending.pop()
+        if schedule in discovered:
+            continue
+        discovered[schedule] = None
+        states: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+        Oracle().run(case, schedule, _ready_states=states)
+        for prefix, ready in states:
+            for order in schedule_orders(ready, seed=seed, case_digest=case.digest):
+                plan = (*prefix, *order)
+                if plan not in discovered:
+                    pending.append(plan)
+    return tuple(discovered)
+
+
 def compare_case(case: Case, *, seed: int) -> Comparison:
-    ready_sets = Oracle().ready_sets(case)
-    orders = schedule_plans(ready_sets, seed=seed, case_digest=case.digest)
+    orders = discover_schedule_plans(case, seed=seed)
     executed = 0
     for order in orders:
         try:
