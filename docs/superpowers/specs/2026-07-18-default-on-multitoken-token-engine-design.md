@@ -304,7 +304,115 @@ The model-checking grammar is fixed for the release gate:
 The required artifacts are tracked tests plus a machine-readable JSON report from
 the model checker containing grammar version, Git SHA, counts, seeds, mutations,
 minimized failures, and separate topology, state, exhaustive-schedule, and
-sampled-schedule coverage counts. Release commands are:
+sampled-schedule coverage counts.
+
+### Grammar v1 finite-domain appendix
+
+This appendix is normative for `grammar-v1`. It closes the otherwise unbounded
+multigraph and JSON domains above. A checker report claiming `grammar-v1` MUST
+use these domains exactly; changing a bound or atom creates a new grammar
+version.
+
+For a requested size `N`, node labels are exactly `n0` through `n{N-1}`. `n0`
+is the sole entry and `n{N-1}` is the sole terminal. A labelled topology is
+constructed from a simple entry-to-terminal spine (every permutation of the
+`N-2` interior labels is considered) plus zero, one, or two additional directed
+edge instances. Self edges are forbidden. There are at most two parallel edge
+instances for an ordered `(source, target)` pair and at most `N+1` total edge
+instances. The resulting graph must be reachable and reducible, have fan-out at
+most three, loop nesting at most two, and make the terminal a sink. These
+construction rules, followed by the validity predicates, are the complete
+topology language; graphs outside them are not silently filtered as
+"unsupported".
+
+Edges are sorted by `(source numeric index, target numeric index, parallel
+ordinal)` and receive canonical IDs `e0`, `e1`, and so on. The parallel ordinal
+is zero-based within an ordered node pair and is not otherwise observable. Every
+enabled mask over the canonical edge list is considered. A mask is valid state
+only when its enabled subgraph retains entry reachability for every node that can
+execute and at least one entry-to-terminal path; invalid masks are classified
+with a reason, not counted as unsupported.
+
+Conditions exist only on edges leaving a node whose topology out-degree is at
+least two. All such edges from a source share the canonical condition variable
+named `c<source-index>` and carry either positive or negative polarity,
+alternating in canonical edge order starting positive. There are at most two
+condition variables; a topology requiring more is invalid. Every Boolean
+valuation of the declared variables is considered. An edge is active exactly
+when it is enabled and either unconditional or its literal evaluates true.
+
+The remaining state domains are finite atoms, not arbitrary user data:
+
+- initial payload: `null`, `false`, `0`, or `{"p": 1}`;
+- reducer: `collect`, `merge`, or `last` (the latter uses canonical edge order);
+- retry profile: `none` or `fail-first`, with at most one retry for each claimed
+  activation and no backoff/time input;
+- loop iteration bound: exactly two for every back edge;
+- checkpoint cut: `none`, `before-claim`, `after-claim`, `after-resolve`, or
+  `before-dispatch`; each cut occurs at most once and replay resumes from the
+  serialized normalized state;
+- cancellation: `none` or immediately after the selected checkpoint cut (and
+  therefore only one cancellation generation).
+
+A state case is one tuple from the Cartesian product of enabled mask, condition
+valuation, payload, reducer, retry profile, checkpoint cut, and cancellation.
+Impossible cancellation/cut pairs are classified invalid. At `N=4`, every
+topology candidate and every state tuple is classified, and every valid tuple is
+executed. `eligible` means valid after classification; `executed` means compared
+against both the independent oracle and production pure-transition adapter. The
+report MUST give exact candidate, invalid, eligible, and executed counts;
+`executed != eligible` is a failed run. A syntactically valid case rejected by
+the adapter is an execution failure named `unsupported_valid_case`, never a
+filter.
+
+Scheduling choices are ordered by canonical activation key. Ready sets of width
+at most six enumerate every permutation. Wider sets execute canonical order,
+reverse order, and deterministic pseudorandom orders derived from the run seed
+and canonical case digest. For sampled `N=5` and `N=6` runs, exactly the
+requested number of eligible cases is selected without replacement from the
+deterministic candidate stream; the release seeds are respectively `120500` and
+`120600`. A run that cannot produce the requested eligible count fails rather
+than lowering the count.
+
+Reports are UTF-8 JSON objects written atomically by temporary-file replacement
+and have this required schema (additional keys are permitted):
+
+```json
+{
+  "schema_version": 1,
+  "grammar_version": "grammar-v1",
+  "git_sha": "40-hex-character commit id",
+  "command": {"nodes": 4, "mode": "exhaustive", "cases": null, "seed": null},
+  "status": "passed",
+  "counts": {
+    "candidate": 0,
+    "invalid": 0,
+    "eligible": 0,
+    "executed": 0,
+    "passed": 0,
+    "failed": 0
+  },
+  "coverage": {
+    "topology": {"candidate": 0, "eligible": 0, "executed": 0},
+    "state": {"eligible": 0, "executed": 0},
+    "exhaustive_schedule": {"eligible": 0, "executed": 0},
+    "sampled_schedule": {"eligible": 0, "executed": 0}
+  },
+  "seeds": [],
+  "mutations": [{"name": "string", "caught": true}],
+  "failures": [{"kind": "string", "case": {}, "trace": {}, "minimized": {}}],
+  "runtime_seconds": 0.0
+}
+```
+
+`status` is `passed` only when there are no failures, every registered mutation
+is caught, the requested sample count is executed, and (for exhaustive runs)
+eligible equals executed. Coverage counts describe actual comparisons, never
+estimates. Timestamps and output paths are intentionally absent so identical
+inputs at one Git SHA normalize to identical report content apart from measured
+runtime.
+
+Release commands are:
 
 ```bash
 uv run pytest -q
