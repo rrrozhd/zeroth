@@ -29,6 +29,7 @@ from zeroth.runtime.orchestration.token_lifecycle import (
     TokenLifecycleAdapter,
     has_pending_structured_owner_work,
 )
+from zeroth.runtime.orchestration.token_loop_models import LoopReductionClaim
 from zeroth.runtime.orchestration.token_loops import close_ready_loop
 from zeroth.runtime.orchestration.token_runtime_loops import TokenRuntimeLoopSupport
 from zeroth.runtime.orchestration.token_runtime_support import (
@@ -120,7 +121,8 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             (
                 join
                 for join in snapshot.joins
-                if join.lifecycle_state is JoinLifecycleState.READY
+                if join.lifecycle_state
+                in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
             ),
             None,
         )
@@ -145,7 +147,6 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 for loop in reversed(snapshot.loops)
                 if loop.frames
                 and loop.frames[-1].state is IterationFrameState.BARRIER_READY
-                and loop.reduction_claim_id is None
             ),
             None,
         )
@@ -157,6 +158,11 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     close_ready_loop,
                     loop_instance_id=ready_loop.loop_instance_id,
                     continuation_config=getattr(header, "join_config", None),
+                    claimed_reduction=(
+                        LoopReductionClaim.from_loop(ready_loop)
+                        if ready_loop.reduction_claim_id is not None
+                        else None
+                    ),
                 ),
             )
         if has_pending_structured_owner_work(snapshot):

@@ -28,6 +28,7 @@ from zeroth.core.runs import Run, RunStatus
 from zeroth.runtime.orchestration import token_scope as _ts
 from zeroth.runtime.orchestration.errors import OrchestratorError
 from zeroth.runtime.orchestration.token_joins import (
+    JoinReductionClaim,
     close_ready_join_with_cas,
     deliver_to_join,
     settle_join_without_delivery,
@@ -208,7 +209,8 @@ class TokenRuntimeSupport:
                 join
                 for join in committed.joins
                 if join.target_node_id == edge.target_node_id
-                and join.lifecycle_state is JoinLifecycleState.READY
+                and join.lifecycle_state
+                in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
             ),
             None,
         )
@@ -238,6 +240,11 @@ class TokenRuntimeSupport:
             config,
             reducer=reducer,
             failure_mode=graph.execution_settings.failure_policy,
+            claimed_reduction=(
+                JoinReductionClaim.from_join(ready)
+                if ready.lifecycle_state is JoinLifecycleState.REDUCING
+                else None
+            ),
         )
         compatibility = dict(run.metadata.get("join_state", {}))
         compatibility.pop(edge.target_node_id, None)
