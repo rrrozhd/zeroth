@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 
 from zeroth.runtime.agents import (
@@ -55,6 +56,9 @@ from zeroth.governance.policy import (
 )
 from zeroth.runtime.runs import Run, RunStatus
 from zeroth.integrations.persistence.runs import RunRepository
+
+
+pytestmark = pytest.mark.legacy_engine
 
 
 class NumberInput(BaseModel):
@@ -189,7 +193,10 @@ def _two_agent_graph() -> Graph:
         graph_id="graph-char",
         name="characterization",
         entry_step="first",
-        execution_settings=ExecutionSettings(max_total_steps=10),
+        execution_settings=ExecutionSettings(
+            max_total_steps=10,
+            sequential_join_enabled=False,
+        ),
         nodes=[_agent_node("first"), _agent_node("second")],
         edges=[Edge(edge_id="edge-1", source_node_id="first", target_node_id="second")],
     )
@@ -461,7 +468,10 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
         graph_id="graph-char",
         name="characterization",
         entry_step="first",
-        execution_settings=ExecutionSettings(max_total_steps=10),
+        execution_settings=ExecutionSettings(
+            max_total_steps=10,
+            sequential_join_enabled=False,
+        ),
         nodes=[
             _agent_node("first"),
             HumanApprovalNode(
@@ -545,7 +555,10 @@ async def test_max_total_steps_guard_fails_before_dispatching_another_node(sqlit
     """The loop guard fires at the top of the cycle, before any node runs."""
     journal = _Journal()
     graph = _two_agent_graph()
-    graph.execution_settings = ExecutionSettings(max_total_steps=1)
+    graph.execution_settings = ExecutionSettings(
+        max_total_steps=1,
+        sequential_join_enabled=False,
+    )
     orchestrator = _orchestrator(sqlite_db, journal)
 
     run = await orchestrator.run_graph(graph, {"value": 3})
@@ -656,7 +669,10 @@ async def test_fan_out_records_branch_audits_before_the_source_node_audit(sqlite
         graph_id="graph-char",
         name="characterization",
         entry_step="source",
-        execution_settings=ExecutionSettings(max_total_steps=50),
+        execution_settings=ExecutionSettings(
+            max_total_steps=50,
+            sequential_join_enabled=False,
+        ),
         nodes=[source, sink],
         edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
@@ -738,7 +754,10 @@ async def test_fan_out_merges_branch_results_in_branch_index_order(sqlite_db) ->
         graph_id="graph-char",
         name="characterization",
         entry_step="source",
-        execution_settings=ExecutionSettings(max_total_steps=50),
+        execution_settings=ExecutionSettings(
+            max_total_steps=50,
+            sequential_join_enabled=False,
+        ),
         nodes=[source, sink],
         edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )

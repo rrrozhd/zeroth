@@ -14,7 +14,10 @@ from typing import Any
 import pytest
 
 from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
+from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
 from zeroth.contracts.templates.models import TemplateReference
+from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +74,7 @@ class _FakeRunRepository:
 
     def __init__(self) -> None:
         self._runs: dict[str, Any] = {}
+        self._snapshots: dict[str, TokenEngineSnapshot] = {}
 
     async def create(self, run: Any) -> Any:
         self._runs[run.run_id] = run
@@ -86,6 +90,33 @@ class _FakeRunRepository:
     async def write_checkpoint(self, run: Any) -> None:
         pass
 
+    async def get_token_snapshot(self, run_id: str) -> TokenEngineSnapshot | None:
+        snapshot = self._snapshots.get(run_id)
+        return (
+            None
+            if snapshot is None
+            else TokenEngineSnapshot.model_validate_json(snapshot.model_dump_json())
+        )
+
+    async def compare_and_swap_token_snapshot(
+        self,
+        run_id: str,
+        *,
+        expected_revision: int | None,
+        snapshot: TokenEngineSnapshot,
+    ) -> TokenEngineSnapshot:
+        current = self._snapshots.get(run_id)
+        actual_revision = None if current is None else current.revision
+        if actual_revision != expected_revision:
+            raise TokenSnapshotConcurrencyError(
+                run_id,
+                expected_revision=expected_revision,
+                actual_revision=actual_revision,
+            )
+        stored = TokenEngineSnapshot.model_validate_json(snapshot.model_dump_json())
+        self._snapshots[run_id] = stored
+        return TokenEngineSnapshot.model_validate_json(stored.model_dump_json())
+
 
 class _FakeAuditRepository:
     """Records audit writes for later assertions."""
@@ -95,6 +126,13 @@ class _FakeAuditRepository:
 
     async def write(self, record: Any) -> None:
         self.records.append(record)
+
+
+def _token_orchestrator(**kwargs: Any):
+    repository = _FakeRunRepository()
+    return RuntimeOrchestrator(run_repository=repository, **kwargs).use_token_snapshot_store(
+        repository
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -181,11 +219,8 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.mark.asyncio()
     async def test_template_resolved_and_rendered(self, registry, renderer, runner):
-        from zeroth.core.orchestrator import RuntimeOrchestrator
-
         graph = self._make_graph(template_ref=TemplateReference(name="greeting", version=1))
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             template_registry=registry,
@@ -200,11 +235,8 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.mark.asyncio()
     async def test_backward_compat_no_template_ref(self, registry, renderer, runner):
-        from zeroth.core.orchestrator import RuntimeOrchestrator
-
         graph = self._make_graph(template_ref=None)
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             template_registry=registry,
@@ -217,11 +249,8 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.mark.asyncio()
     async def test_no_registry_skips_resolution(self, runner):
-        from zeroth.core.orchestrator import RuntimeOrchestrator
-
         graph = self._make_graph(template_ref=TemplateReference(name="greeting", version=1))
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             # No template_registry / template_renderer
@@ -233,11 +262,8 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.mark.asyncio()
     async def test_version_none_resolves_latest(self, registry, renderer, runner):
-        from zeroth.core.orchestrator import RuntimeOrchestrator
-
         graph = self._make_graph(template_ref=TemplateReference(name="greeting"))
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             template_registry=registry,
@@ -251,12 +277,10 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.mark.asyncio()
     async def test_template_not_found_raises(self, registry, renderer, runner):
-        from zeroth.core.orchestrator import RuntimeOrchestrator
         from zeroth.contracts.templates.errors import TemplateNotFoundError
 
         graph = self._make_graph(template_ref=TemplateReference(name="nonexistent"))
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             template_registry=registry,
@@ -269,12 +293,9 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.mark.asyncio()
     async def test_audit_contains_rendered_prompt(self, registry, renderer, runner):
-        from zeroth.core.orchestrator import RuntimeOrchestrator
-
         graph = self._make_graph(template_ref=TemplateReference(name="greeting", version=2))
         audit_repo = _FakeAuditRepository()
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             audit_repository=audit_repo,
@@ -293,12 +314,9 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.mark.asyncio()
     async def test_audit_contains_template_ref(self, registry, renderer, runner):
-        from zeroth.core.orchestrator import RuntimeOrchestrator
-
         graph = self._make_graph(template_ref=TemplateReference(name="greeting", version=1))
         audit_repo = _FakeAuditRepository()
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             audit_repository=audit_repo,
@@ -318,13 +336,10 @@ class TestOrchestratorTemplateResolution:
     async def test_template_variables_include_input_and_state(self, renderer, runner):
         """Template variables should include input payload and run state metadata."""
         from zeroth.contracts.templates.registry import TemplateRegistry
-        from zeroth.core.orchestrator import RuntimeOrchestrator
-
         reg = TemplateRegistry()
         reg.register("state_test", 1, "Input={{ input.val }} State={{ state }}")
         graph = self._make_graph(template_ref=TemplateReference(name="state_test", version=1))
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             template_registry=reg,
@@ -337,11 +352,8 @@ class TestOrchestratorTemplateResolution:
     @pytest.mark.asyncio()
     async def test_original_config_restored_after_execution(self, registry, renderer, runner):
         """The runner's config must be restored to original after template resolution."""
-        from zeroth.core.orchestrator import RuntimeOrchestrator
-
         graph = self._make_graph(template_ref=TemplateReference(name="greeting", version=2))
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             template_registry=registry,
@@ -393,7 +405,6 @@ class TestAuditRedaction:
     @pytest.mark.asyncio()
     async def test_secret_variable_redacted_in_audit(self, renderer, runner):
         """When template has a secret-patterned variable, audit rendered_prompt is redacted."""
-        from zeroth.core.orchestrator import RuntimeOrchestrator
         from zeroth.contracts.templates.registry import TemplateRegistry
 
         reg = TemplateRegistry()
@@ -407,8 +418,7 @@ class TestAuditRedaction:
             template_ref=TemplateReference(name="secret_test", version=1),
         )
         audit_repo = _FakeAuditRepository()
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             audit_repository=audit_repo,
@@ -433,7 +443,6 @@ class TestAuditRedaction:
     @pytest.mark.asyncio()
     async def test_no_secret_variables_unredacted_in_audit(self, renderer, runner):
         """When template variables have no secret names, rendered_prompt is unredacted."""
-        from zeroth.core.orchestrator import RuntimeOrchestrator
         from zeroth.contracts.templates.registry import TemplateRegistry
 
         reg = TemplateRegistry()
@@ -442,8 +451,7 @@ class TestAuditRedaction:
             template_ref=TemplateReference(name="safe_test", version=1),
         )
         audit_repo = _FakeAuditRepository()
-        orchestrator = RuntimeOrchestrator(
-            run_repository=_FakeRunRepository(),
+        orchestrator = _token_orchestrator(
             agent_runners={"agent1": runner},
             executable_unit_runner=None,
             audit_repository=audit_repo,

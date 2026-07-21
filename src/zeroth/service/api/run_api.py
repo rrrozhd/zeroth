@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.registry import ContractReference
 from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.core.runs import Run, RunFailureState, RunRepository, RunStatus
@@ -113,7 +114,11 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
             submitted_by=principal.to_actor(),
             thread_id=thread_id,
             current_node_ids=[],
-            pending_node_ids=[_entry_step(graph)],
+            pending_node_ids=(
+                []
+                if token_engine_enabled(graph.execution_settings)
+                else [_entry_step(graph)]
+            ),
             metadata=_initial_metadata(graph, validated_input),
         )
         # Guardrail checks before persisting.
@@ -393,11 +398,20 @@ def _entry_step(graph: object) -> str:
 def _initial_metadata(graph: object, input_payload: Mapping[str, Any]) -> dict[str, Any]:
     """Build the initial run metadata seeded with the entry-step payload."""
     entry_step = _entry_step(graph)
-    return {
+    metadata: dict[str, Any] = {
         "graph_id": getattr(graph, "graph_id", ""),
         "graph_name": getattr(graph, "name", ""),
-        "node_payloads": {entry_step: dict(input_payload)},
         "edge_visit_counts": {},
         "path": [],
         "audits": {},
     }
+    settings = getattr(graph, "execution_settings", None)
+    if settings is not None and token_engine_enabled(settings):
+        metadata.update(
+            initial_input=dict(input_payload),
+            node_payloads={},
+            node_tags={},
+        )
+    else:
+        metadata["node_payloads"] = {entry_step: dict(input_payload)}
+    return metadata

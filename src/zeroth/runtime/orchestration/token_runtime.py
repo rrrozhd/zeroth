@@ -24,6 +24,7 @@ from zeroth.contracts.graph.tokens import (
 )
 from zeroth.contracts.mappings.executor import _set_path
 from zeroth.core.runs import Run, RunStatus
+from zeroth.platform.observability.tracing import start_span
 from zeroth.runtime.orchestration import token_scope as _ts
 from zeroth.runtime.orchestration.dispatcher import dispatch_subgraph_node
 from zeroth.runtime.orchestration.errors import OrchestratorError
@@ -54,6 +55,7 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotStore,
 )
 from zeroth.runtime.orchestration.tool_executor import node_by_id
+from zeroth.runtime.parallel.models import BranchContext
 from zeroth.runtime.parallel.reducers import dispatch_strategy
 
 
@@ -63,8 +65,38 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
     def __init__(self, driver: Any, store: TokenSnapshotStore) -> None:
         self.driver = driver
         self.store = store
+        self._fanout_spans: dict[str, Any] = {}
+
+    @staticmethod
+    def _branch_context(run: Run, envelope: Any) -> BranchContext:
+        branch_index = envelope.fork_lineage[-1].child_ordinal
+        return BranchContext(
+            branch_index=branch_index,
+            branch_id=f"{run.run_id}:branch:{branch_index}",
+            input_payload=dict(envelope.payload),
+        )
+
+    def _increment_node_visit(self, run: Run, node_id: str, envelope: Any) -> None:
+        if not envelope.fork_lineage:
+            self.driver.increment_node_visit(run, node_id)
+            return
+        fork_id = envelope.fork_lineage[-1].fork_id
+        visits = dict(run.metadata.get("token_fork_node_visits", {}))
+        visited = set(visits.get(fork_id, []))
+        if node_id in visited:
+            return
+        self.driver.increment_node_visit(run, node_id)
+        visited.add(node_id)
+        visits[fork_id] = sorted(visited)
+        run.metadata["token_fork_node_visits"] = visits
 
     async def drive(self, graph: Graph, run: Run, *, step_tracker: Any = None) -> Run:
+        try:
+            return await self._drive(graph, run, step_tracker=step_tracker)
+        finally:
+            self._close_all_fanout_spans()
+
+    async def _drive(self, graph: Graph, run: Run, *, step_tracker: Any = None) -> Run:
         del step_tracker  # token scheduling owns the aggregate work queue
         started_at = perf_counter()
         await self._ensure_snapshot(graph, run)
@@ -99,7 +131,16 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             stopped = await self.driver.external_stop(run)
             if stopped is not None:
                 return stopped
-            failed = await self.driver.policy_gate.enforce_loop_guards(graph, run, started_at)
+            fork_owned = any(
+                token.fork_lineage and token.settled_revision is None
+                for token in snapshot.tokens
+            )
+            failed = await self.driver.policy_gate.enforce_loop_guards(
+                graph,
+                run,
+                started_at,
+                failure_reason="parallel_execution_failed" if fork_owned else None,
+            )
             if failed is not None:
                 return failed
             if (
@@ -133,6 +174,40 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             terminal = await self._dispatch_claim(graph, run, claim)
             if terminal is not None:
                 return terminal
+
+    def _ensure_fanout_spans(
+        self,
+        graph: Graph,
+        run: Run,
+        snapshot: TokenEngineSnapshot,
+        envelope: Any,
+    ) -> None:
+        for frame in envelope.fork_lineage:
+            if frame.fork_id in self._fanout_spans:
+                continue
+            fork = next(item for item in snapshot.forks if item.fork_id == frame.fork_id)
+            parent = next(
+                item for item in snapshot.tokens if item.token_id == fork.parent_token_id
+            )
+            owner = node_by_id(graph, parent.current_node_id)
+            span = start_span(
+                "zeroth.fanout",
+                {"zeroth.node_id": owner.node_id, "zeroth.run_id": run.run_id},
+            )
+            span.__enter__()
+            self._fanout_spans[frame.fork_id] = span
+
+    def _close_closed_fanout_spans(self, snapshot: TokenEngineSnapshot) -> None:
+        for fork in reversed(snapshot.forks):
+            if fork.lifecycle_state.value != "closed":
+                continue
+            span = self._fanout_spans.pop(fork.fork_id, None)
+            if span is not None:
+                span.__exit__(None, None, None)
+
+    def _close_all_fanout_spans(self) -> None:
+        for fork_id in reversed(tuple(self._fanout_spans)):
+            self._fanout_spans.pop(fork_id).__exit__(None, None, None)
 
     async def _drain_stopping_owner(
         self,
@@ -263,6 +338,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
     async def _dispatch_claim(self, graph: Graph, run: Run, claim: DispatchClaim) -> Run | None:
         dispatch = claim.dispatch
         envelope = dispatch.token
+        self._ensure_fanout_spans(graph, run, claim.snapshot, envelope)
         node = node_by_id(graph, envelope.current_node_id)
         payload = envelope.model_dump(mode="json")["payload"]
         scopes = self.driver._graph_scopes(graph)
@@ -339,11 +415,48 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             run.metadata.pop("pending_approval", None)
         else:
             try:
-                denial = await self.driver.policy_gate.enforce_policy(
-                    graph, run, node, input_payload
+                pending_side_effect = run.metadata.get("pending_approval")
+                consuming_side_effect = (
+                    isinstance(pending_side_effect, Mapping)
+                    and pending_side_effect.get("kind") == "side_effect_policy"
+                    and pending_side_effect.get("node_id") == node.node_id
                 )
-                if denial is not None:
-                    return denial
+                pending_approval = await self.driver.policy_gate.consume_side_effect_approval(
+                    run, node, input_payload
+                )
+                if pending_approval is not None:
+                    return pending_approval
+                if consuming_side_effect:
+                    run.pending_node_ids = [
+                        pending
+                        for pending in run.pending_node_ids
+                        if pending != node.node_id
+                    ]
+                if envelope.fork_lineage:
+                    denial_reason = await self.driver.policy_gate.enforce_policy_for_branch(
+                        graph, run, node, input_payload
+                    )
+                    if denial_reason is not None:
+                        branch_index = envelope.fork_lineage[-1].child_ordinal
+                        raise RuntimeError(
+                            f"policy denied branch {branch_index} node {node.node_id}: "
+                            f"{denial_reason}"
+                        )
+                else:
+                    denial = await self.driver.policy_gate.enforce_policy(
+                        graph, run, node, input_payload
+                    )
+                    if denial is not None:
+                        return denial
+                side_effect_gate = (
+                    None
+                    if envelope.fork_lineage
+                    else await self.driver.policy_gate.gate_policy_required_side_effects(
+                        run, node, input_payload
+                    )
+                )
+                if side_effect_gate is not None:
+                    return side_effect_gate
                 if isinstance(node, SubgraphNode):
                     subgraph_result = await dispatch_subgraph_node(
                         executor=self.driver.subgraph_executor,
@@ -362,10 +475,16 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         node, run, input_payload, graph
                     )
             except Exception as exc:
-                await self.driver.audit_recorder.record_failed_execution(
-                    run, node, node.node_id, input_payload, exc, started_at=node_started_at
-                )
                 if envelope.fork_lineage:
+                    branch_context = self._branch_context(run, envelope)
+                    await self.driver.audit_recorder.record_failed_branch_execution(
+                        run,
+                        node,
+                        node.node_id,
+                        input_payload,
+                        exc,
+                        branch_context,
+                    )
                     fork_id = envelope.fork_lineage[-1].fork_id
                     fork = next(item for item in claim.snapshot.forks if item.fork_id == fork_id)
                     parent = next(
@@ -429,12 +548,22 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     return await self.driver.fail_run(
                         run, "parallel_execution_failed", str(exc)
                     )
+                await self.driver.audit_recorder.record_failed_execution(
+                    run, node, node.node_id, input_payload, exc, started_at=node_started_at
+                )
                 return await self.driver.fail_run(run, "node_execution_failed", str(exc))
 
         lifecycle_stop = await self._settle_cancellation_requests(run)
         if lifecycle_stop is not None:
             return lifecycle_stop
 
+        if envelope.fork_lineage:
+            branch_context = self._branch_context(run, envelope)
+            audit_record = {
+                **audit_record,
+                "branch_id": branch_context.branch_id,
+                "branch_index": branch_context.branch_index,
+            }
         await self.driver.audit_recorder.record_history(
             run,
             node,
@@ -444,7 +573,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             audit_record,
             started_at=node_started_at,
         )
-        self.driver.increment_node_visit(run, node.node_id)
+        self._increment_node_visit(run, node.node_id, envelope)
         plan = self.driver.run_branch_planner(graph, run, node.node_id, output_data)
         active = [
             edge
@@ -690,11 +819,13 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         while True:
             proposed = transition(current)
             try:
-                return await self.store.compare_and_swap_token_snapshot(
+                committed = await self.store.compare_and_swap_token_snapshot(
                     current.run_id,
                     expected_revision=current.revision,
                     snapshot=proposed,
                 )
+                self._close_closed_fanout_spans(committed)
+                return committed
             except TokenSnapshotConcurrencyError:
                 loaded = await self.store.get_token_snapshot(current.run_id)
                 if loaded is None:

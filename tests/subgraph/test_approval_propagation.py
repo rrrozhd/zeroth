@@ -18,6 +18,7 @@ from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
+    ExecutionSettings,
     Graph,
     HumanApprovalNode,
     HumanApprovalNodeData,
@@ -30,6 +31,9 @@ from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.runtime.subgraphs.resolver import SubgraphResolver
+
+
+pytestmark = pytest.mark.legacy_engine
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +77,7 @@ def _make_parent_graph_with_subgraph(
         graph_id="parent-g",
         name="parent-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[subgraph_node],
         edges=[],
         entry_step="s1",
@@ -105,6 +110,7 @@ def _make_parent_graph_with_subgraph_and_successor(
         graph_id="parent-g",
         name="parent-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[subgraph_node, agent_node],
         edges=[edge],
         entry_step="s1",
@@ -284,6 +290,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -335,6 +342,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -375,6 +383,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 HumanApprovalNode(
                     node_id="approve-1",
@@ -444,6 +453,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -502,6 +512,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -577,6 +588,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -648,6 +660,7 @@ class TestApprovalPropagationNested:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",

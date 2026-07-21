@@ -39,6 +39,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from zeroth.contracts.graph.models import (
+    ExecutionSettings,
     HumanApprovalNode,
     HumanApprovalNodeData,
     SubgraphNode,
@@ -329,6 +330,8 @@ class TestScenario1SubgraphInFanOutBranch:
     executes one child run per branch and merges their outputs via
     collect fan-in."""
 
+    pytestmark = pytest.mark.legacy_engine
+
     @pytest.mark.asyncio
     async def test_fan_out_to_subgraph_collect(self) -> None:
         from unittest.mock import AsyncMock, MagicMock
@@ -369,6 +372,7 @@ class TestScenario1SubgraphInFanOutBranch:
                 )
             ],
             entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
         )
 
         # Mock source agent runner to emit 3 items.
@@ -485,6 +489,7 @@ class TestScenario1SubgraphInFanOutBranch:
                 )
             ],
             entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
         )
 
         class _FakeResult:
@@ -599,6 +604,7 @@ class TestScenario1SubgraphInFanOutBranch:
             nodes=[source_node, sub_node],
             edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sub-step")],
             entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
         )
 
         class _FakeResult:

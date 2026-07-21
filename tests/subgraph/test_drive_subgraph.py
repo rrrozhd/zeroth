@@ -11,6 +11,7 @@ from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
+    ExecutionSettings,
     Graph,
     SubgraphNode,
 )
@@ -51,6 +52,7 @@ def _make_child_graph(
         graph_id=graph_id,
         name="child-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[node],
         edges=[],
         entry_step=entry_step,
@@ -71,6 +73,7 @@ def _make_parent_graph_with_subgraph(
         graph_id="parent-g",
         name="parent-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[subgraph_node],
         edges=[],
         entry_step=entry_step,
@@ -103,6 +106,7 @@ def _make_parent_graph_with_subgraph_and_successor(
         graph_id="parent-g",
         name="parent-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[subgraph_node, agent_node],
         edges=[edge],
         entry_step="s1",
@@ -196,6 +200,8 @@ class TestOrchestratorSubgraphField:
 
 class TestDriveSubgraphNode:
     """_drive() encountering SubgraphNode calls subgraph_executor.execute()."""
+
+    pytestmark = pytest.mark.legacy_engine
 
     @pytest.mark.asyncio
     async def test_drive_calls_subgraph_executor_execute(self) -> None:
@@ -297,6 +303,8 @@ class TestDriveSubgraphNode:
 
 class TestDriveSubgraphErrors:
     """_drive() handles SubgraphDepthLimitError, SubgraphResolutionError by failing run."""
+
+    pytestmark = pytest.mark.legacy_engine
 
     @pytest.mark.asyncio
     async def test_depth_limit_error_fails_run(self) -> None:

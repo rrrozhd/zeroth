@@ -131,7 +131,7 @@ def test_an_empty_graph_has_no_entry_step() -> None:
         driver.entry_step(graph)
 
 
-def test_initial_metadata_seeds_the_entry_payload_and_traversal_counters() -> None:
+def test_initial_metadata_seeds_token_input_and_traversal_counters_by_default() -> None:
     driver = _driver()
 
     metadata = driver.initial_metadata(_graph(), {"value": 1})
@@ -139,11 +139,32 @@ def test_initial_metadata_seeds_the_entry_payload_and_traversal_counters() -> No
     assert metadata == {
         "graph_id": "g",
         "graph_name": "g",
-        "node_payloads": {"a": {"value": 1}},
+        "initial_input": {"value": 1},
+        "node_payloads": {},
+        "node_tags": {},
         "edge_visit_counts": {},
         "path": [],
         "audits": {},
     }
+
+
+@pytest.mark.legacy_engine
+def test_initial_metadata_seeds_legacy_entry_payload_when_explicitly_disabled() -> None:
+    driver = _driver()
+    graph = _graph().model_copy(
+        update={
+            "execution_settings": ExecutionSettings(
+                max_total_steps=10,
+                sequential_join_enabled=False,
+            )
+        }
+    )
+
+    metadata = driver.initial_metadata(graph, {"value": 1})
+
+    assert metadata["node_payloads"] == {"a": {"value": 1}}
+    assert "initial_input" not in metadata
+    assert "node_tags" not in metadata
 
 
 def test_a_node_payload_is_consumed_exactly_once() -> None:

@@ -54,6 +54,8 @@ class RuntimePolicyGate:
         graph: Graph,
         run: Run,
         started_at: float,
+        *,
+        failure_reason: str | None = None,
     ) -> Run | None:
         """Check if the run has exceeded its step or time limits.
 
@@ -63,11 +65,19 @@ class RuntimePolicyGate:
         total_steps = len(run.execution_history)
         settings = graph.execution_settings
         if total_steps >= settings.max_total_steps:
-            return await self.fail_run(run, "max_total_steps", "max total step limit exceeded")
+            return await self.fail_run(
+                run,
+                failure_reason or "max_total_steps",
+                "max total step limit exceeded",
+            )
         if settings.max_total_runtime_seconds is not None:
             elapsed = perf_counter() - started_at
             if elapsed > settings.max_total_runtime_seconds:
-                return await self.fail_run(run, "max_total_runtime", "max total runtime exceeded")
+                return await self.fail_run(
+                    run,
+                    failure_reason or "max_total_runtime",
+                    "max total runtime exceeded",
+                )
         return None
 
     async def enforce_policy(

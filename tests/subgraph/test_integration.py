@@ -24,6 +24,7 @@ from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
+    ExecutionSettings,
     Graph,
     HumanApprovalNode,
     HumanApprovalNodeData,
@@ -38,6 +39,9 @@ from zeroth.runtime.subgraphs.errors import SubgraphCycleError, SubgraphDepthLim
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.runtime.subgraphs.resolver import SubgraphResolver
+
+
+pytestmark = pytest.mark.legacy_engine
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +67,7 @@ def _make_agent_graph(
         graph_id=graph_id,
         name=f"{graph_id}-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[node],
         edges=[],
         entry_step=agent_name,
@@ -98,6 +103,7 @@ def _make_subgraph_parent(
         graph_id=graph_id,
         name=f"{graph_id}-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=nodes,
         edges=edges,
         entry_step="s1",
@@ -115,6 +121,7 @@ def _make_approval_graph(graph_id: str = "approval-child") -> Graph:
         graph_id=graph_id,
         name=f"{graph_id}-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[approval_node],
         edges=[],
         entry_step="approve-1",
@@ -471,6 +478,7 @@ class TestMultiReference:
             graph_id="parent-g",
             name="parent",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[s1, s2],
             edges=[Edge(edge_id="e1", source_node_id="s1", target_node_id="s2")],
             entry_step="s1",

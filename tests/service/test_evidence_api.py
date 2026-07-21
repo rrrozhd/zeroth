@@ -142,7 +142,7 @@ async def test_deployment_attestation_verification_detects_snapshot_tampering(sq
     assert attestation_response.status_code == 200
     attestation = attestation_response.json()
     assert attestation["deployment_ref"] == deployment.deployment_ref
-    assert attestation["engine_mode"] == "legacy"
+    assert attestation["engine_mode"] == "token"
     assert attestation["attestation_payload_version"] == 2
     assert attestation["graph_snapshot_digest"]
     assert attestation["contract_snapshot_digest"]

@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from zeroth.contracts.graph import ExecutionSettings
 from zeroth.governance.approvals.models import ApprovalDecision
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
@@ -61,6 +64,7 @@ def _make_run(status=RunStatus.RUNNING) -> Run:
 class TestOrchestratorWebhookEmission:
     """Tests for webhook events emitted from orchestrator _drive loop."""
 
+    @pytest.mark.legacy_engine
     async def test_emits_run_completed(self):
         """Orchestrator emits run.completed webhook when run finishes successfully."""
         webhook_service = AsyncMock()
@@ -76,7 +80,15 @@ class TestOrchestratorWebhookEmission:
         orch.run_repository.write_checkpoint = AsyncMock()
 
         # Call _drive which should complete the run and emit event
-        result = await orch._drive(MagicMock(execution_settings=MagicMock(max_total_steps=100, max_total_runtime_seconds=None)), run)
+        result = await orch._drive(
+            MagicMock(
+                execution_settings=ExecutionSettings(
+                    max_total_steps=100,
+                    sequential_join_enabled=False,
+                )
+            ),
+            run,
+        )
 
         assert result.status == RunStatus.COMPLETED
         webhook_service.emit_event.assert_called_once()
@@ -106,6 +118,7 @@ class TestOrchestratorWebhookEmission:
         assert call_kwargs["event_type"] == "run.failed"
         assert call_kwargs["data"]["failure_reason"] == "test_failure"
 
+    @pytest.mark.legacy_engine
     async def test_no_webhook_service_no_error(self):
         """Orchestrator works fine without a webhook_service attribute."""
         orch = _make_orchestrator(webhook_service=None)
@@ -116,7 +129,15 @@ class TestOrchestratorWebhookEmission:
         orch.run_repository.put = AsyncMock(return_value=run)
         orch.run_repository.write_checkpoint = AsyncMock()
 
-        result = await orch._drive(MagicMock(execution_settings=MagicMock(max_total_steps=100, max_total_runtime_seconds=None)), run)
+        result = await orch._drive(
+            MagicMock(
+                execution_settings=ExecutionSettings(
+                    max_total_steps=100,
+                    sequential_join_enabled=False,
+                )
+            ),
+            run,
+        )
         assert result.status == RunStatus.COMPLETED
 
 
