@@ -17,6 +17,7 @@ from zeroth.contracts.graph.tokens import (
     JoinInstance,
     JoinLifecycleState,
     JoinObligationOutcome,
+    LoopExitResolutionOutcome,
     LoopInstance,
     SchedulingState,
     StateRevision,
@@ -349,7 +350,19 @@ class TokenEngineSnapshot(BaseModel):
                         )
                     )
                     loop_descendant = any(
-                        nested.enclosing_owner.token_id == token.parent_token_id
+                        (
+                            nested.enclosing_owner.token_id == token.parent_token_id
+                            or (
+                                nested.enclosing_owner.token_id in tokens
+                                and any(
+                                    lineage.fork_id == frame.fork_id
+                                    and lineage.child_ordinal == frame.child_ordinal
+                                    for lineage in tokens[
+                                        nested.enclosing_owner.token_id
+                                    ].fork_lineage
+                                )
+                            )
+                        )
                         and any(
                             member.token_id == token.token_id
                             for nested_frame in nested.frames
@@ -357,7 +370,20 @@ class TokenEngineSnapshot(BaseModel):
                         )
                         for nested in self.loops
                     )
-                    if not retired_nested_parent and not loop_descendant:
+                    retired_loop_owner = token.scheduling_state is SchedulingState.SETTLED and any(
+                        loop.enclosing_owner.token_id == token.token_id
+                        and any(
+                            continuation_id in tokens
+                            and any(
+                                lineage.fork_id == frame.fork_id
+                                and lineage.child_ordinal == frame.child_ordinal
+                                for lineage in tokens[continuation_id].fork_lineage
+                            )
+                            for continuation_id in loop.emitted_continuation_token_ids
+                        )
+                        for loop in self.loops
+                    )
+                    if not retired_nested_parent and not loop_descendant and not retired_loop_owner:
                         raise ValueError("token is not a child of its innermost fork owner")
             for membership in token.iteration_memberships:
                 loop = loops.get(membership.loop_instance_id)
@@ -431,7 +457,50 @@ class TokenEngineSnapshot(BaseModel):
                     and tokens[nested.parent_token_id].parent_token_id == fork.parent_token_id
                     for nested in self.forks
                 )
-                if token.parent_token_id != fork.parent_token_id and not transferred_continuation:
+                transferred_loop_continuation = any(
+                    token.token_id in loop.emitted_continuation_token_ids
+                    and token.current_node_id == exit_state.target_node_id
+                    and token.causal_inbound_edge_id == exit_state.exit_edge_id
+                    and set(token.continuation_parent_token_ids)
+                    == {
+                        record.token_id
+                        for record in exit_state.records
+                        if record.outcome is LoopExitResolutionOutcome.DELIVERED
+                        and record.surviving_fork_lineage
+                        and record.surviving_fork_lineage[-1].fork_id == fork.fork_id
+                        and record.surviving_fork_lineage[-1].child_ordinal
+                        == child.creation_ordinal
+                    }
+                    for loop in self.loops
+                    for exit_state in loop.exits
+                )
+                nested_loop_exit_continuation = any(
+                    token.token_id in loop.emitted_continuation_token_ids
+                    and token.current_node_id == exit_state.target_node_id
+                    and token.causal_inbound_edge_id == exit_state.exit_edge_id
+                    and fork.parent_fork_id is not None
+                    and fork.parent_token_id == loop.enclosing_owner.token_id
+                    and set(token.continuation_parent_token_ids)
+                    == {
+                        record.token_id
+                        for record in exit_state.records
+                        if record.outcome is LoopExitResolutionOutcome.DELIVERED
+                    }
+                    and all(
+                        record.surviving_fork_lineage
+                        and record.surviving_fork_lineage[-1].fork_id == fork.parent_fork_id
+                        for record in exit_state.records
+                        if record.outcome is LoopExitResolutionOutcome.DELIVERED
+                    )
+                    for loop in self.loops
+                    for exit_state in loop.exits
+                )
+                if (
+                    token.parent_token_id != fork.parent_token_id
+                    and not transferred_continuation
+                    and not transferred_loop_continuation
+                    and not nested_loop_exit_continuation
+                ):
                     raise ValueError(
                         "fork child immediate parent must match the ForkInstance parent token"
                     )

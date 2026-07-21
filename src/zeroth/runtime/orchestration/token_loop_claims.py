@@ -142,12 +142,16 @@ async def close_ready_loop_with_cas(
     if loop.lifecycle_state is LoopLifecycleState.COMPLETED:
         return current
     inputs = _inputs(current, loop)
-    if not inputs:
+    if not inputs or (len(inputs) == 1 and continuation_config is None):
         for _ in range(max_attempts):
             current = await store.get_token_snapshot(run_id)
             if current is None:
                 raise TokenLoopTransitionError(f"run {run_id!r} has no token snapshot")
-            proposed = close_ready_loop(current, loop_instance_id)
+            proposed = close_ready_loop(
+                current,
+                loop_instance_id,
+                continuation_config=continuation_config,
+            )
             if proposed is current:
                 return current
             try:

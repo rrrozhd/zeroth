@@ -25,6 +25,10 @@ from zeroth.contracts.graph.tokens import (
 )
 from zeroth.runtime.orchestration.token_join_models import JoinReducerInput
 from zeroth.runtime.orchestration.token_join_reducers import reduce_join_inputs
+from zeroth.runtime.orchestration.token_loop_forks import (
+    _apply_exit_fork_ownership,
+    _exit_lineage,
+)
 from zeroth.runtime.orchestration.token_loop_helpers import (
     common_fork_lineage,
     frame_id,
@@ -369,6 +373,7 @@ def close_ready_loop(
         allocation += 1
         parents = tuple(item.token_id for item in delivered_records)
         source_tokens = tuple(tokens_by_id[item] for item in parents)
+        lineage = _exit_lineage(exit_state)
         continuations.append(
             TokenEnvelope(
                 token_id=continuation_id,
@@ -385,12 +390,19 @@ def close_ready_loop(
                 ),
                 lifecycle_state=TokenLifecycleState.ACTIVE,
                 scheduling_state=SchedulingState.QUEUED,
-                fork_lineage=_resumed_fork_lineage(snapshot, source_tokens),
+                fork_lineage=lineage,
                 iteration_memberships=owner.iteration_memberships,
                 cancellation_generation=source_tokens[0].cancellation_generation,
                 state_revision=revision,
             )
         )
+    owned_continuations, forks = _apply_exit_fork_ownership(
+        snapshot,
+        loop,
+        tuple(continuations),
+        revision,
+    )
+    continuations = list(owned_continuations)
     settled_frame = IterationFrame.model_validate(
         {
             **model_data(current),
@@ -430,6 +442,7 @@ def close_ready_loop(
         next_token_ordinal=snapshot.next_token_ordinal + len(continuations),
         queue=(*snapshot.queue, *continuations),
         tokens=(*snapshot.tokens, *continuations),
+        forks=forks,
         loops=loops,
     )
 

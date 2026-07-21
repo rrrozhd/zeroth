@@ -73,6 +73,7 @@ def settle_loop_member(
     target_node_id: str | None = None,
     payload: JsonValue = None,
     crossed_loop_instance_ids: tuple[str, ...] | None = None,
+    crossed_fork_ids: tuple[str, ...] | None = None,
     failure_mode: FailureMode = "fail_fast",
     allow_failure_suppression: bool = False,
 ) -> TokenEngineSnapshot:
@@ -88,6 +89,7 @@ def settle_loop_member(
         target_node_id=target_node_id,
         payload=payload,
         crossed_loop_instance_ids=crossed_loop_instance_ids,
+        crossed_fork_ids=crossed_fork_ids,
         failure_mode=failure_mode,
         allow_failure_suppression=allow_failure_suppression,
     )

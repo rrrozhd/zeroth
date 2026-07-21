@@ -9,11 +9,14 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from zeroth.contracts.graph import (
     ForkLifecycleState,
+    ForkObligationOutcome,
     IterationFrameState,
     IterationMemberState,
+    LoopExitRecord,
     LoopLifecycleState,
     SchedulingState,
     TokenEngineSnapshot,
@@ -26,6 +29,7 @@ from zeroth.runtime.orchestration import (
     claim_next_token,
     close_ready_loop,
     close_ready_loop_with_cas,
+    complete_dispatch,
     enter_loop,
     fan_out_dispatch,
     initialize_token_snapshot,
@@ -99,6 +103,79 @@ def _nested_fanout(depth: int) -> TokenEngineSnapshot:
                 ),
             )
     return snapshot
+
+
+def _forked_loop(
+    *, nested_depth: int = 1, exit_routes: dict[str, str] | None = None
+) -> tuple[TokenEngineSnapshot, str]:
+    snapshot = _root()
+    for depth in range(nested_depth):
+        claim = claim_next_token(snapshot)
+        snapshot = fan_out_dispatch(
+            claim.snapshot,
+            dispatch_id=claim.dispatch.dispatch_id,
+            attempt=0,
+            cancellation_generation=0,
+            branches=(
+                FanOutBranch(
+                    node_id=f"fork-{depth}",
+                    inbound_edge_id=f"fork-{depth}",
+                    payload=depth,
+                ),
+            ),
+        )
+    owner = snapshot.queue[0]
+    entered = enter_loop(
+        snapshot,
+        token_id=owner.token_id,
+        loop_header_node_id=owner.current_node_id,
+        body_node_id="loop-body",
+        inbound_edge_id="loop-body",
+        exit_routes=exit_routes or {"exit": "target"},
+    )
+    return entered, entered.queue[0].token_id
+
+
+def _multi_exit_ready(count: int) -> TokenEngineSnapshot:
+    routes = {f"exit-{index}": f"target-{index}" for index in range(count)}
+    snapshot, _ = _forked_loop(exit_routes=routes)
+    for index in range(count - 1):
+        claim = claim_next_token(snapshot)
+        snapshot = fan_out_dispatch(
+            claim.snapshot,
+            dispatch_id=claim.dispatch.dispatch_id,
+            attempt=0,
+            cancellation_generation=0,
+            branches=(
+                FanOutBranch(node_id="exit-branch", inbound_edge_id="exit-branch", payload=index),
+                FanOutBranch(node_id="back-branch", inbound_edge_id="back-branch", payload=index),
+            ),
+        )
+        exit_token, back_token = (item.token_id for item in snapshot.queue[-2:])
+        snapshot = settle_loop_member(
+            snapshot,
+            token_id=exit_token,
+            outcome=IterationMemberState.EXIT_DELIVERY,
+            edge_id=f"exit-{index}",
+            target_node_id=f"target-{index}",
+            payload=index,
+        )
+        snapshot = settle_loop_member(
+            snapshot,
+            token_id=back_token,
+            outcome=IterationMemberState.BACK_EDGE_CONTINUATION,
+            edge_id="back",
+            payload=index + 1,
+        )
+        snapshot = close_ready_loop(snapshot, snapshot.loops[-1].loop_instance_id)
+    return settle_loop_member(
+        snapshot,
+        token_id=snapshot.queue[-1].token_id,
+        outcome=IterationMemberState.EXIT_DELIVERY,
+        edge_id=f"exit-{count - 1}",
+        target_node_id=f"target-{count - 1}",
+        payload=count - 1,
+    )
 
 
 def test_enter_loop_is_deterministic_atomic_and_full_fingerprint_replay() -> None:
@@ -415,6 +492,151 @@ def test_fanout_inside_loop_end_to_end_with_different_settlement_order() -> None
     assert payload == list(ids)
 
 
+def test_loop_exit_inside_enclosing_fork_transfers_exact_open_slot() -> None:
+    entered, token_id = _forked_loop()
+    ready = settle_loop_member(
+        entered,
+        token_id=token_id,
+        outcome=IterationMemberState.EXIT_DELIVERY,
+        edge_id="exit",
+        target_node_id="target",
+        payload="inside",
+    )
+    assert (
+        settle_loop_member(
+            ready,
+            token_id=token_id,
+            outcome=IterationMemberState.EXIT_DELIVERY,
+            edge_id="exit",
+            target_node_id="target",
+            payload="inside",
+        )
+        is ready
+    )
+    completed = close_ready_loop(ready, ready.loops[-1].loop_instance_id)
+    continuation = completed.queue[0]
+    fork = completed.forks[0]
+    assert continuation.fork_lineage == ready.tokens[-1].fork_lineage
+    assert fork.children[0].token_id == continuation.token_id
+    assert fork.obligations[0].child_token_id == continuation.token_id
+    assert fork.obligations[0].outcome is None
+    assert TokenEngineSnapshot.model_validate_json(completed.model_dump_json()) == completed
+
+
+@pytest.mark.parametrize("crossed_count", [1, 2])
+def test_loop_exit_crosses_exact_fork_suffix(crossed_count: int) -> None:
+    entered, token_id = _forked_loop(nested_depth=2)
+    token = next(item for item in entered.tokens if item.token_id == token_id)
+    crossed = tuple(frame.fork_id for frame in token.fork_lineage[-crossed_count:])
+    ready = settle_loop_member(
+        entered,
+        token_id=token_id,
+        outcome=IterationMemberState.EXIT_DELIVERY,
+        edge_id="exit",
+        target_node_id="target",
+        payload=crossed_count,
+        crossed_fork_ids=crossed,
+    )
+    assert (
+        settle_loop_member(
+            ready,
+            token_id=token_id,
+            outcome=IterationMemberState.EXIT_DELIVERY,
+            edge_id="exit",
+            target_node_id="target",
+            payload=crossed_count,
+            crossed_fork_ids=crossed,
+        )
+        is ready
+    )
+    contradictory = tuple(frame.fork_id for frame in token.fork_lineage)
+    if contradictory != crossed:
+        with pytest.raises(TokenLoopTransitionError, match="replay contradicts"):
+            settle_loop_member(
+                ready,
+                token_id=token_id,
+                outcome=IterationMemberState.EXIT_DELIVERY,
+                edge_id="exit",
+                target_node_id="target",
+                payload=crossed_count,
+                crossed_fork_ids=contradictory,
+            )
+    completed = close_ready_loop(ready, ready.loops[-1].loop_instance_id)
+    continuation = completed.queue[0]
+    assert tuple(frame.fork_id for frame in continuation.fork_lineage) == tuple(
+        frame.fork_id for frame in token.fork_lineage[:-crossed_count]
+    )
+    for fork_id in crossed:
+        fork = next(item for item in completed.forks if item.fork_id == fork_id)
+        assert fork.obligations[0].outcome is ForkObligationOutcome.EXITED
+    if continuation.fork_lineage:
+        owner = next(
+            item
+            for item in completed.forks
+            if item.fork_id == continuation.fork_lineage[-1].fork_id
+        )
+        assert owner.children[0].token_id == continuation.token_id
+        assert owner.obligations[0].outcome is None
+    assert TokenEngineSnapshot.model_validate_json(completed.model_dump_json()) == completed
+
+
+@pytest.mark.parametrize("exit_count", [2, 3])
+def test_multiple_internal_exits_create_one_nested_exit_fork(exit_count: int) -> None:
+    ready = _multi_exit_ready(exit_count)
+    completed = close_ready_loop(ready, ready.loops[-1].loop_instance_id)
+    restored = TokenEngineSnapshot.model_validate_json(completed.model_dump_json())
+    assert close_ready_loop(restored, restored.loops[-1].loop_instance_id) is restored
+    assert {item.current_node_id for item in restored.queue} == {
+        f"target-{index}" for index in range(exit_count)
+    }
+    outer, nested = restored.forks[0], restored.forks[-1]
+    assert nested.parent_fork_id == outer.fork_id
+    assert nested.parent_token_id == outer.children[0].token_id
+    assert outer.outstanding_child_count == 1
+    assert len({item.token_id for item in outer.children}) == 1
+    assert tuple(item.token_id for item in nested.children) == tuple(
+        item.token_id for item in restored.queue
+    )
+
+    snapshot = restored
+    while snapshot.queue:
+        claim = claim_next_token(snapshot)
+        snapshot = complete_dispatch(
+            claim.snapshot,
+            dispatch_id=claim.dispatch.dispatch_id,
+            attempt=0,
+            cancellation_generation=0,
+        )
+    assert all(fork.lifecycle_state is ForkLifecycleState.CLOSED for fork in snapshot.forks)
+    assert all(fork.outstanding_child_count == 0 for fork in snapshot.forks)
+
+
+def test_loop_exit_record_requires_exact_fork_lineage_partition() -> None:
+    ready = _multi_exit_ready(2)
+    record = next(
+        exit_state.records[0] for exit_state in ready.loops[-1].exits if exit_state.records
+    )
+    dumped = record.model_dump(mode="json")
+    dumped["crossed_fork_ids"] = ["foreign-fork"]
+    with pytest.raises(ValidationError, match="partition"):
+        LoopExitRecord.model_validate_json(json.dumps(dumped))
+
+    dumped = record.model_dump(mode="json")
+    dumped["surviving_fork_lineage"] = []
+    with pytest.raises(ValidationError, match="partition"):
+        LoopExitRecord.model_validate_json(json.dumps(dumped))
+
+    for field, value in (
+        ("child_ordinal", record.surviving_fork_lineage[0].child_ordinal + 1),
+        ("parent_fork_id", "foreign-parent"),
+        ("join_instance_id", "foreign-join"),
+    ):
+        dumped = record.model_dump(mode="json")
+        dumped["surviving_fork_lineage"][0][field] = value
+        with pytest.raises(ValidationError, match="partition"):
+            LoopExitRecord.model_validate_json(json.dumps(dumped))
+
+
 def test_failure_policy_is_scope_local_and_best_effort_requires_permission() -> None:
     snapshot = _fanout(2)
     first, sibling = (child.token_id for child in snapshot.forks[0].children)
@@ -532,6 +754,51 @@ def test_cas_claim_evaluates_reducer_once_and_survives_contention() -> None:
     assert result.loops[0].frames[-1].iteration_index == 1
 
 
+def test_pure_and_cas_closure_share_optional_config_semantics() -> None:
+    single = _entered()
+    single = settle_loop_member(
+        single,
+        token_id=single.queue[0].token_id,
+        outcome=IterationMemberState.BACK_EDGE_CONTINUATION,
+        edge_id="back",
+        payload={"single": True},
+    )
+    pure_single = close_ready_loop(single, single.loops[0].loop_instance_id)
+    cas_single = asyncio.run(
+        close_ready_loop_with_cas(
+            _CASStore(single), single.run_id, single.loops[0].loop_instance_id
+        )
+    )
+    assert pure_single.queue[-1].payload == cas_single.queue[-1].payload == {"single": True}
+
+    many = _fanout(2)
+    for child in many.forks[0].children:
+        many = settle_loop_member(
+            many,
+            token_id=child.token_id,
+            outcome=IterationMemberState.BACK_EDGE_CONTINUATION,
+            edge_id="back",
+            payload=child.creation_ordinal,
+        )
+    with pytest.raises(TokenLoopTransitionError, match="JoinConfig"):
+        close_ready_loop(many, many.loops[0].loop_instance_id)
+    with pytest.raises(TokenLoopTransitionError, match="JoinConfig"):
+        asyncio.run(
+            close_ready_loop_with_cas(_CASStore(many), many.run_id, many.loops[0].loop_instance_id)
+        )
+    config = JoinConfig()
+    pure_many = close_ready_loop(many, many.loops[0].loop_instance_id, continuation_config=config)
+    cas_many = asyncio.run(
+        close_ready_loop_with_cas(
+            _CASStore(many),
+            many.run_id,
+            many.loops[0].loop_instance_id,
+            continuation_config=config,
+        )
+    )
+    assert pure_many.queue[-1].payload == cas_many.queue[-1].payload
+
+
 def test_abandoned_claim_recovery_is_explicit_and_stale_fenced() -> None:
     snapshot = _entered()
     ready = settle_loop_member(
@@ -629,6 +896,17 @@ def test_member_settlement_exact_replay_is_unchanged_and_conflict_fails() -> Non
             edge_id="exit-a",
             target_node_id="after-a",
             payload={"stable": False},
+        )
+
+
+def test_settlement_replay_for_non_loop_token_is_typed_error() -> None:
+    snapshot = _fanout(1)
+    non_loop_token_id = snapshot.tokens[0].token_id
+    with pytest.raises(TokenLoopTransitionError, match="not owned by an iteration frame"):
+        settle_loop_member(
+            snapshot,
+            token_id=non_loop_token_id,
+            outcome=IterationMemberState.INTERNAL_COMPLETION,
         )
 
 

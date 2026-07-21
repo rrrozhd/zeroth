@@ -779,6 +779,8 @@ class LoopExitRecord(_FrozenContract):
     outcome: LoopExitResolutionOutcome
     delivery: PayloadDelivery | None = None
     canonical_order: CanonicalTokenOrder
+    surviving_fork_lineage: tuple[ForkLineageFrame, ...] | None = None
+    crossed_fork_ids: tuple[ForkId, ...] = ()
     settled_revision: StateRevision
 
     @model_validator(mode="after")
@@ -788,6 +790,32 @@ class LoopExitRecord(_FrozenContract):
         delivered = self.outcome is LoopExitResolutionOutcome.DELIVERED
         if delivered != (self.delivery is not None):
             raise ValueError("only a DELIVERED loop-exit record carries a delivery")
+        if self.surviving_fork_lineage is None:
+            object.__setattr__(
+                self,
+                "surviving_fork_lineage",
+                self.canonical_order.fork_lineage,
+            )
+        surviving_lineage = self.surviving_fork_lineage or ()
+        surviving_ids = tuple(frame.fork_id for frame in surviving_lineage)
+        source_lineage = self.canonical_order.fork_lineage
+        source_suffix = source_lineage[len(surviving_lineage) :]
+        if surviving_lineage != source_lineage[
+            : len(surviving_lineage)
+        ] or self.crossed_fork_ids != tuple(frame.fork_id for frame in source_suffix):
+            raise ValueError(
+                "surviving and crossed loop-exit forks must exactly partition source lineage"
+            )
+        if len(surviving_ids) != len(set(surviving_ids)):
+            raise ValueError("surviving loop-exit fork lineage cannot contain duplicates")
+        for index, frame in enumerate(surviving_lineage):
+            expected_parent = None if index == 0 else surviving_ids[index - 1]
+            if frame.parent_fork_id != expected_parent:
+                raise ValueError("surviving loop-exit fork lineage contains an orphan parent")
+        if len(self.crossed_fork_ids) != len(set(self.crossed_fork_ids)):
+            raise ValueError("crossed loop-exit fork identity cannot contain duplicates")
+        if set(surviving_ids) & set(self.crossed_fork_ids):
+            raise ValueError("surviving and crossed loop-exit forks must be disjoint")
         return self
 
 

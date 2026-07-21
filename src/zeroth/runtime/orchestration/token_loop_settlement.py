@@ -22,6 +22,10 @@ from zeroth.contracts.graph.tokens import (
     SchedulingState,
     TokenLifecycleState,
 )
+from zeroth.runtime.orchestration.token_loop_forks import (
+    _exit_fork_ownership,
+    _settle_crossed_exit_forks,
+)
 from zeroth.runtime.orchestration.token_loop_helpers import (
     canonical_order,
     delivery,
@@ -140,6 +144,7 @@ def settle_loop_member(
     target_node_id: str | None = None,
     payload: JsonValue = None,
     crossed_loop_instance_ids: tuple[str, ...] | None = None,
+    crossed_fork_ids: tuple[str, ...] | None = None,
     failure_mode: FailureMode = "fail_fast",
     allow_failure_suppression: bool = False,
 ) -> TokenEngineSnapshot:
@@ -156,6 +161,7 @@ def settle_loop_member(
             "target_node_id": target_node_id,
             "payload": payload,
             "crossed_loop_instance_ids": crossed_loop_instance_ids,
+            "crossed_fork_ids": crossed_fork_ids,
             "failure_mode": failure_mode,
             "allow_failure_suppression": allow_failure_suppression,
         }
@@ -203,6 +209,17 @@ def settle_loop_member(
         raise TokenLoopTransitionError("back-edge and exit deliveries require edge_id")
     if outcome is IterationMemberState.EXIT_DELIVERY and target_node_id is None:
         raise TokenLoopTransitionError("exit delivery requires target_node_id")
+    if crossed_fork_ids is not None and outcome is not IterationMemberState.EXIT_DELIVERY:
+        raise TokenLoopTransitionError("crossed fork identity is valid only for exit delivery")
+    surviving_fork_lineage = token.fork_lineage
+    resolved_crossed_fork_ids: tuple[str, ...] = ()
+    if outcome is IterationMemberState.EXIT_DELIVERY:
+        surviving_fork_lineage, resolved_crossed_fork_ids = _exit_fork_ownership(
+            snapshot,
+            token_id,
+            crossed[0],
+            crossed_fork_ids,
+        )
     revision = snapshot.revision + 1
     updated_loops: list[LoopInstance] = list(snapshot.loops)
     outermost_crossed = crossed[0]
@@ -318,6 +335,8 @@ def settle_loop_member(
                     delivery(payload) if outcome is IterationMemberState.EXIT_DELIVERY else None
                 ),
                 canonical_order=canonical_order(token),
+                surviving_fork_lineage=surviving_fork_lineage,
+                crossed_fork_ids=resolved_crossed_fork_ids,
                 settled_revision=revision,
             )
             exits[route_index] = LoopExit.model_validate(
@@ -409,8 +428,19 @@ def settle_loop_member(
                 settled_revision=revision,
             ),
         )
-    forks = snapshot.forks
-    settlements = ((token_id, outcome, edge_id),) + tuple(
+    if outcome is IterationMemberState.EXIT_DELIVERY:
+        forks = _settle_crossed_exit_forks(
+            snapshot,
+            token_id,
+            resolved_crossed_fork_ids,
+            edge_id=edge_id or "",
+            revision=revision,
+        )
+        settlements = ()
+    else:
+        forks = snapshot.forks
+        settlements = ((token_id, outcome, edge_id),)
+    settlements += tuple(
         (settled_id, IterationMemberState.CANCELLED, None)
         for settled_id in sorted(settled_ids - {token_id})
     )

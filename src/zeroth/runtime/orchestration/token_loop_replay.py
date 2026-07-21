@@ -24,6 +24,8 @@ def _settlement_replay(
     if token is None or token.scheduling_state is not SchedulingState.SETTLED:
         return None
     membership_ids = tuple(item.loop_instance_id for item in token.iteration_memberships)
+    if not membership_ids:
+        raise TokenLoopTransitionError("token is not owned by an iteration frame")
     crossed = crossed_loop_instance_ids or (membership_ids[-1],)
     if tuple(crossed) != membership_ids[len(membership_ids) - len(crossed) :]:
         raise TokenLoopTransitionError("settlement replay crosses a different loop suffix")
