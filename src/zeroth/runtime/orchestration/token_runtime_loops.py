@@ -9,6 +9,7 @@ from pydantic import JsonValue
 
 from zeroth.contracts.graph import Graph
 from zeroth.contracts.graph.tokens import (
+    IterationFrameState,
     IterationMemberState,
     JoinObligationOutcome,
     LoopLifecycleState,
@@ -114,6 +115,18 @@ def _settle_boundary_delivery_cohort(
             failure_mode=failure_mode,
         )
     return settled
+
+
+def _frozen_exit_payload(loop, edge_id: str):
+    exit_state = next(item for item in loop.exits if item.exit_edge_id == edge_id)
+    payloads = tuple(
+        record.delivery.model_dump(mode="json")["payload"]
+        for record in exit_state.records
+        if record.delivery is not None
+    )
+    if not payloads:
+        return False, None
+    return True, payloads[0] if len(payloads) == 1 else list(payloads)
 
 
 class TokenRuntimeLoopSupport:
@@ -241,11 +254,26 @@ class TokenRuntimeLoopSupport:
             if edge.edge_id in scopes.back_edges or edge.edge_id in scopes.exit_owner
         ]
         internal = [edge for edge in active if edge not in boundary]
-        if internal:
-            return False, claim.snapshot
-        if len(boundary) > 1:
+        if len(active) > 1 and boundary:
             deliveries = []
-            branches = []
+            branches = [
+                FanOutBranch(
+                    node_id=active_edge.target_node_id,
+                    inbound_edge_id=active_edge.edge_id,
+                    payload=cast(
+                        JsonValue,
+                        self.driver.edge_payload(
+                            graph,
+                            run,
+                            token.current_node_id,
+                            active_edge.target_node_id,
+                            output_data,
+                            active_edge,
+                        ),
+                    ),
+                )
+                for active_edge in active
+            ]
             crossed_ids: set[str] = set()
             for boundary_edge in boundary:
                 owner_header = (
@@ -267,23 +295,10 @@ class TokenRuntimeLoopSupport:
                     if boundary_edge.edge_id in scopes.back_edges
                     else IterationMemberState.EXIT_DELIVERY
                 )
-                edge_payload = cast(
-                    JsonValue,
-                    self.driver.edge_payload(
-                        graph,
-                        run,
-                        token.current_node_id,
-                        boundary_edge.target_node_id,
-                        output_data,
-                        boundary_edge,
-                    ),
-                )
-                branches.append(
-                    FanOutBranch(
-                        node_id=boundary_edge.target_node_id,
-                        inbound_edge_id=boundary_edge.edge_id,
-                        payload=edge_payload,
-                    )
+                edge_payload = next(
+                    branch.payload
+                    for branch in branches
+                    if branch.inbound_edge_id == boundary_edge.edge_id
                 )
                 deliveries.append(
                     (
@@ -299,6 +314,24 @@ class TokenRuntimeLoopSupport:
                 membership.loop_instance_id
                 for membership in memberships
                 if membership.loop_instance_id in crossed_ids
+            )
+            outer_loop = next(
+                loop for loop in claim.snapshot.loops if loop.loop_instance_id == crossed[0]
+            )
+            reserved_owner = next(
+                candidate
+                for candidate in claim.snapshot.tokens
+                if candidate.token_id == outer_loop.enclosing_owner.token_id
+            )
+            reserved = next(
+                (
+                    (join, obligation)
+                    for join in claim.snapshot.joins
+                    for obligation in join.obligations
+                    if obligation.source_token_id == reserved_owner.token_id
+                    and obligation.outcome is None
+                ),
+                None,
             )
             dispatch = claim.dispatch
             committed = await self._transition(
@@ -317,6 +350,8 @@ class TokenRuntimeLoopSupport:
             loops_by_id = {loop.loop_instance_id: loop for loop in committed.loops}
             for loop_id in reversed(crossed):
                 loop = loops_by_id[loop_id]
+                if loop.frames[-1].state is not IterationFrameState.BARRIER_READY:
+                    continue
                 header = node_by_id(graph, loop.loop_header_node_id)
                 committed = await self._transition(
                     committed,
@@ -324,11 +359,69 @@ class TokenRuntimeLoopSupport:
                         close_ready_loop,
                         loop_instance_id=loop_id,
                         continuation_config=getattr(header, "join_config", None),
+                        deferred_exit_edge_ids=(
+                            frozenset({reserved[1].inbound_edge_id})
+                            if reserved is not None and loop_id == outer_loop.loop_instance_id
+                            else frozenset()
+                        ),
                     ),
                 )
                 loops_by_id = {item.loop_instance_id: item for item in committed.loops}
+            outer_completed = (
+                loops_by_id[outer_loop.loop_instance_id].lifecycle_state
+                is LoopLifecycleState.COMPLETED
+            )
+            exit_traced: set[str] = set()
+            if reserved is not None and outer_completed:
+                join, obligation = reserved
+                routes = {item.source_token_id: item.inbound_edge_id for item in join.obligations}
+                reserved_edge = next(
+                    item for item in graph.edges if item.edge_id == obligation.inbound_edge_id
+                )
+                delivered, reserved_payload = _frozen_exit_payload(
+                    loops_by_id[outer_loop.loop_instance_id], reserved_edge.edge_id
+                )
+                transition = (
+                    partial(
+                        deliver_to_join,
+                        target_node_id=join.target_node_id,
+                        inbound_edge_id=reserved_edge.edge_id,
+                        cohort_inbound_edges=routes,
+                        payload=reserved_payload,
+                        token_id=reserved_owner.token_id,
+                        failure_mode=graph.execution_settings.failure_policy,
+                    )
+                    if delivered
+                    else partial(
+                        settle_join_without_delivery,
+                        target_node_id=join.target_node_id,
+                        inbound_edge_id=reserved_edge.edge_id,
+                        cohort_inbound_edges=routes,
+                        outcome=JoinObligationOutcome.SUPPRESSED,
+                        token_id=reserved_owner.token_id,
+                        failure_mode=graph.execution_settings.failure_policy,
+                    )
+                )
+                committed = await self._transition(committed, transition)
+                target_tag = _ts.propagate_tag(
+                    self._source_trace_tag(run, token.token_id), reserved_edge, scopes
+                )
+                self._trace_resolution(
+                    run,
+                    reserved_edge,
+                    delivered,
+                    reserved_payload,
+                    token if delivered else reserved_owner,
+                    tag=target_tag,
+                )
+                exit_traced.add(reserved_edge.edge_id)
+                committed = await self._close_join_if_ready(
+                    graph, run, committed, reserved_edge, target_tag
+                )
             for boundary_edge, delivery in zip(boundary, deliveries, strict=True):
                 if delivery[3] is not IterationMemberState.EXIT_DELIVERY:
+                    continue
+                if boundary_edge.edge_id in exit_traced:
                     continue
                 target_tag = _ts.propagate_tag(
                     self._source_trace_tag(run, token.token_id),
@@ -338,6 +431,9 @@ class TokenRuntimeLoopSupport:
                 self._trace_resolution(run, boundary_edge, True, delivery[2], token, tag=target_tag)
             self._remember_loop_trace_tags(run, committed)
             return True, committed
+
+        if internal:
+            return False, claim.snapshot
 
         edge = boundary[0] if boundary else None
         if edge is None:
@@ -441,14 +537,16 @@ class TokenRuntimeLoopSupport:
             reserved_edge = next(
                 item for item in graph.edges if item.edge_id == obligation.inbound_edge_id
             )
-            delivered = edge is not None and edge.edge_id == reserved_edge.edge_id
+            delivered, reserved_payload = _frozen_exit_payload(
+                loops_by_id[outer_loop.loop_instance_id], reserved_edge.edge_id
+            )
             transition = (
                 partial(
                     deliver_to_join,
                     target_node_id=join.target_node_id,
                     inbound_edge_id=reserved_edge.edge_id,
                     cohort_inbound_edges=routes,
-                    payload=payload,
+                    payload=reserved_payload,
                     token_id=reserved_owner.token_id,
                     failure_mode=graph.execution_settings.failure_policy,
                 )
@@ -469,7 +567,9 @@ class TokenRuntimeLoopSupport:
                 source_tag, reserved_edge, self.driver._graph_scopes(graph)
             )
             if delivered:
-                self._trace_resolution(run, reserved_edge, True, payload, token, tag=target_tag)
+                self._trace_resolution(
+                    run, reserved_edge, True, reserved_payload, token, tag=target_tag
+                )
                 exit_traced = True
             else:
                 self._trace_resolution(

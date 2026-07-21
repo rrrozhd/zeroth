@@ -45,6 +45,10 @@ def _settle_crossed_exit_forks(
             if obligation.child_ordinal != frame.child_ordinal:
                 obligations.append(obligation)
                 continue
+            if obligation.outcome is ForkObligationOutcome.JOINED:
+                matched = True
+                obligations.append(obligation)
+                continue
             if obligation.outcome is not None:
                 raise TokenLoopTransitionError("crossed fork obligation is already settled")
             matched = True
@@ -96,7 +100,7 @@ def _exit_fork_ownership(
         for frame in owner_lineage
     )
     if reserved:
-        automatic = tuple(frame.fork_id for frame in token.fork_lineage[len(owner_lineage) :])
+        automatic = tuple(frame.fork_id for frame in token.fork_lineage)
         resolved = automatic if crossed_fork_ids is None else tuple(crossed_fork_ids)
         return (), resolved
     if token.fork_lineage[: len(owner_lineage)] != owner_lineage:

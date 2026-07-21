@@ -11,6 +11,8 @@ from zeroth.contracts.graph import (
     Edge,
     ExecutionSettings,
     Graph,
+    JoinObligationOutcome,
+    LoopLifecycleState,
     SubgraphNode,
     SubgraphNodeData,
 )
@@ -426,6 +428,189 @@ async def test_flag_on_nested_loop_boundary_settles_inner_before_outer_owner(
         if loop.lifecycle_state.value == "completed"
     ]
     assert completed_order.index("I") < completed_order.index("O")
+
+
+async def test_flag_on_loop_member_keeps_internal_child_and_records_exit(sqlite_db) -> None:
+    graph = Graph(
+        graph_id="token-loop-mixed-internal-exit",
+        name="token-loop-mixed-internal-exit",
+        entry_step="H",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[_node(node_id) for node_id in ("H", "B", "C", "X")],
+        edges=[
+            Edge(edge_id="H-B", source_node_id="H", target_node_id="B"),
+            Edge(
+                edge_id="B-C",
+                source_node_id="B",
+                target_node_id="C",
+                condition=Condition(expression="payload.value < 3"),
+            ),
+            Edge(edge_id="B-X", source_node_id="B", target_node_id="X"),
+            Edge(
+                edge_id="C-H",
+                source_node_id="C",
+                target_node_id="H",
+                condition=Condition(expression="payload.value < 3", allow_cycle_traversal=True),
+            ),
+        ],
+    )
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in ("H", "B", "C", "X")},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert [entry.node_id for entry in run.execution_history] == ["H", "B", "C", "X"]
+    completed = next(
+        loop
+        for snapshot in reversed(store.history)
+        for loop in snapshot.loops
+        if loop.lifecycle_state is LoopLifecycleState.COMPLETED
+    )
+    exit_state = next(item for item in completed.exits if item.exit_edge_id == "B-X")
+    assert len(exit_state.records) == 1
+    assert exit_state.records[0].delivery.payload == {"value": 2}
+
+
+async def test_flag_on_nested_inner_back_edge_and_outer_exit_waits_for_owner(
+    sqlite_db,
+) -> None:
+    graph = Graph(
+        graph_id="token-nested-back-and-outer-exit",
+        name="token-nested-back-and-outer-exit",
+        entry_step="O",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[_node(node_id) for node_id in ("O", "I", "B", "OB", "X")],
+        edges=[
+            Edge(edge_id="O-I", source_node_id="O", target_node_id="I"),
+            Edge(edge_id="I-B", source_node_id="I", target_node_id="B"),
+            Edge(
+                edge_id="B-I",
+                source_node_id="B",
+                target_node_id="I",
+                condition=Condition(expression="payload.value < 4", allow_cycle_traversal=True),
+            ),
+            Edge(
+                edge_id="B-X",
+                source_node_id="B",
+                target_node_id="X",
+                condition=Condition(expression="payload.value == 3"),
+            ),
+            Edge(
+                edge_id="B-OB",
+                source_node_id="B",
+                target_node_id="OB",
+                condition=Condition(expression="payload.value >= 5"),
+            ),
+            Edge(
+                edge_id="OB-O",
+                source_node_id="OB",
+                target_node_id="O",
+                condition=Condition(expression="payload.value < 0", allow_cycle_traversal=True),
+            ),
+        ],
+    )
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in ("O", "I", "B", "OB", "X")},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert run.status is RunStatus.COMPLETED
+    assert [entry.node_id for entry in run.execution_history] == [
+        "O",
+        "I",
+        "B",
+        "I",
+        "B",
+        "OB",
+        "X",
+    ]
+    completed_order = [
+        loop.loop_header_node_id
+        for snapshot in store.history
+        for loop in snapshot.loops
+        if loop.lifecycle_state is LoopLifecycleState.COMPLETED
+    ]
+    assert completed_order.index("I") < completed_order.index("O")
+
+
+async def test_flag_on_multi_boundary_exit_hands_off_reserved_join_once(sqlite_db) -> None:
+    join_node = _node("J")
+    join_node.join_config = JoinConfig(merge_strategy="merge")
+    graph = Graph(
+        graph_id="token-loop-multi-boundary-join",
+        name="token-loop-multi-boundary-join",
+        entry_step="S",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[
+            *[_node(node_id) for node_id in ("S", "P", "H", "B")],
+            join_node,
+            _node("END"),
+        ],
+        edges=[
+            Edge(edge_id="S-P", source_node_id="S", target_node_id="P"),
+            Edge(edge_id="S-H", source_node_id="S", target_node_id="H"),
+            Edge(edge_id="P-J", source_node_id="P", target_node_id="J"),
+            Edge(edge_id="H-B", source_node_id="H", target_node_id="B"),
+            Edge(
+                edge_id="B-H",
+                source_node_id="B",
+                target_node_id="H",
+                condition=Condition(expression="payload.value < 4", allow_cycle_traversal=True),
+            ),
+            Edge(
+                edge_id="B-J",
+                source_node_id="B",
+                target_node_id="J",
+                condition=Condition(expression="payload.value == 3"),
+            ),
+            Edge(edge_id="J-END", source_node_id="J", target_node_id="END"),
+        ],
+    )
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={
+            node_id: _runner() for node_id in ("S", "P", "H", "B", "J", "END")
+        },
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert run.status is RunStatus.COMPLETED, run.error
+    assert [entry.node_id for entry in run.execution_history].count("J") == 1
+    assert [entry.node_id for entry in run.execution_history][-2:] == ["J", "END"]
+    completed_loop = next(
+        loop
+        for snapshot in reversed(store.history)
+        for loop in snapshot.loops
+        if loop.loop_header_node_id == "H"
+        and loop.lifecycle_state is LoopLifecycleState.COMPLETED
+    )
+    assert [record.delivery.payload for record in completed_loop.exits[0].records] == [
+        {"value": 3}
+    ]
+    completed_join = next(
+        join
+        for snapshot in reversed(store.history)
+        for join in snapshot.joins
+        if join.target_node_id == "J" and join.lifecycle_state.value == "closed"
+    )
+    assert all(obligation.outcome is not None for obligation in completed_join.obligations)
+    loop_exit = next(
+        obligation
+        for obligation in completed_join.obligations
+        if obligation.inbound_edge_id == "B-J"
+    )
+    assert loop_exit.outcome is JoinObligationOutcome.DELIVERED
 
 
 async def test_flag_on_routes_subgraph_node_through_runtime_executor(sqlite_db) -> None:
