@@ -13,6 +13,8 @@ from tests.service.helpers import (
     scoped_auth_config,
 )
 from zeroth.governance.identity import ServiceRole
+from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
+from zeroth.runtime.orchestration.token_scheduler import initialize_token_snapshot
 from zeroth.runtime.runs import RunStatus
 from zeroth.core.service.bootstrap import bootstrap_app
 
@@ -97,6 +99,29 @@ async def test_cancel_run_transitions_to_failed(sqlite_db) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "failed"
+
+
+async def test_cancel_run_fences_existing_token_snapshot(sqlite_db) -> None:
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-cancel-token", DEPLOYMENT + "-cancel-token"
+    )
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/runs", json={"input_payload": {"value": 1}}, headers=operator_headers()
+        )
+        run_id = created.json()["run_id"]
+        snapshot = initialize_token_snapshot(run_id=run_id, root_node_id="agent-step", payload={})
+        await service.run_repository.compare_and_swap_token_snapshot(
+            run_id, expected_revision=None, snapshot=snapshot
+        )
+
+        response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
+
+    persisted = await service.run_repository.get_token_snapshot(run_id)
+    assert response.status_code == 200
+    assert persisted is not None
+    assert persisted.state is TokenEngineSnapshotState.CANCELLED
 
 
 async def test_cancel_run_clears_active_lease(sqlite_db) -> None:
@@ -303,6 +328,32 @@ async def test_interrupt_run_returns_waiting_interrupt_status(sqlite_db) -> None
 
     assert response.status_code == 200
     assert response.json()["status"] == "waiting_interrupt"
+
+
+async def test_interrupt_run_pauses_existing_token_snapshot(sqlite_db) -> None:
+    service, app = await _make_service_and_app(
+        sqlite_db,
+        "graph-admin-token-interrupt",
+        DEPLOYMENT + "-token-interrupt",
+    )
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/runs", json={"input_payload": {"value": 1}}, headers=operator_headers()
+        )
+        run_id = created.json()["run_id"]
+        await service.run_repository.transition(run_id, RunStatus.RUNNING)
+        snapshot = initialize_token_snapshot(run_id=run_id, root_node_id="agent-step", payload={})
+        await service.run_repository.compare_and_swap_token_snapshot(
+            run_id, expected_revision=None, snapshot=snapshot
+        )
+
+        response = client.post(f"/admin/runs/{run_id}/interrupt", headers=admin_headers())
+
+    persisted = await service.run_repository.get_token_snapshot(run_id)
+    assert response.status_code == 200
+    assert persisted is not None
+    assert persisted.state is TokenEngineSnapshotState.PAUSED
 
 
 async def test_operator_can_list_runs(sqlite_db) -> None:

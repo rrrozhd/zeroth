@@ -16,6 +16,9 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.core.runs import RunFailureState, RunStatus
+from zeroth.runtime.orchestration.interrupts import InterruptManager
+from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
+from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,
@@ -88,6 +91,9 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
         if run.status in {RunStatus.COMPLETED, RunStatus.FAILED}:
             return _serialize_run(run)
         try:
+            manager = await _token_interrupt_manager(bootstrap, run_id)
+            if manager is not None:
+                await manager.cancel_run(run_id)
             run = await bootstrap.run_repository.transition(
                 run_id,
                 RunStatus.FAILED,
@@ -151,6 +157,9 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
                 detail="only running runs can be interrupted",
             )
         try:
+            manager = await _token_interrupt_manager(bootstrap, run_id)
+            if manager is not None:
+                await manager.pause_run(run_id)
             run = await bootstrap.run_repository.transition(run_id, RunStatus.WAITING_INTERRUPT)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -162,3 +171,13 @@ def _bootstrap(request: Request) -> Any:
     if bootstrap is None:
         raise RuntimeError("service bootstrap is not configured")
     return bootstrap
+
+
+async def _token_interrupt_manager(bootstrap: Any, run_id: str) -> InterruptManager | None:
+    """Return lifecycle routing only for runs that already own token state."""
+    repository = bootstrap.run_repository
+    if not isinstance(repository, TokenSnapshotStore):
+        return None
+    if await repository.get_token_snapshot(run_id) is None:
+        return None
+    return InterruptManager(token_lifecycle=TokenLifecycleAdapter(repository))
