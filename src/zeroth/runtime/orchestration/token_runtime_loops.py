@@ -81,6 +81,7 @@ def _enter_loop_with_boundary_deliveries(
 def _settle_boundary_delivery_cohort(
     snapshot,
     *,
+    parent_token_id: str,
     dispatch_id: str,
     attempt: int,
     cancellation_generation: int,
@@ -88,9 +89,6 @@ def _settle_boundary_delivery_cohort(
     deliveries,
     failure_mode: str,
 ):
-    parent = next(
-        item.token for item in snapshot.in_flight_dispatches if item.dispatch_id == dispatch_id
-    )
     settled = fan_out_dispatch(
         snapshot,
         dispatch_id=dispatch_id,
@@ -102,7 +100,8 @@ def _settle_boundary_delivery_cohort(
         child = next(
             item
             for item in settled.tokens
-            if item.parent_token_id == parent.token_id and item.causal_inbound_edge_id == edge_id
+            if item.parent_token_id == parent_token_id
+            and item.causal_inbound_edge_id == edge_id
         )
         settled = settle_loop_member(
             settled,
@@ -306,6 +305,7 @@ class TokenRuntimeLoopSupport:
                 claim.snapshot,
                 partial(
                     _settle_boundary_delivery_cohort,
+                    parent_token_id=token.token_id,
                     dispatch_id=dispatch.dispatch_id,
                     attempt=dispatch.attempt,
                     cancellation_generation=dispatch.cancellation_generation,

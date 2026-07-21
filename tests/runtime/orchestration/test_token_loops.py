@@ -37,6 +37,9 @@ from zeroth.runtime.orchestration import (
     settle_loop_member,
 )
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
+from zeroth.runtime.orchestration.token_runtime_loops import (
+    _settle_boundary_delivery_cohort,
+)
 
 
 def _root():
@@ -375,6 +378,56 @@ def test_same_exit_payloads_freeze_in_child_order_and_replay_exactly() -> None:
         {"fingerprint": 2},
     ]
     assert close_ready_loop(restored, restored.loops[0].loop_instance_id) is restored
+
+
+def test_boundary_delivery_cohort_replays_after_dispatch_compaction() -> None:
+    entered = _entered()
+    claim = claim_next_token(entered)
+    parent = claim.dispatch.token
+    loop_id = parent.iteration_memberships[-1].loop_instance_id
+    branches = (
+        FanOutBranch(node_id="after-a", inbound_edge_id="exit-a", payload={"value": 10}),
+        FanOutBranch(node_id="after-b", inbound_edge_id="exit-b", payload={"value": 20}),
+    )
+    deliveries = (
+        (
+            "exit-a",
+            "after-a",
+            {"value": 10},
+            IterationMemberState.EXIT_DELIVERY,
+            (loop_id,),
+        ),
+        (
+            "exit-b",
+            "after-b",
+            {"value": 20},
+            IterationMemberState.EXIT_DELIVERY,
+            (loop_id,),
+        ),
+    )
+
+    completed = _settle_boundary_delivery_cohort(
+        claim.snapshot,
+        parent_token_id=parent.token_id,
+        dispatch_id=claim.dispatch.dispatch_id,
+        attempt=claim.dispatch.attempt,
+        cancellation_generation=claim.dispatch.cancellation_generation,
+        branches=branches,
+        deliveries=deliveries,
+        failure_mode="fail_fast",
+    )
+    replayed = _settle_boundary_delivery_cohort(
+        TokenEngineSnapshot.model_validate_json(completed.model_dump_json()),
+        parent_token_id=parent.token_id,
+        dispatch_id=claim.dispatch.dispatch_id,
+        attempt=claim.dispatch.attempt,
+        cancellation_generation=claim.dispatch.cancellation_generation,
+        branches=branches,
+        deliveries=deliveries,
+        failure_mode="fail_fast",
+    )
+
+    assert replayed == completed
 
 
 def test_all_suppressed_loop_completes_without_delivery() -> None:
