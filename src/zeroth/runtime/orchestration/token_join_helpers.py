@@ -100,7 +100,13 @@ def fork_for_token(snapshot: TokenEngineSnapshot, token: TokenEnvelope) -> ForkI
     if fork is None:
         raise TokenJoinTransitionError("join arrival has a missing fork cohort")
     if fork.lifecycle_state is ForkLifecycleState.CLOSED:
-        raise TokenJoinTransitionError("join arrival belongs to an already-closed fork cohort")
+        reserved = token.scheduling_state is SchedulingState.JOIN_WAITING and any(
+            obligation.child_token_id == token.token_id
+            and obligation.outcome is ForkObligationOutcome.JOINED
+            for obligation in fork.obligations
+        )
+        if not reserved:
+            raise TokenJoinTransitionError("join arrival belongs to an already-closed fork cohort")
     return fork
 
 

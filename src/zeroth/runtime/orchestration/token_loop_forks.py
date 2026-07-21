@@ -86,6 +86,19 @@ def _exit_fork_ownership(
     loop = next(item for item in snapshot.loops if item.loop_instance_id == outermost_loop_id)
     owner = next(item for item in snapshot.tokens if item.token_id == loop.enclosing_owner.token_id)
     owner_lineage = owner.fork_lineage
+    forks = {fork.fork_id: fork for fork in snapshot.forks}
+    reserved = bool(owner_lineage) and all(
+        any(
+            obligation.child_ordinal == frame.child_ordinal
+            and obligation.outcome is ForkObligationOutcome.JOINED
+            for obligation in forks[frame.fork_id].obligations
+        )
+        for frame in owner_lineage
+    )
+    if reserved:
+        automatic = tuple(frame.fork_id for frame in token.fork_lineage[len(owner_lineage) :])
+        resolved = automatic if crossed_fork_ids is None else tuple(crossed_fork_ids)
+        return (), resolved
     if token.fork_lineage[: len(owner_lineage)] != owner_lineage:
         raise TokenLoopTransitionError("loop exit fork lineage contradicts its enclosing owner")
     lineage_ids = tuple(frame.fork_id for frame in token.fork_lineage)

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
+    Condition,
     Edge,
     ExecutionSettings,
     Graph,
@@ -26,6 +27,7 @@ class Payload(BaseModel):
 class MemoryTokenStore:
     def __init__(self) -> None:
         self.snapshot: TokenEngineSnapshot | None = None
+        self.history: list[TokenEngineSnapshot] = []
 
     async def get_token_snapshot(self, run_id: str) -> TokenEngineSnapshot | None:
         assert self.snapshot is None or self.snapshot.run_id == run_id
@@ -44,6 +46,7 @@ class MemoryTokenStore:
                 run_id, expected_revision=expected_revision, actual_revision=actual
             )
         self.snapshot = snapshot
+        self.history.append(snapshot)
         return snapshot
 
 
@@ -189,3 +192,44 @@ async def test_flag_on_diamond_closes_structured_join_once(sqlite_db) -> None:
 
     assert [entry.node_id for entry in run.execution_history] == ["A", "L", "R", "J"]
     assert sum(entry.node_id == "J" for entry in run.execution_history) == 1
+
+
+async def test_flag_on_loop_persists_iteration_ownership(sqlite_db) -> None:
+    graph = Graph(
+        graph_id="token-loop-adapter",
+        name="token-loop-adapter",
+        entry_step="H",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[_node("H"), _node("B"), _node("OUT")],
+        edges=[
+            Edge(edge_id="H-B", source_node_id="H", target_node_id="B"),
+            Edge(
+                edge_id="B-H",
+                source_node_id="B",
+                target_node_id="H",
+                condition=Condition(expression="payload.value < 4", allow_cycle_traversal=True),
+            ),
+            Edge(
+                edge_id="B-OUT",
+                source_node_id="B",
+                target_node_id="OUT",
+                condition=Condition(expression="payload.value >= 4"),
+            ),
+        ],
+    )
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in ("H", "B", "OUT")},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert run.final_output == {"value": 5}
+    assert any(snapshot.loops for snapshot in store.history)
+    assert any(
+        loop.lifecycle_state.value == "completed"
+        for snapshot in store.history
+        for loop in snapshot.loops
+    )

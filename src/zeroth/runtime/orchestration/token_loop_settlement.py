@@ -75,6 +75,13 @@ def _settle_fork(
         candidate_id = None if candidate is None else candidate.parent_token_id
     if candidate_id is None:
         raise TokenLoopTransitionError("loop member has no ancestor fork obligation")
+    candidate_obligation = next(
+        item for item in fork_owner.obligations if item.child_token_id == candidate_id
+    )
+    if candidate_obligation.outcome is ForkObligationOutcome.JOINED:
+        # The enclosing branch has reserved its join slot while this loop owns
+        # execution. Iteration settlement must not consume that outer slot.
+        return snapshot.forks
     mapped = {
         IterationMemberState.FAILED: ForkObligationOutcome.FAILED,
         IterationMemberState.CANCELLED: ForkObligationOutcome.CANCELLED,
@@ -283,7 +290,7 @@ def settle_loop_member(
                                 token_id=token_id,
                                 back_edge_id=edge_id or "",
                                 delivery=delivery(payload),
-                                canonical_order=canonical_order(token),
+                                canonical_order=canonical_order(token, loop_id_value),
                                 settled_revision=revision,
                             ),
                         ),
@@ -334,7 +341,7 @@ def settle_loop_member(
                 delivery=(
                     delivery(payload) if outcome is IterationMemberState.EXIT_DELIVERY else None
                 ),
-                canonical_order=canonical_order(token),
+                canonical_order=canonical_order(token, loop_id_value),
                 surviving_fork_lineage=surviving_fork_lineage,
                 crossed_fork_ids=resolved_crossed_fork_ids,
                 settled_revision=revision,

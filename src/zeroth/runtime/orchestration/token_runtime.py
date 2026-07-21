@@ -19,6 +19,7 @@ from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngi
 from zeroth.core.runs import Run, RunStatus
 from zeroth.runtime.orchestration import token_scope as _ts
 from zeroth.runtime.orchestration.errors import OrchestratorError
+from zeroth.runtime.orchestration.token_runtime_loops import TokenRuntimeLoopSupport
 from zeroth.runtime.orchestration.token_runtime_support import (
     TokenRuntimeSupport,
     TokenRuntimeUnsupportedError,
@@ -39,7 +40,7 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
 from zeroth.runtime.orchestration.tool_executor import node_by_id
 
 
-class TokenRuntimeCoordinator(TokenRuntimeSupport):
+class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
     """Coordinates durable token claims with the existing governed dispatch path."""
 
     def __init__(self, driver: Any, store: TokenSnapshotStore) -> None:
@@ -144,6 +145,15 @@ class TokenRuntimeCoordinator(TokenRuntimeSupport):
                 f"structured-token execution for {node.node_type} is not implemented"
             )
         payload = envelope.model_dump(mode="json")["payload"]
+        scopes = self.driver._graph_scopes(graph)
+        if (
+            envelope.causal_inbound_edge_id in scopes.exit_owner
+            and isinstance(payload, list)
+            and all(isinstance(item, Mapping) for item in payload)
+        ):
+            payload = self.driver._merge_join_payloads(
+                graph, envelope.current_node_id, [dict(item) for item in payload]
+            )
         if not isinstance(payload, Mapping):
             payload = {"value": payload}
         input_payload = dict(payload)
@@ -245,7 +255,6 @@ class TokenRuntimeCoordinator(TokenRuntimeSupport):
             if edge.kind != "tool" and edge.edge_id in plan.branch_resolution.suppressed_edge_ids
         ]
         back_edges = self.driver._back_edge_ids(graph)
-        scopes = self.driver._graph_scopes(graph)
         defer_loop_exits = any(edge.edge_id in back_edges for edge in active) or any(
             edge.edge_id not in scopes.exit_owner for edge in active
         )
@@ -259,7 +268,14 @@ class TokenRuntimeCoordinator(TokenRuntimeSupport):
             for edge in (*active, *deferred_suppressed)
             if self._is_convergent(graph, edge.target_node_id)
         ]
-        if join_edges and not envelope.fork_lineage:
+        loop_handled, committed = await self._route_loop_entry(
+            graph, run, claim, active, output_data
+        )
+        if not loop_handled:
+            loop_handled, committed = await self._route_loop_boundary(
+                graph, run, claim, active, output_data
+            )
+        if not loop_handled and join_edges and not envelope.fork_lineage:
             unreachable = self._unreachable_inbound_sources(graph, join_edges[0].target_node_id)
             if unreachable:
                 return await self.driver.fail_run(
@@ -268,7 +284,9 @@ class TokenRuntimeCoordinator(TokenRuntimeSupport):
                     f"sequential join barrier for {join_edges[0].target_node_id} "
                     "has unreachable inbound source(s): " + ", ".join(unreachable),
                 )
-        if join_edges and envelope.fork_lineage:
+        if loop_handled:
+            transition = None
+        elif join_edges and envelope.fork_lineage:
             mixed_active = [edge for edge in active if edge not in join_edges]
             suppressed_join = [edge for edge in join_edges if edge not in active]
             if len(join_edges) == 1 and mixed_active and suppressed_join:

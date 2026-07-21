@@ -37,7 +37,9 @@ from zeroth.runtime.orchestration.token_loop_helpers import (
     next_provenance,
     next_snapshot,
     replace_loop,
+    replace_token,
     stable_fingerprint,
+    updated_token,
 )
 from zeroth.runtime.orchestration.token_loop_models import (
     LoopReducer,
@@ -97,7 +99,9 @@ def _claim_matches(loop: LoopInstance, claim: LoopReductionClaim) -> bool:
 
 
 def _strip_compacted_memberships(
-    tokens: tuple[TokenEnvelope, ...], compacted_frame_ids: set[str]
+    tokens: tuple[TokenEnvelope, ...],
+    compacted_frame_ids: set[str],
+    closed_fork_children: dict[str, set[str]],
 ) -> tuple[TokenEnvelope, ...]:
     updated: list[TokenEnvelope] = []
     for token in tokens:
@@ -115,11 +119,110 @@ def _strip_compacted_memberships(
             for item in token.iteration_memberships
             if item.iteration_frame_id not in compacted_frame_ids
         )
+        lineage = list(token.fork_lineage)
+        while (
+            lineage
+            and lineage[-1].fork_id in closed_fork_children
+            and token.token_id not in closed_fork_children[lineage[-1].fork_id]
+        ):
+            lineage.pop()
+        data["fork_lineage"] = tuple(lineage)
         data["provenance_tag"] = tuple(
             item for item in token.provenance_tag if item.loop_header_node_id not in removed_headers
         )
         updated.append(TokenEnvelope.model_validate(data))
     return tuple(updated)
+
+
+def _compact_join_memberships(snapshot: TokenEngineSnapshot, compacted_frame_ids: set[str]):
+    joins = []
+    for join in snapshot.joins:
+        removed_headers = {
+            membership.loop_header_node_id
+            for membership in join.iteration_memberships
+            if membership.iteration_frame_id in compacted_frame_ids
+        }
+        if not removed_headers:
+            joins.append(join)
+            continue
+        data = model_data(join)
+        data["iteration_memberships"] = tuple(
+            membership
+            for membership in join.iteration_memberships
+            if membership.iteration_frame_id not in compacted_frame_ids
+        )
+        data["provenance_tag"] = tuple(
+            frame
+            for frame in join.provenance_tag
+            if frame.loop_header_node_id not in removed_headers
+        )
+        joins.append(type(join).model_validate(data))
+    return tuple(joins)
+
+
+def _transfer_exit_join_ownership(
+    snapshot: TokenEngineSnapshot,
+    continuations: tuple[TokenEnvelope, ...],
+    revision: int,
+):
+    replacements: dict[str, str] = {}
+    forks = {fork.fork_id: fork for fork in snapshot.forks}
+    for continuation in continuations:
+        if not continuation.fork_lineage:
+            continue
+        frame = next(
+            (item for item in reversed(continuation.fork_lineage) if item.fork_id in forks),
+            None,
+        )
+        if frame is None:
+            continue
+        fork = forks[frame.fork_id]
+        source = next(
+            child.token_id
+            for child in fork.children
+            if child.creation_ordinal == frame.child_ordinal
+        )
+        replacements[source] = continuation.token_id
+    if not replacements:
+        return snapshot.joins, snapshot.tokens
+
+    joins = []
+    for join in snapshot.joins:
+        obligations = []
+        changed = False
+        for obligation in join.obligations:
+            replacement = replacements.get(obligation.source_token_id)
+            if replacement is None or obligation.outcome is not None:
+                obligations.append(obligation)
+                continue
+            changed = True
+            obligations.append(
+                type(obligation).model_validate(
+                    {**model_data(obligation), "source_token_id": replacement}
+                )
+            )
+        joins.append(
+            type(join).model_validate({**model_data(join), "obligations": tuple(obligations)})
+            if changed
+            else join
+        )
+
+    tokens = snapshot.tokens
+    for source_id in replacements:
+        source = next(token for token in tokens if token.token_id == source_id)
+        if source.scheduling_state is not SchedulingState.JOIN_WAITING:
+            continue
+        tokens = replace_token(
+            tokens,
+            updated_token(
+                source,
+                scheduling_state=SchedulingState.SETTLED,
+                lifecycle_state=TokenLifecycleState.SETTLED,
+                state_revision=revision,
+                settled_revision=revision,
+            ),
+        )
+    return tuple(joins), tokens
 
 
 def _transfer_to_outer(
@@ -234,6 +337,7 @@ def close_ready_loop(
     continuation_config: JoinConfig | None = None,
     reducer: LoopReducer = reduce_join_inputs,
     claimed_reduction: LoopReductionClaim | None = None,
+    deferred_exit_edge_ids: frozenset[str] = frozenset(),
 ) -> TokenEngineSnapshot:
     """Advance one barrier-ready frame or finalize its loop exactly once."""
     loop = _loop(snapshot, loop_instance_id)
@@ -321,7 +425,15 @@ def close_ready_loop(
         compacted = retained_frames[:-2]
         retained_frames = retained_frames[-2:]
         compacted_ids = {frame.iteration_frame_id for frame in compacted}
-        tokens = _strip_compacted_memberships(snapshot.tokens, compacted_ids)
+        tokens = _strip_compacted_memberships(
+            snapshot.tokens,
+            compacted_ids,
+            {
+                fork.fork_id: {child.token_id for child in fork.children}
+                for fork in snapshot.forks
+                if fork.lifecycle_state is ForkLifecycleState.CLOSED
+            },
+        )
         replacement = LoopInstance.model_validate(
             {
                 **model_data(loop),
@@ -335,12 +447,20 @@ def close_ready_loop(
                 "updated_revision": revision,
             }
         )
+        loops = replace_loop(snapshot.loops, replacement)
+        if loop.enclosing_owner.enclosing_loop_instance_id is not None:
+            intermediate = TokenEngineSnapshot.model_construct(
+                **{**model_data(snapshot), "loops": loops}
+            )
+            loops = _transfer_to_outer(intermediate, replacement, (continuation,), revision)
+            loops = replace_loop(loops, replacement)
         return next_snapshot(
             snapshot,
             next_token_ordinal=snapshot.next_token_ordinal + 1,
             queue=(*snapshot.queue, continuation),
             tokens=(*tokens, continuation),
-            loops=replace_loop(snapshot.loops, replacement),
+            joins=_compact_join_memberships(snapshot, compacted_ids),
+            loops=loops,
         )
 
     resolved_exits: list[LoopExit] = []
@@ -374,6 +494,7 @@ def close_ready_loop(
         parents = tuple(item.token_id for item in delivered_records)
         source_tokens = tuple(tokens_by_id[item] for item in parents)
         lineage = _exit_lineage(exit_state)
+        deferred = exit_state.exit_edge_id in deferred_exit_edge_ids
         continuations.append(
             TokenEnvelope(
                 token_id=continuation_id,
@@ -388,12 +509,15 @@ def close_ready_loop(
                         for item in delivered_records
                     ],
                 ),
-                lifecycle_state=TokenLifecycleState.ACTIVE,
-                scheduling_state=SchedulingState.QUEUED,
+                lifecycle_state=(
+                    TokenLifecycleState.SETTLED if deferred else TokenLifecycleState.ACTIVE
+                ),
+                scheduling_state=(SchedulingState.SETTLED if deferred else SchedulingState.QUEUED),
                 fork_lineage=lineage,
                 iteration_memberships=owner.iteration_memberships,
                 cancellation_generation=source_tokens[0].cancellation_generation,
                 state_revision=revision,
+                settled_revision=revision if deferred else None,
             )
         )
     owned_continuations, forks = _apply_exit_fork_ownership(
@@ -403,6 +527,7 @@ def close_ready_loop(
         revision,
     )
     continuations = list(owned_continuations)
+    joins, tokens = _transfer_exit_join_ownership(snapshot, tuple(continuations), revision)
     settled_frame = IterationFrame.model_validate(
         {
             **model_data(current),
@@ -440,9 +565,13 @@ def close_ready_loop(
     return next_snapshot(
         snapshot,
         next_token_ordinal=snapshot.next_token_ordinal + len(continuations),
-        queue=(*snapshot.queue, *continuations),
-        tokens=(*snapshot.tokens, *continuations),
+        queue=(
+            *snapshot.queue,
+            *(item for item in continuations if item.scheduling_state is SchedulingState.QUEUED),
+        ),
+        tokens=(*tokens, *continuations),
         forks=forks,
+        joins=joins,
         loops=loops,
     )
 

@@ -200,6 +200,9 @@ class TokenRuntimeSupport:
         source_tag = self._source_trace_tag(run, dispatch.token.token_id)
         target_tag = _ts.propagate_tag(source_tag, edge, self.driver._graph_scopes(graph))
         self._trace_resolution(run, edge, delivered, payload, dispatch.token, tag=target_tag)
+        return await self._close_join_if_ready(graph, run, committed, edge, target_tag)
+
+    async def _close_join_if_ready(self, graph, run, committed, edge, target_tag):
         ready = next(
             (
                 join

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from pydantic import JsonValue
 
@@ -32,6 +32,7 @@ from zeroth.runtime.orchestration.token_loop_transitions import enter_loop as _e
 from zeroth.runtime.orchestration.token_loop_transitions import (
     settle_loop_member as _settle_loop_member,
 )
+from zeroth.runtime.orchestration.token_scheduler import FanOutBranch
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 
 
@@ -46,6 +47,8 @@ def enter_loop(
     body_node_id: str,
     inbound_edge_id: str,
     exit_routes: Mapping[str, str],
+    body_payload: JsonValue | None = None,
+    body_branches: Sequence[FanOutBranch] | None = None,
 ) -> TokenEngineSnapshot:
     """Retire a header token and atomically create iteration zero."""
     return _enter_loop(
@@ -58,6 +61,8 @@ def enter_loop(
         body_node_id=body_node_id,
         inbound_edge_id=inbound_edge_id,
         exit_routes=exit_routes,
+        body_payload=body_payload,
+        body_branches=body_branches,
     )
 
 
@@ -102,6 +107,7 @@ def close_ready_loop(
     continuation_config: JoinConfig | None = None,
     reducer: LoopReducer = reduce_join_inputs,
     claimed_reduction: LoopReductionClaim | None = None,
+    deferred_exit_edge_ids: frozenset[str] = frozenset(),
 ) -> TokenEngineSnapshot:
     """Advance one ready frame or finalize its loop."""
     return _close_ready_loop(
@@ -110,6 +116,7 @@ def close_ready_loop(
         continuation_config=continuation_config,
         reducer=reducer,
         claimed_reduction=claimed_reduction,
+        deferred_exit_edge_ids=deferred_exit_edge_ids,
     )
 
 

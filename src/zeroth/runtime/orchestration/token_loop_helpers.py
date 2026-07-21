@@ -77,19 +77,31 @@ def entry_fingerprint(
     dispatch_id: str | None = None,
     attempt: int | None = None,
     cancellation_generation: int | None = None,
+    body_payload: JsonValue | None = None,
+    body_branches: object = None,
 ) -> str:
-    return stable_fingerprint(
-        {
-            "token_id": token_id,
-            "loop_header_node_id": loop_header_node_id,
-            "body_node_id": body_node_id,
-            "inbound_edge_id": inbound_edge_id,
-            "exit_routes": sorted(exit_routes.items()),
-            "dispatch_id": dispatch_id,
-            "attempt": attempt,
-            "cancellation_generation": cancellation_generation,
-        }
-    )
+    material: dict[str, object] = {
+        "token_id": token_id,
+        "loop_header_node_id": loop_header_node_id,
+        "body_node_id": body_node_id,
+        "inbound_edge_id": inbound_edge_id,
+        "exit_routes": sorted(exit_routes.items()),
+        "dispatch_id": dispatch_id,
+        "attempt": attempt,
+        "cancellation_generation": cancellation_generation,
+    }
+    if body_payload is not None:
+        material["body_payload"] = body_payload
+    if body_branches is not None:
+        material["body_branches"] = [
+            {
+                "node_id": branch.node_id,
+                "inbound_edge_id": branch.inbound_edge_id,
+                "payload": branch.payload,
+            }
+            for branch in body_branches
+        ]
+    return stable_fingerprint(material)
 
 
 def loop_id(snapshot: TokenEngineSnapshot, owner: TokenEnvelope, header: str) -> str:
@@ -143,9 +155,21 @@ def source_token(
     return token
 
 
-def canonical_order(token: TokenEnvelope) -> CanonicalTokenOrder:
+def canonical_order(
+    token: TokenEnvelope, loop_instance_id: str | None = None
+) -> CanonicalTokenOrder:
     child_ordinal = token.fork_lineage[-1].child_ordinal if token.fork_lineage else 0
-    iteration_index = token.provenance_tag[-1].iteration_index if token.provenance_tag else 0
+    membership = next(
+        (item for item in token.iteration_memberships if item.loop_instance_id == loop_instance_id),
+        None,
+    )
+    iteration_index = (
+        membership.iteration_index
+        if membership is not None
+        else token.provenance_tag[-1].iteration_index
+        if token.provenance_tag
+        else 0
+    )
     return CanonicalTokenOrder(
         iteration_index=iteration_index,
         fork_lineage=token.fork_lineage,

@@ -229,10 +229,19 @@ def _settle_arrival(
         if obligation.child_token_id != token.token_id:
             fork_obligations.append(obligation)
             continue
-        if obligation.outcome is not None:
-            raise TokenJoinTransitionError("fork obligation is already settled")
         data = _model_data(obligation)
         mapped = _mapped_fork_outcome(outcome)
+        if obligation.outcome is not None:
+            reserved = (
+                obligation.outcome is ForkObligationOutcome.JOINED
+                and obligation.join_instance_id == join_id
+                and token.scheduling_state is SchedulingState.JOIN_WAITING
+            )
+            if not reserved:
+                raise TokenJoinTransitionError("fork obligation is already settled")
+            if mapped is ForkObligationOutcome.JOINED:
+                fork_obligations.append(obligation)
+                continue
         data.update(
             outcome=mapped,
             join_instance_id=(join_id if mapped is ForkObligationOutcome.JOINED else None),
