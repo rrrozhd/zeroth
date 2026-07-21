@@ -7,6 +7,9 @@
     "build": "npm run check:version && next build",
     "start": "next start",
     "gen:api": "uv run --project .. python ../scripts/dump_openapi.py --out openapi.json && openapi-typescript openapi.json -o app/lib/api-types.ts",
+    "gen:regulus-api": "uv run --project .. python ../scripts/dump_regulus_openapi.py --out openapi.regulus.json && openapi-typescript openapi.regulus.json -o app/lib/api-types.regulus.ts",
+    "gen:all-api": "npm run gen:api && npm run gen:regulus-api",
+    "check:api": "uv run --project .. python ../scripts/check_frontend_api.py --frontend .",
     "gen:version": "uv run --project .. python ../scripts/generate_frontend_version.py --pyproject ../pyproject.toml --out app/lib/version.ts",
     "check:version": "uv run --project .. python ../scripts/generate_frontend_version.py --pyproject ../pyproject.toml --out app/lib/version.ts --check",
     "test": "vitest"

@@ -909,6 +909,465 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/econ/regulus/costing/estimates/{capability_id}/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Costing Estimate */
+        get: operations["regulus_costing_estimate_v1_econ_regulus_costing_estimates__capability_id__latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/costing/profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Costing Profile */
+        get: operations["regulus_costing_profile_v1_econ_regulus_costing_profiles__profile_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/action-suppression": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Action Suppression */
+        get: operations["regulus_dashboard_action_suppression_v1_econ_regulus_dashboard_action_suppression_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/calibration-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Calibration Trend */
+        get: operations["regulus_dashboard_calibration_trend_v1_econ_regulus_dashboard_calibration_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/capability-ranking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Capability Ranking */
+        get: operations["regulus_dashboard_capability_ranking_v1_econ_regulus_dashboard_capability_ranking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/capital-destroyers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Capital Destroyers */
+        get: operations["regulus_dashboard_capital_destroyers_v1_econ_regulus_dashboard_capital_destroyers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/confidence-gate-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Confidence Gate */
+        get: operations["regulus_dashboard_confidence_gate_v1_econ_regulus_dashboard_confidence_gate_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/confidence-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Confidence Trend */
+        get: operations["regulus_dashboard_confidence_trend_v1_econ_regulus_dashboard_confidence_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/data-quality-mix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Data Quality */
+        get: operations["regulus_dashboard_data_quality_v1_econ_regulus_dashboard_data_quality_mix_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Drift Timeline */
+        get: operations["regulus_dashboard_drift_timeline_v1_econ_regulus_dashboard_drift_timeline__capability_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/efficiency-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Efficiency Trend */
+        get: operations["regulus_dashboard_efficiency_trend_v1_econ_regulus_dashboard_efficiency_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Implementation Compare */
+        get: operations["regulus_dashboard_implementation_compare_v1_econ_regulus_dashboard_implementation_compare__capability_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/kpis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Kpis */
+        get: operations["regulus_dashboard_kpis_v1_econ_regulus_dashboard_kpis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/policy-timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Policy Timeline */
+        get: operations["regulus_dashboard_policy_timeline_v1_econ_regulus_dashboard_policy_timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/dashboard/top-creators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Dashboard Top Creators */
+        get: operations["regulus_dashboard_top_creators_v1_econ_regulus_dashboard_top_creators_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/enforcement/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Enforcement Actions */
+        get: operations["regulus_enforcement_actions_v1_econ_regulus_enforcement_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/enforcement/actions/{action_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Regulus Enforcement Approve */
+        post: operations["regulus_enforcement_approve_v1_econ_regulus_enforcement_actions__action_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/enforcement/actions/{action_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Regulus Enforcement Reject */
+        post: operations["regulus_enforcement_reject_v1_econ_regulus_enforcement_actions__action_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/enforcement/policy-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Enforcement Policy Actions */
+        get: operations["regulus_enforcement_policy_actions_v1_econ_regulus_enforcement_policy_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/evaluations/{capability_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Evaluations History */
+        get: operations["regulus_evaluations_history_v1_econ_regulus_evaluations__capability_id__history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/evaluations/{capability_id}/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Evaluations Latest */
+        get: operations["regulus_evaluations_latest_v1_econ_regulus_evaluations__capability_id__latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/performance/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Performance Capabilities */
+        get: operations["regulus_performance_capabilities_v1_econ_regulus_performance_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/performance/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Performance Summary */
+        get: operations["regulus_performance_summary_v1_econ_regulus_performance_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/reconciliation/calibration-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Reconciliation Calibration */
+        get: operations["regulus_reconciliation_calibration_v1_econ_regulus_reconciliation_calibration_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/registry/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Registry Capabilities */
+        get: operations["regulus_registry_capabilities_v1_econ_regulus_registry_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/registry/capabilities/{capability_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Registry Capability */
+        get: operations["regulus_registry_capability_v1_econ_regulus_registry_capabilities__capability_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/regulus/registry/implementations/{implementation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Regulus Registry Implementation */
+        get: operations["regulus_registry_implementation_v1_econ_regulus_registry_implementations__implementation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/econ/rightsizing": {
         parameters: {
             query?: never;
@@ -1929,6 +2388,11 @@ export interface components {
             attestation_algorithm?: string | null;
             /** Attestation Digest */
             attestation_digest: string;
+            /**
+             * Attestation Payload Version
+             * @default 1
+             */
+            attestation_payload_version: number;
             /** Attestation Signature */
             attestation_signature?: string | null;
             /** Attestation Signing Key Id */
@@ -1941,6 +2405,11 @@ export interface components {
             deployment_ref: string;
             /** Deployment Version */
             deployment_version: number;
+            /**
+             * Engine Mode
+             * @default legacy
+             */
+            engine_mode: string;
             /** Entry Input Contract Ref */
             entry_input_contract_ref?: string | null;
             /** Entry Input Contract Version */
@@ -1975,6 +2444,12 @@ export interface components {
             /** Total Cost Usd */
             total_cost_usd: number;
         };
+        /**
+         * DeploymentEngineMode
+         * @description Immutable execution engine selected when a deployment is published.
+         * @enum {string}
+         */
+        DeploymentEngineMode: "legacy" | "token";
         /**
          * DeploymentEvidenceResponse
          * @description Review-friendly evidence bundle for a deployment snapshot.
@@ -2041,6 +2516,8 @@ export interface components {
          * @description Public metadata for one deployed version.
          */
         DeploymentVersionMetadataResponse: {
+            /** Attestation Payload Version */
+            attestation_payload_version: number;
             /** Attestation Ref */
             attestation_ref?: string | null;
             /** Audit Ref */
@@ -2058,6 +2535,7 @@ export interface components {
             };
             /** Deployment Version */
             deployment_version: number;
+            engine_mode: components["schemas"]["DeploymentEngineMode"];
             /** Entry Input Contract Ref */
             entry_input_contract_ref?: string | null;
             /** Entry Input Contract Version */
@@ -3052,7 +3530,7 @@ export interface components {
          * @description Service roles used by route authorization.
          * @enum {string}
          */
-        ServiceRole: "operator" | "reviewer" | "admin";
+        ServiceRole: "operator" | "reviewer" | "admin" | "platform_admin";
         /**
          * SpendReport
          * @description Deployment-wide spend attribution, ranked by right-sizing opportunity.
@@ -5183,6 +5661,546 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    regulus_costing_estimate_v1_econ_regulus_costing_estimates__capability_id__latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_costing_profile_v1_econ_regulus_costing_profiles__profile_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_action_suppression_v1_econ_regulus_dashboard_action_suppression_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_calibration_trend_v1_econ_regulus_dashboard_calibration_trend_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_capability_ranking_v1_econ_regulus_dashboard_capability_ranking_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_capital_destroyers_v1_econ_regulus_dashboard_capital_destroyers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_confidence_gate_v1_econ_regulus_dashboard_confidence_gate_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_confidence_trend_v1_econ_regulus_dashboard_confidence_trend_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_data_quality_v1_econ_regulus_dashboard_data_quality_mix_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_drift_timeline_v1_econ_regulus_dashboard_drift_timeline__capability_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_efficiency_trend_v1_econ_regulus_dashboard_efficiency_trend_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_implementation_compare_v1_econ_regulus_dashboard_implementation_compare__capability_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_kpis_v1_econ_regulus_dashboard_kpis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_policy_timeline_v1_econ_regulus_dashboard_policy_timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_dashboard_top_creators_v1_econ_regulus_dashboard_top_creators_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_enforcement_actions_v1_econ_regulus_enforcement_actions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_enforcement_approve_v1_econ_regulus_enforcement_actions__action_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_enforcement_reject_v1_econ_regulus_enforcement_actions__action_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_enforcement_policy_actions_v1_econ_regulus_enforcement_policy_actions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_evaluations_history_v1_econ_regulus_evaluations__capability_id__history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_evaluations_latest_v1_econ_regulus_evaluations__capability_id__latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_performance_capabilities_v1_econ_regulus_performance_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_performance_summary_v1_econ_regulus_performance_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_reconciliation_calibration_v1_econ_regulus_reconciliation_calibration_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_registry_capabilities_v1_econ_regulus_registry_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_registry_capability_v1_econ_regulus_registry_capabilities__capability_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    regulus_registry_implementation_v1_econ_regulus_registry_implementations__implementation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

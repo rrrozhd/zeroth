@@ -4,6 +4,57 @@
  */
 
 export interface paths {
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health */
+        get: operations["health_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metrics */
+        get: operations["metrics_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/token": {
         parameters: {
             query?: never;
@@ -21,15 +72,629 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/auth/me": {
+    "/v1/budget/status": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Me */
-        get: operations["me_v1_auth_me_get"];
+        /** Budget Status */
+        get: operations["budget_status_v1_budget_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/budget/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Tenant Budget */
+        put: operations["set_tenant_budget_v1_budget_tenants__tenant_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Capabilities */
+        get: operations["get_capabilities_v1_capabilities_get"];
+        put?: never;
+        /** Post Capability */
+        post: operations["post_capability_v1_capabilities_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/capabilities/{capability_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Capability Detail */
+        get: operations["get_capability_detail_v1_capabilities__capability_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/capabilities/{capability_id}/implementations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Implementation */
+        post: operations["post_implementation_v1_capabilities__capability_id__implementations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Connectors */
+        get: operations["get_connectors_v1_connectors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Outbox */
+        get: operations["get_outbox_v1_connectors_outbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/outbox/{outbox_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Outbox */
+        post: operations["retry_outbox_v1_connectors_outbox__outbox_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/{connector_type}/configure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Configure */
+        post: operations["configure_v1_connectors__connector_type__configure_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/{connector_type}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable */
+        post: operations["disable_v1_connectors__connector_type__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/{connector_type}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable */
+        post: operations["enable_v1_connectors__connector_type__enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/costing/estimates/{capability_id}/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Latest Estimate */
+        get: operations["get_latest_estimate_v1_costing_estimates__capability_id__latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/costing/pricing-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Pricing */
+        post: operations["post_pricing_v1_costing_pricing_catalog_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/costing/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Profile */
+        post: operations["post_profile_v1_costing_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/costing/profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Profile */
+        get: operations["get_profile_v1_costing_profiles__profile_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/action-suppression": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Action Suppression */
+        get: operations["get_action_suppression_v1_dashboard_action_suppression_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/calibration-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Calibration Trend */
+        get: operations["get_calibration_trend_v1_dashboard_calibration_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/capability-ranking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Capability Ranking */
+        get: operations["get_capability_ranking_v1_dashboard_capability_ranking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/capital-destroyers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Destroyers */
+        get: operations["get_destroyers_v1_dashboard_capital_destroyers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/confidence-gate-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conf Gate Status */
+        get: operations["get_conf_gate_status_v1_dashboard_confidence_gate_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/confidence-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conf Trend */
+        get: operations["get_conf_trend_v1_dashboard_confidence_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/data-quality-mix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Data Quality Mix */
+        get: operations["get_data_quality_mix_v1_dashboard_data_quality_mix_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/drift-timeline/{capability_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Drift Timeline */
+        get: operations["get_drift_timeline_v1_dashboard_drift_timeline__capability_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/efficiency-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Eff Trend */
+        get: operations["get_eff_trend_v1_dashboard_efficiency_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/estimated-vs-ground-truth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Estimated Vs Ground Truth */
+        get: operations["get_estimated_vs_ground_truth_v1_dashboard_estimated_vs_ground_truth_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/implementation-compare/{capability_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Implementation Compare */
+        get: operations["get_implementation_compare_v1_dashboard_implementation_compare__capability_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/kpis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Kpis */
+        get: operations["get_kpis_v1_dashboard_kpis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/policy-timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Policy Timeline */
+        get: operations["get_policy_timeline_v1_dashboard_policy_timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/top-creators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Top Creators */
+        get: operations["get_top_creators_v1_dashboard_top_creators_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List All */
+        get: operations["list_all_v1_enforcement_actions_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_v1_enforcement_actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/actions/{action_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve */
+        post: operations["approve_v1_enforcement_actions__action_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/actions/{action_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject */
+        post: operations["reject_v1_enforcement_actions__action_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/policy-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Policies */
+        get: operations["list_policies_v1_enforcement_policy_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run */
+        post: operations["run_v1_evaluations_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/run/async": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Async */
+        post: operations["run_async_v1_evaluations_run_async_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/{capability_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History */
+        get: operations["history_v1_evaluations__capability_id__history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/evaluations/{capability_id}/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest */
+        get: operations["latest_v1_evaluations__capability_id__latest_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -72,6 +737,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metrics */
+        get: operations["metrics_v1_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/outcomes/ingest": {
         parameters: {
             query?: never;
@@ -106,25 +788,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/capabilities": {
+    "/v1/performance/capabilities": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Capabilities */
-        get: operations["get_capabilities_v1_capabilities_get"];
+        /** Capabilities */
+        get: operations["capabilities_v1_performance_capabilities_get"];
         put?: never;
-        /** Post Capability */
-        post: operations["post_capability_v1_capabilities_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/capabilities/{capability_id}/implementations": {
+    "/v1/performance/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Summary */
+        get: operations["summary_v1_performance_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reconciliation/calibration-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calibration Summary */
+        get: operations["calibration_summary_v1_reconciliation_calibration_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reconciliation/ground-truth-import": {
         parameters: {
             query?: never;
             header?: never;
@@ -133,25 +848,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Post Implementation */
-        post: operations["post_implementation_v1_capabilities__capability_id__implementations_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/capabilities/{capability_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Capability Detail */
-        get: operations["get_capability_detail_v1_capabilities__capability_id__get"];
-        put?: never;
-        post?: never;
+        /** Import Ground Truth */
+        post: operations["import_ground_truth_v1_reconciliation_ground_truth_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -185,40 +883,6 @@ export interface paths {
         };
         /** Get Registry Capability */
         get: operations["get_registry_capability_v1_registry_capabilities__capability_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/registry/implementations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Post Registry Implementation */
-        post: operations["post_registry_implementation_v1_registry_implementations_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/registry/implementations/{implementation_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Registry Implementation */
-        get: operations["get_registry_implementation_v1_registry_implementations__implementation_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -295,7 +959,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/evaluations/run": {
+    "/v1/registry/implementations": {
         parameters: {
             query?: never;
             header?: never;
@@ -304,687 +968,23 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Run */
-        post: operations["run_v1_evaluations_run_post"];
+        /** Post Registry Implementation */
+        post: operations["post_registry_implementation_v1_registry_implementations_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/evaluations/run/async": {
+    "/v1/registry/implementations/{implementation_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Run Async */
-        post: operations["run_async_v1_evaluations_run_async_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/evaluations/{capability_id}/latest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Latest */
-        get: operations["latest_v1_evaluations__capability_id__latest_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/evaluations/{capability_id}/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** History */
-        get: operations["history_v1_evaluations__capability_id__history_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/costing/profiles": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Post Profile */
-        post: operations["post_profile_v1_costing_profiles_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/costing/profiles/{profile_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Profile */
-        get: operations["get_profile_v1_costing_profiles__profile_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/costing/pricing-catalog": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Post Pricing */
-        post: operations["post_pricing_v1_costing_pricing_catalog_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/costing/estimates/{capability_id}/latest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Latest Estimate */
-        get: operations["get_latest_estimate_v1_costing_estimates__capability_id__latest_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/performance/capabilities": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Capabilities */
-        get: operations["capabilities_v1_performance_capabilities_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/performance/summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Summary */
-        get: operations["summary_v1_performance_summary_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/enforcement/actions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List All */
-        get: operations["list_all_v1_enforcement_actions_get"];
-        put?: never;
-        /** Create */
-        post: operations["create_v1_enforcement_actions_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/enforcement/policy-actions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Policies */
-        get: operations["list_policies_v1_enforcement_policy_actions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/enforcement/actions/{action_id}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Approve */
-        post: operations["approve_v1_enforcement_actions__action_id__approve_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/enforcement/actions/{action_id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reject */
-        post: operations["reject_v1_enforcement_actions__action_id__reject_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/budget/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Budget Status */
-        get: operations["budget_status_v1_budget_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/budget/tenants/{tenant_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Set Tenant Budget */
-        put: operations["set_tenant_budget_v1_budget_tenants__tenant_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/kpis": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Kpis */
-        get: operations["get_kpis_v1_dashboard_kpis_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/top-creators": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Top Creators */
-        get: operations["get_top_creators_v1_dashboard_top_creators_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/capital-destroyers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Destroyers */
-        get: operations["get_destroyers_v1_dashboard_capital_destroyers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/capability-ranking": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Capability Ranking */
-        get: operations["get_capability_ranking_v1_dashboard_capability_ranking_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/implementation-compare/{capability_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Implementation Compare */
-        get: operations["get_implementation_compare_v1_dashboard_implementation_compare__capability_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/policy-timeline": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Policy Timeline */
-        get: operations["get_policy_timeline_v1_dashboard_policy_timeline_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/drift-timeline/{capability_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Drift Timeline */
-        get: operations["get_drift_timeline_v1_dashboard_drift_timeline__capability_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/confidence-trend": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Conf Trend */
-        get: operations["get_conf_trend_v1_dashboard_confidence_trend_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/efficiency-trend": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Eff Trend */
-        get: operations["get_eff_trend_v1_dashboard_efficiency_trend_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/estimated-vs-ground-truth": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Estimated Vs Ground Truth */
-        get: operations["get_estimated_vs_ground_truth_v1_dashboard_estimated_vs_ground_truth_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/confidence-gate-status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Conf Gate Status */
-        get: operations["get_conf_gate_status_v1_dashboard_confidence_gate_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/data-quality-mix": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Data Quality Mix */
-        get: operations["get_data_quality_mix_v1_dashboard_data_quality_mix_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/calibration-trend": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Calibration Trend */
-        get: operations["get_calibration_trend_v1_dashboard_calibration_trend_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/dashboard/action-suppression": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Action Suppression */
-        get: operations["get_action_suppression_v1_dashboard_action_suppression_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/reconciliation/ground-truth-import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Import Ground Truth */
-        post: operations["import_ground_truth_v1_reconciliation_ground_truth_import_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/reconciliation/calibration-summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Calibration Summary */
-        get: operations["calibration_summary_v1_reconciliation_calibration_summary_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/connectors": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Connectors */
-        get: operations["get_connectors_v1_connectors_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/connectors/{connector_type}/configure": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Configure */
-        post: operations["configure_v1_connectors__connector_type__configure_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/connectors/{connector_type}/enable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Enable */
-        post: operations["enable_v1_connectors__connector_type__enable_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/connectors/{connector_type}/disable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Disable */
-        post: operations["disable_v1_connectors__connector_type__disable_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/connectors/outbox": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Outbox */
-        get: operations["get_outbox_v1_connectors_outbox_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/connectors/outbox/{outbox_id}/retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Retry Outbox */
-        post: operations["retry_outbox_v1_connectors_outbox__outbox_id__retry_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/metrics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Metrics */
-        get: operations["metrics_v1_metrics_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Health */
-        get: operations["health_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/metrics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Metrics */
-        get: operations["metrics_metrics_get"];
+        /** Get Registry Implementation */
+        get: operations["get_registry_implementation_v1_registry_implementations__implementation_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1004,12 +1004,12 @@ export interface components {
         };
         /** BudgetStatusOut */
         BudgetStatusOut: {
+            /** Budget Cap Usd */
+            budget_cap_usd?: number | null;
             /** Tenant Id */
             tenant_id: string;
             /** Total Cost Usd */
             total_cost_usd: number;
-            /** Budget Cap Usd */
-            budget_cap_usd?: number | null;
             /**
              * Window
              * @default month_to_date
@@ -1020,38 +1020,25 @@ export interface components {
         };
         /** CalibrationSummary */
         CalibrationSummary: {
-            /** Capability Id */
-            capability_id: string;
-            /** Mape */
-            mape: number;
-            /** Mae */
-            mae: number;
-            /** Rmse */
-            rmse: number;
-            /** Interval Coverage */
-            interval_coverage: number;
             /** Bias */
             bias: number;
+            /** Capability Id */
+            capability_id: string;
+            /** Interval Coverage */
+            interval_coverage: number;
+            /** Mae */
+            mae: number;
+            /** Mape */
+            mape: number;
+            /** Rmse */
+            rmse: number;
             /** Sample Size */
             sample_size: number;
         };
         /** CapabilityCreate */
         CapabilityCreate: {
-            /** Id */
-            id: string;
-            /** Tenant Id */
-            tenant_id?: string | null;
-            /** Name */
-            name: string;
             /** Category */
             category?: ("REVENUE" | "COST" | "RISK" | "PRODUCTIVITY" | "Revenue" | "CostReduction" | "RiskMitigation" | "Productivity") | null;
-            /** Type */
-            type?: ("REVENUE" | "COST" | "RISK" | "PRODUCTIVITY" | "Revenue" | "CostReduction" | "RiskMitigation" | "Productivity") | null;
-            /**
-             * Description
-             * @default
-             */
-            description: string;
             /**
              * Criticality
              * @default MED
@@ -1059,150 +1046,163 @@ export interface components {
              */
             criticality: "LOW" | "MED" | "HIGH";
             /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Id */
+            id: string;
+            /**
              * Is Protected
              * @default false
              */
             is_protected: boolean;
+            /** Name */
+            name: string;
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Type */
+            type?: ("REVENUE" | "COST" | "RISK" | "PRODUCTIVITY" | "Revenue" | "CostReduction" | "RiskMitigation" | "Productivity") | null;
             valuation_config?: components["schemas"]["ValuationConfig"];
         };
         /** CapabilityDetail */
         CapabilityDetail: {
-            /** Id */
-            id: string;
-            /** Tenant Id */
-            tenant_id: string;
-            /** Name */
-            name: string;
-            /** Type */
-            type: string;
-            /** Description */
-            description: string;
-            /** Criticality */
-            criticality: string;
-            /** Is Protected */
-            is_protected: boolean;
-            valuation_config: components["schemas"]["ValuationConfig"];
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Criticality */
+            criticality: string;
+            /** Description */
+            description: string;
+            /** Id */
+            id: string;
             /** Implementations */
             implementations?: components["schemas"]["ImplementationOut"][];
+            /** Is Protected */
+            is_protected: boolean;
+            /** Name */
+            name: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Type */
+            type: string;
+            valuation_config: components["schemas"]["ValuationConfig"];
         };
         /** CapabilityOut */
         CapabilityOut: {
-            /** Id */
-            id: string;
-            /** Tenant Id */
-            tenant_id: string;
-            /** Name */
-            name: string;
-            /** Type */
-            type: string;
-            /** Description */
-            description: string;
-            /** Criticality */
-            criticality: string;
-            /** Is Protected */
-            is_protected: boolean;
-            valuation_config: components["schemas"]["ValuationConfig"];
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Criticality */
+            criticality: string;
+            /** Description */
+            description: string;
+            /** Id */
+            id: string;
+            /** Is Protected */
+            is_protected: boolean;
+            /** Name */
+            name: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Type */
+            type: string;
+            valuation_config: components["schemas"]["ValuationConfig"];
         };
         /** CapabilityPerformance */
         CapabilityPerformance: {
-            /** Capability Id */
-            capability_id: string;
-            /** Implementation Id */
-            implementation_id?: string | null;
             /** Aer */
             aer: number;
-            /** Risk Adjusted Return */
-            risk_adjusted_return: number;
-            /** Operational Drag */
-            operational_drag: number;
-            /** Confidence Gate Passed */
-            confidence_gate_passed: boolean;
-            /** Confidence Breakdown */
-            confidence_breakdown?: {
-                [key: string]: unknown;
-            };
-            /** Rule Output */
-            rule_output: string;
+            /** Capability Id */
+            capability_id: string;
             /**
              * Captured At
              * Format: date-time
              */
             captured_at: string;
+            /** Confidence Breakdown */
+            confidence_breakdown?: {
+                [key: string]: unknown;
+            };
+            /** Confidence Gate Passed */
+            confidence_gate_passed: boolean;
+            /** Implementation Id */
+            implementation_id?: string | null;
+            /** Operational Drag */
+            operational_drag: number;
+            /** Risk Adjusted Return */
+            risk_adjusted_return: number;
+            /** Rule Output */
+            rule_output: string;
         };
         /** CapabilityRankingRow */
         CapabilityRankingRow: {
+            /** Aer */
+            aer: number;
             /** Capability Id */
             capability_id: string;
             /** Capability Type */
             capability_type: string;
-            /** Net Margin Usd */
-            net_margin_usd: number;
-            /** Aer */
-            aer: number;
             /** Is Protected */
             is_protected: boolean;
+            /** Net Margin Usd */
+            net_margin_usd: number;
         };
         /** CapabilityValueRow */
         CapabilityValueRow: {
             /** Capability Id */
             capability_id: string;
-            /** Net Margin Usd */
-            net_margin_usd: number;
             /** Confidence */
             confidence: number;
+            /** Net Margin Usd */
+            net_margin_usd: number;
         };
         /** ConfidenceGateConfig */
         ConfidenceGateConfig: {
-            /**
-             * Min Confidence Level
-             * @default 0.95
-             */
-            min_confidence_level: number;
             /**
              * Max Relative Width
              * @default 0.3
              */
             max_relative_width: number;
+            /**
+             * Min Confidence Level
+             * @default 0.95
+             */
+            min_confidence_level: number;
         };
         /** ConfidenceGateStatus */
         ConfidenceGateStatus: {
-            /** Passed */
-            passed: number;
             /** Blocked */
             blocked: number;
+            /** Passed */
+            passed: number;
         };
         /** ConnectorConfigOut */
         ConnectorConfigOut: {
-            /** Id */
-            id: number;
-            /** Tenant Id */
-            tenant_id: string;
-            /**
-             * Connector Type
-             * @enum {string}
-             */
-            connector_type: "langfuse" | "prometheus" | "otel_metrics" | "posthog" | "kafka" | "segment" | "snowplow" | "clickhouse" | "bigquery" | "snowflake" | "launchdarkly" | "envoy";
-            /** Enabled */
-            enabled: boolean;
             /** Config Json */
             config_json: {
                 [key: string]: unknown;
             };
             /**
+             * Connector Type
+             * @enum {string}
+             */
+            connector_type: "langfuse" | "prometheus" | "otel_metrics" | "posthog" | "kafka" | "segment" | "snowplow" | "clickhouse" | "bigquery" | "snowflake" | "launchdarkly" | "envoy";
+            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: number;
+            /** Tenant Id */
+            tenant_id: string;
             /**
              * Updated At
              * Format: date-time
@@ -1218,39 +1218,39 @@ export interface components {
         };
         /** ConnectorOutboxOut */
         ConnectorOutboxOut: {
-            /** Id */
-            id: number;
-            /** Tenant Id */
-            tenant_id: string;
-            /** Event Type */
-            event_type: string;
-            /** Event Key */
-            event_key: string;
-            /** Payload Json */
-            payload_json: {
-                [key: string]: unknown;
-            };
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "DEAD_LETTER";
             /** Attempts */
             attempts: number;
-            /**
-             * Next Attempt At
-             * Format: date-time
-             */
-            next_attempt_at: string;
-            /** Last Error */
-            last_error: string | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Event Key */
+            event_key: string;
+            /** Event Type */
+            event_type: string;
+            /** Id */
+            id: number;
+            /** Last Error */
+            last_error: string | null;
+            /**
+             * Next Attempt At
+             * Format: date-time
+             */
+            next_attempt_at: string;
+            /** Payload Json */
+            payload_json: {
+                [key: string]: unknown;
+            };
             /** Processed At */
             processed_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "DEAD_LETTER";
+            /** Tenant Id */
+            tenant_id: string;
         };
         /** ConnectorStatusOut */
         ConnectorStatusOut: {
@@ -1270,49 +1270,61 @@ export interface components {
         CostEstimateOut: {
             /** Capability Id */
             capability_id: string;
+            /** Cost Interval High Usd */
+            cost_interval_high_usd: number;
+            /** Cost Interval Low Usd */
+            cost_interval_low_usd: number;
+            /** Data Quality */
+            data_quality: string;
+            /** Estimation Method */
+            estimation_method: string;
             /** Implementation Id */
             implementation_id: string | null;
-            /**
-             * Period Start
-             * Format: date-time
-             */
-            period_start: string;
+            /** Infra Cost Estimate Usd */
+            infra_cost_estimate_usd: number;
+            /** Llm Cost Estimate Usd */
+            llm_cost_estimate_usd: number;
+            /** Method Version */
+            method_version: string;
+            /** Overhead Cost Estimate Usd */
+            overhead_cost_estimate_usd: number;
             /**
              * Period End
              * Format: date-time
              */
             period_end: string;
-            /** Llm Cost Estimate Usd */
-            llm_cost_estimate_usd: number;
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
             /** Tool Cost Estimate Usd */
             tool_cost_estimate_usd: number;
-            /** Infra Cost Estimate Usd */
-            infra_cost_estimate_usd: number;
-            /** Overhead Cost Estimate Usd */
-            overhead_cost_estimate_usd: number;
             /** Total Cost Estimate Usd */
             total_cost_estimate_usd: number;
-            /** Cost Interval Low Usd */
-            cost_interval_low_usd: number;
-            /** Cost Interval High Usd */
-            cost_interval_high_usd: number;
-            /** Estimation Method */
-            estimation_method: string;
-            /** Data Quality */
-            data_quality: string;
-            /** Method Version */
-            method_version: string;
         };
         /** CostProfileCreate */
         CostProfileCreate: {
-            /** Capability Id */
-            capability_id: string;
-            /** Requests Per Period */
-            requests_per_period: number;
             /** Avg Input Tokens */
             avg_input_tokens: number;
             /** Avg Output Tokens */
             avg_output_tokens: number;
+            /** Avg Tool Calls Per Request Json */
+            avg_tool_calls_per_request_json?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Cache Hit Rate
+             * @default 0
+             */
+            cache_hit_rate: number;
+            /** Capability Id */
+            capability_id: string;
+            /**
+             * Infra Monthly Spend Usd
+             * @default 0
+             */
+            infra_monthly_spend_usd: number;
             /** Model Mix Json */
             model_mix_json?: {
                 [key: string]: unknown;
@@ -1321,40 +1333,42 @@ export interface components {
             provider_rate_overrides_json?: {
                 [key: string]: unknown;
             };
-            /** Avg Tool Calls Per Request Json */
-            avg_tool_calls_per_request_json?: {
-                [key: string]: unknown;
-            };
-            /** Tool Unit Price Overrides Json */
-            tool_unit_price_overrides_json?: {
-                [key: string]: unknown;
-            };
-            /**
-             * Infra Monthly Spend Usd
-             * @default 0
-             */
-            infra_monthly_spend_usd: number;
+            /** Requests Per Period */
+            requests_per_period: number;
             /**
              * Retry Rate
              * @default 0
              */
             retry_rate: number;
-            /**
-             * Cache Hit Rate
-             * @default 0
-             */
-            cache_hit_rate: number;
+            /** Tool Unit Price Overrides Json */
+            tool_unit_price_overrides_json?: {
+                [key: string]: unknown;
+            };
         };
         /** CostProfileOut */
         CostProfileOut: {
-            /** Capability Id */
-            capability_id: string;
-            /** Requests Per Period */
-            requests_per_period: number;
             /** Avg Input Tokens */
             avg_input_tokens: number;
             /** Avg Output Tokens */
             avg_output_tokens: number;
+            /** Avg Tool Calls Per Request Json */
+            avg_tool_calls_per_request_json?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Cache Hit Rate
+             * @default 0
+             */
+            cache_hit_rate: number;
+            /** Capability Id */
+            capability_id: string;
+            /** Id */
+            id: number;
+            /**
+             * Infra Monthly Spend Usd
+             * @default 0
+             */
+            infra_monthly_spend_usd: number;
             /** Model Mix Json */
             model_mix_json?: {
                 [key: string]: unknown;
@@ -1363,38 +1377,24 @@ export interface components {
             provider_rate_overrides_json?: {
                 [key: string]: unknown;
             };
-            /** Avg Tool Calls Per Request Json */
-            avg_tool_calls_per_request_json?: {
-                [key: string]: unknown;
-            };
-            /** Tool Unit Price Overrides Json */
-            tool_unit_price_overrides_json?: {
-                [key: string]: unknown;
-            };
-            /**
-             * Infra Monthly Spend Usd
-             * @default 0
-             */
-            infra_monthly_spend_usd: number;
+            /** Requests Per Period */
+            requests_per_period: number;
             /**
              * Retry Rate
              * @default 0
              */
             retry_rate: number;
-            /**
-             * Cache Hit Rate
-             * @default 0
-             */
-            cache_hit_rate: number;
-            /** Id */
-            id: number;
+            /** Tool Unit Price Overrides Json */
+            tool_unit_price_overrides_json?: {
+                [key: string]: unknown;
+            };
         };
         /** DataQualityMix */
         DataQualityMix: {
-            /** Measured */
-            measured: number;
             /** Inferred */
             inferred: number;
+            /** Measured */
+            measured: number;
             /** Mixed */
             mixed: number;
         };
@@ -1408,105 +1408,110 @@ export interface components {
         };
         /** DeploymentCreate */
         DeploymentCreate: {
-            /** Tenant Id */
-            tenant_id?: string | null;
-            /** Capability Id */
-            capability_id: string;
             /** Active Impl Ids */
             active_impl_ids?: string[];
-            /** Weights Json */
-            weights_json?: {
-                [key: string]: number;
-            };
+            /** Capability Id */
+            capability_id: string;
             /**
              * Routing Mode
              * @default STATIC
              * @enum {string}
              */
             routing_mode: "STATIC" | "AB" | "SHADOW";
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Weights Json */
+            weights_json?: {
+                [key: string]: number;
+            };
         };
         /** DeploymentOut */
         DeploymentOut: {
-            /** Id */
-            id: number;
-            /** Tenant Id */
-            tenant_id: string;
-            /** Capability Id */
-            capability_id: string;
             /** Active Impl Ids */
             active_impl_ids: string[];
-            /** Weights Json */
-            weights_json: {
-                [key: string]: number;
-            };
+            /** Capability Id */
+            capability_id: string;
+            /** Id */
+            id: number;
             /** Routing Mode */
             routing_mode: string;
+            /** Tenant Id */
+            tenant_id: string;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
+            /** Weights Json */
+            weights_json: {
+                [key: string]: number;
+            };
         };
         /** EnforcementActionCreate */
         EnforcementActionCreate: {
-            /** Capability Id */
-            capability_id: string;
             /**
              * Action Type
              * @enum {string}
              */
             action_type: "AdjustTrafficWeights" | "ApplyBudgetCap" | "TriggerInvestigation" | "EscalateAlert";
-            /** Reason */
-            reason: string;
-            /** Before Config */
-            before_config?: {
-                [key: string]: unknown;
-            };
             /** After Config */
             after_config?: {
                 [key: string]: unknown;
             };
+            /** Before Config */
+            before_config?: {
+                [key: string]: unknown;
+            };
+            /** Capability Id */
+            capability_id: string;
+            /** Reason */
+            reason: string;
         };
         /** EnforcementActionOut */
         EnforcementActionOut: {
-            /** Id */
-            id: number;
-            /** Capability Id */
-            capability_id: string;
             /**
              * Action Type
              * @enum {string}
              */
             action_type: "AdjustTrafficWeights" | "ApplyBudgetCap" | "TriggerInvestigation" | "EscalateAlert";
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "pending" | "approved" | "rejected";
-            /** Reason */
-            reason: string;
-            /** Before Config */
-            before_config: {
-                [key: string]: unknown;
-            };
             /** After Config */
             after_config: {
                 [key: string]: unknown;
             };
-            /** Approver Sub */
-            approver_sub: string | null;
             /** Approved At */
             approved_at: string | null;
+            /** Approver Sub */
+            approver_sub: string | null;
+            /** Before Config */
+            before_config: {
+                [key: string]: unknown;
+            };
+            /** Capability Id */
+            capability_id: string;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Id */
+            id: number;
+            /** Reason */
+            reason: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected";
         };
         /** EvaluationRunRequest */
         EvaluationRunRequest: {
             /** Capability Id */
             capability_id: string;
+            /**
+             * Confidence Level
+             * @default 0.95
+             */
+            confidence_level: number;
             /** Implementation Id */
             implementation_id?: string | null;
             /**
@@ -1515,40 +1520,54 @@ export interface components {
              */
             mode: "AB_TEST" | "SHADOW" | "PROXY_MODEL";
             /**
-             * Period Start
-             * Format: date-time
-             */
-            period_start: string;
-            /**
              * Period End
              * Format: date-time
              */
             period_end: string;
             /**
-             * Confidence Level
-             * @default 0.95
+             * Period Start
+             * Format: date-time
              */
-            confidence_level: number;
+            period_start: string;
         };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {
-            /** Tenant Id */
-            tenant_id?: string | null;
+            /** Capability Id */
+            capability_id: string;
+            /**
+             * Compute Cost Usd
+             * @default 0
+             */
+            compute_cost_usd: number | string;
+            /**
+             * Compute Time Ms
+             * @default 0
+             */
+            compute_time_ms: number;
             /** Execution Id */
             execution_id: string;
+            /** Implementation Id */
+            implementation_id: string;
             /** Join Key */
             join_key?: string | null;
+            /**
+             * Latency Ms
+             * @default 0
+             */
+            latency_ms: number;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Model Version */
+            model_version: string;
+            /** Tenant Id */
+            tenant_id?: string | null;
             /**
              * Timestamp
              * Format: date-time
              */
             timestamp: string;
-            /** Capability Id */
-            capability_id: string;
-            /** Implementation Id */
-            implementation_id: string;
-            /** Model Version */
-            model_version: string;
             /**
              * Token Cost Usd
              * @default 0
@@ -1559,120 +1578,101 @@ export interface components {
              * @default 0
              */
             tool_cost_usd: number | string;
-            /**
-             * Compute Cost Usd
-             * @default 0
-             */
-            compute_cost_usd: number | string;
-            /**
-             * Latency Ms
-             * @default 0
-             */
-            latency_ms: number;
-            /**
-             * Compute Time Ms
-             * @default 0
-             */
-            compute_time_ms: number;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
         };
         /** ExperimentCreate */
         ExperimentCreate: {
-            /** Tenant Id */
-            tenant_id?: string | null;
-            /** Capability Id */
-            capability_id: string;
-            /**
-             * Mode
-             * @enum {string}
-             */
-            mode: "AB" | "SHADOW";
-            /** Impl A Id */
-            impl_a_id: string;
-            /** Impl B Id */
-            impl_b_id: string;
-            /**
-             * Start At
-             * Format: date-time
-             */
-            start_at: string;
-            /** End At */
-            end_at?: string | null;
-            /**
-             * Target Pct
-             * @default 50
-             */
-            target_pct: number;
             /**
              * Assignment Key
              * @default request_id
              * @enum {string}
              */
             assignment_key: "request_id" | "user_id";
+            /** Capability Id */
+            capability_id: string;
+            /** Constraints Json */
+            constraints_json?: {
+                [key: string]: unknown;
+            };
+            /** End At */
+            end_at?: string | null;
+            /** Impl A Id */
+            impl_a_id: string;
+            /** Impl B Id */
+            impl_b_id: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "AB" | "SHADOW";
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
             /**
              * Status
              * @default ACTIVE
              * @enum {string}
              */
             status: "ACTIVE" | "PAUSED" | "COMPLETED";
-            /** Constraints Json */
-            constraints_json?: {
-                [key: string]: unknown;
-            };
+            /**
+             * Target Pct
+             * @default 50
+             */
+            target_pct: number;
+            /** Tenant Id */
+            tenant_id?: string | null;
         };
         /** ExperimentOut */
         ExperimentOut: {
-            /** Id */
-            id: number;
-            /** Tenant Id */
-            tenant_id: string;
+            /** Assignment Key */
+            assignment_key: string;
             /** Capability Id */
             capability_id: string;
-            /** Mode */
-            mode: string;
+            /** Constraints Json */
+            constraints_json: {
+                [key: string]: unknown;
+            };
+            /** End At */
+            end_at: string | null;
+            /** Id */
+            id: number;
             /** Impl A Id */
             impl_a_id: string;
             /** Impl B Id */
             impl_b_id: string;
+            /** Mode */
+            mode: string;
             /**
              * Start At
              * Format: date-time
              */
             start_at: string;
-            /** End At */
-            end_at: string | null;
-            /** Target Pct */
-            target_pct: number;
-            /** Assignment Key */
-            assignment_key: string;
             /** Status */
             status: string;
-            /** Constraints Json */
-            constraints_json: {
-                [key: string]: unknown;
-            };
+            /** Target Pct */
+            target_pct: number;
+            /** Tenant Id */
+            tenant_id: string;
         };
         /** GroundTruthCostIn */
         GroundTruthCostIn: {
-            /**
-             * Period Start
-             * Format: date-time
-             */
-            period_start: string;
+            /** Amount Usd */
+            amount_usd: number;
+            /** Capability Id */
+            capability_id: string;
+            /** Component */
+            component: string;
             /**
              * Period End
              * Format: date-time
              */
             period_end: string;
-            /** Capability Id */
-            capability_id: string;
-            /** Component */
-            component: string;
-            /** Amount Usd */
-            amount_usd: number;
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
         };
         /** GroundTruthImportRequest */
         GroundTruthImportRequest: {
@@ -1686,33 +1686,65 @@ export interface components {
         };
         /** ImplementationCompareRow */
         ImplementationCompareRow: {
-            /** Capability Id */
-            capability_id: string;
-            /** Implementation Id */
-            implementation_id: string;
             /** Arm */
             arm?: string | null;
-            /** Net Margin Usd */
-            net_margin_usd: number;
-            /** Confidence Low Usd */
-            confidence_low_usd: number;
-            /** Confidence High Usd */
-            confidence_high_usd: number;
+            /** Capability Id */
+            capability_id: string;
             /** Confidence Breakdown */
             confidence_breakdown?: {
                 [key: string]: unknown;
             };
+            /** Confidence High Usd */
+            confidence_high_usd: number;
+            /** Confidence Low Usd */
+            confidence_low_usd: number;
+            /** Implementation Id */
+            implementation_id: string;
+            /** Net Margin Usd */
+            net_margin_usd: number;
         };
         /** ImplementationCreate */
         ImplementationCreate: {
-            /** Id */
-            id: string;
-            /** Tenant Id */
-            tenant_id?: string | null;
             /** Capability Id */
             capability_id?: string | null;
+            /** Config Json */
+            config_json?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Id */
+            id: string;
+            /**
+             * Model Name
+             * @default
+             */
+            model_name: string;
+            /**
+             * Model Version
+             * @default
+             */
+            model_version: string;
+            /**
+             * Model Version Hash
+             * @default
+             */
+            model_version_hash: string;
             /** Name */
             name: string;
+            /**
+             * Pipeline Version Hash
+             * @default
+             */
+            pipeline_version_hash: string;
+            /**
+             * Prompt Version Hash
+             * @default
+             */
+            prompt_version_hash: string;
             /**
              * Provider
              * @default custom
@@ -1720,104 +1752,70 @@ export interface components {
              */
             provider: "openai" | "anthropic" | "custom";
             /**
-             * Model Name
-             * @default
-             */
-            model_name: string;
-            /**
-             * Model Version Hash
-             * @default
-             */
-            model_version_hash: string;
-            /**
-             * Prompt Version Hash
-             * @default
-             */
-            prompt_version_hash: string;
-            /**
-             * Pipeline Version Hash
-             * @default
-             */
-            pipeline_version_hash: string;
-            /** Config Json */
-            config_json?: {
-                [key: string]: unknown;
-            };
-            /**
              * Status
              * @default ACTIVE
              * @enum {string}
              */
             status: "ACTIVE" | "PAUSED" | "DEPRECATED";
-            /**
-             * Model Version
-             * @default
-             */
-            model_version: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at?: string;
+            /** Tenant Id */
+            tenant_id?: string | null;
         };
         /** ImplementationOut */
         ImplementationOut: {
-            /** Id */
-            id: string;
-            /** Tenant Id */
-            tenant_id: string;
             /** Capability Id */
             capability_id: string;
-            /** Name */
-            name: string;
-            /** Provider */
-            provider: string;
-            /** Model Name */
-            model_name: string;
-            /** Model Version Hash */
-            model_version_hash: string;
-            /** Prompt Version Hash */
-            prompt_version_hash: string;
-            /** Pipeline Version Hash */
-            pipeline_version_hash: string;
             /** Config Json */
             config_json: {
                 [key: string]: unknown;
             };
-            /** Status */
-            status: string;
-            /** Model Version */
-            model_version: string;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Id */
+            id: string;
+            /** Model Name */
+            model_name: string;
+            /** Model Version */
+            model_version: string;
+            /** Model Version Hash */
+            model_version_hash: string;
+            /** Name */
+            name: string;
+            /** Pipeline Version Hash */
+            pipeline_version_hash: string;
+            /** Prompt Version Hash */
+            prompt_version_hash: string;
+            /** Provider */
+            provider: string;
+            /** Status */
+            status: string;
+            /** Tenant Id */
+            tenant_id: string;
         };
         /** IngestResult */
         IngestResult: {
-            /** Status */
-            status: string;
             /** Execution Id */
             execution_id: string;
+            /** Status */
+            status: string;
         };
         /** KPIResponse */
         KPIResponse: {
-            /** Total Ai Spend Usd */
-            total_ai_spend_usd: number;
-            /** Total Ai Value Usd */
-            total_ai_value_usd: number;
+            /** Efficiency Index */
+            efficiency_index: number;
             /** Net Ai Margin Usd */
             net_ai_margin_usd: number;
             /** Portfolio Confidence Score */
             portfolio_confidence_score: number;
-            /** Efficiency Index */
-            efficiency_index: number;
+            /** Total Ai Spend Usd */
+            total_ai_spend_usd: number;
+            /** Total Ai Value Usd */
+            total_ai_value_usd: number;
         };
         /** LoginRequest */
         LoginRequest: {
-            /** Sub */
-            sub: string;
             /**
              * Email
              * Format: email
@@ -1825,6 +1823,8 @@ export interface components {
             email: string;
             /** Roles */
             roles: string[];
+            /** Sub */
+            sub: string;
         };
         /** OutcomeBatchIngestRequest */
         OutcomeBatchIngestRequest: {
@@ -1833,16 +1833,22 @@ export interface components {
         };
         /** OutcomeEventCreate */
         OutcomeEventCreate: {
-            /** Tenant Id */
-            tenant_id?: string | null;
-            /** Execution Id */
-            execution_id?: string | null;
-            /** Join Key */
-            join_key?: string | null;
             /** Capability Id */
             capability_id: string;
+            /** Execution Id */
+            execution_id?: string | null;
             /** Implementation Id */
             implementation_id?: string | null;
+            /** Join Key */
+            join_key?: string | null;
+            /** Occurred At */
+            occurred_at?: string | null;
+            /** Outcome Payload Json */
+            outcome_payload_json?: {
+                [key: string]: unknown;
+            };
+            /** Outcome Timestamp */
+            outcome_timestamp?: string | null;
             /**
              * Outcome Type
              * @enum {string}
@@ -1850,66 +1856,78 @@ export interface components {
             outcome_type: "conversion" | "fraud_flag" | "approval" | "custom" | "reopen_rate";
             /** Outcome Value */
             outcome_value?: number | boolean | string | null;
-            /** Outcome Payload Json */
-            outcome_payload_json?: {
-                [key: string]: unknown;
-            };
-            /** Occurred At */
-            occurred_at?: string | null;
-            /** Outcome Timestamp */
-            outcome_timestamp?: string | null;
             /**
              * Provenance
              * @default MEASURED
              * @enum {string}
              */
             provenance: "MEASURED" | "INFERRED" | "MIXED";
+            /** Tenant Id */
+            tenant_id?: string | null;
         };
         /** OutcomeQueryResponse */
         OutcomeQueryResponse: {
-            /** Id */
-            id: number;
-            /** Tenant Id */
-            tenant_id: string;
-            /** Join Key */
-            join_key: string;
             /** Capability Id */
             capability_id: string;
+            /** Id */
+            id: number;
             /** Implementation Id */
             implementation_id: string | null;
-            /** Outcome Type */
-            outcome_type: string;
-            /** Outcome Payload Json */
-            outcome_payload_json: {
-                [key: string]: unknown;
-            };
+            /** Join Key */
+            join_key: string;
             /**
              * Occurred At
              * Format: date-time
              */
             occurred_at: string;
+            /** Outcome Payload Json */
+            outcome_payload_json: {
+                [key: string]: unknown;
+            };
+            /** Outcome Type */
+            outcome_type: string;
             /** Provenance */
             provenance: string;
+            /** Tenant Id */
+            tenant_id: string;
         };
         /** PerformanceSummary */
         PerformanceSummary: {
-            /** Capabilities */
-            capabilities: number;
             /** Avg Aer */
             avg_aer: number;
-            /** Avg Risk Adjusted Return */
-            avg_risk_adjusted_return: number;
             /** Avg Operational Drag */
             avg_operational_drag: number;
+            /** Avg Risk Adjusted Return */
+            avg_risk_adjusted_return: number;
+            /** Capabilities */
+            capabilities: number;
         };
         /** PolicyActionOut */
         PolicyActionOut: {
-            /** Id */
-            id: number;
-            /** Tenant Id */
-            tenant_id: string;
+            /** Action Type */
+            action_type: string;
+            /** Applied At */
+            applied_at: string | null;
+            /** Approved At */
+            approved_at: string | null;
+            /** Approved By */
+            approved_by: string | null;
             /** Capability Id */
             capability_id: string;
+            /** Confidence State Json */
+            confidence_state_json: {
+                [key: string]: unknown;
+            };
+            /** Failure Reason */
+            failure_reason: string | null;
+            /** Id */
+            id: number;
+            /** Metrics Snapshot Id */
+            metrics_snapshot_id: number | null;
+            /** Payload Json */
+            payload_json: {
+                [key: string]: unknown;
+            };
             /**
              * Proposed At
              * Format: date-time
@@ -1917,60 +1935,38 @@ export interface components {
             proposed_at: string;
             /** Proposed By */
             proposed_by: string;
-            /** Action Type */
-            action_type: string;
-            /** Payload Json */
-            payload_json: {
-                [key: string]: unknown;
-            };
-            /** Metrics Snapshot Id */
-            metrics_snapshot_id: number | null;
-            /** Confidence State Json */
-            confidence_state_json: {
-                [key: string]: unknown;
-            };
             /**
              * Status
              * @enum {string}
              */
             status: "PROPOSED" | "APPROVED" | "REJECTED" | "APPLIED" | "FAILED";
-            /** Approved By */
-            approved_by: string | null;
-            /** Approved At */
-            approved_at: string | null;
-            /** Applied At */
-            applied_at: string | null;
-            /** Failure Reason */
-            failure_reason: string | null;
+            /** Tenant Id */
+            tenant_id: string;
         };
         /** PolicyTimelineRow */
         PolicyTimelineRow: {
-            /** Id */
-            id: number;
-            /** Capability Id */
-            capability_id: string;
             /** Action Type */
             action_type: string;
-            /** Status */
-            status: string;
-            /** Proposed At */
-            proposed_at: string;
-            /** Approved At */
-            approved_at?: string | null;
             /** Applied At */
             applied_at?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Capability Id */
+            capability_id: string;
+            /** Id */
+            id: number;
+            /** Proposed At */
+            proposed_at: string;
+            /** Status */
+            status: string;
         };
         /** PricingCatalogCreate */
         PricingCatalogCreate: {
-            /** Provider */
-            provider: string;
-            /** Model */
-            model: string;
             /**
-             * Region
-             * @default global
+             * Cpu Hour Usd
+             * @default 0
              */
-            region: string;
+            cpu_hour_usd: number;
             /**
              * Effective From
              * Format: date-time
@@ -1979,35 +1975,39 @@ export interface components {
             /** Effective To */
             effective_to?: string | null;
             /**
-             * Input Per Million Usd
+             * Energy Kwh Usd
              * @default 0
              */
-            input_per_million_usd: number;
-            /**
-             * Output Per Million Usd
-             * @default 0
-             */
-            output_per_million_usd: number;
+            energy_kwh_usd: number;
             /**
              * Gpu Hour Usd
              * @default 0
              */
             gpu_hour_usd: number;
             /**
-             * Cpu Hour Usd
+             * Input Per Million Usd
              * @default 0
              */
-            cpu_hour_usd: number;
+            input_per_million_usd: number;
             /**
              * Memory Gb Hour Usd
              * @default 0
              */
             memory_gb_hour_usd: number;
+            /** Model */
+            model: string;
             /**
-             * Energy Kwh Usd
+             * Output Per Million Usd
              * @default 0
              */
-            energy_kwh_usd: number;
+            output_per_million_usd: number;
+            /** Provider */
+            provider: string;
+            /**
+             * Region
+             * @default global
+             */
+            region: string;
         };
         /** RetryOutboxResponse */
         RetryOutboxResponse: {
@@ -2043,41 +2043,44 @@ export interface components {
         };
         /** UserClaims */
         UserClaims: {
-            /** Sub */
-            sub: string;
             /**
              * Email
              * Format: email
              */
             email: string;
-            /** Roles */
-            roles: string[];
             /** Exp */
             exp: number;
             /** Iss */
             iss: string;
+            /** Roles */
+            roles: string[];
+            /** Sub */
+            sub: string;
         };
         /** ValidationError */
         ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
         /** ValuationConfig */
         ValuationConfig: {
             /**
-             * Valuation Method
-             * @default PROXY
+             * Baseline Source
+             * @default historical
              * @enum {string}
              */
-            valuation_method: "PROXY" | "AB" | "SHADOW" | "HYBRID";
+            baseline_source: "control_arm" | "historical" | "external";
+            confidence_gate?: components["schemas"]["ConfidenceGateConfig"] | null;
+            /** Cost Profile Id */
+            cost_profile_id?: number | null;
             /**
              * Proxy Formula Id
              * @default default_proxy
@@ -2088,53 +2091,30 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
-             * Baseline Source
-             * @default historical
+             * Valuation Method
+             * @default PROXY
              * @enum {string}
              */
-            baseline_source: "control_arm" | "historical" | "external";
-            confidence_gate?: components["schemas"]["ConfidenceGateConfig"] | null;
-            /** Cost Profile Id */
-            cost_profile_id?: number | null;
+            valuation_method: "PROXY" | "AB" | "SHADOW" | "HYBRID";
         };
         /** ValueEstimateOut */
         ValueEstimateOut: {
             /** Capability Id */
             capability_id: string;
-            /** Implementation Id */
-            implementation_id?: string | null;
-            /**
-             * Period Start
-             * Format: date-time
-             */
-            period_start: string;
-            /**
-             * Period End
-             * Format: date-time
-             */
-            period_end: string;
-            /** Estimated Value Usd */
-            estimated_value_usd: number;
-            /** Estimated Cost Usd */
-            estimated_cost_usd: number;
-            /** Net Margin Usd */
-            net_margin_usd: number;
-            /** Credible Interval Low Usd */
-            credible_interval_low_usd: number;
-            /** Credible Interval High Usd */
-            credible_interval_high_usd: number;
-            /** Confidence Level */
-            confidence_level: number;
-            /** Relative Interval Width */
-            relative_interval_width: number;
+            /** Confidence Breakdown */
+            confidence_breakdown?: {
+                [key: string]: unknown;
+            };
             /** Confidence Gate Passed */
             confidence_gate_passed: boolean;
-            /** Estimation Method Version */
-            estimation_method_version: string;
+            /** Confidence Level */
+            confidence_level: number;
             /** Cost Data Quality */
             cost_data_quality: string;
-            /** Value Data Quality */
-            value_data_quality: string;
+            /** Credible Interval High Usd */
+            credible_interval_high_usd: number;
+            /** Credible Interval Low Usd */
+            credible_interval_low_usd: number;
             /** Drift Score */
             drift_score: number;
             /**
@@ -2142,16 +2122,36 @@ export interface components {
              * @enum {string}
              */
             drift_state: "stable" | "warning" | "critical";
+            /** Estimated Cost Usd */
+            estimated_cost_usd: number;
+            /** Estimated Value Usd */
+            estimated_value_usd: number;
+            /** Estimation Method Version */
+            estimation_method_version: string;
+            /** Implementation Id */
+            implementation_id?: string | null;
             /** Interval Method */
             interval_method: string;
-            /** Confidence Breakdown */
-            confidence_breakdown?: {
-                [key: string]: unknown;
-            };
             /** Method Metadata */
             method_metadata?: {
                 [key: string]: unknown;
             };
+            /** Net Margin Usd */
+            net_margin_usd: number;
+            /**
+             * Period End
+             * Format: date-time
+             */
+            period_end: string;
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
+            /** Relative Interval Width */
+            relative_interval_width: number;
+            /** Value Data Quality */
+            value_data_quality: string;
         };
     };
     responses: never;
@@ -2162,6 +2162,68 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    metrics_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    me_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserClaims"];
+                };
+            };
+        };
+    };
     token_v1_auth_token_post: {
         parameters: {
             query?: never;
@@ -2195,7 +2257,73 @@ export interface operations {
             };
         };
     };
-    me_v1_auth_me_get: {
+    budget_status_v1_budget_status_get: {
+        parameters: {
+            query: {
+                tenant_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_tenant_budget_v1_budget_tenants__tenant_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantBudgetUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_capabilities_v1_capabilities_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2210,7 +2338,1012 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserClaims"];
+                    "application/json": components["schemas"]["CapabilityOut"][];
+                };
+            };
+        };
+    };
+    post_capability_v1_capabilities_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapabilityCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_capability_detail_v1_capabilities__capability_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_implementation_v1_capabilities__capability_id__implementations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImplementationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImplementationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_connectors_v1_connectors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorStatusOut"][];
+                };
+            };
+        };
+    };
+    get_outbox_v1_connectors_outbox_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOutboxOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_outbox_v1_connectors_outbox__outbox_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                outbox_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryOutboxResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    configure_v1_connectors__connector_type__configure_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_v1_connectors__connector_type__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enable_v1_connectors__connector_type__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorConfigOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_latest_estimate_v1_costing_estimates__capability_id__latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostEstimateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_pricing_v1_costing_pricing_catalog_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PricingCatalogCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_profile_v1_costing_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostProfileCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_profile_v1_costing_profiles__profile_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_action_suppression_v1_dashboard_action_suppression_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendPoint"][];
+                };
+            };
+        };
+    };
+    get_calibration_trend_v1_dashboard_calibration_trend_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendPoint"][];
+                };
+            };
+        };
+    };
+    get_capability_ranking_v1_dashboard_capability_ranking_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityRankingRow"][];
+                };
+            };
+        };
+    };
+    get_destroyers_v1_dashboard_capital_destroyers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityValueRow"][];
+                };
+            };
+        };
+    };
+    get_conf_gate_status_v1_dashboard_confidence_gate_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfidenceGateStatus"];
+                };
+            };
+        };
+    };
+    get_conf_trend_v1_dashboard_confidence_trend_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendPoint"][];
+                };
+            };
+        };
+    };
+    get_data_quality_mix_v1_dashboard_data_quality_mix_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataQualityMix"];
+                };
+            };
+        };
+    };
+    get_drift_timeline_v1_dashboard_drift_timeline__capability_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendPoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_eff_trend_v1_dashboard_efficiency_trend_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendPoint"][];
+                };
+            };
+        };
+    };
+    get_estimated_vs_ground_truth_v1_dashboard_estimated_vs_ground_truth_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    get_implementation_compare_v1_dashboard_implementation_compare__capability_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImplementationCompareRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_kpis_v1_dashboard_kpis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KPIResponse"];
+                };
+            };
+        };
+    };
+    get_policy_timeline_v1_dashboard_policy_timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyTimelineRow"][];
+                };
+            };
+        };
+    };
+    get_top_creators_v1_dashboard_top_creators_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityValueRow"][];
+                };
+            };
+        };
+    };
+    list_all_v1_enforcement_actions_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnforcementActionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_v1_enforcement_actions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnforcementActionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnforcementActionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_v1_enforcement_actions__action_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnforcementActionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_v1_enforcement_actions__action_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnforcementActionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_policies_v1_enforcement_policy_actions_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyActionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_v1_evaluations_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueEstimateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_async_v1_evaluations_run_async_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIMessage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    history_v1_evaluations__capability_id__history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueEstimateOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latest_v1_evaluations__capability_id__latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueEstimateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2277,6 +3410,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    metrics_v1_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
@@ -2349,7 +3502,7 @@ export interface operations {
             };
         };
     };
-    get_capabilities_v1_capabilities_get: {
+    capabilities_v1_performance_capabilities_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2364,86 +3517,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CapabilityOut"][];
+                    "application/json": components["schemas"]["CapabilityPerformance"][];
                 };
             };
         };
     };
-    post_capability_v1_capabilities_post: {
+    summary_v1_performance_summary_get: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CapabilityCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CapabilityOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    post_implementation_v1_capabilities__capability_id__implementations_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImplementationCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImplementationOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_capability_detail_v1_capabilities__capability_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2454,7 +3537,53 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CapabilityDetail"];
+                    "application/json": components["schemas"]["PerformanceSummary"];
+                };
+            };
+        };
+    };
+    calibration_summary_v1_reconciliation_calibration_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationSummary"][];
+                };
+            };
+        };
+    };
+    import_ground_truth_v1_reconciliation_ground_truth_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroundTruthImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -2539,70 +3668,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CapabilityDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    post_registry_implementation_v1_registry_implementations_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImplementationCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImplementationOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_registry_implementation_v1_registry_implementations__implementation_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                implementation_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImplementationOut"];
                 };
             };
             /** @description Validation Error */
@@ -2744,7 +3809,7 @@ export interface operations {
             };
         };
     };
-    run_v1_evaluations_run_post: {
+    post_registry_implementation_v1_registry_implementations_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2753,7 +3818,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EvaluationRunRequest"];
+                "application/json": components["schemas"]["ImplementationCreate"];
             };
         };
         responses: {
@@ -2763,7 +3828,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValueEstimateOut"];
+                    "application/json": components["schemas"]["ImplementationOut"];
                 };
             };
             /** @description Validation Error */
@@ -2777,45 +3842,12 @@ export interface operations {
             };
         };
     };
-    run_async_v1_evaluations_run_async_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EvaluationRunRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIMessage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    latest_v1_evaluations__capability_id__latest_get: {
+    get_registry_implementation_v1_registry_implementations__implementation_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                capability_id: string;
+                implementation_id: string;
             };
             cookie?: never;
         };
@@ -2827,7 +3859,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValueEstimateOut"];
+                    "application/json": components["schemas"]["ImplementationOut"];
                 };
             };
             /** @description Validation Error */
@@ -2837,1038 +3869,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    history_v1_evaluations__capability_id__history_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValueEstimateOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    post_profile_v1_costing_profiles_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CostProfileCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CostProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_profile_v1_costing_profiles__profile_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                profile_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CostProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    post_pricing_v1_costing_pricing_catalog_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PricingCatalogCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: number;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_latest_estimate_v1_costing_estimates__capability_id__latest_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CostEstimateOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    capabilities_v1_performance_capabilities_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CapabilityPerformance"][];
-                };
-            };
-        };
-    };
-    summary_v1_performance_summary_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PerformanceSummary"];
-                };
-            };
-        };
-    };
-    list_all_v1_enforcement_actions_get: {
-        parameters: {
-            query?: {
-                status?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnforcementActionOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_v1_enforcement_actions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EnforcementActionCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnforcementActionOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_policies_v1_enforcement_policy_actions_get: {
-        parameters: {
-            query?: {
-                status?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PolicyActionOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    approve_v1_enforcement_actions__action_id__approve_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                action_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DecisionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnforcementActionOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reject_v1_enforcement_actions__action_id__reject_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                action_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DecisionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnforcementActionOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    budget_status_v1_budget_status_get: {
-        parameters: {
-            query: {
-                tenant_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BudgetStatusOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_tenant_budget_v1_budget_tenants__tenant_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TenantBudgetUpsert"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BudgetStatusOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_kpis_v1_dashboard_kpis_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KPIResponse"];
-                };
-            };
-        };
-    };
-    get_top_creators_v1_dashboard_top_creators_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CapabilityValueRow"][];
-                };
-            };
-        };
-    };
-    get_destroyers_v1_dashboard_capital_destroyers_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CapabilityValueRow"][];
-                };
-            };
-        };
-    };
-    get_capability_ranking_v1_dashboard_capability_ranking_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CapabilityRankingRow"][];
-                };
-            };
-        };
-    };
-    get_implementation_compare_v1_dashboard_implementation_compare__capability_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImplementationCompareRow"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_policy_timeline_v1_dashboard_policy_timeline_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PolicyTimelineRow"][];
-                };
-            };
-        };
-    };
-    get_drift_timeline_v1_dashboard_drift_timeline__capability_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrendPoint"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_conf_trend_v1_dashboard_confidence_trend_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrendPoint"][];
-                };
-            };
-        };
-    };
-    get_eff_trend_v1_dashboard_efficiency_trend_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrendPoint"][];
-                };
-            };
-        };
-    };
-    get_estimated_vs_ground_truth_v1_dashboard_estimated_vs_ground_truth_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
-                };
-            };
-        };
-    };
-    get_conf_gate_status_v1_dashboard_confidence_gate_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfidenceGateStatus"];
-                };
-            };
-        };
-    };
-    get_data_quality_mix_v1_dashboard_data_quality_mix_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DataQualityMix"];
-                };
-            };
-        };
-    };
-    get_calibration_trend_v1_dashboard_calibration_trend_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrendPoint"][];
-                };
-            };
-        };
-    };
-    get_action_suppression_v1_dashboard_action_suppression_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrendPoint"][];
-                };
-            };
-        };
-    };
-    import_ground_truth_v1_reconciliation_ground_truth_import_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GroundTruthImportRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: number;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    calibration_summary_v1_reconciliation_calibration_summary_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CalibrationSummary"][];
-                };
-            };
-        };
-    };
-    get_connectors_v1_connectors_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorStatusOut"][];
-                };
-            };
-        };
-    };
-    configure_v1_connectors__connector_type__configure_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connector_type: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConnectorConfigRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorConfigOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    enable_v1_connectors__connector_type__enable_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connector_type: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorConfigOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    disable_v1_connectors__connector_type__disable_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connector_type: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorConfigOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_outbox_v1_connectors_outbox_get: {
-        parameters: {
-            query?: {
-                status?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorOutboxOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    retry_outbox_v1_connectors_outbox__outbox_id__retry_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                outbox_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RetryOutboxResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    metrics_v1_metrics_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    health_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
-            };
-        };
-    };
-    metrics_metrics_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
                 };
             };
         };

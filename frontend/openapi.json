@@ -1023,6 +1023,12 @@
             "title": "Attestation Digest",
             "type": "string"
           },
+          "attestation_payload_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Attestation Payload Version",
+            "type": "integer"
+          },
           "attestation_signature": {
             "anyOf": [
               {
@@ -1060,6 +1066,11 @@
           "deployment_version": {
             "title": "Deployment Version",
             "type": "integer"
+          },
+          "engine_mode": {
+            "default": "legacy",
+            "title": "Engine Mode",
+            "type": "string"
           },
           "entry_input_contract_ref": {
             "anyOf": [
@@ -1165,6 +1176,15 @@
         ],
         "title": "DeploymentCostResponse",
         "type": "object"
+      },
+      "DeploymentEngineMode": {
+        "description": "Immutable execution engine selected when a deployment is published.",
+        "enum": [
+          "legacy",
+          "token"
+        ],
+        "title": "DeploymentEngineMode",
+        "type": "string"
       },
       "DeploymentEvidenceResponse": {
         "additionalProperties": false,
@@ -1304,6 +1324,11 @@
         "additionalProperties": false,
         "description": "Public metadata for one deployed version.",
         "properties": {
+          "attestation_payload_version": {
+            "minimum": 1.0,
+            "title": "Attestation Payload Version",
+            "type": "integer"
+          },
           "attestation_ref": {
             "anyOf": [
               {
@@ -1343,6 +1368,9 @@
           "deployment_version": {
             "title": "Deployment Version",
             "type": "integer"
+          },
+          "engine_mode": {
+            "$ref": "#/components/schemas/DeploymentEngineMode"
           },
           "entry_input_contract_ref": {
             "anyOf": [
@@ -1437,6 +1465,8 @@
           "graph_id",
           "graph_version",
           "graph_version_ref",
+          "engine_mode",
+          "attestation_payload_version",
           "status",
           "created_at",
           "updated_at"
@@ -3446,7 +3476,8 @@
         "enum": [
           "operator",
           "reviewer",
-          "admin"
+          "admin",
+          "platform_admin"
         ],
         "title": "ServiceRole",
         "type": "string"
@@ -6677,6 +6708,519 @@
           }
         },
         "summary": "Attach Quality Verdict",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/costing/estimates/{capability_id}/latest": {
+      "get": {
+        "operationId": "regulus_costing_estimate_v1_econ_regulus_costing_estimates__capability_id__latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Costing Estimate",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/costing/profiles/{profile_id}": {
+      "get": {
+        "operationId": "regulus_costing_profile_v1_econ_regulus_costing_profiles__profile_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Costing Profile",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/action-suppression": {
+      "get": {
+        "operationId": "regulus_dashboard_action_suppression_v1_econ_regulus_dashboard_action_suppression_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Action Suppression",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/calibration-trend": {
+      "get": {
+        "operationId": "regulus_dashboard_calibration_trend_v1_econ_regulus_dashboard_calibration_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Calibration Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/capability-ranking": {
+      "get": {
+        "operationId": "regulus_dashboard_capability_ranking_v1_econ_regulus_dashboard_capability_ranking_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Capability Ranking",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/capital-destroyers": {
+      "get": {
+        "operationId": "regulus_dashboard_capital_destroyers_v1_econ_regulus_dashboard_capital_destroyers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Capital Destroyers",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/confidence-gate-status": {
+      "get": {
+        "operationId": "regulus_dashboard_confidence_gate_v1_econ_regulus_dashboard_confidence_gate_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Confidence Gate",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/confidence-trend": {
+      "get": {
+        "operationId": "regulus_dashboard_confidence_trend_v1_econ_regulus_dashboard_confidence_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Confidence Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/data-quality-mix": {
+      "get": {
+        "operationId": "regulus_dashboard_data_quality_v1_econ_regulus_dashboard_data_quality_mix_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Data Quality",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}": {
+      "get": {
+        "operationId": "regulus_dashboard_drift_timeline_v1_econ_regulus_dashboard_drift_timeline__capability_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Drift Timeline",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/efficiency-trend": {
+      "get": {
+        "operationId": "regulus_dashboard_efficiency_trend_v1_econ_regulus_dashboard_efficiency_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Efficiency Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}": {
+      "get": {
+        "operationId": "regulus_dashboard_implementation_compare_v1_econ_regulus_dashboard_implementation_compare__capability_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Implementation Compare",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/kpis": {
+      "get": {
+        "operationId": "regulus_dashboard_kpis_v1_econ_regulus_dashboard_kpis_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Kpis",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/policy-timeline": {
+      "get": {
+        "operationId": "regulus_dashboard_policy_timeline_v1_econ_regulus_dashboard_policy_timeline_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Policy Timeline",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/top-creators": {
+      "get": {
+        "operationId": "regulus_dashboard_top_creators_v1_econ_regulus_dashboard_top_creators_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Top Creators",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/enforcement/actions": {
+      "get": {
+        "operationId": "regulus_enforcement_actions_v1_econ_regulus_enforcement_actions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Enforcement Actions",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/enforcement/actions/{action_id}/approve": {
+      "post": {
+        "operationId": "regulus_enforcement_approve_v1_econ_regulus_enforcement_actions__action_id__approve_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Enforcement Approve",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/enforcement/actions/{action_id}/reject": {
+      "post": {
+        "operationId": "regulus_enforcement_reject_v1_econ_regulus_enforcement_actions__action_id__reject_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Enforcement Reject",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/enforcement/policy-actions": {
+      "get": {
+        "operationId": "regulus_enforcement_policy_actions_v1_econ_regulus_enforcement_policy_actions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Enforcement Policy Actions",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/evaluations/{capability_id}/history": {
+      "get": {
+        "operationId": "regulus_evaluations_history_v1_econ_regulus_evaluations__capability_id__history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Evaluations History",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/evaluations/{capability_id}/latest": {
+      "get": {
+        "operationId": "regulus_evaluations_latest_v1_econ_regulus_evaluations__capability_id__latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Evaluations Latest",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/performance/capabilities": {
+      "get": {
+        "operationId": "regulus_performance_capabilities_v1_econ_regulus_performance_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Performance Capabilities",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/performance/summary": {
+      "get": {
+        "operationId": "regulus_performance_summary_v1_econ_regulus_performance_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Performance Summary",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/reconciliation/calibration-summary": {
+      "get": {
+        "operationId": "regulus_reconciliation_calibration_v1_econ_regulus_reconciliation_calibration_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Reconciliation Calibration",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/registry/capabilities": {
+      "get": {
+        "operationId": "regulus_registry_capabilities_v1_econ_regulus_registry_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Registry Capabilities",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/registry/capabilities/{capability_id}": {
+      "get": {
+        "operationId": "regulus_registry_capability_v1_econ_regulus_registry_capabilities__capability_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Registry Capability",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/registry/implementations/{implementation_id}": {
+      "get": {
+        "operationId": "regulus_registry_implementation_v1_econ_regulus_registry_implementations__implementation_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Registry Implementation",
         "tags": [
           "v1"
         ]
