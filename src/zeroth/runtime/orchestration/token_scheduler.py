@@ -47,6 +47,15 @@ class TokenSchedulerTransitionError(ValueError):
     """A command cannot be applied to the supplied durable scheduler state."""
 
 
+class TokenPostCommitError(RuntimeError):
+    """A snapshot committed successfully but its post-commit handoff failed."""
+
+    def __init__(self, committed_snapshot: TokenEngineSnapshot, cause: Exception) -> None:
+        self.committed_snapshot = committed_snapshot
+        self.cause = cause
+        super().__init__(f"post-commit effect failed: {cause}")
+
+
 class FanOutBranch(BaseModel):
     """One ordered child requested by an atomic fan-out transition."""
 
@@ -139,6 +148,8 @@ def initialize_token_snapshot(
 
 def claim_next_token(snapshot: TokenEngineSnapshot) -> DispatchClaim:
     """Atomically move the canonical queue head into an in-flight dispatch."""
+    if snapshot.cancellation_fence is not None and snapshot.cancellation_fence.generation > 0:
+        raise TokenSchedulerTransitionError("active cancellation prevents queue claims")
     if snapshot.state is not TokenEngineSnapshotState.RUNNING:
         raise TokenSchedulerTransitionError("tokens may be claimed only from a RUNNING snapshot")
     if not snapshot.queue:
@@ -222,6 +233,7 @@ def enqueue_dispatch(
         current_node_id=next_node_id,
         causal_inbound_edge_id=inbound_edge_id,
         payload=payload,
+        retry_attempt=0,
         scheduling_state=SchedulingState.QUEUED,
         state_revision=revision,
     )
@@ -245,7 +257,8 @@ def _settle_innermost_fork(
     if not token.fork_lineage:
         return snapshot.forks
     owner_id = token.fork_lineage[-1].fork_id
-    owner = next((fork for fork in snapshot.forks if fork.fork_id == owner_id), None)
+    forks_by_id = {fork.fork_id: fork for fork in snapshot.forks}
+    owner = forks_by_id.get(owner_id)
     if owner is None:
         raise TokenSchedulerTransitionError("dispatch token has a missing fork owner")
     obligations: list[ForkObligation] = []
@@ -272,7 +285,63 @@ def _settle_innermost_fork(
         closed_revision=None if outstanding else revision,
     )
     updated_owner = ForkInstance.model_validate(owner_data)
-    return tuple(updated_owner if fork.fork_id == owner_id else fork for fork in snapshot.forks)
+    forks_by_id[owner_id] = updated_owner
+
+    closed = updated_owner
+    while closed.lifecycle_state is ForkLifecycleState.CLOSED and closed.parent_fork_id is not None:
+        outcomes = {item.outcome for item in closed.obligations}
+        if ForkObligationOutcome.JOINED in outcomes:
+            # The join transition owns the continuation that will eventually
+            # settle the ancestor child. Collapsing it here would consume that
+            # lineage before the reducer continuation runs.
+            break
+        if ForkObligationOutcome.EXITED in outcomes:
+            # Exit deliveries are transferred by the owning loop/scope, where
+            # their edge-labelled payload collections remain durable.
+            break
+        if ForkObligationOutcome.FAILED in outcomes:
+            aggregate = ForkObligationOutcome.FAILED
+        elif ForkObligationOutcome.CANCELLED in outcomes:
+            aggregate = ForkObligationOutcome.CANCELLED
+        else:
+            aggregate = ForkObligationOutcome.SUPPRESSED
+
+        ancestor = forks_by_id.get(closed.parent_fork_id)
+        if ancestor is None:
+            raise TokenSchedulerTransitionError("closed fork has a missing ancestor owner")
+        ancestor_obligations: list[ForkObligation] = []
+        matched_ancestor_child = False
+        for obligation in ancestor.obligations:
+            if obligation.child_token_id != closed.parent_token_id:
+                ancestor_obligations.append(obligation)
+                continue
+            if obligation.outcome is not None:
+                raise TokenSchedulerTransitionError(
+                    "closed nested fork has an already-settled ancestor obligation"
+                )
+            matched_ancestor_child = True
+            obligation_data = _model_data(obligation)
+            obligation_data.update(outcome=aggregate, settled_revision=revision)
+            ancestor_obligations.append(ForkObligation.model_validate(obligation_data))
+        if not matched_ancestor_child:
+            raise TokenSchedulerTransitionError(
+                "closed nested fork has no matching ancestor obligation"
+            )
+        ancestor_outstanding = sum(item.outcome is None for item in ancestor_obligations)
+        ancestor_data = _model_data(ancestor)
+        ancestor_data.update(
+            obligations=tuple(ancestor_obligations),
+            outstanding_child_count=ancestor_outstanding,
+            lifecycle_state=(
+                ForkLifecycleState.OPEN if ancestor_outstanding else ForkLifecycleState.CLOSED
+            ),
+            updated_revision=revision,
+            closed_revision=None if ancestor_outstanding else revision,
+        )
+        closed = ForkInstance.model_validate(ancestor_data)
+        forks_by_id[closed.fork_id] = closed
+
+    return tuple(forks_by_id[fork.fork_id] for fork in snapshot.forks)
 
 
 def _update_iteration_ownership(
@@ -667,7 +736,10 @@ async def apply_token_transition(
             last_error = exc
             continue
         if after_commit is not None:
-            await after_commit(committed)
+            try:
+                await after_commit(committed)
+            except Exception as exc:
+                raise TokenPostCommitError(committed, exc) from exc
         return committed
     assert last_error is not None
     raise last_error
@@ -677,6 +749,7 @@ __all__ = [
     "DispatchClaim",
     "FanOutBranch",
     "PostCommitEffect",
+    "TokenPostCommitError",
     "TokenSchedulerTransitionError",
     "TokenTransition",
     "apply_token_transition",

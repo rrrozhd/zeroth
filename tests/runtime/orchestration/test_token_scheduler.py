@@ -33,7 +33,10 @@ from zeroth.contracts.graph import (
 from zeroth.runtime.orchestration import (
     DispatchClaim,
     FanOutBranch,
+    PostCommitEffect,
+    TokenPostCommitError,
     TokenSchedulerTransitionError,
+    TokenTransition,
     apply_token_transition,
     claim_next_token,
     complete_dispatch,
@@ -148,6 +151,31 @@ def test_ordinary_completion_requeues_same_token_at_successor() -> None:
     assert token.fork_lineage == claim.dispatch.token.fork_lineage
     assert token.iteration_memberships == claim.dispatch.token.iteration_memberships
     assert token.scheduling_state is SchedulingState.QUEUED
+
+
+def test_ordinary_completion_resets_retry_attempt_for_next_logical_execution() -> None:
+    first = _claim()
+    retried = retry_dispatch(
+        first.snapshot,
+        dispatch_id=first.dispatch.dispatch_id,
+        attempt=0,
+        cancellation_generation=0,
+    )
+    assert retried.dispatch.attempt == 1
+
+    queued = enqueue_dispatch(
+        retried.snapshot,
+        dispatch_id=retried.dispatch.dispatch_id,
+        attempt=1,
+        cancellation_generation=0,
+        next_node_id="successor",
+        inbound_edge_id="edge-successor",
+        payload={"done": True},
+    )
+    next_claim = claim_next_token(queued)
+
+    assert queued.tokens[0].retry_attempt == 0
+    assert next_claim.dispatch.attempt == 0
 
 
 @pytest.mark.parametrize("next_node_id", ["entry", "successor"])
@@ -426,6 +454,26 @@ def test_active_cancellation_fence_blocks_fanout() -> None:
         )
 
 
+def test_active_cancellation_fence_blocks_queue_claim() -> None:
+    root = _root()
+    token = root.tokens[0].model_copy(update={"cancellation_generation": 1})
+    fenced = root.model_copy(
+        update={
+            "revision": 1,
+            "queue": (token,),
+            "tokens": (token,),
+            "cancellation_fence": CancellationFence(
+                generation=1,
+                requested_revision=1,
+                state_revision=1,
+            ),
+        }
+    )
+
+    with pytest.raises(TokenSchedulerTransitionError, match="cancellation"):
+        claim_next_token(fenced)
+
+
 def test_failure_settlement_retires_dispatch_without_losing_envelope() -> None:
     claim = _claim(_root(payload="failure-payload"))
 
@@ -562,6 +610,82 @@ def test_settlement_updates_iteration_ownership_atomically(
     assert result.loops[0].live_child_token_ids == ()
 
 
+def _nested_fanout_claim(depth: int) -> DispatchClaim:
+    claim = _claim()
+    for level in range(depth):
+        snapshot = fan_out_dispatch(
+            claim.snapshot,
+            dispatch_id=claim.dispatch.dispatch_id,
+            attempt=claim.dispatch.attempt,
+            cancellation_generation=0,
+            branches=(
+                FanOutBranch(
+                    node_id=f"level-{level}",
+                    inbound_edge_id=f"edge-{level}",
+                    payload={"level": level},
+                ),
+            ),
+        )
+        claim = claim_next_token(snapshot)
+    return claim
+
+
+@pytest.mark.parametrize("depth", [2, 3])
+@pytest.mark.parametrize(
+    ("settler", "expected_outcome"),
+    [
+        (complete_dispatch, "suppressed"),
+        (fail_dispatch, "failed"),
+    ],
+)
+def test_nested_fork_terminal_outcome_closes_every_ancestor_without_deadlock(
+    depth: int,
+    settler: Callable[..., TokenEngineSnapshot],
+    expected_outcome: str,
+) -> None:
+    claim = _nested_fanout_claim(depth)
+
+    settled = settler(
+        claim.snapshot,
+        dispatch_id=claim.dispatch.dispatch_id,
+        attempt=0,
+        cancellation_generation=0,
+    )
+
+    assert settled.queue == ()
+    assert settled.in_flight_dispatches == ()
+    assert all(fork.lifecycle_state is ForkLifecycleState.CLOSED for fork in settled.forks)
+    assert all(fork.outstanding_child_count == 0 for fork in settled.forks)
+    assert all(
+        obligation.outcome is not None for fork in settled.forks for obligation in fork.obligations
+    )
+    assert settled.forks[0].obligations[0].outcome.value == expected_outcome
+
+
+def test_nested_fork_successful_requeue_then_terminal_settlement_closes_ancestors() -> None:
+    claim = _nested_fanout_claim(3)
+    queued = enqueue_dispatch(
+        claim.snapshot,
+        dispatch_id=claim.dispatch.dispatch_id,
+        attempt=0,
+        cancellation_generation=0,
+        next_node_id="final",
+        inbound_edge_id="edge-final",
+        payload={"success": True},
+    )
+    final_claim = claim_next_token(queued)
+
+    settled = complete_dispatch(
+        final_claim.snapshot,
+        dispatch_id=final_claim.dispatch.dispatch_id,
+        attempt=0,
+        cancellation_generation=0,
+    )
+
+    assert not any(fork.lifecycle_state is ForkLifecycleState.OPEN for fork in settled.forks)
+    assert settled.queue == settled.in_flight_dispatches == ()
+
+
 class _ContendedStore:
     def __init__(self, snapshot: TokenEngineSnapshot) -> None:
         self.snapshot = snapshot
@@ -620,11 +744,56 @@ def test_cas_coordinator_reloads_transition_but_runs_post_commit_effect_once() -
     assert side_effect_calls == 1
 
 
+def test_post_commit_failure_surfaces_committed_snapshot_without_replaying_cas() -> None:
+    store = _ContendedStore(_root())
+    store.cas_calls = 1  # the next CAS wins immediately
+    callback_calls = 0
+
+    def transition(snapshot: TokenEngineSnapshot | None) -> TokenEngineSnapshot:
+        assert snapshot is not None
+        return claim_next_token(snapshot).snapshot
+
+    async def failing_callback(snapshot: TokenEngineSnapshot) -> None:
+        nonlocal callback_calls
+        callback_calls += 1
+        assert snapshot.in_flight_dispatches
+        raise RuntimeError("dispatch handoff failed")
+
+    with pytest.raises(TokenPostCommitError, match="dispatch handoff failed") as caught:
+        asyncio.run(
+            apply_token_transition(
+                store,
+                "run-1",
+                transition,
+                after_commit=failing_callback,
+            )
+        )
+
+    assert caught.value.committed_snapshot == store.snapshot
+    assert callback_calls == 1
+    cas_calls_after_commit = store.cas_calls
+
+    def retain_committed(current: TokenEngineSnapshot | None) -> TokenEngineSnapshot:
+        assert current is not None
+        return current
+
+    recovered = asyncio.run(apply_token_transition(store, "run-1", retain_committed))
+    assert recovered == caught.value.committed_snapshot
+    assert store.cas_calls == cas_calls_after_commit
+
+
 def test_public_surface_is_lazy_static_and_cold_importable() -> None:
     repo_root = Path(__file__).parents[3]
     package_source = (repo_root / "src/zeroth/runtime/orchestration/__init__.py").read_text()
     assert "DispatchClaim as DispatchClaim" in package_source
+    assert "PostCommitEffect as PostCommitEffect" in package_source
+    assert "TokenTransition as TokenTransition" in package_source
     assert '"DispatchClaim": ("token_scheduler", "DispatchClaim")' in package_source
+    assert '"PostCommitEffect": ("token_scheduler", "PostCommitEffect")' in package_source
+    assert '"TokenTransition": ("token_scheduler", "TokenTransition")' in package_source
+
+    assert callable(TokenTransition)
+    assert callable(PostCommitEffect)
 
     statement = (
         "import sys; import zeroth.runtime.orchestration as package; "

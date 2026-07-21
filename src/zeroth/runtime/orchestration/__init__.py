@@ -36,7 +36,16 @@ if TYPE_CHECKING:
         FanOutBranch as FanOutBranch,
     )
     from zeroth.runtime.orchestration.token_scheduler import (
+        PostCommitEffect as PostCommitEffect,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        TokenPostCommitError as TokenPostCommitError,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
         TokenSchedulerTransitionError as TokenSchedulerTransitionError,
+    )
+    from zeroth.runtime.orchestration.token_scheduler import (
+        TokenTransition as TokenTransition,
     )
     from zeroth.runtime.orchestration.token_scheduler import (
         apply_token_transition as apply_token_transition,
@@ -97,6 +106,7 @@ _EXPORTS = {
     "RuntimeParallelExecutor": ("parallel_executor", "RuntimeParallelExecutor"),
     "RuntimePolicyGate": ("policy_gate", "RuntimePolicyGate"),
     "RuntimeToolExecutor": ("tool_executor", "RuntimeToolExecutor"),
+    "PostCommitEffect": ("token_scheduler", "PostCommitEffect"),
     "TokenSnapshotConcurrencyError": (
         "token_snapshot_store",
         "TokenSnapshotConcurrencyError",
@@ -118,6 +128,8 @@ _EXPORTS = {
         "token_scheduler",
         "TokenSchedulerTransitionError",
     ),
+    "TokenPostCommitError": ("token_scheduler", "TokenPostCommitError"),
+    "TokenTransition": ("token_scheduler", "TokenTransition"),
     "apply_token_transition": ("token_scheduler", "apply_token_transition"),
     "claim_next_token": ("token_scheduler", "claim_next_token"),
     "complete_dispatch": ("token_scheduler", "complete_dispatch"),
