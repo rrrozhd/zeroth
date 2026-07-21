@@ -16,9 +16,11 @@ from pydantic import JsonValue
 
 from zeroth.contracts.graph import Graph, HumanApprovalNode, SubgraphNode
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
+from zeroth.contracts.graph.tokens import DispatchLifecycleState
 from zeroth.core.runs import Run, RunStatus
 from zeroth.runtime.orchestration import token_scope as _ts
 from zeroth.runtime.orchestration.errors import OrchestratorError
+from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 from zeroth.runtime.orchestration.token_runtime_loops import TokenRuntimeLoopSupport
 from zeroth.runtime.orchestration.token_runtime_support import (
     TokenRuntimeSupport,
@@ -54,6 +56,20 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             snapshot = await self.store.get_token_snapshot(run.run_id)
             if snapshot is None:
                 raise OrchestratorError("token snapshot disappeared after initialization")
+            lifecycle_stop = await self._settle_cancellation_requests(run, snapshot)
+            if lifecycle_stop is not None:
+                return lifecycle_stop
+            if snapshot.state in {
+                TokenEngineSnapshotState.PAUSED,
+                TokenEngineSnapshotState.STOPPED,
+                TokenEngineSnapshotState.CANCELLED,
+            }:
+                stopped = await self.driver.external_stop(run)
+                if stopped is None:
+                    raise OrchestratorError(
+                        f"token snapshot is {snapshot.state.value} without a persisted run stop"
+                    )
+                return stopped
             if snapshot.state is TokenEngineSnapshotState.COMPLETED:
                 return await self._complete_run(run)
             if snapshot.in_flight_dispatches:
@@ -232,6 +248,10 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     run, node, node.node_id, input_payload, exc, started_at=node_started_at
                 )
                 return await self.driver.fail_run(run, "node_execution_failed", str(exc))
+
+        lifecycle_stop = await self._settle_cancellation_requests(run)
+        if lifecycle_stop is not None:
+            return lifecycle_stop
 
         await self.driver.audit_recorder.record_history(
             run,
@@ -451,6 +471,34 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         await self.driver.run_repository.write_checkpoint(run)
         await self.driver.refresh_artifact_ttls(run)
         return None
+
+    async def _settle_cancellation_requests(
+        self,
+        run: Run,
+        snapshot: TokenEngineSnapshot | None = None,
+    ) -> Run | None:
+        """Acknowledge durable cancellation fences before accepting completion."""
+        current = snapshot or await self.store.get_token_snapshot(run.run_id)
+        if current is None:
+            raise OrchestratorError("token snapshot disappeared during lifecycle settlement")
+        requested = tuple(
+            dispatch
+            for dispatch in current.in_flight_dispatches
+            if dispatch.lifecycle_state is DispatchLifecycleState.CANCELLATION_REQUESTED
+        )
+        if not requested:
+            return None
+        fence = current.cancellation_fence
+        if fence is None:
+            raise OrchestratorError("cancellation-requested dispatch has no durable fence")
+        lifecycle = TokenLifecycleAdapter(self.store)
+        for dispatch in requested:
+            await lifecycle.acknowledge(
+                run.run_id,
+                dispatch_id=dispatch.dispatch_id,
+                cancellation_generation=fence.generation,
+            )
+        return await self.driver.external_stop(run) or run
 
     async def _transition(self, base, transition):
         current = base
