@@ -34,6 +34,7 @@ class TokenEngineSnapshotState(StrEnum):
 
     RUNNING = "running"
     PAUSED = "paused"
+    STOPPING = "stopping"
     STOPPED = "stopped"
     COMPLETED = "completed"
     CANCELLED = "cancelled"

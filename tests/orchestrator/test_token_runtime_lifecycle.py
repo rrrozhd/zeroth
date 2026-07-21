@@ -78,3 +78,19 @@ async def test_reloaded_cancellation_request_settles_before_returning_failed_run
     assert store.snapshot.state is TokenEngineSnapshotState.CANCELLED
     assert store.snapshot.in_flight_dispatches == ()
     assert driver.stops == 1
+
+
+async def test_graceful_stop_finalizes_without_claiming_unowned_queue() -> None:
+    root = initialize_token_snapshot(run_id="run-stop", root_node_id="root", payload={})
+    stopping = root.model_copy(update={"state": TokenEngineSnapshotState.STOPPING})
+    store = _MemoryStore(stopping)
+    driver = _Driver()
+    coordinator = TokenRuntimeCoordinator(driver, store)
+
+    result = await coordinator.drive(object(), _run("run-stop", RunStatus.WAITING_INTERRUPT))
+
+    assert result.status is RunStatus.WAITING_INTERRUPT
+    assert store.snapshot.state is TokenEngineSnapshotState.STOPPED
+    assert store.snapshot.queue == root.queue
+    assert store.snapshot.in_flight_dispatches == ()
+    assert driver.stops == 1

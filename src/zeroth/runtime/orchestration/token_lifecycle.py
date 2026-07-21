@@ -79,14 +79,22 @@ def resume_snapshot(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
 
 
 def stop_snapshot(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
-    """Record an operator/worker stop without discarding replay state."""
+    """Prevent new top-level work and drain already-owned structured scopes."""
     if snapshot.state is TokenEngineSnapshotState.STOPPED:
         return snapshot
     if snapshot.state not in {
         TokenEngineSnapshotState.RUNNING,
         TokenEngineSnapshotState.PAUSED,
+        TokenEngineSnapshotState.STOPPING,
     }:
         raise TokenSchedulerTransitionError(f"cannot stop a {snapshot.state.value} token snapshot")
+    needs_drain = bool(snapshot.in_flight_dispatches) or any(
+        token.fork_lineage or token.iteration_memberships for token in snapshot.queue
+    )
+    if snapshot.state is not TokenEngineSnapshotState.PAUSED and needs_drain:
+        if snapshot.state is TokenEngineSnapshotState.STOPPING:
+            return snapshot
+        return _next(snapshot, state=TokenEngineSnapshotState.STOPPING)
     return _next(snapshot, state=TokenEngineSnapshotState.STOPPED)
 
 

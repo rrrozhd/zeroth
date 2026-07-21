@@ -24,7 +24,6 @@ from zeroth.runtime.orchestration.token_scheduler import (
     complete_dispatch,
     fan_out_dispatch,
     initialize_token_snapshot,
-    recover_dispatch,
 )
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 
@@ -71,20 +70,37 @@ def test_pause_and_resume_preserve_the_complete_snapshot() -> None:
 def test_graceful_stop_is_replayable_and_resume_recovers_it() -> None:
     snapshot, dispatch = _fork_with_one_executing_child()
 
-    stopped = stop_snapshot(snapshot)
-    replayed = TokenEngineSnapshot.model_validate_json(stopped.model_dump_json())
-    resumed = resume_snapshot(replayed)
+    stopping = stop_snapshot(snapshot)
+    replayed = TokenEngineSnapshot.model_validate_json(stopping.model_dump_json())
+    first_settled = complete_dispatch(
+        replayed,
+        dispatch_id=dispatch.dispatch_id,
+        attempt=dispatch.attempt,
+        cancellation_generation=dispatch.cancellation_generation,
+    )
+    second = claim_next_token(first_settled)
+    drained = complete_dispatch(
+        second.snapshot,
+        dispatch_id=second.dispatch.dispatch_id,
+        attempt=second.dispatch.attempt,
+        cancellation_generation=second.dispatch.cancellation_generation,
+    )
+    stopped = stop_snapshot(drained)
+    resumed = resume_snapshot(stopped)
+
+    assert stopping.state is TokenEngineSnapshotState.STOPPING
+    assert stopped.state is TokenEngineSnapshotState.STOPPED
+    assert stopped.in_flight_dispatches == ()
+    assert stopped.queue == ()
+    assert resumed.state is TokenEngineSnapshotState.RUNNING
+
+
+def test_graceful_stop_never_starts_unowned_top_level_work() -> None:
+    stopped = stop_snapshot(_root())
 
     assert stopped.state is TokenEngineSnapshotState.STOPPED
-    assert stopped.in_flight_dispatches == snapshot.in_flight_dispatches
-    assert stopped.queue == snapshot.queue
-    assert resumed.state is TokenEngineSnapshotState.RUNNING
-    assert resumed.in_flight_dispatches[0].dispatch_id == dispatch.dispatch_id
-
-    recovered = recover_dispatch(resumed, dispatch_id=dispatch.dispatch_id)
-    assert recovered.dispatch.attempt == dispatch.attempt + 1
-    assert recovered.dispatch.dispatch_id == dispatch.dispatch_id
-    assert recovered.dispatch.idempotency_key == dispatch.idempotency_key
+    with pytest.raises(TokenSchedulerTransitionError, match="RUNNING|structured"):
+        claim_next_token(stopped)
 
 
 def test_cancel_settles_queued_children_and_requests_executing_child_stop() -> None:

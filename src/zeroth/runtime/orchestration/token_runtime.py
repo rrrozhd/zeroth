@@ -75,8 +75,17 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 return await self._complete_run(run)
             if snapshot.in_flight_dispatches:
                 claim = await self._recover(snapshot)
-            elif snapshot.queue:
+            elif snapshot.queue and (
+                snapshot.state is TokenEngineSnapshotState.RUNNING
+                or any(
+                    token.fork_lineage or token.iteration_memberships
+                    for token in snapshot.queue
+                )
+            ):
                 claim = await self._claim(snapshot)
+            elif snapshot.state is TokenEngineSnapshotState.STOPPING:
+                await TokenLifecycleAdapter(self.store).stop(run.run_id)
+                continue
             else:
                 if any(token.settled_revision is None for token in snapshot.tokens):
                     raise OrchestratorError("token engine is non-terminal with an empty work queue")

@@ -150,12 +150,31 @@ def claim_next_token(snapshot: TokenEngineSnapshot) -> DispatchClaim:
     """Atomically move the canonical queue head into an in-flight dispatch."""
     if snapshot.cancellation_fence is not None and snapshot.cancellation_fence.generation > 0:
         raise TokenSchedulerTransitionError("active cancellation prevents queue claims")
-    if snapshot.state is not TokenEngineSnapshotState.RUNNING:
-        raise TokenSchedulerTransitionError("tokens may be claimed only from a RUNNING snapshot")
+    if snapshot.state not in {
+        TokenEngineSnapshotState.RUNNING,
+        TokenEngineSnapshotState.STOPPING,
+    }:
+        raise TokenSchedulerTransitionError(
+            "tokens may be claimed only from a RUNNING or structured-draining snapshot"
+        )
     if not snapshot.queue:
         raise TokenSchedulerTransitionError("no queued token is available to claim")
 
-    queued = snapshot.queue[0]
+    queue_index = 0
+    if snapshot.state is TokenEngineSnapshotState.STOPPING:
+        queue_index = next(
+            (
+                index
+                for index, token in enumerate(snapshot.queue)
+                if token.fork_lineage or token.iteration_memberships
+            ),
+            -1,
+        )
+        if queue_index < 0:
+            raise TokenSchedulerTransitionError(
+                "graceful stop permits only structured-owned queue claims"
+            )
+    queued = snapshot.queue[queue_index]
     revision = snapshot.revision + 1
     executing = _updated_token(
         queued,
@@ -174,7 +193,7 @@ def claim_next_token(snapshot: TokenEngineSnapshot) -> DispatchClaim:
     )
     next_snapshot = _next_snapshot(
         snapshot,
-        queue=snapshot.queue[1:],
+        queue=(*snapshot.queue[:queue_index], *snapshot.queue[queue_index + 1 :]),
         tokens=_replace_token(snapshot.tokens, executing),
         in_flight_dispatches=(*snapshot.in_flight_dispatches, dispatch),
     )
