@@ -19,10 +19,17 @@ from __future__ import annotations
 import subprocess
 import sys
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
-from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
+from zeroth.contracts.graph import (
+    ExecutableUnitNode,
+    ExecutableUnitNodeData,
+    Graph,
+    SubgraphNode,
+    SubgraphNodeData,
+)
 from zeroth.runtime.orchestration import (
     MemoryBindingResolutionError,
     NodeDispatcher,
@@ -30,6 +37,8 @@ from zeroth.runtime.orchestration import (
     OrchestratorError,
     RuntimeToolExecutor,
 )
+from zeroth.runtime.orchestration.dispatcher import dispatch_subgraph_node
+from zeroth.runtime.runs import Run, RunStatus
 
 
 class _StubUnitRunner:
@@ -44,7 +53,9 @@ class _StubUnitRunner:
         self.calls.append(("run_binding", binding.manifest_ref))
         return _Result()
 
-    async def run_inline_source(self, unit_id: str, source: str, payload: Any, **kwargs: Any) -> Any:
+    async def run_inline_source(
+        self, unit_id: str, source: str, payload: Any, **kwargs: Any
+    ) -> Any:
         self.calls.append(("run_inline_source", unit_id))
         return _Result()
 
@@ -200,6 +211,43 @@ async def test_dispatching_an_unsupported_node_type_raises_node_dispatcher_error
 
     with pytest.raises(NodeDispatcherError, match="unsupported node type"):
         await dispatcher.dispatch(_Weird(), _AnyRun(), {})
+
+
+async def test_subgraph_dispatch_seam_normalizes_child_output_and_audit() -> None:
+    node = SubgraphNode(
+        node_id="subgraph",
+        graph_version_ref="g:v1",
+        subgraph=SubgraphNodeData(graph_ref="child"),
+    )
+    graph = _graph([node])
+    parent = Run(graph_version_ref="g:v1", deployment_ref="g", status=RunStatus.RUNNING)
+    child = Run(
+        run_id="child-run",
+        graph_version_ref="child:v1",
+        deployment_ref="child",
+        status=RunStatus.COMPLETED,
+        final_output={"answer": 42},
+    )
+    executor = type("Executor", (), {"execute": AsyncMock(return_value=child)})()
+    orchestrator = type("Orchestrator", (), {})()
+
+    result = await dispatch_subgraph_node(
+        executor=executor,
+        orchestrator=orchestrator,
+        parent_graph=graph,
+        parent_run=parent,
+        node=node,
+        input_payload={"input": True},
+    )
+
+    assert result.output == {"answer": 42}
+    assert result.audit == {
+        "subgraph_run_id": "child-run",
+        "subgraph_graph_ref": "child",
+        "subgraph_status": "COMPLETED",
+        "subgraph_resumed": False,
+    }
+    assert result.terminal_run is None
 
 
 class _AnyRun:

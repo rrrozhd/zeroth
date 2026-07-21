@@ -31,8 +31,9 @@ from zeroth.contracts.graph import (
     Graph,
     Node,
     RetrievalNode,
+    SubgraphNode,
 )
-from zeroth.core.runs import Run
+from zeroth.core.runs import Run, RunStatus
 from zeroth.platform.observability import start_span
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.orchestration.errors import (
@@ -50,6 +51,76 @@ _MISSING: Any = object()
 
 # Regex for {namespace.field} placeholders supported in binding key / key_prefix.
 _KEY_PLACEHOLDER_RE = re.compile(r"\{(input|state|run)\.([^}]+)\}")
+
+
+@dataclass(frozen=True, slots=True)
+class SubgraphDispatchResult:
+    """Normalized result of dispatching or resuming one child graph."""
+
+    output: dict[str, Any] | None = None
+    audit: dict[str, Any] | None = None
+    terminal_run: Run | None = None
+
+
+async def dispatch_subgraph_node(
+    *,
+    executor: Any,
+    orchestrator: Any,
+    parent_graph: Graph,
+    parent_run: Run,
+    node: SubgraphNode,
+    input_payload: dict[str, Any],
+) -> SubgraphDispatchResult:
+    """Route a subgraph through its runtime executor with durable pause replay."""
+    if executor is None or orchestrator is None:
+        raise NodeDispatcherError("SubgraphExecutor is required for SubgraphNode dispatch")
+    pending = parent_run.metadata.get("pending_subgraph")
+    resumed = bool(pending and pending.get("node_id") == node.node_id)
+    if resumed:
+        child = await executor.resume(
+            orchestrator=orchestrator,
+            parent_graph=parent_graph,
+            parent_run=parent_run,
+            paused_child_run_id=pending["child_run_id"],
+        )
+    else:
+        child = await executor.execute(
+            orchestrator=orchestrator,
+            parent_graph=parent_graph,
+            parent_run=parent_run,
+            node=node,
+            node_id=node.node_id,
+            input_payload=input_payload,
+        )
+    if child.status is RunStatus.WAITING_APPROVAL:
+        parent_run.status = RunStatus.WAITING_APPROVAL
+        parent_run.metadata["pending_subgraph"] = {
+            "child_run_id": child.run_id,
+            "node_id": node.node_id,
+            "graph_ref": node.subgraph.graph_ref,
+            "version": node.subgraph.version,
+        }
+        parent_run.touch()
+        persisted = await orchestrator.run_repository.put(parent_run)
+        await orchestrator.run_repository.write_checkpoint(persisted)
+        return SubgraphDispatchResult(terminal_run=persisted)
+    if child.status is not RunStatus.COMPLETED:
+        failure = child.failure_state
+        detail = failure.message if failure is not None else "unknown failure"
+        raise NodeDispatcherError(f"child run {child.run_id} ended {child.status.value}: {detail}")
+    parent_run.metadata.pop("pending_subgraph", None)
+    output = child.final_output or {}
+    if not isinstance(output, dict):
+        output = {"result": output}
+    return SubgraphDispatchResult(
+        output=output,
+        audit={
+            "subgraph_run_id": child.run_id,
+            "subgraph_graph_ref": node.subgraph.graph_ref,
+            "subgraph_status": child.status.value,
+            "subgraph_resumed": resumed,
+        },
+    )
 
 
 def substitute_binding_key(
