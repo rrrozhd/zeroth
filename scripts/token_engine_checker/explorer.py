@@ -40,10 +40,22 @@ def schedule_orders(
     return orders
 
 
+def schedule_plans(
+    ready_sets: tuple[tuple[str, ...], ...], *, seed: int, case_digest: str
+) -> tuple[tuple[str, ...], ...]:
+    """Enumerate the declared choices for every observed durable ready state."""
+    if not ready_sets:
+        return (("t0",),)
+    plans: dict[tuple[str, ...], None] = {}
+    for ready in ready_sets:
+        for order in schedule_orders(ready, seed=seed, case_digest=case_digest):
+            plans.setdefault(order, None)
+    return tuple(plans)
+
+
 def compare_case(case: Case, *, seed: int) -> Comparison:
     ready_sets = Oracle().ready_sets(case)
-    ready = max(ready_sets, key=lambda item: (len(item), item), default=("t0",))
-    orders = schedule_orders(ready, seed=seed, case_digest=case.digest)
+    orders = schedule_plans(ready_sets, seed=seed, case_digest=case.digest)
     executed = 0
     for order in orders:
         try:

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import inspect
+from itertools import permutations
 
 import pytest
 
 from scripts.token_engine_checker.adapter import ProductionAdapter, UnsupportedValidCaseError
-from scripts.token_engine_checker.explorer import compare_case, schedule_orders
+from scripts.token_engine_checker.explorer import compare_case, schedule_orders, schedule_plans
 from scripts.token_engine_checker.generator import enumerate_cases, generate_topologies
 from scripts.token_engine_checker.models import Case, Edge, State, Topology
 from scripts.token_engine_checker.normalization import normalize_trace
@@ -115,6 +116,18 @@ def test_wide_ready_set_uses_canonical_reverse_and_seeded_orders() -> None:
     assert orders[1] == tuple(reversed(ready))
     assert orders == schedule_orders(ready, seed=120600, case_digest="case")
     assert len(orders) == 3
+
+
+def test_every_observed_ready_state_contributes_schedule_choices() -> None:
+    plans = schedule_plans(
+        (("t-left", "t-right"), ("t-a", "t-b", "t-c")),
+        seed=120600,
+        case_digest="case",
+    )
+
+    assert len(plans) == 8
+    assert set(plans[:2]) == {("t-left", "t-right"), ("t-right", "t-left")}
+    assert set(plans[2:]) == set(permutations(("t-a", "t-b", "t-c")))
 
 
 def test_valid_adapter_rejection_is_a_failure_not_a_filter(monkeypatch) -> None:
