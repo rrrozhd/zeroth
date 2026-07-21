@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 from pydantic import BaseModel
 
 from zeroth.contracts.graph import (
@@ -9,6 +11,8 @@ from zeroth.contracts.graph import (
     Edge,
     ExecutionSettings,
     Graph,
+    SubgraphNode,
+    SubgraphNodeData,
 )
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
 from zeroth.core.orchestrator import RuntimeOrchestrator
@@ -18,6 +22,8 @@ from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 from zeroth.runtime.parallel.models import JoinConfig
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
 
 class Payload(BaseModel):
@@ -233,3 +239,85 @@ async def test_flag_on_loop_persists_iteration_ownership(sqlite_db) -> None:
         for snapshot in store.history
         for loop in snapshot.loops
     )
+
+
+async def test_flag_on_routes_subgraph_node_through_runtime_executor(sqlite_db) -> None:
+    node = SubgraphNode(
+        node_id="S",
+        graph_version_ref="token-subgraph:v1",
+        subgraph=SubgraphNodeData(graph_ref="child"),
+    )
+    graph = Graph(
+        graph_id="token-subgraph",
+        name="token-subgraph",
+        entry_step="S",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[node],
+        edges=[],
+    )
+    child = Run(
+        graph_version_ref="child:v1",
+        deployment_ref="child",
+        status=RunStatus.COMPLETED,
+        final_output={"value": 42},
+    )
+    executor = MagicMock(spec=SubgraphExecutor)
+    executor.execute = AsyncMock(return_value=child)
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+        subgraph_executor=executor,
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 1})
+
+    assert run.status is RunStatus.COMPLETED
+    assert run.final_output == {"value": 42}
+    assert [entry.node_id for entry in run.execution_history] == ["S"]
+    executor.execute.assert_awaited_once()
+
+
+async def test_flag_on_resumes_paused_subgraph_without_creating_a_second_child(sqlite_db) -> None:
+    node = SubgraphNode(
+        node_id="S",
+        graph_version_ref="token-subgraph:v1",
+        subgraph=SubgraphNodeData(graph_ref="child"),
+    )
+    graph = Graph(
+        graph_id="token-subgraph-resume",
+        name="token-subgraph-resume",
+        entry_step="S",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[node],
+        edges=[],
+    )
+    child = Run(
+        run_id="child-paused",
+        graph_version_ref="child:v1",
+        deployment_ref="child",
+        status=RunStatus.WAITING_APPROVAL,
+    )
+    resumed_child = child.model_copy(
+        update={"status": RunStatus.COMPLETED, "final_output": {"value": 84}}
+    )
+    executor = MagicMock(spec=SubgraphExecutor)
+    executor.execute = AsyncMock(return_value=child)
+    executor.resume = AsyncMock(return_value=resumed_child)
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+        subgraph_executor=executor,
+    ).use_token_snapshot_store(store)
+
+    paused = await orchestrator.run_graph(graph, {"value": 1})
+    resumed = await orchestrator.resume_graph(graph, paused.run_id)
+
+    assert paused.status is RunStatus.WAITING_APPROVAL
+    assert resumed.status is RunStatus.COMPLETED
+    assert resumed.final_output == {"value": 84}
+    executor.execute.assert_awaited_once()
+    executor.resume.assert_awaited_once()

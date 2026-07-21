@@ -19,6 +19,7 @@ from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngi
 from zeroth.contracts.graph.tokens import DispatchLifecycleState
 from zeroth.core.runs import Run, RunStatus
 from zeroth.runtime.orchestration import token_scope as _ts
+from zeroth.runtime.orchestration.dispatcher import dispatch_subgraph_node
 from zeroth.runtime.orchestration.errors import OrchestratorError
 from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 from zeroth.runtime.orchestration.token_runtime_loops import TokenRuntimeLoopSupport
@@ -156,10 +157,6 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         dispatch = claim.dispatch
         envelope = dispatch.token
         node = node_by_id(graph, envelope.current_node_id)
-        if isinstance(node, SubgraphNode):
-            raise TokenRuntimeUnsupportedError(
-                f"structured-token execution for {node.node_type} is not implemented"
-            )
         payload = envelope.model_dump(mode="json")["payload"]
         scopes = self.driver._graph_scopes(graph)
         if (
@@ -240,9 +237,23 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 )
                 if denial is not None:
                     return denial
-                output_data, audit_record = await self.driver.node_dispatcher.dispatch(
-                    node, run, input_payload, graph
-                )
+                if isinstance(node, SubgraphNode):
+                    subgraph_result = await dispatch_subgraph_node(
+                        executor=self.driver.subgraph_executor,
+                        orchestrator=self.driver.orchestrator,
+                        parent_graph=graph,
+                        parent_run=run,
+                        node=node,
+                        input_payload=input_payload,
+                    )
+                    if subgraph_result.terminal_run is not None:
+                        return subgraph_result.terminal_run
+                    output_data = subgraph_result.output or {}
+                    audit_record = subgraph_result.audit or {}
+                else:
+                    output_data, audit_record = await self.driver.node_dispatcher.dispatch(
+                        node, run, input_payload, graph
+                    )
             except Exception as exc:
                 await self.driver.audit_recorder.record_failed_execution(
                     run, node, node.node_id, input_payload, exc, started_at=node_started_at
