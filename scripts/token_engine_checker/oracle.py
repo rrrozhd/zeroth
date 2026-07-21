@@ -111,24 +111,27 @@ def _abstract_production_state(case: Case) -> dict[str, object]:
             and not low <= int(edge.target[1:]) <= high
             and int(edge.target[1:]) > int(edge.source[1:])
         )
-        routes: tuple[str | None, ...] = (
-            tuple(edge.edge_id for edge in sorted(exits, key=lambda item: item.edge_id))
-            or (None,)
+        exit_ids = tuple(
+            edge.edge_id for edge in sorted(exits, key=lambda item: item.edge_id)
         )
-        loops.extend(
+        loops.append(
             {
                 "state": "completed",
-                "resolved_exit_edges": [] if exit_id is None else [exit_id],
+                "resolved_exit_edges": list(exit_ids),
                 "frames": ["settled", "settled"],
                 "back_edge_id": back.edge_id,
+                "exit_payloads": [
+                    {"edge": edge_id, "value": case.state.payload}
+                    for edge_id in exit_ids
+                ],
             }
-            for exit_id in routes
         )
     loop = loops[0] if loops else {
             "state": "not_applicable",
             "resolved_exit_edges": [],
             "frames": [],
             "back_edge_id": None,
+            "exit_payloads": [],
     }
     joins = tuple(
         {
@@ -295,6 +298,7 @@ class Oracle:
                 "pending_token_ids": sorted(item[0] for item in queue),
                 "dispatch_count": len(dispatches),
                 "checkpoint_reloads": 0 if case.state.checkpoint == "none" else 1,
+                "activation_order": dispatch_prefix,
             },
         }
         lifecycle.extend(

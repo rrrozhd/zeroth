@@ -57,6 +57,11 @@ class UnsupportedValidCaseError(RuntimeError):
     """The production adapter rejected a case classified as valid."""
 
 
+class _ActivationPrefixReachedError(RuntimeError):
+    def __init__(self, activation_order: tuple[str, ...]) -> None:
+        self.activation_order = activation_order
+
+
 def _active(edge: Edge, enabled: bool, conditions: dict[str, bool]) -> bool:
     return enabled and (
         edge.condition is None or conditions[edge.condition] is edge.condition_value
@@ -65,7 +70,7 @@ def _active(edge: Edge, enabled: bool, conditions: dict[str, bool]) -> bool:
 
 def _structured_descriptors(
     case: Case,
-) -> tuple[tuple[tuple[str, ...], ...], tuple[tuple[str, str | None], ...]]:
+) -> tuple[tuple[tuple[str, ...], ...], tuple[tuple[str, tuple[str, ...]], ...]]:
     conditions = dict(case.conditions)
     active = tuple(
         edge
@@ -86,7 +91,7 @@ def _structured_descriptors(
         (edge for edge in active if int(edge.target[1:]) <= int(edge.source[1:])),
         key=lambda edge: edge.edge_id,
     )
-    loop_routes: list[tuple[str, str | None]] = []
+    loop_routes: list[tuple[str, tuple[str, ...]]] = []
     for back in back_edges:
         low = int(back.target[1:])
         high = int(back.source[1:])
@@ -98,11 +103,12 @@ def _structured_descriptors(
             and not low <= int(edge.target[1:]) <= high
             and int(edge.target[1:]) > int(edge.source[1:])
         )
-        loop_routes.extend(
-            (back.edge_id, edge.edge_id) for edge in sorted(exits, key=lambda item: item.edge_id)
+        loop_routes.append(
+            (
+                back.edge_id,
+                tuple(edge.edge_id for edge in sorted(exits, key=lambda item: item.edge_id)),
+            )
         )
-        if not exits:
-            loop_routes.append((back.edge_id, None))
     return join_cohorts, tuple(loop_routes)
 
 
@@ -394,12 +400,10 @@ def _join_probe(
 
 def _loop_probe(
     case: _ProbeInput,
-    back_edge_id: str | None,
-    exit_edge_id: str | None,
+    back_edge_id: str,
+    exit_edge_ids: tuple[str, ...],
     mutation: str | None,
 ) -> tuple[dict[str, object], _SnapshotRepository] | None:
-    if back_edge_id is None:
-        return None
     repository = _SnapshotRepository(
         initialize_token_snapshot(
             run_id=f"checker-loop-{case.state.payload_json}",
@@ -414,19 +418,75 @@ def _loop_probe(
             loop_header_node_id="probe-header",
             body_node_id="probe-body",
             inbound_edge_id="probe-body-edge",
-            exit_routes=({exit_edge_id: "probe-done"} if exit_edge_id is not None else {}),
+            exit_routes={edge_id: f"probe-done-{edge_id}" for edge_id in exit_edge_ids},
         )
     )
     member_id = entered.queue[0].token_id
-    first_ready = repository.apply(
-        lambda snapshot: settle_loop_member(
-            snapshot,
-            token_id=member_id,
-            outcome=IterationMemberState.BACK_EDGE_CONTINUATION,
-            edge_id=back_edge_id,
-            payload=case.state.payload,
+    if len(exit_edge_ids) >= 2:
+        claim_box = []
+
+        def claim_member(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
+            claim = claim_next_token(snapshot)
+            claim_box.append(claim.dispatch)
+            return claim.snapshot
+
+        repository.apply(claim_member)
+        dispatch = claim_box.pop()
+        early_exits = exit_edge_ids[:-1]
+        branched = repository.apply(
+            lambda snapshot: fan_out_dispatch(
+                snapshot,
+                dispatch_id=dispatch.dispatch_id,
+                attempt=dispatch.attempt,
+                cancellation_generation=dispatch.cancellation_generation,
+                branches=tuple(
+                    FanOutBranch(
+                        node_id=f"probe-exit-{edge_id}",
+                        inbound_edge_id=edge_id,
+                        payload={"edge": edge_id, "value": case.state.payload},
+                    )
+                    for edge_id in early_exits
+                )
+                + (
+                    FanOutBranch(
+                        node_id="probe-back",
+                        inbound_edge_id=back_edge_id,
+                        payload={"edge": back_edge_id, "value": case.state.payload},
+                    ),
+                ),
+            )
         )
-    )
+        child_ids = tuple(token.token_id for token in branched.queue)
+        for token_id, edge_id in zip(child_ids[:-1], early_exits, strict=True):
+            repository.apply(
+                lambda current, token_id=token_id, edge_id=edge_id: settle_loop_member(
+                    current,
+                    token_id=token_id,
+                    outcome=IterationMemberState.EXIT_DELIVERY,
+                    edge_id=edge_id,
+                    target_node_id=f"probe-done-{edge_id}",
+                    payload={"edge": edge_id, "value": case.state.payload},
+                )
+            )
+        first_ready = repository.apply(
+            lambda current: settle_loop_member(
+                current,
+                token_id=child_ids[-1],
+                outcome=IterationMemberState.BACK_EDGE_CONTINUATION,
+                edge_id=back_edge_id,
+                payload={"edge": back_edge_id, "value": case.state.payload},
+            )
+        )
+    else:
+        first_ready = repository.apply(
+            lambda snapshot: settle_loop_member(
+                snapshot,
+                token_id=member_id,
+                outcome=IterationMemberState.BACK_EDGE_CONTINUATION,
+                edge_id=back_edge_id,
+                payload={"edge": back_edge_id, "value": case.state.payload},
+            )
+        )
     continued = repository.apply(
         lambda snapshot: close_ready_loop(
             snapshot,
@@ -435,7 +495,7 @@ def _loop_probe(
         )
     )
     second_member_id = continued.queue[0].token_id
-    if exit_edge_id is None:
+    if not exit_edge_ids:
         final_ready = repository.apply(
             lambda snapshot: settle_loop_member(
                 snapshot,
@@ -445,14 +505,15 @@ def _loop_probe(
             )
         )
     else:
+        final_exit_id = exit_edge_ids[-1]
         final_ready = repository.apply(
             lambda snapshot: settle_loop_member(
                 snapshot,
                 token_id=second_member_id,
                 outcome=IterationMemberState.EXIT_DELIVERY,
-                edge_id=exit_edge_id,
-                target_node_id="probe-done",
-                payload=case.state.payload,
+                edge_id=final_exit_id,
+                target_node_id=f"probe-done-{final_exit_id}",
+                payload={"edge": final_exit_id, "value": case.state.payload},
             )
         )
     if mutation == "loop_owner_leaks":
@@ -476,6 +537,11 @@ def _loop_probe(
             ],
             "back_edge_id": back_edge_id,
             "frames": [frame.state.value for frame in loop.frames],
+            "exit_payloads": [
+                _plain(record.delivery.payload) if record.delivery is not None else None
+                for exit_state in loop.exits
+                for record in exit_state.records
+            ],
         },
         repository,
     )
@@ -548,7 +614,7 @@ def _production_probe(
     checkpoint: str,
     cancellation: str,
     join_cohorts: tuple[tuple[str, ...], ...],
-    loop_routes: tuple[tuple[str, str | None], ...],
+    loop_routes: tuple[tuple[str, tuple[str, ...]], ...],
     mutation: str | None,
 ) -> dict[str, object]:
     probe = _ProbeInput(State(payload_json, reducer, retry, checkpoint, cancellation))
@@ -559,10 +625,10 @@ def _production_probe(
     )
     loop_results = tuple(
         result
-        for back_edge_id, exit_edge_id in loop_routes
+        for back_edge_id, exit_edge_ids in loop_routes
         if (
             result := _loop_probe(
-                probe, back_edge_id, exit_edge_id, mutation
+                probe, back_edge_id, exit_edge_ids, mutation
             )
         )
         is not None
@@ -582,6 +648,7 @@ def _production_probe(
         "resolved_exit_edges": [],
         "frames": [],
         "back_edge_id": None,
+        "exit_payloads": [],
     }
     return {
         "join": join,
@@ -642,6 +709,26 @@ class ProductionAdapter:
             )
         return tuple(claimed)
 
+    def verify_case_schedule_prefix(
+        self,
+        case: Case,
+        prefix: tuple[str, ...],
+        ready_order: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """Replay a generated production prefix through the selected ready order."""
+        requested = (*prefix, *ready_order)
+        schedule = None if self.mutation == "schedule_input_discarded" else requested
+        try:
+            trace = self._run(
+                case,
+                schedule=schedule,
+                activation_limit=len(requested),
+            )
+        except _ActivationPrefixReachedError as reached:
+            return reached.activation_order
+        production = trace.persisted_state["production"]
+        return tuple(production["graph_execution"]["activation_order"])
+
     def run(self, case: Case, schedule: tuple[str, ...] | None = None) -> Trace:
         classification = classify_case(case)
         if not classification.valid:
@@ -654,7 +741,13 @@ class ProductionAdapter:
                 raise
             raise UnsupportedValidCaseError(str(error)) from error
 
-    def _run(self, case: Case, *, schedule: tuple[str, ...] | None) -> Trace:
+    def _run(
+        self,
+        case: Case,
+        *,
+        schedule: tuple[str, ...] | None,
+        activation_limit: int | None = None,
+    ) -> Trace:
         snapshot = initialize_token_snapshot(
             run_id=f"checker-{case.digest}",
             root_node_id=case.topology.nodes[0],
@@ -673,6 +766,7 @@ class ProductionAdapter:
         checkpoint_done = False
         checkpoint_reloads = 0
         graph_cancelled = False
+        activation_order: list[str] = []
         pending = (
             tuple(logical_by_actual[token.token_id] for token in snapshot.queue)
             if self.mutation == "retain_pending"
@@ -680,6 +774,8 @@ class ProductionAdapter:
         )
 
         while snapshot.queue and not pending:
+            if activation_limit is not None and len(activation_order) >= activation_limit:
+                raise _ActivationPrefixReachedError(tuple(activation_order))
             if not checkpoint_done and case.state.checkpoint == "before-claim":
                 if self.mutation != "checkpoint_reload_skipped":
                     snapshot = _round_trip(snapshot)
@@ -696,6 +792,7 @@ class ProductionAdapter:
             dispatch = claim.dispatch
             actual_id = dispatch.token.token_id
             logical_id = logical_by_actual[actual_id]
+            activation_order.append(logical_id)
             cancel_after_claim = False
             if not checkpoint_done and case.state.checkpoint in {
                 "after-claim",
@@ -860,6 +957,8 @@ class ProductionAdapter:
                     graph_cancelled = True
                     break
 
+        if activation_limit is not None and len(activation_order) >= activation_limit:
+            raise _ActivationPrefixReachedError(tuple(activation_order))
         join_cohorts, loop_routes = _structured_descriptors(case)
         if not graph_cancelled and not snapshot.queue:
             snapshot = stop_snapshot(snapshot)
@@ -890,6 +989,7 @@ class ProductionAdapter:
                 ),
                 "dispatch_count": len(dispatches),
                 "checkpoint_reloads": checkpoint_reloads,
+                "activation_order": activation_order,
             },
         }
         return Trace(

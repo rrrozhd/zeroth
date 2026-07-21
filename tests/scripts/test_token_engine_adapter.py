@@ -124,6 +124,30 @@ def test_every_generated_back_edge_runs_a_production_loop_transition() -> None:
     assert production["loops"][1]["resolved_exit_edges"] == ["e4"]
 
 
+def test_one_production_loop_owner_accumulates_every_active_exit() -> None:
+    case = Case(
+        Topology(
+            ("n0", "n1", "n2", "n3", "n4"),
+            (
+                Edge("e0", "n0", "n1", 0),
+                Edge("e1", "n1", "n3", 0),
+                Edge("e2", "n2", "n1", 0),
+                Edge("e3", "n1", "n2", 0),
+                Edge("e4", "n2", "n4", 0),
+            ),
+        ),
+        (True,) * 5,
+        (),
+        State('{"p":1}', "collect", "none", "none", "none"),
+    )
+
+    loops = ProductionAdapter().run(case).persisted_state["production"]["loops"]
+
+    assert len(loops) == 1
+    assert loops[0]["back_edge_id"] == "e2"
+    assert loops[0]["resolved_exit_edges"] == ["e1", "e4"]
+
+
 def test_every_generated_join_cohort_runs_a_production_join_transition() -> None:
     case = Case(
         Topology(
@@ -207,6 +231,29 @@ def test_compositional_schedule_check_reports_logical_and_physical_counts() -> N
     assert comparison.schedules_eligible == comparison.schedules_executed
     assert comparison.transition_invocations is not None
     assert comparison.transition_invocations <= comparison.schedules_executed
+
+
+def test_schedule_check_fails_when_generated_execution_discards_noncanonical_prefixes(
+    monkeypatch,
+) -> None:
+    original = ProductionAdapter._run
+
+    def discard_schedule(self, case, *, schedule, activation_limit=None):
+        if schedule not in {None, ("t0",)}:
+            schedule = ("t0",)
+        return original(
+            self,
+            case,
+            schedule=schedule,
+            activation_limit=activation_limit,
+        )
+
+    monkeypatch.setattr(ProductionAdapter, "_run", discard_schedule)
+
+    comparison = compare_schedule_choices(_structured_case(), seed=9)
+
+    assert not comparison.passed
+    assert comparison.failure_kind == "schedule_choice_mismatch"
 
 
 def test_schedule_discovery_reports_actual_ready_token_ids() -> None:

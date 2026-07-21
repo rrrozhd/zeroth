@@ -64,10 +64,13 @@ def discover_schedule_plans(
 
 def _discover_schedule_space(
     case: Case, *, seed: int
-) -> tuple[tuple[tuple[str, ...], ...], tuple[tuple[str, ...], ...]]:
+) -> tuple[
+    tuple[tuple[str, ...], ...],
+    tuple[tuple[tuple[str, ...], tuple[str, ...]], ...],
+]:
     pending = [("t0",)]
     discovered: dict[tuple[str, ...], None] = {}
-    ready_sets: dict[tuple[str, ...], None] = {}
+    ready_states: dict[tuple[str, ...], tuple[str, ...]] = {}
     while pending:
         schedule = pending.pop()
         if schedule in discovered:
@@ -76,24 +79,28 @@ def _discover_schedule_space(
         states: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
         Oracle().run(case, schedule, _ready_states=states)
         for prefix, ready in states:
-            ready_sets.setdefault(ready, None)
+            if ready in ready_states:
+                continue
+            ready_states[ready] = prefix
             for order in schedule_orders(ready, seed=seed, case_digest=case.digest):
                 plan = (*prefix, *order)
                 if plan not in discovered:
                     pending.append(plan)
-    return tuple(discovered), tuple(ready_sets)
+    return tuple(discovered), tuple(
+        (prefix, ready) for ready, prefix in ready_states.items()
+    )
 
 
 def compare_schedule_choices(case: Case, *, seed: int) -> Comparison:
     """Prove every logical plan by composing actual ready-token choices."""
-    plans, ready_sets = _discover_schedule_space(case, seed=seed)
+    plans, ready_states = _discover_schedule_space(case, seed=seed)
     invocations = 0
     adapter = ProductionAdapter()
-    for ready in ready_sets:
+    for prefix, ready in ready_states:
         for order in schedule_orders(ready, seed=seed, case_digest=case.digest):
             invocations += 1
             try:
-                observed = adapter.verify_ready_order(ready, order)
+                observed = adapter.verify_case_schedule_prefix(case, prefix, order)
             except Exception as error:
                 return Comparison(
                     False,
@@ -103,13 +110,14 @@ def compare_schedule_choices(case: Case, *, seed: int) -> Comparison:
                     str(error),
                     invocations,
                 )
-            if observed != order:
+            expected = (*prefix, *order)
+            if observed != expected:
                 return Comparison(
                     False,
                     len(plans),
                     0,
                     "schedule_choice_mismatch",
-                    f"requested {order!r}, observed {observed!r}",
+                    f"requested {expected!r}, observed {observed!r}",
                     invocations,
                 )
     return Comparison(True, len(plans), len(plans), transition_invocations=invocations)
