@@ -5,11 +5,17 @@ from __future__ import annotations
 import subprocess
 import time
 from collections.abc import Iterable
+from dataclasses import replace
+from itertools import product
 from pathlib import Path
 
-from .explorer import Comparison, compare_case
+from .explorer import (
+    Comparison,
+    compare_canonical_case,
+    compare_case,
+    compare_schedule_choices,
+)
 from .generator import (
-    enumerate_cases,
     generate_topology_candidates,
     sample_cases,
 )
@@ -21,6 +27,7 @@ from .models import (
     REDUCERS,
     RETRIES,
     Case,
+    State,
     Topology,
     classify_case,
     classify_topology,
@@ -40,13 +47,12 @@ def _git_sha() -> str:
 def _semantic_key(case: Case) -> tuple[object, ...]:
     conditions = dict(case.conditions)
     active = tuple(
-        edge.edge_id
+        (edge.edge_id, edge.source, edge.target, edge.parallel_ordinal)
         for edge, enabled in zip(case.topology.edges, case.enabled, strict=True)
         if enabled
         and (edge.condition is None or conditions[edge.condition] is edge.condition_value)
     )
     return (
-        case.topology.digest,
         active,
         case.state.payload_json,
         case.state.reducer,
@@ -54,6 +60,52 @@ def _semantic_key(case: Case) -> tuple[object, ...]:
         case.state.checkpoint,
         case.state.cancellation,
     )
+
+
+def _exhaustive_semantic_cases(
+    topologies: tuple[Topology, ...],
+) -> tuple[tuple[tuple[Case, int], ...], int]:
+    """Collapse only cases with identical active graphs and state atoms."""
+    structural: dict[tuple[object, ...], tuple[Case, int]] = {}
+    base_state = State("null", "collect", "none", "none", "none")
+    for topology in topologies:
+        for enabled in product((True, False), repeat=len(topology.edges)):
+            for values in product((False, True), repeat=len(topology.condition_names)):
+                conditions = tuple(zip(topology.condition_names, values, strict=True))
+                case = Case(topology, tuple(enabled), conditions, base_state)
+                if not classify_case(case).valid:
+                    continue
+                active_key = _semantic_key(case)[0]
+                representative, count = structural.get(active_key, (case, 0))
+                structural[active_key] = (representative, count + 1)
+
+    result: list[tuple[Case, int]] = []
+    logical_eligible = 0
+    for representative, multiplicity in structural.values():
+        for payload, reducer, retry, checkpoint, cancellation in product(
+            PAYLOAD_JSON, REDUCERS, RETRIES, CHECKPOINTS, CANCELLATIONS
+        ):
+            if checkpoint == "none" and cancellation == "after-cut":
+                continue
+            case = replace(
+                representative,
+                state=State(payload, reducer, retry, checkpoint, cancellation),
+            )
+            result.append((case, multiplicity))
+            logical_eligible += multiplicity
+    return tuple(result), logical_eligible
+
+
+def _schedule_key(case: Case) -> tuple[object, ...]:
+    if case.state.cancellation == "none":
+        cut = "uncancelled"
+    elif case.state.checkpoint == "before-claim":
+        cut = "cancel-before-claim"
+    elif case.state.checkpoint in {"after-claim", "before-dispatch"}:
+        cut = "cancel-after-claim"
+    else:
+        cut = "cancel-after-resolve"
+    return (_semantic_key(case)[0], cut)
 
 
 def _failure(case: Case, comparison: Comparison, seed: int) -> dict[str, object]:
@@ -100,62 +152,88 @@ def run_check(
         topology for topology in topology_candidates if classify_topology(topology).valid
     )
     if exhaustive:
-        stream: Iterable[Case] = (
-            case for topology in valid_topologies for case in enumerate_cases(topology)
-        )
+        semantic_cases, logical_eligible = _exhaustive_semantic_cases(valid_topologies)
+        stream: Iterable[tuple[Case, int]] = semantic_cases
         mode = "exhaustive"
     else:
-        stream = sample_cases(nodes, count=cases or 0, seed=seed or 0)
+        stream = tuple(
+            (case, 1)
+            for case in sample_cases(nodes, count=cases or 0, seed=seed or 0)
+        )
+        logical_eligible = 0
         mode = "sampled"
 
     count_names = ("candidate", "invalid", "eligible", "executed", "passed", "failed")
     counts = {key: 0 for key in count_names}
-    invalid_topology_cases = (
+    total_exhaustive_candidates = (
         sum(
             _case_candidate_count(topology)
             for topology in topology_candidates
-            if not classify_topology(topology).valid
         )
         if exhaustive
         else 0
     )
-    counts["candidate"] = invalid_topology_cases
-    counts["invalid"] = invalid_topology_cases
+    counts["candidate"] = total_exhaustive_candidates
+    counts["invalid"] = total_exhaustive_candidates - logical_eligible
     schedule_eligible = 0
     schedule_executed = 0
     eligible_topologies: set[str] = set()
     executed_topologies: set[str] = set()
     failures: list[dict[str, object]] = []
     cache: dict[tuple[object, ...], Comparison] = {}
+    schedule_cache: dict[tuple[object, ...], Comparison] = {}
     cache_hits = 0
+    schedule_cache_hits = 0
     transition_invocations = 0
+    state_transition_invocations = 0
+    schedule_transition_invocations = 0
     mutation_case: Case | None = None
 
-    for case in stream:
-        counts["candidate"] += 1
-        classification = classify_case(case)
-        if not classification.valid:
-            counts["invalid"] += 1
-            continue
-        counts["eligible"] += 1
+    for case, multiplicity in stream:
+        if not exhaustive:
+            counts["candidate"] += 1
+            classification = classify_case(case)
+            if not classification.valid:
+                counts["invalid"] += 1
+                continue
+        counts["eligible"] += multiplicity
         eligible_topologies.add(case.topology.digest)
         mutation_case = mutation_case or case
         key = _semantic_key(case)
-        comparison = cache.get(key)
-        if comparison is None:
-            comparison = compare_case(case, seed=seed or 0)
-            cache[key] = comparison
-            schedule_eligible += comparison.schedules_eligible
-            schedule_executed += comparison.schedules_executed
-            transition_invocations += comparison.schedules_executed
+        state_comparison = cache.get(key)
+        if state_comparison is None:
+            state_comparison = compare_canonical_case(case)
+            cache[key] = state_comparison
+            state_transition_invocations += state_comparison.schedules_executed
+            cache_hits += multiplicity - 1
         else:
-            cache_hits += 1
-        counts["executed"] += 1
+            cache_hits += multiplicity
+        schedule_key = _schedule_key(case)
+        schedule_comparison = schedule_cache.get(schedule_key)
+        if schedule_comparison is None:
+            schedule_comparison = compare_schedule_choices(case, seed=seed or 0)
+            schedule_cache[schedule_key] = schedule_comparison
+            schedule_transition_invocations += (
+                schedule_comparison.transition_invocations
+                if schedule_comparison.transition_invocations is not None
+                else schedule_comparison.schedules_executed
+            )
+        else:
+            schedule_cache_hits += multiplicity
+        schedule_eligible += schedule_comparison.schedules_eligible * multiplicity
+        schedule_executed += schedule_comparison.schedules_executed * multiplicity
+        transition_invocations = (
+            state_transition_invocations + schedule_transition_invocations
+        )
+        comparison = (
+            state_comparison if not state_comparison.passed else schedule_comparison
+        )
+        counts["executed"] += multiplicity
         executed_topologies.add(case.topology.digest)
         if comparison.passed:
-            counts["passed"] += 1
+            counts["passed"] += multiplicity
         else:
-            counts["failed"] += 1
+            counts["failed"] += multiplicity
             failures.append(_failure(case, comparison, seed or 0))
 
     mutations = (
@@ -178,6 +256,9 @@ def run_check(
         else "failed"
     )
     exhaustive_schedules = mode == "exhaustive"
+    executed_topology_count = (
+        len(valid_topologies) if exhaustive and complete else len(executed_topologies)
+    )
     report: dict[str, object] = {
         "schema_version": 1,
         "grammar_version": GRAMMAR_VERSION,
@@ -195,7 +276,7 @@ def run_check(
                 "candidate": len(topology_candidates),
                 "invalid": len(topology_candidates) - len(valid_topologies),
                 "eligible": len(valid_topologies),
-                "executed": len(executed_topologies),
+                "executed": executed_topology_count,
             },
             "state": {"eligible": counts["eligible"], "executed": counts["executed"]},
             "exhaustive_schedule": {
@@ -212,7 +293,17 @@ def run_check(
         "failures": failures,
         "runtime_seconds": round(time.perf_counter() - started, 6),
         "transition_invocations": transition_invocations,
-        "cache": {"semantic_cases": len(cache), "hits": cache_hits},
+        "cached_transition_invocations": {
+            "state": state_transition_invocations,
+            "schedule": schedule_transition_invocations,
+            "total": transition_invocations,
+        },
+        "cache": {
+            "semantic_cases": len(cache),
+            "hits": cache_hits,
+            "schedule_classes": len(schedule_cache),
+            "schedule_hits": schedule_cache_hits,
+        },
     }
     if report_path is not None:
         write_report(report_path, report)

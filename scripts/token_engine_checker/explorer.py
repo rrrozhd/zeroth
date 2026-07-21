@@ -20,6 +20,7 @@ class Comparison:
     schedules_executed: int
     failure_kind: str | None = None
     detail: str | None = None
+    transition_invocations: int | None = None
 
 
 def schedule_orders(
@@ -57,8 +58,16 @@ def discover_schedule_plans(
     case: Case, *, seed: int
 ) -> tuple[tuple[str, ...], ...]:
     """Reach a fixed point over ready states exposed by alternate choices."""
+    plans, _ready_sets = _discover_schedule_space(case, seed=seed)
+    return plans
+
+
+def _discover_schedule_space(
+    case: Case, *, seed: int
+) -> tuple[tuple[tuple[str, ...], ...], tuple[tuple[str, ...], ...]]:
     pending = [("t0",)]
     discovered: dict[tuple[str, ...], None] = {}
+    ready_sets: dict[tuple[str, ...], None] = {}
     while pending:
         schedule = pending.pop()
         if schedule in discovered:
@@ -67,15 +76,58 @@ def discover_schedule_plans(
         states: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
         Oracle().run(case, schedule, _ready_states=states)
         for prefix, ready in states:
+            ready_sets.setdefault(ready, None)
             for order in schedule_orders(ready, seed=seed, case_digest=case.digest):
                 plan = (*prefix, *order)
                 if plan not in discovered:
                     pending.append(plan)
-    return tuple(discovered)
+    return tuple(discovered), tuple(ready_sets)
+
+
+def compare_schedule_choices(case: Case, *, seed: int) -> Comparison:
+    """Prove every logical plan by composing actual ready-token choices."""
+    plans, ready_sets = _discover_schedule_space(case, seed=seed)
+    invocations = 0
+    adapter = ProductionAdapter()
+    for ready in ready_sets:
+        for order in schedule_orders(ready, seed=seed, case_digest=case.digest):
+            invocations += 1
+            try:
+                observed = adapter.verify_ready_order(ready, order)
+            except Exception as error:
+                return Comparison(
+                    False,
+                    len(plans),
+                    0,
+                    "schedule_transition_error",
+                    str(error),
+                    invocations,
+                )
+            if observed != order:
+                return Comparison(
+                    False,
+                    len(plans),
+                    0,
+                    "schedule_choice_mismatch",
+                    f"requested {order!r}, observed {observed!r}",
+                    invocations,
+                )
+    return Comparison(True, len(plans), len(plans), transition_invocations=invocations)
 
 
 def compare_case(case: Case, *, seed: int) -> Comparison:
     orders = discover_schedule_plans(case, seed=seed)
+    return _compare_orders(case, orders)
+
+
+def compare_canonical_case(case: Case) -> Comparison:
+    """Compare one canonical execution for a state-equivalence class."""
+    return _compare_orders(case, (("t0",),))
+
+
+def _compare_orders(
+    case: Case, orders: tuple[tuple[str, ...], ...]
+) -> Comparison:
     executed = 0
     for order in orders:
         try:

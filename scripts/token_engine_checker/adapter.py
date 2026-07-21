@@ -152,6 +152,29 @@ def _plain(value: object) -> object:
     return value
 
 
+def _ordered_queue(
+    snapshot: TokenEngineSnapshot,
+    logical_by_actual: Mapping[str, str],
+    schedule: tuple[str, ...] | None,
+) -> TokenEngineSnapshot:
+    rank = {token_id: index for index, token_id in enumerate(schedule or ())}
+    if not rank:
+        return snapshot
+    return snapshot.model_copy(
+        update={
+            "queue": tuple(
+                sorted(
+                    snapshot.queue,
+                    key=lambda token: (
+                        rank.get(logical_by_actual[token.token_id], len(rank)),
+                        logical_by_actual[token.token_id],
+                    ),
+                )
+            )
+        }
+    )
+
+
 class _SnapshotRepository:
     """Serialized CAS/reload boundary used by the production checker adapter."""
 
@@ -576,6 +599,49 @@ class ProductionAdapter:
     def __init__(self, *, mutation: str | None = None) -> None:
         self.mutation = mutation
 
+    def verify_ready_order(
+        self, ready: tuple[str, ...], requested: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Exercise production queue claims for one durable ready-state choice."""
+        snapshot = initialize_token_snapshot(
+            run_id="checker-schedule-choice",
+            root_node_id="schedule-root",
+            payload=None,
+        )
+        root = claim_next_token(snapshot)
+        snapshot = fan_out_dispatch(
+            root.snapshot,
+            dispatch_id=root.dispatch.dispatch_id,
+            attempt=root.dispatch.attempt,
+            cancellation_generation=root.dispatch.cancellation_generation,
+            branches=tuple(
+                FanOutBranch(
+                    node_id=f"schedule-{index}",
+                    inbound_edge_id=f"schedule-edge-{index}",
+                    payload=None,
+                )
+                for index, _logical_id in enumerate(sorted(ready))
+            ),
+        )
+        logical_by_actual = {
+            token.token_id: logical_id
+            for token, logical_id in zip(snapshot.queue, sorted(ready), strict=True)
+        }
+        schedule = None if self.mutation == "schedule_input_discarded" else requested
+        claimed: list[str] = []
+        while snapshot.queue:
+            snapshot = _ordered_queue(snapshot, logical_by_actual, schedule)
+            claim = claim_next_token(snapshot)
+            snapshot = claim.snapshot
+            claimed.append(logical_by_actual[claim.dispatch.token.token_id])
+            snapshot = complete_dispatch(
+                snapshot,
+                dispatch_id=claim.dispatch.dispatch_id,
+                attempt=claim.dispatch.attempt,
+                cancellation_generation=claim.dispatch.cancellation_generation,
+            )
+        return tuple(claimed)
+
     def run(self, case: Case, schedule: tuple[str, ...] | None = None) -> Trace:
         classification = classify_case(case)
         if not classification.valid:
@@ -607,9 +673,6 @@ class ProductionAdapter:
         checkpoint_done = False
         checkpoint_reloads = 0
         graph_cancelled = False
-        schedule_rank = {
-            token_id: index for index, token_id in enumerate(schedule or ())
-        }
         pending = (
             tuple(logical_by_actual[token.token_id] for token in snapshot.queue)
             if self.mutation == "retain_pending"
@@ -627,22 +690,7 @@ class ProductionAdapter:
                     lifecycle.append(("snapshot", "cancelled-before-claim"))
                     graph_cancelled = True
                     break
-            if schedule_rank:
-                snapshot = snapshot.model_copy(
-                    update={
-                        "queue": tuple(
-                            sorted(
-                                snapshot.queue,
-                                key=lambda token: (
-                                    schedule_rank.get(
-                                        logical_by_actual[token.token_id], len(schedule_rank)
-                                    ),
-                                    logical_by_actual[token.token_id],
-                                ),
-                            )
-                        )
-                    }
-                )
+            snapshot = _ordered_queue(snapshot, logical_by_actual, schedule)
             claim = claim_next_token(snapshot)
             snapshot = claim.snapshot
             dispatch = claim.dispatch

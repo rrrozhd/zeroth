@@ -125,7 +125,11 @@ def test_sampled_run_reports_requested_eligible_and_executed_counts(tmp_path: Pa
 
 
 def test_exhaustive_report_counts_invalid_topology_candidates(monkeypatch) -> None:
-    monkeypatch.setattr(checker_runner, "enumerate_cases", lambda _topology: ())
+    monkeypatch.setattr(
+        checker_runner,
+        "_exhaustive_semantic_cases",
+        lambda _topologies: ((), 0),
+    )
     monkeypatch.setattr(
         checker_runner,
         "compare_case",
@@ -140,7 +144,19 @@ def test_exhaustive_report_counts_invalid_topology_candidates(monkeypatch) -> No
     assert topology["eligible"] == 288
 
 
-def test_cached_cases_do_not_inflate_executed_schedule_coverage(
+def test_exhaustive_semantic_classes_preserve_exact_logical_multiplicity() -> None:
+    topologies = tuple(generate_topologies(4))
+
+    representatives, logical_eligible = checker_runner._exhaustive_semantic_cases(
+        topologies
+    )
+
+    assert logical_eligible == 2_353_104
+    assert len(representatives) == 152_064
+    assert sum(multiplicity for _case, multiplicity in representatives) == logical_eligible
+
+
+def test_cached_cases_separate_logical_coverage_from_transition_invocations(
     tmp_path: Path, monkeypatch
 ) -> None:
     cases_by_key: dict[tuple[object, ...], Case] = {}
@@ -161,8 +177,15 @@ def test_cached_cases_do_not_inflate_executed_schedule_coverage(
     monkeypatch.setattr(checker_runner, "sample_cases", lambda *_args, **_kwargs: duplicate)
     monkeypatch.setattr(
         checker_runner,
-        "compare_case",
-        lambda *_args, **_kwargs: Comparison(True, 3, 3),
+        "compare_schedule_choices",
+        lambda *_args, **_kwargs: Comparison(
+            True, 3, 3, transition_invocations=3
+        ),
+    )
+    monkeypatch.setattr(
+        checker_runner,
+        "compare_canonical_case",
+        lambda *_args, **_kwargs: Comparison(True, 1, 1),
     )
 
     report = run_check(
@@ -174,9 +197,19 @@ def test_cached_cases_do_not_inflate_executed_schedule_coverage(
 
     assert report["counts"]["eligible"] == 2
     assert report["counts"]["executed"] == 2
-    assert report["coverage"]["sampled_schedule"] == {"eligible": 3, "executed": 3}
-    assert report["transition_invocations"] == 3
-    assert report["cache"] == {"semantic_cases": 1, "hits": 1}
+    assert report["coverage"]["sampled_schedule"] == {"eligible": 6, "executed": 6}
+    assert report["transition_invocations"] == 4
+    assert report["cached_transition_invocations"] == {
+        "state": 1,
+        "schedule": 3,
+        "total": 4,
+    }
+    assert report["cache"] == {
+        "semantic_cases": 1,
+        "hits": 1,
+        "schedule_classes": 1,
+        "schedule_hits": 1,
+    }
 
 
 def test_sampled_run_is_deterministic_except_measured_runtime(tmp_path: Path) -> None:

@@ -6,7 +6,12 @@ from itertools import permutations
 import pytest
 
 from scripts.token_engine_checker.adapter import ProductionAdapter, UnsupportedValidCaseError
-from scripts.token_engine_checker.explorer import compare_case, schedule_orders, schedule_plans
+from scripts.token_engine_checker.explorer import (
+    compare_case,
+    compare_schedule_choices,
+    schedule_orders,
+    schedule_plans,
+)
 from scripts.token_engine_checker.generator import enumerate_cases, generate_topologies
 from scripts.token_engine_checker.models import Case, Edge, State, Topology
 from scripts.token_engine_checker.normalization import normalize_trace
@@ -183,6 +188,25 @@ def test_ready_width_six_is_schedule_exhaustive() -> None:
 
     assert len(orders) == 720
     assert len(set(orders)) == 720
+
+
+def test_schedule_choices_are_verified_compositionally_with_production_tokens() -> None:
+    ready = ("t-a", "t-b", "t-c")
+    requested = ("t-c", "t-a", "t-b")
+
+    assert ProductionAdapter().verify_ready_order(ready, requested) == requested
+    assert ProductionAdapter(mutation="schedule_input_discarded").verify_ready_order(
+        ready, requested
+    ) != requested
+
+
+def test_compositional_schedule_check_reports_logical_and_physical_counts() -> None:
+    comparison = compare_schedule_choices(_structured_case(), seed=9)
+
+    assert comparison.passed
+    assert comparison.schedules_eligible == comparison.schedules_executed
+    assert comparison.transition_invocations is not None
+    assert comparison.transition_invocations <= comparison.schedules_executed
 
 
 def test_schedule_discovery_reports_actual_ready_token_ids() -> None:
