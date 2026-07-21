@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 from itertools import permutations
 
 import pytest
@@ -230,7 +231,7 @@ def test_compositional_schedule_check_reports_logical_and_physical_counts() -> N
     assert comparison.passed
     assert comparison.schedules_eligible == comparison.schedules_executed
     assert comparison.transition_invocations is not None
-    assert comparison.transition_invocations <= comparison.schedules_executed
+    assert comparison.transition_invocations >= comparison.schedules_executed
 
 
 def test_schedule_check_fails_when_generated_execution_discards_noncanonical_prefixes(
@@ -253,7 +254,29 @@ def test_schedule_check_fails_when_generated_execution_discards_noncanonical_pre
     comparison = compare_schedule_choices(_structured_case(), seed=9)
 
     assert not comparison.passed
-    assert comparison.failure_kind == "schedule_choice_mismatch"
+    assert comparison.failure_kind == "trace_mismatch"
+
+
+def test_schedule_check_compares_full_noncanonical_trace(monkeypatch) -> None:
+    original = ProductionAdapter._run
+
+    def corrupt_noncanonical(self, case, *, schedule, activation_limit=None):
+        trace = original(
+            self,
+            case,
+            schedule=schedule,
+            activation_limit=activation_limit,
+        )
+        if activation_limit is None and schedule not in {None, ("t0",)}:
+            return replace(trace, terminal_output={"schedule_corrupted": True})
+        return trace
+
+    monkeypatch.setattr(ProductionAdapter, "_run", corrupt_noncanonical)
+
+    comparison = compare_schedule_choices(_structured_case(), seed=9)
+
+    assert not comparison.passed
+    assert comparison.failure_kind == "trace_mismatch"
 
 
 def test_schedule_discovery_reports_actual_ready_token_ids() -> None:

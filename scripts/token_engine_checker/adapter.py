@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 from collections import defaultdict
 from collections.abc import Callable, Mapping
@@ -50,6 +51,7 @@ from zeroth.runtime.runs import Run
 from zeroth.service.bootstrap.migrations import run_migrations
 
 from .models import Case, Edge, State, classify_case
+from .normalization import normalize_trace
 from .oracle import Dispatch, Resolution, Trace
 
 
@@ -58,8 +60,9 @@ class UnsupportedValidCaseError(RuntimeError):
 
 
 class _ActivationPrefixReachedError(RuntimeError):
-    def __init__(self, activation_order: tuple[str, ...]) -> None:
+    def __init__(self, activation_order: tuple[str, ...], state_signature: str) -> None:
         self.activation_order = activation_order
+        self.state_signature = state_signature
 
 
 def _active(edge: Edge, enabled: bool, conditions: dict[str, bool]) -> bool:
@@ -715,8 +718,17 @@ class ProductionAdapter:
         prefix: tuple[str, ...],
         ready_order: tuple[str, ...],
     ) -> tuple[str, ...]:
-        """Replay a generated production prefix through the selected ready order."""
-        requested = (*prefix, *ready_order)
+        order, _signature = self.observe_case_schedule_prefix(
+            case, (*prefix, *ready_order)
+        )
+        return order
+
+    def observe_case_schedule_prefix(
+        self,
+        case: Case,
+        requested: tuple[str, ...],
+    ) -> tuple[tuple[str, ...], str]:
+        """Return activation order and normalized durable state after a prefix."""
         schedule = None if self.mutation == "schedule_input_discarded" else requested
         try:
             trace = self._run(
@@ -725,9 +737,10 @@ class ProductionAdapter:
                 activation_limit=len(requested),
             )
         except _ActivationPrefixReachedError as reached:
-            return reached.activation_order
+            return reached.activation_order, reached.state_signature
         production = trace.persisted_state["production"]
-        return tuple(production["graph_execution"]["activation_order"])
+        order = tuple(production["graph_execution"]["activation_order"])
+        return order, ""
 
     def run(self, case: Case, schedule: tuple[str, ...] | None = None) -> Trace:
         classification = classify_case(case)
@@ -773,9 +786,74 @@ class ProductionAdapter:
             else ()
         )
 
+        def state_signature() -> str:
+            def without_audit_revisions(value: object) -> object:
+                generated_id_fields = {
+                    "run_id",
+                    "token_id",
+                    "parent_token_id",
+                    "child_token_id",
+                    "fork_id",
+                    "parent_fork_id",
+                    "obligation_id",
+                    "join_instance_id",
+                    "loop_instance_id",
+                    "iteration_frame_id",
+                    "dispatch_id",
+                    "reduction_claim_id",
+                    "reduction_claim_owner_id",
+                }
+                if isinstance(value, Mapping):
+                    return {
+                        str(key): without_audit_revisions(item)
+                        for key, item in value.items()
+                        if key not in generated_id_fields
+                        and key != "revision"
+                        and not str(key).endswith("_revision")
+                    }
+                if isinstance(value, list):
+                    return [without_audit_revisions(item) for item in value]
+                return value
+
+            raw_snapshot = snapshot.model_dump(mode="json")
+            raw_snapshot["queue"] = sorted(
+                raw_snapshot["queue"], key=lambda token: token["token_id"]
+            )
+            snapshot_state = without_audit_revisions(raw_snapshot)
+            assert isinstance(snapshot_state, dict)
+            partial = Trace(
+                case.digest,
+                tuple(resolutions),
+                tuple(dispatches),
+                _reduce(case.state.reducer, terminals),
+                pending=tuple(
+                    sorted(
+                        logical_by_actual[token.token_id] for token in snapshot.queue
+                    )
+                ),
+                lifecycle=tuple(lifecycle),
+            )
+            return json.dumps(
+                {
+                    "snapshot": snapshot_state,
+                    "trace": normalize_trace(partial),
+                    "checkpoint_done": checkpoint_done,
+                    "graph_cancelled": graph_cancelled,
+                    "back_counts": {
+                        logical_by_actual[token_id]: counts
+                        for token_id, counts in counts_by_actual.items()
+                        if token_id in logical_by_actual
+                    },
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+
         while snapshot.queue and not pending:
             if activation_limit is not None and len(activation_order) >= activation_limit:
-                raise _ActivationPrefixReachedError(tuple(activation_order))
+                raise _ActivationPrefixReachedError(
+                    tuple(activation_order), state_signature()
+                )
             if not checkpoint_done and case.state.checkpoint == "before-claim":
                 if self.mutation != "checkpoint_reload_skipped":
                     snapshot = _round_trip(snapshot)
@@ -958,7 +1036,9 @@ class ProductionAdapter:
                     break
 
         if activation_limit is not None and len(activation_order) >= activation_limit:
-            raise _ActivationPrefixReachedError(tuple(activation_order))
+            raise _ActivationPrefixReachedError(
+                tuple(activation_order), state_signature()
+            )
         join_cohorts, loop_routes = _structured_descriptors(case)
         if not graph_cancelled and not snapshot.queue:
             snapshot = stop_snapshot(snapshot)
