@@ -3,9 +3,26 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from functools import cache
 
+from zeroth.contracts.graph.models import JoinConfig
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
+from zeroth.contracts.graph.tokens import IterationMemberState
+from zeroth.runtime.orchestration.token_joins import close_ready_join, deliver_to_join
+from zeroth.runtime.orchestration.token_lifecycle import (
+    acknowledge_cancellation,
+    pause_snapshot,
+    request_cancellation,
+    resume_snapshot,
+    stop_snapshot,
+)
+from zeroth.runtime.orchestration.token_loops import (
+    close_ready_loop,
+    enter_loop,
+    settle_loop_member,
+)
 from zeroth.runtime.orchestration.token_scheduler import (
     FanOutBranch,
     claim_next_token,
@@ -16,7 +33,7 @@ from zeroth.runtime.orchestration.token_scheduler import (
     retry_dispatch,
 )
 
-from .models import Case, Edge, classify_case
+from .models import Case, Edge, State, classify_case
 from .oracle import Dispatch, Resolution, Trace
 
 
@@ -60,6 +77,260 @@ def _plain(value: object) -> object:
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
     return value
+
+
+class _SnapshotRepository:
+    """Serialized CAS/reload boundary used by the production checker adapter."""
+
+    def __init__(self, snapshot: TokenEngineSnapshot) -> None:
+        self._encoded = snapshot.model_dump_json()
+        self.cas_writes = 1
+        self.reloads = 0
+
+    def load(self) -> TokenEngineSnapshot:
+        self.reloads += 1
+        return TokenEngineSnapshot.model_validate_json(self._encoded)
+
+    def apply(
+        self, transition: Callable[[TokenEngineSnapshot], TokenEngineSnapshot]
+    ) -> TokenEngineSnapshot:
+        current = self.load()
+        proposed = transition(current)
+        if proposed.revision <= current.revision:
+            raise UnsupportedValidCaseError("repository CAS did not advance revision")
+        self._encoded = proposed.model_dump_json()
+        self.cas_writes += 1
+        return proposed
+
+
+@dataclass(frozen=True, slots=True)
+class _ProbeInput:
+    state: State
+
+
+def _join_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotRepository]:
+    repository = _SnapshotRepository(
+        initialize_token_snapshot(
+            run_id=f"checker-join-{case.state.reducer}-{case.state.retry}",
+            root_node_id="probe-root",
+            payload=case.state.payload,
+        )
+    )
+    claim_box = []
+
+    def claim_root(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
+        claim = claim_next_token(snapshot)
+        claim_box.append(claim.dispatch)
+        return claim.snapshot
+
+    repository.apply(claim_root)
+    parent = claim_box.pop()
+    repository.apply(
+        lambda snapshot: fan_out_dispatch(
+            snapshot,
+            dispatch_id=parent.dispatch_id,
+            attempt=parent.attempt,
+            cancellation_generation=parent.cancellation_generation,
+            branches=(
+                FanOutBranch(
+                    node_id="probe-left",
+                    inbound_edge_id="probe-split-left",
+                    payload={"branch": "left"},
+                ),
+                FanOutBranch(
+                    node_id="probe-right",
+                    inbound_edge_id="probe-split-right",
+                    payload={"branch": "right"},
+                ),
+            ),
+        )
+    )
+    fork = repository.load().forks[0]
+    routes = {
+        child.token_id: f"probe-join-{child.creation_ordinal}" for child in fork.children
+    }
+    for payload in ({"left": 1}, {"right": 2}):
+        child_box = []
+
+        def claim_child(
+            snapshot: TokenEngineSnapshot, box: list = child_box
+        ) -> TokenEngineSnapshot:
+            claim = claim_next_token(snapshot)
+            box.append(claim.dispatch)
+            return claim.snapshot
+
+        repository.apply(claim_child)
+        child = child_box.pop()
+        repository.apply(
+            lambda snapshot, child=child, payload=payload: deliver_to_join(
+                snapshot,
+                dispatch_id=child.dispatch_id,
+                attempt=child.attempt,
+                cancellation_generation=child.cancellation_generation,
+                target_node_id="probe-join",
+                inbound_edge_id=routes[child.token.token_id],
+                cohort_inbound_edges=routes,
+                payload=payload,
+                failure_mode=(
+                    "best_effort" if case.state.retry == "fail-first" else "fail_fast"
+                ),
+            )
+        )
+    ready = repository.load().joins[0]
+
+    def reducer(_config, inputs):
+        return _reduce(
+            case.state.reducer,
+            [(item.inbound_edge_id, _plain(item.payload)) for item in inputs],
+        )
+
+    closed = repository.apply(
+        lambda snapshot: close_ready_join(
+            snapshot,
+            ready.join_instance_id,
+            JoinConfig(),
+            reducer=reducer,
+            failure_mode=ready.failure_mode,
+        )
+    )
+    join = closed.joins[0]
+    return (
+        {
+            "state": join.lifecycle_state.value,
+            "continuation_created": join.continuation_token_id is not None,
+            "failure_policy": join.failure_mode,
+            "obligation_outcomes": [item.outcome.value for item in join.obligations],
+        },
+        repository,
+    )
+
+
+def _loop_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotRepository]:
+    repository = _SnapshotRepository(
+        initialize_token_snapshot(
+            run_id=f"checker-loop-{case.state.payload_json}",
+            root_node_id="probe-header",
+            payload=case.state.payload,
+        )
+    )
+    entered = repository.apply(
+        lambda snapshot: enter_loop(
+            snapshot,
+            token_id=snapshot.tokens[0].token_id,
+            loop_header_node_id="probe-header",
+            body_node_id="probe-body",
+            inbound_edge_id="probe-body-edge",
+            exit_routes={"probe-exit": "probe-done"},
+        )
+    )
+    member_id = entered.queue[0].token_id
+    ready = repository.apply(
+        lambda snapshot: settle_loop_member(
+            snapshot,
+            token_id=member_id,
+            outcome=IterationMemberState.EXIT_DELIVERY,
+            edge_id="probe-exit",
+            target_node_id="probe-done",
+            payload=case.state.payload,
+        )
+    )
+    completed = repository.apply(
+        lambda snapshot: close_ready_loop(
+            snapshot,
+            ready.loops[0].loop_instance_id,
+            continuation_config=JoinConfig(),
+        )
+    )
+    loop = completed.loops[0]
+    return (
+        {
+            "state": loop.lifecycle_state.value,
+            "resolved_exit_edges": [
+                exit_state.exit_edge_id
+                for exit_state in loop.exits
+                if exit_state.resolution_outcome is not None
+            ],
+            "frames": [frame.state.value for frame in loop.frames],
+        },
+        repository,
+    )
+
+
+def _lifecycle_probe(case: _ProbeInput) -> tuple[dict[str, object], _SnapshotRepository]:
+    repository = _SnapshotRepository(
+        initialize_token_snapshot(
+            run_id=f"checker-life-{case.state.checkpoint}-{case.state.cancellation}",
+            root_node_id="probe-work",
+            payload=case.state.payload,
+        )
+    )
+    dispatch_box = []
+
+    def claim_work(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
+        claim = claim_next_token(snapshot)
+        dispatch_box.append(claim.dispatch)
+        return claim.snapshot
+
+    repository.apply(claim_work)
+    dispatch = dispatch_box.pop()
+    if case.state.cancellation == "after-cut":
+        requested = repository.apply(request_cancellation)
+        assert requested.cancellation_fence is not None
+        final = repository.apply(
+            lambda snapshot: acknowledge_cancellation(
+                snapshot,
+                dispatch_id=dispatch.dispatch_id,
+                cancellation_generation=requested.cancellation_fence.generation,
+            )
+        )
+    else:
+        repository.apply(
+            lambda snapshot: complete_dispatch(
+                snapshot,
+                dispatch_id=dispatch.dispatch_id,
+                attempt=dispatch.attempt,
+                cancellation_generation=dispatch.cancellation_generation,
+            )
+        )
+        repository.apply(pause_snapshot)
+        repository.apply(resume_snapshot)
+        final = repository.apply(stop_snapshot)
+    return (
+        {
+            "state": final.state.value,
+            "checkpoint": case.state.checkpoint,
+            "cancellation_generation": (
+                final.cancellation_fence.generation
+                if final.cancellation_fence is not None
+                else 0
+            ),
+        },
+        repository,
+    )
+
+
+@cache
+def _production_probe(
+    payload_json: str,
+    reducer: str,
+    retry: str,
+    checkpoint: str,
+    cancellation: str,
+) -> dict[str, object]:
+    probe = _ProbeInput(State(payload_json, reducer, retry, checkpoint, cancellation))
+    join, join_repository = _join_probe(probe)
+    loop, loop_repository = _loop_probe(probe)
+    lifecycle, lifecycle_repository = _lifecycle_probe(probe)
+    repositories = (join_repository, loop_repository, lifecycle_repository)
+    return {
+        "join": join,
+        "loop": loop,
+        "lifecycle": lifecycle,
+        "repository": {
+            "cas_writes": sum(item.cas_writes for item in repositories),
+            "reloads": sum(item.reloads for item in repositories),
+        },
+    }
 
 
 class ProductionAdapter:
@@ -246,11 +517,29 @@ class ProductionAdapter:
                 snapshot = _round_trip(snapshot)
                 checkpoint_done = True
 
+        production = _production_probe(
+            case.state.payload_json,
+            case.state.reducer,
+            case.state.retry,
+            case.state.checkpoint,
+            case.state.cancellation,
+        )
+        lifecycle.extend(
+            (
+                ("structured-join", str(production["join"]["state"])),
+                ("structured-loop", str(production["loop"]["state"])),
+                ("snapshot", str(production["lifecycle"]["state"])),
+            )
+        )
         return Trace(
             case.digest,
             tuple(resolutions),
             tuple(dispatches),
             _reduce(case.state.reducer, terminals),
             lifecycle=tuple(lifecycle),
-            persisted_state={"terminal": terminals, "checkpoint": case.state.checkpoint},
+            persisted_state={
+                "terminal": terminals,
+                "checkpoint": case.state.checkpoint,
+                "production": production,
+            },
         )

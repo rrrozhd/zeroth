@@ -41,11 +41,8 @@ def schedule_orders(
 
 
 def compare_case(case: Case, *, seed: int) -> Comparison:
-    widths: dict[str, list[str]] = {}
-    for edge, enabled in zip(case.topology.edges, case.enabled, strict=True):
-        if enabled:
-            widths.setdefault(edge.source, []).append(edge.edge_id)
-    ready = tuple(max(widths.values(), key=len, default=["root"]))
+    ready_sets = Oracle().ready_sets(case)
+    ready = max(ready_sets, key=lambda item: (len(item), item), default=("t0",))
     orders = schedule_orders(ready, seed=seed, case_digest=case.digest)
     executed = 0
     for order in orders:

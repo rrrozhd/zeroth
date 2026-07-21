@@ -87,6 +87,8 @@ def run_check(
     executed_topologies: set[str] = set()
     failures: list[dict[str, object]] = []
     cache: dict[tuple[object, ...], Comparison] = {}
+    cache_hits = 0
+    transition_invocations = 0
     mutation_case: Case | None = None
 
     for case in stream:
@@ -103,9 +105,12 @@ def run_check(
         if comparison is None:
             comparison = compare_case(case, seed=seed or 0)
             cache[key] = comparison
+            schedule_eligible += comparison.schedules_eligible
+            schedule_executed += comparison.schedules_executed
+            transition_invocations += comparison.schedules_executed
+        else:
+            cache_hits += 1
         counts["executed"] += 1
-        schedule_eligible += comparison.schedules_eligible
-        schedule_executed += comparison.schedules_executed
         executed_topologies.add(case.topology.digest)
         if comparison.passed:
             counts["passed"] += 1
@@ -165,7 +170,8 @@ def run_check(
         "mutations": mutations,
         "failures": failures,
         "runtime_seconds": round(time.perf_counter() - started, 6),
-        "transition_invocations": len(cache),
+        "transition_invocations": transition_invocations,
+        "cache": {"semantic_cases": len(cache), "hits": cache_hits},
     }
     if report_path is not None:
         write_report(report_path, report)

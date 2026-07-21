@@ -41,11 +41,69 @@ def test_production_pure_transitions_match_independent_oracle() -> None:
     assert observed == expected
 
 
+def test_production_adapter_exercises_structured_scopes_and_repository_cas() -> None:
+    trace = ProductionAdapter().run(_case())
+    production = trace.persisted_state["production"]
+
+    assert production["join"]["state"] == "closed"
+    assert production["join"]["continuation_created"] is True
+    assert production["loop"]["state"] == "completed"
+    assert production["loop"]["resolved_exit_edges"] == ["probe-exit"]
+    assert production["lifecycle"]["checkpoint"] == "after-claim"
+    assert production["repository"]["cas_writes"] > 0
+    assert production["repository"]["reloads"] > 0
+
+
+def test_cancellation_materially_changes_compared_lifecycle_trace() -> None:
+    topology = next(generate_topologies(4))
+    uncancelled = next(
+        case
+        for case in enumerate_cases(topology)
+        if case.state.checkpoint == "after-claim" and case.state.cancellation == "none"
+    )
+    cancelled = next(
+        case
+        for case in enumerate_cases(topology)
+        if case.state.checkpoint == "after-claim" and case.state.cancellation == "after-cut"
+    )
+
+    first = ProductionAdapter().run(uncancelled)
+    second = ProductionAdapter().run(cancelled)
+
+    assert first.persisted_state["production"]["lifecycle"]["state"] != (
+        second.persisted_state["production"]["lifecycle"]["state"]
+    )
+    assert normalize_trace(first) != normalize_trace(second)
+
+
 def test_ready_width_six_is_schedule_exhaustive() -> None:
     orders = schedule_orders(tuple("abcdef"), seed=9, case_digest="case")
 
     assert len(orders) == 720
     assert len(set(orders)) == 720
+
+
+def test_schedule_discovery_reports_actual_ready_token_ids() -> None:
+    case = Case(
+        Topology(
+            ("n0", "n1", "n2", "n3"),
+            (
+                Edge("e0", "n0", "n1", 0),
+                Edge("e1", "n0", "n2", 0),
+                Edge("e2", "n1", "n3", 0),
+                Edge("e3", "n2", "n3", 0),
+            ),
+        ),
+        (True, True, True, True),
+        (),
+        State("null", "collect", "none", "none", "none"),
+    )
+
+    ready_sets = Oracle().ready_sets(case)
+
+    assert ready_sets
+    assert all(token_id.startswith("t0.") for ready in ready_sets for token_id in ready)
+    assert all(not token_id.startswith("e") for ready in ready_sets for token_id in ready)
 
 
 def test_wide_ready_set_uses_canonical_reverse_and_seeded_orders() -> None:

@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import scripts.token_engine_checker.runner as checker_runner
+
 from scripts.token_engine_checker.adapter import ProductionAdapter
+from scripts.token_engine_checker.explorer import Comparison
 from scripts.token_engine_checker.generator import enumerate_cases, generate_topologies
 from scripts.token_engine_checker.models import (
     Case,
@@ -39,7 +42,16 @@ def test_production_adapter_honors_schedule_of_actual_ready_token_ids() -> None:
 def test_every_registered_mutation_is_caught() -> None:
     outcomes = evaluate_mutations(_case_with_extra_edges())
 
-    assert len(outcomes) >= 5
+    assert {
+        "schedule_input_discarded",
+        "retry_lifecycle_lost",
+        "join_closes_twice",
+        "loop_owner_leaks",
+        "failure_policy_globalized",
+        "cancellation_generation_lost",
+        "checkpoint_reload_skipped",
+        "persisted_terminal_dropped",
+    } <= {outcome.name for outcome in outcomes}
     assert all(outcome.caught for outcome in outcomes)
     assert len({outcome.name for outcome in outcomes}) == len(outcomes)
 
@@ -75,6 +87,45 @@ def test_sampled_run_reports_requested_eligible_and_executed_counts(tmp_path: Pa
     assert report["coverage"]["sampled_schedule"]["executed"] > 0
     assert report["seeds"] == [120500]
     assert json.loads(path.read_text(encoding="utf-8")) == report
+
+
+def test_cached_cases_do_not_inflate_executed_schedule_coverage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    cases_by_key: dict[tuple[object, ...], Case] = {}
+    duplicate: tuple[Case, Case] | None = None
+    for topology in generate_topologies(5):
+        for case in enumerate_cases(topology):
+            if not checker_runner.classify_case(case).valid:
+                continue
+            key = checker_runner._semantic_key(case)
+            if key in cases_by_key and cases_by_key[key].digest != case.digest:
+                duplicate = (cases_by_key[key], case)
+                break
+            cases_by_key[key] = case
+        if duplicate is not None:
+            break
+    assert duplicate is not None
+
+    monkeypatch.setattr(checker_runner, "sample_cases", lambda *_args, **_kwargs: duplicate)
+    monkeypatch.setattr(
+        checker_runner,
+        "compare_case",
+        lambda *_args, **_kwargs: Comparison(True, 3, 3),
+    )
+
+    report = run_check(
+        nodes=5,
+        cases=2,
+        seed=120500,
+        report_path=tmp_path / "cached.json",
+    )
+
+    assert report["counts"]["eligible"] == 2
+    assert report["counts"]["executed"] == 2
+    assert report["coverage"]["sampled_schedule"] == {"eligible": 3, "executed": 3}
+    assert report["transition_invocations"] == 3
+    assert report["cache"] == {"semantic_cases": 1, "hits": 1}
 
 
 def test_sampled_run_is_deterministic_except_measured_runtime(tmp_path: Path) -> None:

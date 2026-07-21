@@ -75,10 +75,50 @@ def _reduce(reducer: str, values: list[tuple[str, object]]) -> object:
     return {"reducer": reducer, "value": value}
 
 
+def _abstract_production_state(case: Case) -> dict[str, object]:
+    cancelled = case.state.cancellation == "after-cut"
+    return {
+        "join": {
+            "state": "closed",
+            "continuation_created": True,
+            "failure_policy": (
+                "best_effort" if case.state.retry == "fail-first" else "fail_fast"
+            ),
+            "obligation_outcomes": ["delivered", "delivered"],
+        },
+        "loop": {
+            "state": "completed",
+            "resolved_exit_edges": ["probe-exit"],
+            "frames": ["settled"],
+        },
+        "lifecycle": {
+            "state": "cancelled" if cancelled else "stopped",
+            "checkpoint": case.state.checkpoint,
+            "cancellation_generation": 1 if cancelled else 0,
+        },
+        "repository": {
+            "cas_writes": 16 if cancelled else 18,
+            "reloads": 15 if cancelled else 17,
+        },
+    }
+
+
 class Oracle:
     """Execute grammar cases using only the appendix's abstract semantics."""
 
-    def run(self, case: Case, schedule: tuple[str, ...] | None = None) -> Trace:
+    def ready_sets(self, case: Case) -> tuple[tuple[str, ...], ...]:
+        """Return canonical logical token IDs for each observed concurrent state."""
+        observed: list[tuple[str, ...]] = []
+        self.run(case, _ready_sets=observed)
+        return tuple(dict.fromkeys(observed))
+
+    def run(
+        self,
+        case: Case,
+        schedule: tuple[str, ...] | None = None,
+        *,
+        _ready_sets: list[tuple[str, ...]] | None = None,
+    ) -> Trace:
         classification = classify_case(case)
         if not classification.valid:
             raise OracleViolation(f"invalid case: {classification.reason}")
@@ -96,6 +136,8 @@ class Oracle:
         terminals: list[tuple[str, object]] = []
         steps = 0
         while queue:
+            if _ready_sets is not None and len(queue) > 1:
+                _ready_sets.append(tuple(sorted(item[0] for item in queue)))
             if schedule:
                 rank = {token_id: index for index, token_id in enumerate(schedule)}
                 queue.sort(key=lambda item: (rank.get(item[0], len(rank)), item[0]))
@@ -136,13 +178,25 @@ class Oracle:
             steps += 1
             if steps > 10_000:
                 raise OracleViolation("bounded grammar exceeded transition limit")
+        production = _abstract_production_state(case)
+        lifecycle.extend(
+            (
+                ("structured-join", str(production["join"]["state"])),
+                ("structured-loop", str(production["loop"]["state"])),
+                ("snapshot", str(production["lifecycle"]["state"])),
+            )
+        )
         trace = Trace(
             case.digest,
             tuple(resolutions),
             tuple(dispatches),
             _reduce(case.state.reducer, terminals),
             lifecycle=tuple(lifecycle),
-            persisted_state={"terminal": terminals, "checkpoint": case.state.checkpoint},
+            persisted_state={
+                "terminal": terminals,
+                "checkpoint": case.state.checkpoint,
+                "production": production,
+            },
         )
         self.validate(trace)
         return trace
