@@ -135,6 +135,15 @@ the destination at `0.11.1` while the semantic port is developed. The default
 structured-token flip and the coordinated `0.12.0` release remain a separate
 final release step after this integration passes its gates.
 
+The v0.12.0 effective default must not violate the immutable legacy callable
+signature. `ExecutionSettings.sequential_join_enabled` retains its pinned
+`bool = False` field declaration, but one canonical effective-mode helper treats
+an unauthored/absent field as token mode, explicit `True` as token mode, and
+explicit `False` as legacy mode. Every production consumer uses that helper;
+the raw compatibility value is never interpreted as the effective default.
+This preserves the legacy ABI and absent/true/false wire distinction while
+making ordinary unauthored graphs run with legacy off.
+
 Planning documents under `.planning/console-rebuild/` are preserved as design
 history, but their old package paths and version statements are not release
 authority for the refactored line.
