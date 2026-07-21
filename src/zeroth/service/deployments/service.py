@@ -9,9 +9,10 @@ from uuid import uuid4
 from zeroth.contracts.graph import Graph, GraphRepository, GraphStatus, Node
 from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
+from zeroth.contracts.graph.warnings import warn_legacy_engine
 from zeroth.contracts.registry import ContractReference, ContractRegistry
 from zeroth.contracts.registry.errors import ContractNotFoundError
-from zeroth.service.deployments.models import Deployment
+from zeroth.service.deployments.models import Deployment, DeploymentEngineMode
 from zeroth.service.deployments.provenance import (
     build_attestation_payload,
     compute_contract_snapshot_digest,
@@ -90,6 +91,12 @@ class DeploymentService:
                 graph_version=graph.version,
                 graph_version_ref=graph_version_ref(graph.graph_id, graph.version),
                 serialized_graph=serialized_graph,
+                engine_mode=(
+                    DeploymentEngineMode.TOKEN
+                    if graph.execution_settings.sequential_join_enabled is True
+                    else DeploymentEngineMode.LEGACY
+                ),
+                attestation_payload_version=2,
                 entry_input_contract_ref=(entry_node.input_contract_ref if entry_node else None),
                 entry_input_contract_version=input_contract_version,
                 entry_output_contract_ref=(entry_node.output_contract_ref if entry_node else None),
@@ -112,6 +119,12 @@ class DeploymentService:
                 tenant_id=graph.tenant_id,
                 workspace_id=graph.workspace_id,
             )
+            if (
+                "sequential_join_enabled"
+                in graph.execution_settings.model_fields_set
+                and graph.execution_settings.sequential_join_enabled is False
+            ):
+                warn_legacy_engine(stage="deployment_publication", stacklevel=2)
             deployment.attestation_digest = str(
                 build_attestation_payload(deployment)["attestation_digest"]
             )

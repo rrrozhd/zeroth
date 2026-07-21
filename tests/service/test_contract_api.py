@@ -171,6 +171,8 @@ async def test_deployment_metadata_endpoint_returns_version_snapshot(sqlite_db) 
     assert parsed.graph_id == deployment.graph_id
     assert parsed.graph_version == deployment.graph_version
     assert parsed.graph_version_ref == deployment.graph_version_ref
+    assert parsed.engine_mode == deployment.engine_mode
+    assert parsed.attestation_payload_version == 2
     assert parsed.entry_input_contract_ref == "contract://input"
     assert parsed.entry_input_contract_version == 1
     assert parsed.entry_output_contract_ref == "contract://output"

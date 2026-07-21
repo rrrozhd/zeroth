@@ -149,6 +149,8 @@ class DeploymentAttestationResponse(BaseModel):
     graph_id: str
     graph_version: int
     graph_version_ref: str
+    attestation_payload_version: int = Field(default=1, ge=1)
+    engine_mode: str = "legacy"
     entry_input_contract_ref: str | None = None
     entry_input_contract_version: int | None = None
     entry_output_contract_ref: str | None = None

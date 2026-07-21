@@ -7,6 +7,7 @@ location instead (see docs/backend-import-migration.md).
 
 from zeroth.service.deployments import (
     Deployment,
+    DeploymentEngineMode,
     DeploymentError,
     DeploymentService,
     DeploymentStatus,
@@ -15,6 +16,7 @@ from zeroth.service.deployments import (
 
 __all__ = [
     "Deployment",
+    "DeploymentEngineMode",
     "DeploymentError",
     "DeploymentService",
     "DeploymentStatus",

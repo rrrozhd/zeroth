@@ -869,6 +869,11 @@
           "attestation_digest": {
             "type": "string"
           },
+          "attestation_payload_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "type": "integer"
+          },
           "attestation_signature": {
             "anyOf": [
               {
@@ -900,6 +905,10 @@
           },
           "deployment_version": {
             "type": "integer"
+          },
+          "engine_mode": {
+            "default": "legacy",
+            "type": "string"
           },
           "entry_input_contract_ref": {
             "anyOf": [
@@ -990,6 +999,13 @@
           "total_cost_usd"
         ],
         "type": "object"
+      },
+      "DeploymentEngineMode": {
+        "enum": [
+          "legacy",
+          "token"
+        ],
+        "type": "string"
       },
       "DeploymentEvidenceResponse": {
         "additionalProperties": false,
@@ -1105,6 +1121,10 @@
       "DeploymentVersionMetadataResponse": {
         "additionalProperties": false,
         "properties": {
+          "attestation_payload_version": {
+            "minimum": 1.0,
+            "type": "integer"
+          },
           "attestation_ref": {
             "anyOf": [
               {
@@ -1138,6 +1158,9 @@
           },
           "deployment_version": {
             "type": "integer"
+          },
+          "engine_mode": {
+            "$ref": "#/components/schemas/DeploymentEngineMode"
           },
           "entry_input_contract_ref": {
             "anyOf": [
@@ -1222,6 +1245,8 @@
           "graph_id",
           "graph_version",
           "graph_version_ref",
+          "engine_mode",
+          "attestation_payload_version",
           "status",
           "created_at",
           "updated_at"

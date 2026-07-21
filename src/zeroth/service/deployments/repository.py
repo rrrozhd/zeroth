@@ -6,7 +6,11 @@ from datetime import datetime
 
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.platform.storage.json import load_typed_value, to_json_value
-from zeroth.service.deployments.models import Deployment, DeploymentStatus
+from zeroth.service.deployments.models import (
+    Deployment,
+    DeploymentEngineMode,
+    DeploymentStatus,
+)
 from zeroth.service.deployments.provenance import (
     build_attestation_payload,
     compute_contract_snapshot_digest,
@@ -106,6 +110,8 @@ class SQLiteDeploymentRepository:
                     graph_version,
                     graph_version_ref,
                     serialized_graph,
+                    engine_mode,
+                    attestation_payload_version,
                     entry_input_contract_ref,
                     entry_input_contract_version,
                     entry_output_contract_ref,
@@ -123,7 +129,10 @@ class SQLiteDeploymentRepository:
                     status,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 """,
                 (
                     deployment.deployment_id,
@@ -133,6 +142,8 @@ class SQLiteDeploymentRepository:
                     deployment.graph_version,
                     deployment.graph_version_ref,
                     deployment.serialized_graph,
+                    deployment.engine_mode.value,
+                    deployment.attestation_payload_version,
                     deployment.entry_input_contract_ref,
                     deployment.entry_input_contract_version,
                     deployment.entry_output_contract_ref,
@@ -269,6 +280,10 @@ class SQLiteDeploymentRepository:
             graph_version=row["graph_version"],
             graph_version_ref=row["graph_version_ref"],
             serialized_graph=row["serialized_graph"],
+            engine_mode=DeploymentEngineMode(_row_get(row, "engine_mode") or "legacy"),
+            attestation_payload_version=int(
+                _row_get(row, "attestation_payload_version") or 1
+            ),
             entry_input_contract_ref=row["entry_input_contract_ref"],
             entry_input_contract_version=row["entry_input_contract_version"],
             entry_output_contract_ref=row["entry_output_contract_ref"],

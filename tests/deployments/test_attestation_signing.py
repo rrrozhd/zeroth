@@ -6,7 +6,12 @@ from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.service.deployments import (
+    Deployment,
+    DeploymentEngineMode,
+    DeploymentService,
+    SQLiteDeploymentRepository,
+)
 from zeroth.service.deployments.provenance import (
     build_attestation_payload,
     verify_attestation_full,
@@ -61,6 +66,26 @@ async def test_attestation_signed_on_deploy(sqlite_db) -> None:
     )
     assert mismatches == []
     assert signature_ok is True
+    assert build_attestation_payload(deployed)["attestation_payload_version"] == 2
+    assert build_attestation_payload(deployed)["engine_mode"] == "legacy"
+
+
+def test_version_one_attestation_payload_remains_byte_compatible() -> None:
+    deployment = Deployment(
+        deployment_id="legacy-id",
+        deployment_ref="legacy-ref",
+        graph_id="graph-1",
+        graph_version=1,
+        graph_version_ref="graph-1@1",
+        serialized_graph="{}",
+        engine_mode=DeploymentEngineMode.LEGACY,
+        attestation_payload_version=1,
+    )
+
+    payload = build_attestation_payload(deployment)
+
+    assert "attestation_payload_version" not in payload
+    assert "engine_mode" not in payload
 
 
 async def test_signature_persists_and_hydrates(sqlite_db) -> None:

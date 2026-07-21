@@ -18,6 +18,13 @@ class DeploymentStatus(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class DeploymentEngineMode(StrEnum):
+    """Immutable execution engine selected when a deployment is published."""
+
+    LEGACY = "legacy"
+    TOKEN = "token"
+
+
 class Deployment(BaseModel):
     """A persisted deployment snapshot for a published graph version."""
 
@@ -30,6 +37,8 @@ class Deployment(BaseModel):
     graph_version: int = Field(ge=1)
     graph_version_ref: str
     serialized_graph: str
+    engine_mode: DeploymentEngineMode = DeploymentEngineMode.LEGACY
+    attestation_payload_version: int = Field(default=2, ge=1)
     entry_input_contract_ref: str | None = None
     entry_input_contract_version: int | None = Field(default=None, ge=1)
     entry_output_contract_ref: str | None = None

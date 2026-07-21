@@ -55,6 +55,10 @@
     {
       "down_revision": "013",
       "revision": "014"
+    },
+    {
+      "down_revision": "014",
+      "revision": "015"
     }
   ],
   "tables": {
@@ -621,9 +625,27 @@
           "not_null": false,
           "primary_key_position": 0,
           "type": "TEXT"
+        },
+        {
+          "cid": 24,
+          "default": "'legacy'",
+          "hidden": 0,
+          "name": "engine_mode",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "VARCHAR"
+        },
+        {
+          "cid": 25,
+          "default": "'1'",
+          "hidden": 0,
+          "name": "attestation_payload_version",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
         }
       ],
-      "constraint_definition": "CREATE TABLE deployment_versions ( deployment_id TEXT PRIMARY KEY, deployment_ref TEXT NOT NULL, version INTEGER NOT NULL, graph_id TEXT NOT NULL, graph_version INTEGER NOT NULL, graph_version_ref TEXT NOT NULL, serialized_graph TEXT NOT NULL, entry_input_contract_ref TEXT, entry_input_contract_version INTEGER, entry_output_contract_ref TEXT, entry_output_contract_version INTEGER, deployment_settings_snapshot TEXT NOT NULL, graph_snapshot_digest TEXT, contract_snapshot_digest TEXT, settings_snapshot_digest TEXT, attestation_digest TEXT, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, attestation_signature TEXT, attestation_signing_key_id TEXT, attestation_algorithm TEXT, UNIQUE(deployment_ref, version) )",
+      "constraint_definition": "CREATE TABLE deployment_versions ( deployment_id TEXT PRIMARY KEY, deployment_ref TEXT NOT NULL, version INTEGER NOT NULL, graph_id TEXT NOT NULL, graph_version INTEGER NOT NULL, graph_version_ref TEXT NOT NULL, serialized_graph TEXT NOT NULL, entry_input_contract_ref TEXT, entry_input_contract_version INTEGER, entry_output_contract_ref TEXT, entry_output_contract_version INTEGER, deployment_settings_snapshot TEXT NOT NULL, graph_snapshot_digest TEXT, contract_snapshot_digest TEXT, settings_snapshot_digest TEXT, attestation_digest TEXT, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, attestation_signature TEXT, attestation_signing_key_id TEXT, attestation_algorithm TEXT, engine_mode VARCHAR DEFAULT 'legacy' NOT NULL, attestation_payload_version INTEGER DEFAULT '1' NOT NULL, UNIQUE(deployment_ref, version) )",
       "foreign_keys": [],
       "indexes": [
         {

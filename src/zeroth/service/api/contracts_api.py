@@ -17,7 +17,7 @@ from zeroth.service.api.authorization import (
     require_permission,
 )
 from zeroth.service.api.run_api import RunStatusResponse
-from zeroth.service.deployments import DeploymentStatus
+from zeroth.service.deployments import DeploymentEngineMode, DeploymentStatus
 
 
 class ContractApiBootstrapLike(Protocol):
@@ -37,6 +37,8 @@ class DeploymentVersionMetadataResponse(BaseModel):
     graph_id: str
     graph_version: int
     graph_version_ref: str
+    engine_mode: DeploymentEngineMode
+    attestation_payload_version: int = Field(ge=1)
     entry_input_contract_ref: str | None = None
     entry_input_contract_version: int | None = None
     entry_output_contract_ref: str | None = None
@@ -225,6 +227,8 @@ def serialize_deployment_metadata(deployment: object) -> DeploymentVersionMetada
         graph_id=deployment.graph_id,
         graph_version=deployment.graph_version,
         graph_version_ref=deployment.graph_version_ref,
+        engine_mode=deployment.engine_mode,
+        attestation_payload_version=deployment.attestation_payload_version,
         entry_input_contract_ref=deployment.entry_input_contract_ref,
         entry_input_contract_version=deployment.entry_input_contract_version,
         entry_output_contract_ref=deployment.entry_output_contract_ref,

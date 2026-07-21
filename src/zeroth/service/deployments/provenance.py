@@ -69,6 +69,11 @@ def build_attestation_payload(deployment: object) -> dict[str, object]:
         "settings_snapshot_digest": deployment.settings_snapshot_digest,
         "created_at": deployment.created_at.isoformat(),
     }
+    if getattr(deployment, "attestation_payload_version", 1) >= 2:
+        payload["attestation_payload_version"] = int(
+            deployment.attestation_payload_version
+        )
+        payload["engine_mode"] = str(deployment.engine_mode)
     return {
         **payload,
         "attestation_digest": compute_attestation_digest(payload),
@@ -105,8 +110,13 @@ def verify_attestation(deployment: object, attestation: dict[str, object]) -> li
         ),
         "created_at": deployment.created_at.isoformat(),
     }
+    if getattr(deployment, "attestation_payload_version", 1) >= 2:
+        current["attestation_payload_version"] = int(
+            deployment.attestation_payload_version
+        )
+        current["engine_mode"] = str(deployment.engine_mode)
     current["attestation_digest"] = compute_attestation_digest(current)
-    for field in (
+    fields = [
         "deployment_ref",
         "deployment_version",
         "graph_version_ref",
@@ -114,7 +124,10 @@ def verify_attestation(deployment: object, attestation: dict[str, object]) -> li
         "contract_snapshot_digest",
         "settings_snapshot_digest",
         "attestation_digest",
-    ):
+    ]
+    if getattr(deployment, "attestation_payload_version", 1) >= 2:
+        fields.extend(("attestation_payload_version", "engine_mode"))
+    for field in fields:
         if attestation.get(field) != current.get(field):
             mismatches.append(field)
     return mismatches
