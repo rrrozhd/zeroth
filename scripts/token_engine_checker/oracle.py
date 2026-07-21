@@ -83,21 +83,15 @@ def _abstract_production_state(case: Case) -> dict[str, object]:
         for index, edge in enumerate(case.topology.edges)
         if _active(edge, case.enabled[index], conditions)
     )
-    incoming = tuple(
-        sorted(
-            max(
-                (
-                    tuple(
-                        edge.edge_id
-                        for edge in active_edges
-                        if edge.target == target
-                    )
-                    for target in case.topology.nodes
-                ),
-                key=lambda edge_ids: (len(edge_ids), edge_ids),
-                default=(),
+    incoming_cohorts = tuple(
+        edge_ids
+        for target in case.topology.nodes
+        if len(
+            edge_ids := tuple(
+                sorted(edge.edge_id for edge in active_edges if edge.target == target)
             )
         )
+        >= 2
     )
     best_effort = case.state.retry == "fail-first"
     back_edges = tuple(
@@ -105,37 +99,38 @@ def _abstract_production_state(case: Case) -> dict[str, object]:
         for edge in active_edges
         if int(edge.target[1:]) <= int(edge.source[1:])
     )
-    if back_edges:
-        back = min(back_edges, key=lambda edge: edge.edge_id)
+    loops: list[dict[str, object]] = []
+    for back in sorted(back_edges, key=lambda edge: edge.edge_id):
+        low = int(back.target[1:])
+        high = int(back.source[1:])
         exits = tuple(
             edge
             for edge in active_edges
             if edge.edge_id != back.edge_id
-            and edge.source == back.source
+            and low <= int(edge.source[1:]) <= high
+            and not low <= int(edge.target[1:]) <= high
             and int(edge.target[1:]) > int(edge.source[1:])
         )
-        if not exits:
-            exits = tuple(
-                edge
-                for edge in active_edges
-                if edge.edge_id != back.edge_id
-                and int(edge.target[1:]) > int(edge.source[1:])
-            )
-        exit_id = min(exits, key=lambda edge: edge.edge_id).edge_id if exits else "bounded-exit"
-        loop = {
-            "state": "completed",
-            "resolved_exit_edges": [exit_id],
-            "frames": ["settled", "settled"],
-            "back_edge_id": back.edge_id,
-        }
-    else:
-        loop = {
+        routes: tuple[str | None, ...] = (
+            tuple(edge.edge_id for edge in sorted(exits, key=lambda item: item.edge_id))
+            or (None,)
+        )
+        loops.extend(
+            {
+                "state": "completed",
+                "resolved_exit_edges": [] if exit_id is None else [exit_id],
+                "frames": ["settled", "settled"],
+                "back_edge_id": back.edge_id,
+            }
+            for exit_id in routes
+        )
+    loop = loops[0] if loops else {
             "state": "not_applicable",
             "resolved_exit_edges": [],
             "frames": [],
             "back_edge_id": None,
-        }
-    join = (
+    }
+    joins = tuple(
         {
             "state": "closed",
             "continuation_created": best_effort,
@@ -147,18 +142,20 @@ def _abstract_production_state(case: Case) -> dict[str, object]:
                 else ["failed", *(["cancelled"] * (len(incoming) - 1))]
             ),
         }
-        if len(incoming) >= 2
-        else {
+        for incoming in incoming_cohorts
+    )
+    join = joins[0] if joins else {
             "state": "not_applicable",
             "continuation_created": False,
             "failure_policy": "best_effort" if best_effort else "fail_fast",
             "edge_ids": [],
             "obligation_outcomes": [],
-        }
-    )
+    }
     return {
         "join": join,
+        "joins": joins,
         "loop": loop,
+        "loops": tuple(loops),
         "lifecycle": {
             "state": "cancelled" if cancelled else "stopped",
             "checkpoint": case.state.checkpoint,
@@ -293,7 +290,7 @@ class Oracle:
         production = {
             **production,
             "graph_execution": {
-                "state": "cancelled" if graph_cancelled else "running",
+                "state": "cancelled" if graph_cancelled else "stopped",
                 "cancelled": graph_cancelled,
                 "pending_token_ids": sorted(item[0] for item in queue),
                 "dispatch_count": len(dispatches),

@@ -95,6 +95,64 @@ def test_production_adapter_exercises_actual_back_edge_loop_lifecycle() -> None:
     assert loop["frames"] == ["settled", "settled"]
 
 
+def test_every_generated_back_edge_runs_a_production_loop_transition() -> None:
+    case = Case(
+        Topology(
+            ("n0", "n1", "n2", "n3"),
+            (
+                Edge("e0", "n0", "n1", 0),
+                Edge("e1", "n1", "n0", 0),
+                Edge("e2", "n1", "n2", 0),
+                Edge("e3", "n2", "n1", 0),
+                Edge("e4", "n2", "n3", 0),
+            ),
+        ),
+        (True,) * 5,
+        (),
+        State("null", "collect", "none", "none", "none"),
+    )
+
+    production = ProductionAdapter().run(case).persisted_state["production"]
+
+    assert [loop["back_edge_id"] for loop in production["loops"]] == ["e1", "e3"]
+    assert production["loops"][0]["resolved_exit_edges"] == ["e2"]
+    assert production["loops"][1]["resolved_exit_edges"] == ["e4"]
+
+
+def test_every_generated_join_cohort_runs_a_production_join_transition() -> None:
+    case = Case(
+        Topology(
+            ("n0", "n1", "n2", "n3", "n4"),
+            (
+                Edge("e0", "n0", "n1", 0),
+                Edge("e1", "n0", "n2", 0),
+                Edge("e2", "n1", "n3", 0),
+                Edge("e3", "n2", "n3", 0),
+                Edge("e4", "n1", "n4", 0),
+                Edge("e5", "n3", "n4", 0),
+            ),
+        ),
+        (True,) * 6,
+        (),
+        State("null", "collect", "fail-first", "none", "none"),
+    )
+
+    production = ProductionAdapter().run(case).persisted_state["production"]
+
+    assert [join["edge_ids"] for join in production["joins"]] == [
+        ["e2", "e3"],
+        ["e4", "e5"],
+    ]
+    assert all(join["state"] == "closed" for join in production["joins"])
+
+
+def test_generated_graph_reaches_production_terminal_state() -> None:
+    production = ProductionAdapter().run(_structured_case()).persisted_state["production"]
+
+    assert production["graph_execution"]["pending_token_ids"] == []
+    assert production["graph_execution"]["state"] == "stopped"
+
+
 def test_cancellation_materially_changes_compared_lifecycle_trace() -> None:
     topology = next(generate_topologies(4))
     uncancelled = next(

@@ -63,47 +63,47 @@ def _active(edge: Edge, enabled: bool, conditions: dict[str, bool]) -> bool:
     )
 
 
-def _structured_edge_ids(case: Case) -> tuple[tuple[str, ...], str | None, str | None]:
+def _structured_descriptors(
+    case: Case,
+) -> tuple[tuple[tuple[str, ...], ...], tuple[tuple[str, str | None], ...]]:
     conditions = dict(case.conditions)
     active = tuple(
         edge
         for index, edge in enumerate(case.topology.edges)
         if _active(edge, case.enabled[index], conditions)
     )
-    join_edges = tuple(
-        sorted(
-            max(
-                (
-                    tuple(edge.edge_id for edge in active if edge.target == target)
-                    for target in case.topology.nodes
-                ),
-                key=lambda edge_ids: (len(edge_ids), edge_ids),
-                default=(),
+    join_cohorts = tuple(
+        edge_ids
+        for target in case.topology.nodes
+        if len(
+            edge_ids := tuple(
+                sorted(edge.edge_id for edge in active if edge.target == target)
             )
         )
+        >= 2
     )
-    back_edges = tuple(
-        edge for edge in active if int(edge.target[1:]) <= int(edge.source[1:])
+    back_edges = sorted(
+        (edge for edge in active if int(edge.target[1:]) <= int(edge.source[1:])),
+        key=lambda edge: edge.edge_id,
     )
-    if not back_edges:
-        return join_edges, None, None
-    back = min(back_edges, key=lambda edge: edge.edge_id)
-    exits = tuple(
-        edge
-        for edge in active
-        if edge.edge_id != back.edge_id
-        and edge.source == back.source
-        and int(edge.target[1:]) > int(edge.source[1:])
-    )
-    if not exits:
+    loop_routes: list[tuple[str, str | None]] = []
+    for back in back_edges:
+        low = int(back.target[1:])
+        high = int(back.source[1:])
         exits = tuple(
             edge
             for edge in active
             if edge.edge_id != back.edge_id
+            and low <= int(edge.source[1:]) <= high
+            and not low <= int(edge.target[1:]) <= high
             and int(edge.target[1:]) > int(edge.source[1:])
         )
-    exit_id = min(exits, key=lambda edge: edge.edge_id).edge_id if exits else "bounded-exit"
-    return join_edges, back.edge_id, exit_id
+        loop_routes.extend(
+            (back.edge_id, edge.edge_id) for edge in sorted(exits, key=lambda item: item.edge_id)
+        )
+        if not exits:
+            loop_routes.append((back.edge_id, None))
+    return join_cohorts, tuple(loop_routes)
 
 
 def _reduce(reducer: str, values: list[tuple[str, object]]) -> object:
@@ -375,7 +375,7 @@ def _loop_probe(
     exit_edge_id: str | None,
     mutation: str | None,
 ) -> tuple[dict[str, object], _SnapshotRepository] | None:
-    if back_edge_id is None or exit_edge_id is None:
+    if back_edge_id is None:
         return None
     repository = _SnapshotRepository(
         initialize_token_snapshot(
@@ -391,7 +391,7 @@ def _loop_probe(
             loop_header_node_id="probe-header",
             body_node_id="probe-body",
             inbound_edge_id="probe-body-edge",
-            exit_routes={exit_edge_id: "probe-done"},
+            exit_routes=({exit_edge_id: "probe-done"} if exit_edge_id is not None else {}),
         )
     )
     member_id = entered.queue[0].token_id
@@ -412,16 +412,26 @@ def _loop_probe(
         )
     )
     second_member_id = continued.queue[0].token_id
-    final_ready = repository.apply(
-        lambda snapshot: settle_loop_member(
-            snapshot,
-            token_id=second_member_id,
-            outcome=IterationMemberState.EXIT_DELIVERY,
-            edge_id=exit_edge_id,
-            target_node_id="probe-done",
-            payload=case.state.payload,
+    if exit_edge_id is None:
+        final_ready = repository.apply(
+            lambda snapshot: settle_loop_member(
+                snapshot,
+                token_id=second_member_id,
+                outcome=IterationMemberState.INTERNAL_COMPLETION,
+                payload=case.state.payload,
+            )
         )
-    )
+    else:
+        final_ready = repository.apply(
+            lambda snapshot: settle_loop_member(
+                snapshot,
+                token_id=second_member_id,
+                outcome=IterationMemberState.EXIT_DELIVERY,
+                edge_id=exit_edge_id,
+                target_node_id="probe-done",
+                payload=case.state.payload,
+            )
+        )
     if mutation == "loop_owner_leaks":
         completed = final_ready
     else:
@@ -514,37 +524,47 @@ def _production_probe(
     retry: str,
     checkpoint: str,
     cancellation: str,
-    join_edge_ids: tuple[str, ...],
-    back_edge_id: str | None,
-    exit_edge_id: str | None,
+    join_cohorts: tuple[tuple[str, ...], ...],
+    loop_routes: tuple[tuple[str, str | None], ...],
     mutation: str | None,
 ) -> dict[str, object]:
     probe = _ProbeInput(State(payload_json, reducer, retry, checkpoint, cancellation))
-    join_result = _join_probe(probe, join_edge_ids, mutation)
-    loop_result = _loop_probe(probe, back_edge_id, exit_edge_id, mutation)
+    join_results = tuple(
+        result
+        for edge_ids in join_cohorts
+        if (result := _join_probe(probe, edge_ids, mutation)) is not None
+    )
+    loop_results = tuple(
+        result
+        for back_edge_id, exit_edge_id in loop_routes
+        if (
+            result := _loop_probe(
+                probe, back_edge_id, exit_edge_id, mutation
+            )
+        )
+        is not None
+    )
     lifecycle, _lifecycle_repository = _lifecycle_probe(probe, mutation)
-    if join_result is None:
-        join = {
-            "state": "not_applicable",
-            "continuation_created": False,
-            "failure_policy": "best_effort" if retry == "fail-first" else "fail_fast",
-            "edge_ids": [],
-            "obligation_outcomes": [],
-        }
-    else:
-        join, _join_repository = join_result
-    if loop_result is None:
-        loop = {
-            "state": "not_applicable",
-            "resolved_exit_edges": [],
-            "frames": [],
-            "back_edge_id": None,
-        }
-    else:
-        loop, _loop_repository = loop_result
+    joins = tuple(result[0] for result in join_results)
+    loops = tuple(result[0] for result in loop_results)
+    join = joins[0] if joins else {
+        "state": "not_applicable",
+        "continuation_created": False,
+        "failure_policy": "best_effort" if retry == "fail-first" else "fail_fast",
+        "edge_ids": [],
+        "obligation_outcomes": [],
+    }
+    loop = loops[0] if loops else {
+        "state": "not_applicable",
+        "resolved_exit_edges": [],
+        "frames": [],
+        "back_edge_id": None,
+    }
     return {
         "join": join,
+        "joins": joins,
         "loop": loop,
+        "loops": loops,
         "lifecycle": lifecycle,
         "repository": _repository_probe(),
     }
@@ -792,16 +812,17 @@ class ProductionAdapter:
                     graph_cancelled = True
                     break
 
-        join_edge_ids, back_edge_id, exit_edge_id = _structured_edge_ids(case)
+        join_cohorts, loop_routes = _structured_descriptors(case)
+        if not graph_cancelled and not snapshot.queue:
+            snapshot = stop_snapshot(snapshot)
         production = _production_probe(
             case.state.payload_json,
             case.state.reducer,
             case.state.retry,
             case.state.checkpoint,
             case.state.cancellation,
-            join_edge_ids,
-            back_edge_id,
-            exit_edge_id,
+            join_cohorts,
+            loop_routes,
             self.mutation,
         )
         lifecycle.extend(
