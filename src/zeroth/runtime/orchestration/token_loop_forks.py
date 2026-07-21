@@ -41,6 +41,7 @@ def _settle_crossed_exit_forks(
             raise TokenLoopTransitionError("crossed fork has no durable lineage owner")
         obligations: list[ForkObligation] = []
         matched = False
+        changed = False
         for obligation in fork.obligations:
             if obligation.child_ordinal != frame.child_ordinal:
                 obligations.append(obligation)
@@ -52,6 +53,7 @@ def _settle_crossed_exit_forks(
             if obligation.outcome is not None:
                 raise TokenLoopTransitionError("crossed fork obligation is already settled")
             matched = True
+            changed = True
             obligations.append(
                 ForkObligation.model_validate(
                     {
@@ -64,6 +66,8 @@ def _settle_crossed_exit_forks(
             )
         if not matched:
             raise TokenLoopTransitionError("crossed fork has no matching obligation slot")
+        if not changed:
+            continue
         outstanding = sum(item.outcome is None for item in obligations)
         forks[fork_id] = ForkInstance.model_validate(
             {

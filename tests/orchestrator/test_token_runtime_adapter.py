@@ -611,6 +611,14 @@ async def test_flag_on_multi_boundary_exit_hands_off_reserved_join_once(sqlite_d
         if obligation.inbound_edge_id == "B-J"
     )
     assert loop_exit.outcome is JoinObligationOutcome.DELIVERED
+    closed_reserved_revisions = {
+        fork.updated_revision
+        for snapshot in store.history
+        for fork in snapshot.forks
+        if fork.fork_id == loop_exit.fork_id and fork.lifecycle_state.value == "closed"
+    }
+    exit_settled_revision = completed_loop.exits[0].records[0].settled_revision
+    assert exit_settled_revision not in closed_reserved_revisions
 
 
 async def test_flag_on_routes_subgraph_node_through_runtime_executor(sqlite_db) -> None:
