@@ -30,6 +30,27 @@ def generate_topologies(nodes: int) -> Iterator[Topology]:
         (source, target) for source in labels[:-1] for target in labels if source != target
     )
     seen: set[str] = set()
+    if nodes == 4:
+        accepted: list[Topology] = []
+        for edge_count in range(1, nodes + 2):
+            for pairs in combinations_with_replacement(allowed, edge_count):
+                topology = Topology(
+                    labels,
+                    condition_edges(canonicalize_edges(pairs)),
+                )
+                if topology.digest in seen or not classify_topology(topology).valid:
+                    continue
+                seen.add(topology.digest)
+                accepted.append(topology)
+        yield from sorted(
+            accepted,
+            key=lambda topology: (
+                len(topology.condition_names),
+                len(topology.edges),
+                topology.digest,
+            ),
+        )
+        return
     for interior in permutations(labels[1:-1]):
         path = (labels[0], *interior, labels[-1])
         spine = tuple(zip(path[:-1], path[1:], strict=True))

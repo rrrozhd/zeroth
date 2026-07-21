@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from itertools import combinations_with_replacement
 
 from scripts.token_engine_checker.generator import (
     enumerate_cases,
@@ -15,6 +16,7 @@ from scripts.token_engine_checker.models import (
     canonicalize_edges,
     classify_case,
     classify_topology,
+    condition_edges,
 )
 
 
@@ -56,6 +58,27 @@ def test_generator_is_finite_unique_and_includes_parallel_edges() -> None:
         for topology in topologies
     )
     assert all(classify_topology(topology).valid for topology in topologies)
+
+
+def test_n4_generator_matches_every_topology_accepted_by_classifier() -> None:
+    labels = tuple(f"n{index}" for index in range(4))
+    allowed = tuple(
+        (source, target)
+        for source in labels[:-1]
+        for target in labels
+        if source != target
+    )
+    classified = set()
+    for edge_count in range(1, 6):
+        for pairs in combinations_with_replacement(allowed, edge_count):
+            topology = Topology(labels, condition_edges(canonicalize_edges(pairs)))
+            if classify_topology(topology).valid:
+                classified.add(topology.digest)
+
+    generated = {topology.digest for topology in generate_topologies(4)}
+
+    assert len(classified) == 288
+    assert generated == classified
 
 
 def test_case_classifier_rejects_cancellation_without_checkpoint() -> None:
