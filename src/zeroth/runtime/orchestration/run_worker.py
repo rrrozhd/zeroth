@@ -21,6 +21,8 @@ from uuid import uuid4
 
 from zeroth.core.runs import RunFailureState, RunRepository, RunStatus
 from zeroth.platform.dispatch.lease import LeaseManager
+from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
+from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 
 if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph
@@ -68,6 +70,11 @@ class RunWorker:
         self._semaphore = asyncio.Semaphore(self.max_concurrency)
         self._active_tasks: set[asyncio.Task] = set()
         self._stopping = False
+        self._token_lifecycle = (
+            TokenLifecycleAdapter(self.run_repository)
+            if isinstance(self.run_repository, TokenSnapshotStore)
+            else None
+        )
 
     # ---------------------------------------------------------------------------
     # Public lifecycle
@@ -201,6 +208,8 @@ class RunWorker:
                     "worker %s: transition to RUNNING failed for %s", self.worker_id, run_id
                 )
                 return
+
+        await self._resume_stopped_snapshot(run_id)
 
         # Approval-resumed runs have metadata set by schedule_continuation.
         approval_resolved_id = run.metadata.get("approval_resolved_id")
@@ -349,6 +358,7 @@ class RunWorker:
         for task in pending:
             run_id = self._extract_run_id(task)
             if run_id:
+                await self._stop_token_snapshot(run_id)
                 await self._release_to_pending(run_id)
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -382,6 +392,25 @@ class RunWorker:
                 self.worker_id,
                 run_id,
             )
+
+    async def _stop_token_snapshot(self, run_id: str) -> None:
+        """Best-effort durable stop; legacy runs have no token snapshot."""
+        if self._token_lifecycle is None:
+            return
+        snapshot = await self._token_lifecycle.store.get_token_snapshot(run_id)
+        if snapshot is None:
+            return
+        await self._token_lifecycle.stop(run_id)
+
+    async def _resume_stopped_snapshot(self, run_id: str) -> None:
+        """Turn a replayable worker stop back into ordinary schedulable work."""
+        if self._token_lifecycle is None:
+            return
+        from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
+
+        snapshot = await self._token_lifecycle.store.get_token_snapshot(run_id)
+        if snapshot is not None and snapshot.state is TokenEngineSnapshotState.STOPPED:
+            await self._token_lifecycle.resume(run_id)
 
     # ---------------------------------------------------------------------------
     # Task tracking

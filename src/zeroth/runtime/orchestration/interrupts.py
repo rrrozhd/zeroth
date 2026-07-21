@@ -5,7 +5,11 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
+    from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 
 
 @dataclass
@@ -258,10 +262,34 @@ class RedisInterruptStore(InterruptStore):
 class InterruptManager:
     """Tracks non-approval interrupts with TTL and epoch guards."""
 
-    def __init__(self, *, default_ttl_seconds: int = 1800, store: InterruptStore | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        default_ttl_seconds: int = 1800,
+        store: InterruptStore | None = None,
+        token_lifecycle: TokenLifecycleAdapter | None = None,
+    ) -> None:
         """Initialize InterruptManager."""
         self.default_ttl_seconds = default_ttl_seconds
         self.store = store or InMemoryInterruptStore()
+        self.token_lifecycle = token_lifecycle
+
+    def _token_lifecycle(self) -> TokenLifecycleAdapter:
+        if self.token_lifecycle is None:
+            raise RuntimeError("TokenLifecycleAdapter is required for token lifecycle commands")
+        return self.token_lifecycle
+
+    async def pause_run(self, run_id: str) -> TokenEngineSnapshot:
+        """Durably pause structured-token dispatch for one run."""
+        return await self._token_lifecycle().pause(run_id)
+
+    async def resume_run(self, run_id: str) -> TokenEngineSnapshot:
+        """Resume a paused or stopped structured-token snapshot."""
+        return await self._token_lifecycle().resume(run_id)
+
+    async def cancel_run(self, run_id: str) -> TokenEngineSnapshot:
+        """Fence and settle structured-token work for one run."""
+        return await self._token_lifecycle().cancel(run_id)
 
     async def current_epoch(self, run_id: str) -> int:
         """Current epoch."""

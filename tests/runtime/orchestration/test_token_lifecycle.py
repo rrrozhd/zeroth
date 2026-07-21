@@ -24,6 +24,7 @@ from zeroth.runtime.orchestration.token_scheduler import (
     complete_dispatch,
     fan_out_dispatch,
     initialize_token_snapshot,
+    recover_dispatch,
 )
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 
@@ -73,6 +74,11 @@ def test_graceful_stop_is_replayable_and_resume_recovers_it() -> None:
     assert stopped.queue == snapshot.queue
     assert resumed.state is TokenEngineSnapshotState.RUNNING
     assert resumed.in_flight_dispatches[0].dispatch_id == dispatch.dispatch_id
+
+    recovered = recover_dispatch(resumed, dispatch_id=dispatch.dispatch_id)
+    assert recovered.dispatch.attempt == dispatch.attempt + 1
+    assert recovered.dispatch.dispatch_id == dispatch.dispatch_id
+    assert recovered.dispatch.idempotency_key == dispatch.idempotency_key
 
 
 def test_cancel_settles_queued_children_and_requests_executing_child_stop() -> None:
