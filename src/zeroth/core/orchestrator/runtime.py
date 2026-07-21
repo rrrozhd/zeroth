@@ -46,6 +46,7 @@ from zeroth.runtime.orchestration.errors import (
 from zeroth.runtime.orchestration.parallel_executor import RuntimeParallelExecutor
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.protocols import ExecutableUnitRunner
+from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
 from zeroth.runtime.parallel.executor import ParallelExecutor
 from zeroth.runtime.parallel.models import (
@@ -129,6 +130,14 @@ class RuntimeOrchestrator:
     # across orchestrators that reuse a graph id for a different topology.
     _back_edge_cache: dict = field(default_factory=dict)
     _scopes_cache: dict = field(default_factory=dict)
+    _token_snapshot_store: TokenSnapshotStore | None = field(
+        default=None, init=False, repr=False
+    )
+
+    def use_token_snapshot_store(self, store: TokenSnapshotStore) -> RuntimeOrchestrator:
+        """Inject durable token persistence for library-hosted flag-on execution."""
+        self._token_snapshot_store = store
+        return self
 
     async def run_graph(
         self,
@@ -149,7 +158,11 @@ class RuntimeOrchestrator:
             deployment_ref=deployment_ref or graph.graph_id,
             thread_id=thread_id or "",
             current_node_ids=[],
-            pending_node_ids=[self._entry_step(graph)],
+            pending_node_ids=(
+                []
+                if graph.execution_settings.sequential_join_enabled
+                else [self._entry_step(graph)]
+            ),
             metadata=self._initial_metadata(graph, initial_input),
         )
         persisted = await self.run_repository.create(run)
@@ -198,8 +211,12 @@ class RuntimeOrchestrator:
         keyword as part of its published contract, and a paused child run is
         resumed through the public entry point so its run span opens identically.
         """
+        snapshot_store = self._token_snapshot_store
+        if snapshot_store is None and isinstance(self.run_repository, TokenSnapshotStore):
+            snapshot_store = self.run_repository
         return GraphDriver(
             run_repository=self.run_repository,
+            token_snapshot_store=snapshot_store,
             audit_recorder=self._audit_recorder,
             # Routed through the facade's overridable ``_dispatch_node`` seam (a
             # protected legacy capability): a subclass overriding it must observe

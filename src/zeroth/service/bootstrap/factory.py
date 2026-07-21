@@ -112,7 +112,7 @@ async def bootstrap_service(
         executable_unit_runner=resolved_executable_unit_runner,
         audit_repository=audit_repository,
         approval_service=approval_service,
-    )
+    ).use_token_snapshot_store(run_repository)
     resolved_auth_config = auth_config or ServiceAuthConfig.from_env()
     authenticator = ServiceAuthenticator(
         resolved_auth_config,

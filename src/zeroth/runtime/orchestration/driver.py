@@ -44,6 +44,7 @@ from zeroth.runtime.orchestration.parallel_executor import (
     sum_run_cost,
 )
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
+from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 from zeroth.runtime.orchestration.tool_executor import node_by_id
 from zeroth.runtime.parallel.errors import FanOutValidationError, ParallelExecutionError
 from zeroth.runtime.parallel.models import GlobalStepTracker
@@ -81,6 +82,7 @@ class GraphDriver:
     """Drives a run through its graph, one node at a time, to a terminal state."""
 
     run_repository: Any
+    token_snapshot_store: TokenSnapshotStore | None = None
     audit_recorder: RuntimeAuditRecorder = RuntimeAuditRecorder()
     node_dispatcher: NodeDispatcher | None = None
     policy_gate: RuntimePolicyGate | None = None
@@ -277,6 +279,16 @@ class GraphDriver:
         next steps, and repeating until there are no more nodes to run,
         or until a guard/policy/approval stops execution.
         """
+        if graph.execution_settings.sequential_join_enabled:
+            if self.token_snapshot_store is None:
+                raise RuntimeError(
+                    "sequential_join_enabled requires a durable TokenSnapshotStore"
+                )
+            from zeroth.runtime.orchestration.token_runtime import TokenRuntimeCoordinator
+
+            return await TokenRuntimeCoordinator(self, self.token_snapshot_store).drive(
+                graph, run, step_tracker=step_tracker
+            )
         started_at = perf_counter()
         await self.restore_in_flight_dispatch(graph, run)
         while True:
@@ -1498,15 +1510,14 @@ class GraphDriver:
         metadata: dict[str, Any] = {
             "graph_id": graph.graph_id,
             "graph_name": graph.name,
-            "node_payloads": {entry: dict(initial_input)},
             "edge_visit_counts": {},
             "path": [],
             "audits": {},
         }
-        # B9 token engine: the entry node starts at the outermost (empty) tag. Only
-        # seeded under the flag so the default (legacy) metadata stays identical.
         if graph.execution_settings.sequential_join_enabled:
-            metadata["node_tags"] = {entry: _ts_tag_to_json(_ts.INITIAL_TAG)}
+            metadata["initial_input"] = dict(initial_input)
+        else:
+            metadata["node_payloads"] = {entry: dict(initial_input)}
         return metadata
 
     def edge_for(self, graph: Graph, source_node_id: str, target_node_id: str):
