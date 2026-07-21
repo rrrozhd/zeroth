@@ -327,6 +327,14 @@ async def close_ready_join_with_cas(
                     raise JoinReductionClaimChangedError(
                         "observed reduction claim changed before close"
                     )
+                if join.reducer_fingerprint != fingerprint:
+                    raise TokenJoinTransitionError(
+                        "join reduction config contradicts persisted claim"
+                    )
+                if failure_mode is not None and failure_mode != join.failure_mode:
+                    raise TokenJoinTransitionError(
+                        "close failure policy contradicts persisted join"
+                    )
                 claimed = current
                 break
             if join.reduction_claim_id == claim_id:

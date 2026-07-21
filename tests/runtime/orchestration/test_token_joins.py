@@ -823,6 +823,101 @@ def test_crashed_claim_can_be_reclaimed_and_stale_owner_cannot_close() -> None:
         )
 
 
+def _recovered_reduction() -> tuple[TokenEngineSnapshot, _CASStore, object]:
+    ready = _deliver_head(_deliver_head(_fanout(2), payload={"a": 1}), payload={"b": 2})
+    store = _CASStore(ready)
+    store.failures = 0
+    abandoned = _crash_after_reduction_claim(ready, store)
+    recovered = asyncio.run(
+        orchestration.reclaim_abandoned_join_reduction_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            observed_claim=abandoned,
+            new_owner_id="recovery-worker",
+        )
+    )
+    return ready, store, recovered
+
+
+def test_recovered_owner_wrong_config_is_rejected_before_reducer_evaluation() -> None:
+    ready, store, recovered = _recovered_reduction()
+    claimed_snapshot = store.snapshot
+    calls = 0
+
+    def reducer(_config: JoinConfig, _inputs: tuple[JoinReducerInput, ...]) -> object:
+        nonlocal calls
+        calls += 1
+        return {"ok": True}
+
+    with pytest.raises(TokenJoinTransitionError, match="config contradicts"):
+        asyncio.run(
+            close_ready_join_with_cas(
+                store,
+                ready.run_id,
+                ready.joins[0].join_instance_id,
+                JoinConfig(merge_strategy="merge"),
+                reducer=reducer,
+                claimed_reduction=recovered,
+            )
+        )
+    assert calls == 0
+    assert store.snapshot is claimed_snapshot
+
+    closed = asyncio.run(
+        close_ready_join_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            JoinConfig(),
+            reducer=reducer,
+            claimed_reduction=recovered,
+        )
+    )
+    assert calls == 1
+    assert closed.joins[0].lifecycle_state is JoinLifecycleState.CLOSED
+
+
+def test_recovered_owner_wrong_failure_policy_is_rejected_before_reducer_evaluation() -> None:
+    ready, store, recovered = _recovered_reduction()
+    claimed_snapshot = store.snapshot
+    calls = 0
+
+    def reducer(_config: JoinConfig, _inputs: tuple[JoinReducerInput, ...]) -> object:
+        nonlocal calls
+        calls += 1
+        return {"ok": True}
+
+    with pytest.raises(TokenJoinTransitionError, match="policy contradicts"):
+        asyncio.run(
+            close_ready_join_with_cas(
+                store,
+                ready.run_id,
+                ready.joins[0].join_instance_id,
+                JoinConfig(),
+                reducer=reducer,
+                failure_mode="best_effort",
+                claimed_reduction=recovered,
+            )
+        )
+    assert calls == 0
+    assert store.snapshot is claimed_snapshot
+
+    closed = asyncio.run(
+        close_ready_join_with_cas(
+            store,
+            ready.run_id,
+            ready.joins[0].join_instance_id,
+            JoinConfig(),
+            reducer=reducer,
+            failure_mode="fail_fast",
+            claimed_reduction=recovered,
+        )
+    )
+    assert calls == 1
+    assert closed.joins[0].lifecycle_state is JoinLifecycleState.CLOSED
+
+
 def test_two_reclaimers_race_and_only_one_replaces_abandoned_claim() -> None:
     ready = _deliver_head(_deliver_head(_fanout(2), payload={"a": 1}), payload={"b": 2})
     store = _YieldingCASStore(ready)
