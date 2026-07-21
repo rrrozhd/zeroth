@@ -24,6 +24,11 @@ pre-refactor history and cannot be merged safely into the refactored line.
 - The destination package boundaries, runtime contracts, generated schemas,
   release metadata, and architecture guards are authoritative.
 
+After every acceptance gate passes, the destination tip replaces
+`origin/main`. This is an intentional history replacement: the refactored line
+and public main have unrelated roots, so a normal fast-forward or meaningful
+merge is unavailable.
+
 ## Port Strategy
 
 ### Console application
@@ -202,6 +207,68 @@ Use normal atomic commits without bypassing hooks:
 5. resolve integration defects with focused regression tests; and
 6. update documentation describing the new-core console integration.
 
+## Main Cutover and PR Cleanup
+
+Before changing any remote ref, fetch `origin/main` and record its exact object
+ID. Preserve that object ID on both a durable local branch and a pushed remote
+backup branch named `codex/pre-refactor-main-20260721`. Preserve the PR #4 tip
+locally until post-push verification completes.
+
+Create the local backup from the recorded `<old-main-sha>` and verify its object
+ID. Query the remote backup name before pushing: if it exists at any different
+SHA, abort rather than overwrite it; if it is absent, create it with a lease
+that requires absence; if it already equals `<old-main-sha>`, leave it intact.
+Fetch the remote backup and verify both backup refs equal `<old-main-sha>` before
+cutover.
+
+After local verification finishes, record the immutable
+`<tested-release-sha>`. Every cutover and post-cutover comparison uses that SHA,
+not mutable `HEAD` or a branch name.
+
+The cutover uses an explicit lease tied to the fetched old-main object ID:
+
+```bash
+git push --force-with-lease=refs/heads/main:<old-main-sha> \
+  origin <tested-release-sha>:refs/heads/main
+```
+
+Raw `--force` is prohibited. If the lease fails, stop and re-evaluate the new
+remote state rather than overwriting it. After the push, fetch `origin/main`
+again and verify its object ID and tree exactly match the tested local tip.
+Wait for every required main-triggered CI/status check and release smoke check
+to pass for that exact fetched `<tested-release-sha>`. A successful ref update
+alone is not permission to close or delete anything.
+
+Only then clean up superseded collaboration state:
+
+- immediately fetch `origin/feat/console-rebuild`, record
+  `<console-pr-head-sha>`, verify GitHub still reports it as PR #4's head, and
+  require it to equal the reviewed source tip
+  `4d39d15abab3608322ca20ee55a99f95c46607c5`; if it differs, preserve the new
+  tip and abort cleanup until its commits are reviewed and ported or explicitly
+  declared superseded;
+- only after that equality check, close PR #4 with a comment linking the
+  replacement main commit and stating that its semantic behavior was ported and
+  verified;
+- delete remote `feat/console-rebuild` only after PR #4 is closed, its recorded
+  tip is recoverable locally, and the deletion uses
+  `--force-with-lease=refs/heads/feat/console-rebuild:<console-pr-head-sha>`;
+- leave PR #5 open because custom roles and approval notifications are separate
+  features not included in this port; and
+- leave the historical merged PR #3 record intact. Its source branch is already
+  absent, and GitHub PR records are not deleted.
+
+The current main backup is not removed as part of this task. Rollback remains a
+lease-protected push of that preserved tip if post-cutover verification reveals
+a release-blocking problem:
+
+```bash
+git push --force-with-lease=refs/heads/main:<tested-release-sha> \
+  origin <old-main-sha>:refs/heads/main
+```
+
+After rollback, fetch main and verify its object ID equals `<old-main-sha>`.
+
 ## Acceptance Criteria
 
 - Every intended PR #4 screen and navigation path exists on the refactored
@@ -218,3 +285,13 @@ Use normal atomic commits without bypassing hooks:
   test proves it equals the Python package version; `0.10.6` is never hardcoded.
 - Focused and full verification pass with a clean worktree at the integrated
   commit.
+- The old main tip is recoverable from the documented local and remote backup
+  branch, both backup refs are verified before cutover, the force-with-lease
+  uses the recorded old-main SHA and immutable tested release SHA, and the
+  fetched post-push main exactly matches the verified release commit.
+- Required main CI and smoke checks pass on the exact replacement SHA before PR
+  cleanup begins.
+- PR #4 is closed as superseded only after main verification, and its remote
+  head is first proven to equal the reviewed source tip; its remote branch is
+  deleted only with a lease tied to that freshly verified PR head. Any newer PR
+  head aborts cleanup. PR #5 and merged PR #3 are not incorrectly removed.
