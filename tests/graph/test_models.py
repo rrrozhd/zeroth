@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
+from contextlib import nullcontext
 from datetime import UTC, datetime
+
+import pytest
 
 import zeroth.contracts.graph.models as graph_models
 import zeroth.contracts.graph.versioning as graph_versioning
@@ -20,6 +24,7 @@ from zeroth.contracts.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
+from zeroth.contracts.graph.warnings import LegacyEngineDeprecationWarning
 from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
@@ -165,6 +170,42 @@ def test_graph_serialization_round_trip_preserves_governai_shape() -> None:
     assert isinstance(decoded.to_governed_flow_spec(), GovernedFlowSpec)
     assert decoded.nodes[0].agent.tool_refs == ["tool://summarizer"]
     assert decoded.edges[0].mapping is not None
+
+
+@pytest.mark.parametrize("authored_value", [False, True])
+def test_graph_serialization_preserves_authored_engine_flag(authored_value: bool) -> None:
+    with pytest.warns(LegacyEngineDeprecationWarning) if authored_value is False else nullcontext():
+        settings = ExecutionSettings(sequential_join_enabled=authored_value)
+    graph = build_graph().model_copy(update={"execution_settings": settings})
+
+    encoded = serialize_graph(graph)
+    with pytest.warns(LegacyEngineDeprecationWarning) if authored_value is False else nullcontext():
+        decoded = deserialize_graph(encoded)
+
+    assert json.loads(encoded)["execution_settings"]["sequential_join_enabled"] is authored_value
+    assert decoded.execution_settings.sequential_join_enabled is authored_value
+    assert "sequential_join_enabled" in decoded.execution_settings.model_fields_set
+
+
+def test_graph_serialization_preserves_absent_engine_flag() -> None:
+    graph = build_graph().model_copy(update={"execution_settings": ExecutionSettings()})
+
+    encoded = serialize_graph(graph)
+    decoded = deserialize_graph(encoded)
+
+    assert "sequential_join_enabled" not in json.loads(encoded)["execution_settings"]
+    assert decoded.execution_settings.sequential_join_enabled is False
+    assert "sequential_join_enabled" not in decoded.execution_settings.model_fields_set
+
+
+def test_explicit_legacy_engine_emits_structured_validation_warning() -> None:
+    with pytest.warns(LegacyEngineDeprecationWarning) as captured:
+        ExecutionSettings(sequential_join_enabled=False)
+
+    warning = captured[0].message
+    assert warning.code == "legacy_engine_deprecated"
+    assert warning.stage == "graph_validation"
+    assert warning.engine_mode == "legacy"
 
 
 def test_graph_compiles_to_governai_flow_spec() -> None:

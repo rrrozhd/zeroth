@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from zeroth.contracts.governed.app.spec import (
     GovernedFlowSpec,
@@ -22,6 +22,7 @@ from zeroth.contracts.governed.app.spec import (
     route_to,
     then,
 )
+from zeroth.contracts.graph.warnings import warn_legacy_engine
 from zeroth.contracts.mappings.models import EdgeMapping
 from zeroth.contracts.templates.models import TemplateReference
 from zeroth.platform.primitives import utc_now
@@ -91,6 +92,22 @@ class ExecutionSettings(BaseModel):
     fan-in) is dispatched once per iteration after all its inbound edges resolve
     (delivered or suppressed), with delivered payloads merged via its
     ``JoinConfig``. Opt-in until the parallel/loop/interrupt suites soak."""
+
+    @model_validator(mode="after")
+    def _warn_when_legacy_engine_is_explicit(self) -> ExecutionSettings:
+        if (
+            "sequential_join_enabled" in self.model_fields_set
+            and self.sequential_join_enabled is False
+        ):
+            warn_legacy_engine(stage="graph_validation", stacklevel=3)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _preserve_engine_flag_presence(self, handler):
+        payload = handler(self)
+        if "sequential_join_enabled" not in self.model_fields_set:
+            payload.pop("sequential_join_enabled", None)
+        return payload
 
 
 class ContextWindowSettings(BaseModel):
