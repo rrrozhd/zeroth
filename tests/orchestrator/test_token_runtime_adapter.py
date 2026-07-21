@@ -15,6 +15,7 @@ from zeroth.contracts.graph import (
     SubgraphNodeData,
 )
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
+from zeroth.contracts.mappings.models import ConstantMappingOperation, EdgeMapping
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.integrations.persistence.runs import RunRepository
@@ -239,6 +240,192 @@ async def test_flag_on_loop_persists_iteration_ownership(sqlite_db) -> None:
         for snapshot in store.history
         for loop in snapshot.loops
     )
+
+
+async def test_flag_on_loop_header_materializes_body_and_distinct_exit_outcomes(
+    sqlite_db,
+) -> None:
+    graph = Graph(
+        graph_id="token-loop-header-boundaries",
+        name="token-loop-header-boundaries",
+        entry_step="H",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[_node(node_id) for node_id in ("H", "B", "X", "Y")],
+        edges=[
+            Edge(edge_id="H-B", source_node_id="H", target_node_id="B"),
+            Edge(
+                edge_id="B-H",
+                source_node_id="B",
+                target_node_id="H",
+                condition=Condition(expression="payload.value < 0", allow_cycle_traversal=True),
+            ),
+            Edge(
+                edge_id="H-X",
+                source_node_id="H",
+                target_node_id="X",
+                mapping=EdgeMapping(
+                    operations=[ConstantMappingOperation(target_path="value", value=10)]
+                ),
+            ),
+            Edge(
+                edge_id="H-Y",
+                source_node_id="H",
+                target_node_id="Y",
+                mapping=EdgeMapping(
+                    operations=[ConstantMappingOperation(target_path="value", value=20)]
+                ),
+            ),
+        ],
+    )
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in ("H", "B", "X", "Y")},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert [entry.node_id for entry in run.execution_history] == ["H", "B", "X", "Y"]
+    completed = next(
+        loop
+        for snapshot in reversed(store.history)
+        for loop in snapshot.loops
+        if loop.lifecycle_state.value == "completed"
+    )
+    records = tuple(record for exit_state in completed.exits for record in exit_state.records)
+    assert tuple(record.exit_edge_id for record in records) == ("H-X", "H-Y")
+    assert tuple(record.delivery.payload for record in records if record.delivery is not None) == (
+        {"value": 10},
+        {"value": 20},
+    )
+    assert (
+        len(
+            {record.delivery.model_dump_json() for record in records if record.delivery is not None}
+        )
+        == 2
+    )
+    assert (
+        TokenEngineSnapshot.model_validate_json(store.history[-2].model_dump_json())
+        == store.history[-2]
+    )
+
+
+async def test_flag_on_loop_member_materializes_back_edge_and_exit_before_replay(
+    sqlite_db,
+) -> None:
+    graph = Graph(
+        graph_id="token-loop-member-boundaries",
+        name="token-loop-member-boundaries",
+        entry_step="H",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[_node(node_id) for node_id in ("H", "B", "X")],
+        edges=[
+            Edge(edge_id="H-B", source_node_id="H", target_node_id="B"),
+            Edge(
+                edge_id="B-H",
+                source_node_id="B",
+                target_node_id="H",
+                condition=Condition(expression="payload.value < 3", allow_cycle_traversal=True),
+            ),
+            Edge(
+                edge_id="B-X",
+                source_node_id="B",
+                target_node_id="X",
+                condition=Condition(expression="payload.value == 2"),
+            ),
+        ],
+    )
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in ("H", "B", "X")},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert [entry.node_id for entry in run.execution_history] == ["H", "B", "H", "B", "X"]
+    loop_states = [loop for snapshot in store.history for loop in snapshot.loops]
+    exit_record = next(
+        record for loop in loop_states for exit in loop.exits for record in exit.records
+    )
+    assert exit_record.exit_edge_id == "B-X"
+    assert exit_record.delivery is not None
+    assert exit_record.delivery.payload == {"value": 2}
+    assert any(frame.continuation_deliveries for loop in loop_states for frame in loop.frames)
+
+
+async def test_flag_on_nested_loop_boundary_settles_inner_before_outer_owner(
+    sqlite_db,
+) -> None:
+    graph = Graph(
+        graph_id="token-nested-loop-boundaries",
+        name="token-nested-loop-boundaries",
+        entry_step="O",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[_node(node_id) for node_id in ("O", "I", "B", "OB", "X")],
+        edges=[
+            Edge(edge_id="O-I", source_node_id="O", target_node_id="I"),
+            Edge(edge_id="I-B", source_node_id="I", target_node_id="B"),
+            Edge(
+                edge_id="B-I",
+                source_node_id="B",
+                target_node_id="I",
+                condition=Condition(expression="payload.value < 4", allow_cycle_traversal=True),
+            ),
+            Edge(
+                edge_id="B-OB",
+                source_node_id="B",
+                target_node_id="OB",
+                condition=Condition(expression="payload.value == 3"),
+            ),
+            Edge(
+                edge_id="OB-O",
+                source_node_id="OB",
+                target_node_id="O",
+                condition=Condition(expression="payload.value < 4", allow_cycle_traversal=True),
+            ),
+            Edge(
+                edge_id="OB-X",
+                source_node_id="OB",
+                target_node_id="X",
+                condition=Condition(expression="payload.value >= 4"),
+            ),
+        ],
+    )
+    store = MemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in ("O", "I", "B", "OB", "X")},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert [entry.node_id for entry in run.execution_history] == [
+        "O",
+        "I",
+        "B",
+        "I",
+        "B",
+        "OB",
+        "X",
+    ]
+    owner_snapshot = next(
+        snapshot
+        for snapshot in store.history
+        if any(token.current_node_id == "OB" for token in snapshot.queue)
+    )
+    outer_owner = next(token for token in owner_snapshot.queue if token.current_node_id == "OB")
+    assert tuple(item.loop_header_node_id for item in outer_owner.iteration_memberships) == ("O",)
+    completed_order = [
+        loop.loop_header_node_id
+        for snapshot in store.history
+        for loop in snapshot.loops
+        if loop.lifecycle_state.value == "completed"
+    ]
+    assert completed_order.index("I") < completed_order.index("O")
 
 
 async def test_flag_on_routes_subgraph_node_through_runtime_executor(sqlite_db) -> None:

@@ -344,6 +344,39 @@ def test_continue_and_exit_accumulates_without_early_emission_then_finalizes_dis
     ).model_dump(mode="json")["payload"] == [None]
 
 
+def test_same_exit_payloads_freeze_in_child_order_and_replay_exactly() -> None:
+    snapshot = _fanout(3)
+    children = snapshot.forks[0].children
+    for child in reversed(children):
+        snapshot = settle_loop_member(
+            snapshot,
+            token_id=child.token_id,
+            outcome=IterationMemberState.EXIT_DELIVERY,
+            edge_id="exit-a",
+            target_node_id="after-a",
+            payload={"fingerprint": child.creation_ordinal},
+        )
+
+    completed = close_ready_loop(snapshot, snapshot.loops[0].loop_instance_id)
+    restored = TokenEngineSnapshot.model_validate_json(completed.model_dump_json())
+    exit_state = next(item for item in restored.loops[0].exits if item.exit_edge_id == "exit-a")
+
+    assert tuple(record.canonical_order.child_ordinal for record in exit_state.records) == (0, 1, 2)
+    assert tuple(
+        record.delivery.payload for record in exit_state.records if record.delivery is not None
+    ) == (
+        {"fingerprint": 0},
+        {"fingerprint": 1},
+        {"fingerprint": 2},
+    )
+    assert restored.queue[0].model_dump(mode="json")["payload"] == [
+        {"fingerprint": 0},
+        {"fingerprint": 1},
+        {"fingerprint": 2},
+    ]
+    assert close_ready_loop(restored, restored.loops[0].loop_instance_id) is restored
+
+
 def test_all_suppressed_loop_completes_without_delivery() -> None:
     entered = _entered()
     token = entered.queue[0]
