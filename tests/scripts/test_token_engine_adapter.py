@@ -7,7 +7,7 @@ import pytest
 from scripts.token_engine_checker.adapter import ProductionAdapter, UnsupportedValidCaseError
 from scripts.token_engine_checker.explorer import compare_case, schedule_orders
 from scripts.token_engine_checker.generator import enumerate_cases, generate_topologies
-from scripts.token_engine_checker.models import Case
+from scripts.token_engine_checker.models import Case, Edge, State, Topology
 from scripts.token_engine_checker.normalization import normalize_trace
 from scripts.token_engine_checker.oracle import Oracle
 
@@ -76,3 +76,28 @@ def test_trace_normalization_does_not_hide_missing_resolution() -> None:
     trace = Oracle().run(case)
 
     assert normalize_trace(trace) != normalize_trace(trace.with_resolutions(trace.resolutions[1:]))
+
+
+def test_convergent_terminal_persistence_is_schedule_order_independent() -> None:
+    topology = Topology(
+        tuple(f"n{index}" for index in range(5)),
+        (
+            Edge("e0", "n0", "n1", 0, "c0", True),
+            Edge("e1", "n0", "n2", 0, "c0", False),
+            Edge("e2", "n0", "n3", 0, "c0", True),
+            Edge("e3", "n1", "n3", 0),
+            Edge("e4", "n2", "n4", 0),
+            Edge("e5", "n3", "n2", 0),
+        ),
+    )
+    case = Case(
+        topology,
+        (True, False, True, True, True, True),
+        (("c0", True),),
+        State('{"p":1}', "last", "fail-first", "before-dispatch", "none"),
+    )
+
+    expected = normalize_trace(Oracle().run(case, ("e0", "e2")))
+    observed = normalize_trace(ProductionAdapter().run(case, ("e0", "e2")))
+
+    assert observed == expected

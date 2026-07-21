@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 
 from .oracle import Trace
 
 
 def _json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _persisted(value: object) -> object:
+    if not isinstance(value, Mapping):
+        return value
+    normalized = dict(value)
+    terminal = normalized.get("terminal")
+    if isinstance(terminal, list):
+        normalized["terminal"] = sorted(terminal, key=_json)
+    return normalized
 
 
 def normalize_trace(trace: Trace) -> dict[str, object]:
@@ -40,5 +51,5 @@ def normalize_trace(trace: Trace) -> dict[str, object]:
         "terminal_output": _json(trace.terminal_output),
         "pending": sorted(trace.pending),
         "lifecycle": sorted(trace.lifecycle),
-        "persisted_state": _json(trace.persisted_state),
+        "persisted_state": _json(_persisted(trace.persisted_state)),
     }
