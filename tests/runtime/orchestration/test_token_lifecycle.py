@@ -49,6 +49,12 @@ def _fork_with_one_executing_child() -> tuple[TokenEngineSnapshot, object]:
     return claimed.snapshot, claimed.dispatch
 
 
+def _fork_with_two_executing_children() -> tuple[TokenEngineSnapshot, object, object]:
+    snapshot, first = _fork_with_one_executing_child()
+    second = claim_next_token(snapshot)
+    return second.snapshot, first, second.dispatch
+
+
 def test_pause_and_resume_preserve_the_complete_snapshot() -> None:
     root = _root()
 
@@ -136,6 +142,28 @@ def test_cancel_acknowledgement_compacts_to_replayable_terminal_snapshot() -> No
         cancellation_generation=1,
     )
     assert repeated is replayed
+
+
+def test_partial_cancellation_acknowledgement_replays_by_dispatch_identity() -> None:
+    snapshot, first, second = _fork_with_two_executing_children()
+    cancelling = request_cancellation(snapshot)
+
+    partial = acknowledge_cancellation(
+        cancelling,
+        dispatch_id=first.dispatch_id,
+        cancellation_generation=1,
+    )
+    restored = TokenEngineSnapshot.model_validate_json(partial.model_dump_json())
+    replayed = acknowledge_cancellation(
+        restored,
+        dispatch_id=first.dispatch_id,
+        cancellation_generation=1,
+    )
+
+    assert replayed is restored
+    assert tuple(item.dispatch_id for item in replayed.in_flight_dispatches) == (
+        second.dispatch_id,
+    )
 
 
 def test_cancel_without_executing_children_becomes_terminal_immediately() -> None:

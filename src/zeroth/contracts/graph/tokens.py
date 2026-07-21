@@ -1132,12 +1132,17 @@ class CancellationFence(_FrozenContract):
     generation: CancellationGeneration = 0
     requested_revision: StateRevision | None = None
     acknowledged_token_ids: tuple[TokenId, ...] = ()
+    acknowledged_dispatch_ids: tuple[DispatchId, ...] = ()
     state_revision: StateRevision
 
     @model_validator(mode="after")
     def _validate_fence(self) -> CancellationFence:
         if self.generation == 0:
-            if self.requested_revision is not None or self.acknowledged_token_ids:
+            if (
+                self.requested_revision is not None
+                or self.acknowledged_token_ids
+                or self.acknowledged_dispatch_ids
+            ):
                 raise ValueError("generation zero cannot contain cancellation state")
         elif self.requested_revision is None:
             raise ValueError("a positive generation requires requested_revision")
@@ -1147,6 +1152,10 @@ class CancellationFence(_FrozenContract):
             self.acknowledged_token_ids
         ) != len(set(self.acknowledged_token_ids)):
             raise ValueError("acknowledged_token_ids must be unique and sorted")
+        if self.acknowledged_dispatch_ids != tuple(
+            sorted(self.acknowledged_dispatch_ids)
+        ) or len(self.acknowledged_dispatch_ids) != len(set(self.acknowledged_dispatch_ids)):
+            raise ValueError("acknowledged_dispatch_ids must be unique and sorted")
         return self
 
 

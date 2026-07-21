@@ -272,6 +272,7 @@ def _terminal_cancelled(
     generation: int,
     requested_revision: int,
     acknowledged_token_ids: tuple[str, ...],
+    acknowledged_dispatch_ids: tuple[str, ...] = (),
 ) -> TokenEngineSnapshot:
     revision = snapshot.revision + 1
     return _next(
@@ -287,6 +288,7 @@ def _terminal_cancelled(
             generation=generation,
             requested_revision=requested_revision,
             acknowledged_token_ids=tuple(sorted(acknowledged_token_ids)),
+            acknowledged_dispatch_ids=tuple(sorted(acknowledged_dispatch_ids)),
             state_revision=revision,
         ),
     )
@@ -382,7 +384,7 @@ def acknowledge_cancellation(
         (item for item in snapshot.in_flight_dispatches if item.dispatch_id == dispatch_id), None
     )
     if dispatch is None:
-        if dispatch_id in fence.acknowledged_token_ids:
+        if dispatch_id in fence.acknowledged_dispatch_ids:
             return snapshot
         raise TokenSchedulerTransitionError(
             f"dispatch {dispatch_id!r} is not awaiting cancellation"
@@ -392,6 +394,9 @@ def acknowledge_cancellation(
     revision = snapshot.revision + 1
     token_id = dispatch.token.token_id
     acknowledged_ids = tuple(sorted((*fence.acknowledged_token_ids, token_id)))
+    acknowledged_dispatch_ids = tuple(
+        sorted((*fence.acknowledged_dispatch_ids, dispatch_id))
+    )
     remaining = tuple(
         item for item in snapshot.in_flight_dispatches if item.dispatch_id != dispatch_id
     )
@@ -401,6 +406,7 @@ def acknowledge_cancellation(
             generation=cancellation_generation,
             requested_revision=fence.requested_revision or revision,
             acknowledged_token_ids=acknowledged_ids,
+            acknowledged_dispatch_ids=acknowledged_dispatch_ids,
         )
 
     tokens = tuple(
@@ -426,6 +432,7 @@ def acknowledge_cancellation(
             generation=cancellation_generation,
             requested_revision=fence.requested_revision,
             acknowledged_token_ids=acknowledged_ids,
+            acknowledged_dispatch_ids=acknowledged_dispatch_ids,
             state_revision=revision,
         ),
     )
