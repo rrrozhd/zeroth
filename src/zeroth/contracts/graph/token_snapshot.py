@@ -15,6 +15,8 @@ from zeroth.contracts.graph.tokens import (
     InFlightDispatch,
     IterationMemberState,
     JoinInstance,
+    JoinLifecycleState,
+    JoinObligationOutcome,
     LoopInstance,
     SchedulingState,
     StateRevision,
@@ -208,37 +210,83 @@ class TokenEngineSnapshot(BaseModel):
                 source = tokens.get(obligation.source_token_id)
                 if source is None:
                     raise ValueError("join obligation references a missing source token")
-                if obligation.outcome is None:
+                if join.lifecycle_state is JoinLifecycleState.CLOSED:
+                    if source.scheduling_state is not SchedulingState.SETTLED:
+                        raise ValueError("a settled join obligation source must be durably SETTLED")
+                elif (
+                    obligation.outcome is JoinObligationOutcome.CANCELLED
+                    and source.scheduling_state is SchedulingState.SETTLED
+                    and (
+                        source.cancellation_acknowledged_generation is not None
+                        or join.failure_mode == "fail_fast"
+                    )
+                ):
+                    pass
+                elif obligation.outcome is not None or (
+                    obligation.outcome is None
+                    and source.scheduling_state is SchedulingState.JOIN_WAITING
+                ):
                     if source.scheduling_state is not SchedulingState.JOIN_WAITING:
                         raise ValueError(
-                            "an unsettled join obligation source must be durably JOIN_WAITING"
+                            "an arrived OPEN/READY join source must remain durably JOIN_WAITING"
                         )
-                elif source.scheduling_state is not SchedulingState.SETTLED:
-                    raise ValueError(
-                        "a settled join obligation source token must be durably SETTLED"
-                    )
-                if obligation.outcome is None:
                     waiting_locations[source.token_id] = (
                         waiting_locations.get(source.token_id, 0) + 1
+                    )
+                elif source.scheduling_state is SchedulingState.SETTLED:
+                    raise ValueError(
+                        "an unsettled join obligation source cannot already be settled"
                     )
                 fork_matches = tuple(
                     item
                     for item in fork.obligations
                     if item.child_token_id == obligation.source_token_id
                     and item.child_ordinal == obligation.child_ordinal
-                    and item.join_instance_id == join.join_instance_id
                 )
                 if len(fork_matches) != 1:
                     raise ValueError(
                         "join obligation must match exactly one fork cohort obligation"
                     )
+                fork_outcome = fork_matches[0].outcome
+                expected_fork_outcome = {
+                    None: None,
+                    JoinObligationOutcome.DELIVERED: ForkObligationOutcome.JOINED,
+                    JoinObligationOutcome.SUPPRESSED: ForkObligationOutcome.SUPPRESSED,
+                    JoinObligationOutcome.FAILED: ForkObligationOutcome.FAILED,
+                    JoinObligationOutcome.CANCELLED: ForkObligationOutcome.CANCELLED,
+                }[obligation.outcome]
+                if (
+                    obligation.outcome is None
+                    and source.scheduling_state is SchedulingState.JOIN_WAITING
+                ):
+                    # Schema-v1 snapshots produced by the earlier barrier port
+                    # marked fork ownership JOINED before attaching delivery.
+                    expected_fork_outcome = ForkObligationOutcome.JOINED
+                if fork_outcome is not expected_fork_outcome:
+                    raise ValueError("join and fork obligation outcomes contradict")
+                expected_join_id = (
+                    join.join_instance_id
+                    if expected_fork_outcome is ForkObligationOutcome.JOINED
+                    else None
+                )
+                if fork_matches[0].join_instance_id != expected_join_id:
+                    raise ValueError("fork join ownership contradicts its delivered resolution")
             joined_fork_keys = {
                 (item.child_token_id, item.child_ordinal)
                 for item in fork.obligations
                 if item.outcome is ForkObligationOutcome.JOINED
                 and item.join_instance_id == join.join_instance_id
             }
-            join_keys = {(item.source_token_id, item.child_ordinal) for item in join.obligations}
+            join_keys = {
+                (item.source_token_id, item.child_ordinal)
+                for item in join.obligations
+                if item.outcome is JoinObligationOutcome.DELIVERED
+                or (
+                    item.outcome is None
+                    and tokens[item.source_token_id].scheduling_state
+                    is SchedulingState.JOIN_WAITING
+                )
+            }
             if joined_fork_keys != join_keys:
                 raise ValueError(
                     "JOINED fork obligations and join obligations must form a bijection"
@@ -284,7 +332,16 @@ class TokenEngineSnapshot(BaseModel):
                 if lineage_index == len(token.fork_lineage) - 1 and token.token_id not in {
                     child.token_id for child in fork.children
                 }:
-                    raise ValueError("token is not a child of its innermost fork owner")
+                    retired_nested_parent = (
+                        token.scheduling_state is SchedulingState.SETTLED
+                        and any(
+                            nested.parent_fork_id == fork.fork_id
+                            and nested.parent_token_id == token.token_id
+                            for nested in self.forks
+                        )
+                    )
+                    if not retired_nested_parent:
+                        raise ValueError("token is not a child of its innermost fork owner")
             for membership in token.iteration_memberships:
                 loop = loops.get(membership.loop_instance_id)
                 frame_pair = frames.get(membership.iteration_frame_id)
@@ -326,12 +383,21 @@ class TokenEngineSnapshot(BaseModel):
                 and obligation.outcome is not ForkObligationOutcome.JOINED
                 and tokens[obligation.child_token_id].scheduling_state
                 is not SchedulingState.SETTLED
+                and obligation.child_token_id not in waiting_locations
                 for obligation in fork.obligations
             ):
                 raise ValueError("a settled obligation source token must be durably SETTLED")
             for child in fork.children:
                 token = tokens[child.token_id]
-                if token.parent_token_id != fork.parent_token_id:
+                transferred_continuation = any(
+                    nested.parent_fork_id == fork.fork_id
+                    and set(token.continuation_parent_token_ids)
+                    == {nested_child.token_id for nested_child in nested.children}
+                    and nested.parent_token_id in tokens
+                    and tokens[nested.parent_token_id].parent_token_id == fork.parent_token_id
+                    for nested in self.forks
+                )
+                if token.parent_token_id != fork.parent_token_id and not transferred_continuation:
                     raise ValueError(
                         "fork child immediate parent must match the ForkInstance parent token"
                     )

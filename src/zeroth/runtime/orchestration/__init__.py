@@ -29,6 +29,31 @@ if TYPE_CHECKING:
     )
     from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate as RuntimePolicyGate
     from zeroth.runtime.orchestration.run_worker import RunWorker as RunWorker
+    from zeroth.runtime.orchestration.token_joins import (
+        FailureMode as FailureMode,
+    )
+    from zeroth.runtime.orchestration.token_joins import JoinReducer as JoinReducer
+    from zeroth.runtime.orchestration.token_joins import (
+        JoinReducerInput as JoinReducerInput,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        TokenJoinTransitionError as TokenJoinTransitionError,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        close_ready_join as close_ready_join,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        close_ready_join_with_cas as close_ready_join_with_cas,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        deliver_to_join as deliver_to_join,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        reduce_join_inputs as reduce_join_inputs,
+    )
+    from zeroth.runtime.orchestration.token_joins import (
+        settle_join_without_delivery as settle_join_without_delivery,
+    )
     from zeroth.runtime.orchestration.token_scheduler import (
         DispatchClaim as DispatchClaim,
     )
@@ -96,7 +121,10 @@ if TYPE_CHECKING:
 _EXPORTS = {
     "DispatchClaim": ("token_scheduler", "DispatchClaim"),
     "FanOutBranch": ("token_scheduler", "FanOutBranch"),
+    "FailureMode": ("token_joins", "FailureMode"),
     "GraphDriver": ("driver", "GraphDriver"),
+    "JoinReducer": ("token_joins", "JoinReducer"),
+    "JoinReducerInput": ("token_joins", "JoinReducerInput"),
     "MemoryBindingResolutionError": ("errors", "MemoryBindingResolutionError"),
     "NodeDispatcher": ("dispatcher", "NodeDispatcher"),
     "NodeDispatcherError": ("errors", "NodeDispatcherError"),
@@ -128,17 +156,23 @@ _EXPORTS = {
         "token_scheduler",
         "TokenSchedulerTransitionError",
     ),
+    "TokenJoinTransitionError": ("token_joins", "TokenJoinTransitionError"),
     "TokenPostCommitError": ("token_scheduler", "TokenPostCommitError"),
     "TokenTransition": ("token_scheduler", "TokenTransition"),
     "apply_token_transition": ("token_scheduler", "apply_token_transition"),
     "claim_next_token": ("token_scheduler", "claim_next_token"),
+    "close_ready_join": ("token_joins", "close_ready_join"),
+    "close_ready_join_with_cas": ("token_joins", "close_ready_join_with_cas"),
     "complete_dispatch": ("token_scheduler", "complete_dispatch"),
     "enqueue_dispatch": ("token_scheduler", "enqueue_dispatch"),
+    "deliver_to_join": ("token_joins", "deliver_to_join"),
     "fail_dispatch": ("token_scheduler", "fail_dispatch"),
     "fan_out_dispatch": ("token_scheduler", "fan_out_dispatch"),
     "initialize_token_snapshot": ("token_scheduler", "initialize_token_snapshot"),
     "recover_dispatch": ("token_scheduler", "recover_dispatch"),
+    "reduce_join_inputs": ("token_joins", "reduce_join_inputs"),
     "retry_dispatch": ("token_scheduler", "retry_dispatch"),
+    "settle_join_without_delivery": ("token_joins", "settle_join_without_delivery"),
 }
 
 __all__ = sorted(_EXPORTS)

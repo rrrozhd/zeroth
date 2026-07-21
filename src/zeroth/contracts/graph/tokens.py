@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 from pydantic import (
     BaseModel,
@@ -65,6 +65,7 @@ class ForkLifecycleState(StrEnum):
 class JoinLifecycleState(StrEnum):
     OPEN = "open"
     READY = "ready"
+    REDUCING = "reducing"
     CLOSED = "closed"
 
 
@@ -403,6 +404,12 @@ class JoinObligation(_FrozenContract):
     join_instance_id: JoinInstanceId
     fork_id: ForkId
     source_token_id: TokenId
+    source_dispatch_id: DispatchId | None = None
+    source_dispatch_attempt: RetryAttempt | None = None
+    source_cancellation_generation: CancellationGeneration | None = None
+    source_reported_outcome: JoinObligationOutcome | None = None
+    source_reported_delivery: PayloadDelivery | None = None
+    arrival_command_fingerprint: str | None = None
     inbound_edge_id: EdgeId
     child_ordinal: CreationOrdinal
     outcome: JoinObligationOutcome | None = None
@@ -419,6 +426,26 @@ class JoinObligation(_FrozenContract):
                 raise ValueError("DELIVERED join obligations require a delivery")
         elif self.delivery is not None:
             raise ValueError("only a DELIVERED join obligation may carry a delivery")
+        if not settled and self.source_dispatch_id is not None:
+            raise ValueError("an unsettled join obligation cannot name a consumed dispatch")
+        dispatch_metadata = (
+            self.source_dispatch_id,
+            self.source_dispatch_attempt,
+            self.source_cancellation_generation,
+        )
+        if any(item is not None for item in dispatch_metadata) and not all(
+            item is not None for item in dispatch_metadata
+        ):
+            raise ValueError("consumed dispatch identity fields must be recorded together")
+        if self.source_dispatch_id is None and (
+            self.source_reported_outcome is not None or self.source_reported_delivery is not None
+        ):
+            raise ValueError("reported dispatch result requires consumed dispatch identity")
+        if self.source_reported_outcome is JoinObligationOutcome.DELIVERED:
+            if self.source_reported_delivery is None:
+                raise ValueError("reported DELIVERED result requires its delivery")
+        elif self.source_reported_delivery is not None:
+            raise ValueError("only a reported DELIVERED result may carry delivery")
         return self
 
 
@@ -428,9 +455,12 @@ class JoinInstance(_FrozenContract):
     target_node_id: NodeId
     provenance_tag: tuple[ProvenanceFrame, ...] = ()
     obligations: Annotated[tuple[JoinObligation, ...], Field(min_length=1)]
+    failure_mode: Literal["fail_fast", "best_effort"] = "fail_fast"
     lifecycle_state: JoinLifecycleState
     continuation_token_id: TokenId | None = None
     consumed_parent_token_ids: tuple[TokenId, ...] = ()
+    reducer_fingerprint: str | None = None
+    reduction_claim_id: str | None = None
     created_revision: StateRevision
     updated_revision: StateRevision
     closed_revision: StateRevision | None = None
@@ -478,13 +508,30 @@ class JoinInstance(_FrozenContract):
         if self.lifecycle_state is JoinLifecycleState.OPEN:
             if all_settled:
                 raise ValueError("an OPEN join must have an unsettled obligation")
-            if self.continuation_token_id is not None or self.consumed_parent_token_ids:
+            if (
+                self.continuation_token_id is not None
+                or self.consumed_parent_token_ids
+                or self.reducer_fingerprint is not None
+                or self.reduction_claim_id is not None
+            ):
                 raise ValueError("an OPEN join cannot have continuation state")
         elif self.lifecycle_state is JoinLifecycleState.READY:
             if not all_settled or not any_delivered:
                 raise ValueError("a READY join requires all obligations settled and one delivered")
-            if self.continuation_token_id is not None or self.consumed_parent_token_ids:
+            if (
+                self.continuation_token_id is not None
+                or self.consumed_parent_token_ids
+                or self.reducer_fingerprint is not None
+                or self.reduction_claim_id is not None
+            ):
                 raise ValueError("a READY join cannot have continuation state")
+        elif self.lifecycle_state is JoinLifecycleState.REDUCING:
+            if not all_settled or not any_delivered:
+                raise ValueError("a REDUCING join requires settled delivered input")
+            if self.continuation_token_id is not None or self.consumed_parent_token_ids:
+                raise ValueError("a REDUCING join cannot consume parents early")
+            if self.reducer_fingerprint is None or self.reduction_claim_id is None:
+                raise ValueError("a REDUCING join requires reducer and claim identity")
         else:
             if not all_settled:
                 raise ValueError("a CLOSED join cannot have unsettled obligations")
@@ -497,6 +544,8 @@ class JoinInstance(_FrozenContract):
                 raise ValueError(
                     "a CLOSED join has a continuation exactly when an obligation delivered"
                 )
+            if self.reduction_claim_id is not None:
+                raise ValueError("a CLOSED join cannot retain a reduction claim")
 
         closed = self.lifecycle_state is JoinLifecycleState.CLOSED
         if closed != (self.closed_revision is not None):
