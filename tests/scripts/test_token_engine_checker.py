@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from scripts.token_engine_checker.adapter import ProductionAdapter
 from scripts.token_engine_checker.generator import enumerate_cases, generate_topologies
-from scripts.token_engine_checker.models import Case
+from scripts.token_engine_checker.models import (
+    Case,
+)
 from scripts.token_engine_checker.mutations import evaluate_mutations
 from scripts.token_engine_checker.reporting import write_report
 from scripts.token_engine_checker.runner import run_check
@@ -14,6 +17,23 @@ from scripts.token_engine_checker.shrinker import shrink_case
 def _case_with_extra_edges() -> Case:
     topology = next(topology for topology in generate_topologies(4) if len(topology.edges) == 5)
     return next(case for case in enumerate_cases(topology) if all(case.enabled))
+
+
+def test_production_adapter_honors_schedule_of_actual_ready_token_ids() -> None:
+    topology = next(
+        topology
+        for topology in generate_topologies(4)
+        if {(edge.source, edge.target) for edge in topology.edges}
+        == {("n0", "n1"), ("n0", "n2"), ("n1", "n3"), ("n2", "n3")}
+    )
+    case = next(case for case in enumerate_cases(topology) if all(case.enabled))
+    root_edges = [edge for edge in topology.edges if edge.source == "n0"]
+    first, second = root_edges
+    schedule = ("t0", f"t0.{second.edge_id}.0", f"t0.{first.edge_id}.0")
+
+    trace = ProductionAdapter().run(case, schedule)
+
+    assert trace.dispatches[1].token_id == schedule[1]
 
 
 def test_every_registered_mutation_is_caught() -> None:

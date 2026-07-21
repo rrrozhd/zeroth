@@ -66,18 +66,17 @@ class ProductionAdapter:
     """Drive only production functions whose input and output are snapshots."""
 
     def run(self, case: Case, schedule: tuple[str, ...] | None = None) -> Trace:
-        del schedule  # Production claims its own canonical durable queue order.
         classification = classify_case(case)
         if not classification.valid:
             raise ValueError(f"invalid case: {classification.reason}")
         try:
-            return self._run(case)
+            return self._run(case, schedule=schedule)
         except Exception as error:
             if isinstance(error, UnsupportedValidCaseError):
                 raise
             raise UnsupportedValidCaseError(str(error)) from error
 
-    def _run(self, case: Case) -> Trace:
+    def _run(self, case: Case, *, schedule: tuple[str, ...] | None) -> Trace:
         snapshot = initialize_token_snapshot(
             run_id=f"checker-{case.digest}",
             root_node_id=case.topology.nodes[0],
@@ -94,11 +93,30 @@ class ProductionAdapter:
         lifecycle: list[tuple[str, str]] = []
         terminals: list[tuple[str, object]] = []
         checkpoint_done = False
+        schedule_rank = {
+            token_id: index for index, token_id in enumerate(schedule or ())
+        }
 
         while snapshot.queue:
             if not checkpoint_done and case.state.checkpoint in {"before-claim", "before-dispatch"}:
                 snapshot = _round_trip(snapshot)
                 checkpoint_done = True
+            if schedule_rank:
+                snapshot = snapshot.model_copy(
+                    update={
+                        "queue": tuple(
+                            sorted(
+                                snapshot.queue,
+                                key=lambda token: (
+                                    schedule_rank.get(
+                                        logical_by_actual[token.token_id], len(schedule_rank)
+                                    ),
+                                    logical_by_actual[token.token_id],
+                                ),
+                            )
+                        )
+                    }
+                )
             claim = claim_next_token(snapshot)
             snapshot = claim.snapshot
             dispatch = claim.dispatch
