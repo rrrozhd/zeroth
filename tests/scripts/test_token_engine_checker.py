@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import scripts.token_engine_checker.runner as checker_runner
@@ -54,6 +55,22 @@ def test_every_registered_mutation_is_caught() -> None:
     } <= {outcome.name for outcome in outcomes}
     assert all(outcome.caught for outcome in outcomes)
     assert len({outcome.name for outcome in outcomes}) == len(outcomes)
+
+
+def test_mutation_seeds_do_not_depend_on_sample_case_lifecycle() -> None:
+    base = _case_with_extra_edges()
+    cancelled_before_claim = replace(
+        base,
+        state=replace(
+            base.state,
+            checkpoint="before-claim",
+            cancellation="after-cut",
+        ),
+    )
+
+    outcomes = evaluate_mutations(cancelled_before_claim)
+
+    assert all(outcome.caught for outcome in outcomes)
 
 
 def test_structured_mutation_seeds_exercise_the_defect_precondition() -> None:

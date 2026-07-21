@@ -86,8 +86,23 @@ def _seed_case(case: Case, name: str) -> tuple[Case, tuple[str, ...] | None]:
         )
         return scheduled, ("t0", "t0.e1.0", "t0.e0.0")
     state = case.state
+    if name in {
+        "duplicate_resolution",
+        "drop_resolution",
+        "duplicate_dispatch",
+        "corrupt_payload",
+        "retain_pending",
+    }:
+        state = replace(state, checkpoint="none", cancellation="none")
+        return _diamond_case(state), None
     if name == "retry_lifecycle_lost":
-        state = replace(state, retry="fail-first")
+        state = replace(
+            state,
+            retry="fail-first",
+            checkpoint="none",
+            cancellation="none",
+        )
+        return _diamond_case(state), None
     elif name in {"join_closes_twice", "failure_policy_globalized"}:
         state = replace(state, retry="fail-first")
         return _diamond_case(state), None
