@@ -787,14 +787,20 @@ class ProductionAdapter:
         )
 
         def state_signature() -> str:
-            def without_audit_revisions(value: object) -> object:
+            raw_snapshot = snapshot.model_dump(mode="json")
+            token_ids = dict(logical_by_actual)
+            fork_ids = {
+                fork["fork_id"]: "fork:"
+                + "|".join(
+                    token_ids.get(child["token_id"], child["token_id"])
+                    for child in fork["children"]
+                )
+                for fork in raw_snapshot["forks"]
+            }
+
+            def canonicalize(value: object) -> object:
                 generated_id_fields = {
                     "run_id",
-                    "token_id",
-                    "parent_token_id",
-                    "child_token_id",
-                    "fork_id",
-                    "parent_fork_id",
                     "obligation_id",
                     "join_instance_id",
                     "loop_instance_id",
@@ -804,23 +810,39 @@ class ProductionAdapter:
                     "reduction_claim_owner_id",
                 }
                 if isinstance(value, Mapping):
-                    return {
-                        str(key): without_audit_revisions(item)
-                        for key, item in value.items()
-                        if key not in generated_id_fields
-                        and key != "revision"
-                        and not str(key).endswith("_revision")
-                    }
+                    result: dict[str, object] = {}
+                    for key, item in value.items():
+                        if (
+                            key in generated_id_fields
+                            or key == "revision"
+                            or str(key).endswith("_revision")
+                        ):
+                            continue
+                        if key in {"token_id", "parent_token_id", "child_token_id"}:
+                            result[str(key)] = token_ids.get(item, item)
+                        elif key in {"fork_id", "parent_fork_id"}:
+                            result[str(key)] = fork_ids.get(item, item)
+                        else:
+                            result[str(key)] = canonicalize(item)
+                    return result
                 if isinstance(value, list):
-                    return [without_audit_revisions(item) for item in value]
+                    return [canonicalize(item) for item in value]
                 return value
 
-            raw_snapshot = snapshot.model_dump(mode="json")
-            raw_snapshot["queue"] = sorted(
-                raw_snapshot["queue"], key=lambda token: token["token_id"]
-            )
-            snapshot_state = without_audit_revisions(raw_snapshot)
+            snapshot_state = canonicalize(raw_snapshot)
             assert isinstance(snapshot_state, dict)
+            for field in ("queue", "tokens"):
+                snapshot_state[field] = sorted(
+                    snapshot_state[field], key=lambda token: token["token_id"]
+                )
+            snapshot_state["forks"] = sorted(
+                snapshot_state["forks"], key=lambda fork: fork["fork_id"]
+            )
+            for fork in snapshot_state["forks"]:
+                fork["obligations"] = sorted(
+                    fork["obligations"],
+                    key=lambda obligation: obligation["child_token_id"],
+                )
             partial = Trace(
                 case.digest,
                 tuple(resolutions),
