@@ -1,1238 +1,1454 @@
 [
   {
     "kind": "Route",
-    "path": "/openapi.json",
     "methods": [
       "GET",
       "HEAD"
     ],
-    "name": "openapi"
+    "name": "openapi",
+    "path": "/openapi.json"
   },
   {
     "kind": "Route",
-    "path": "/docs",
     "methods": [
       "GET",
       "HEAD"
     ],
-    "name": "swagger_ui_html"
+    "name": "swagger_ui_html",
+    "path": "/docs"
   },
   {
     "kind": "Route",
-    "path": "/docs/oauth2-redirect",
     "methods": [
       "GET",
       "HEAD"
     ],
-    "name": "swagger_ui_redirect"
+    "name": "swagger_ui_redirect",
+    "path": "/docs/oauth2-redirect"
   },
   {
     "kind": "Route",
-    "path": "/redoc",
     "methods": [
       "GET",
       "HEAD"
     ],
-    "name": "redoc_html"
+    "name": "redoc_html",
+    "path": "/redoc"
   },
   {
     "kind": "APIRoute",
-    "path": "/health/ready",
     "methods": [
       "GET"
     ],
-    "name": "health_ready"
+    "name": "health_ready",
+    "path": "/health/ready"
   },
   {
     "kind": "APIRoute",
-    "path": "/health/live",
     "methods": [
       "GET"
     ],
-    "name": "health_live"
+    "name": "health_live",
+    "path": "/health/live"
   },
   {
     "kind": "APIRoute",
-    "path": "/health",
     "methods": [
       "GET"
     ],
-    "name": "health"
+    "name": "health",
+    "path": "/health"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/workflows",
     "methods": [
       "GET"
     ],
-    "name": "list_workflows"
+    "name": "list_workflows",
+    "path": "/api/studio/v1/workflows"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/workflows",
     "methods": [
       "POST"
     ],
-    "name": "create_workflow"
+    "name": "create_workflow",
+    "path": "/api/studio/v1/workflows"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/workflows/{workflow_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_workflow"
+    "name": "get_workflow",
+    "path": "/api/studio/v1/workflows/{workflow_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/workflows/{workflow_id}",
     "methods": [
       "PUT"
     ],
-    "name": "update_workflow"
+    "name": "update_workflow",
+    "path": "/api/studio/v1/workflows/{workflow_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/workflows/{workflow_id}/publish",
     "methods": [
       "POST"
     ],
-    "name": "publish_workflow"
+    "name": "publish_workflow",
+    "path": "/api/studio/v1/workflows/{workflow_id}/publish"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/contracts",
     "methods": [
       "GET"
     ],
-    "name": "list_contracts"
+    "name": "list_contracts",
+    "path": "/api/studio/v1/contracts"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/contracts",
     "methods": [
       "POST"
     ],
-    "name": "create_contract"
+    "name": "create_contract",
+    "path": "/api/studio/v1/contracts"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/workflows/{workflow_id}/diff",
     "methods": [
       "GET"
     ],
-    "name": "diff_workflow"
+    "name": "diff_workflow",
+    "path": "/api/studio/v1/workflows/{workflow_id}/diff"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/workflows/{workflow_id}/clone",
     "methods": [
       "POST"
     ],
-    "name": "clone_workflow"
+    "name": "clone_workflow",
+    "path": "/api/studio/v1/workflows/{workflow_id}/clone"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/workflows/{workflow_id}",
     "methods": [
       "DELETE"
     ],
-    "name": "delete_workflow"
+    "name": "delete_workflow",
+    "path": "/api/studio/v1/workflows/{workflow_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/api/studio/v1/node-types",
     "methods": [
       "GET"
     ],
-    "name": "list_node_types"
+    "name": "list_node_types",
+    "path": "/api/studio/v1/node-types"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/input-contract",
     "methods": [
       "GET"
     ],
-    "name": "get_input_contract"
+    "name": "get_input_contract",
+    "path": "/v1/deployments/{deployment_ref}/input-contract"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/output-contract",
     "methods": [
       "GET"
     ],
-    "name": "get_output_contract"
+    "name": "get_output_contract",
+    "path": "/v1/deployments/{deployment_ref}/output-contract"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
     "methods": [
       "GET"
     ],
-    "name": "get_result_error_state_schema"
+    "name": "get_result_error_state_schema",
+    "path": "/v1/deployments/{deployment_ref}/result-error-state-schema"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/metadata",
     "methods": [
       "GET"
     ],
-    "name": "get_deployment_metadata"
+    "name": "get_deployment_metadata",
+    "path": "/v1/deployments/{deployment_ref}/metadata"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/audits",
     "methods": [
       "GET"
     ],
-    "name": "list_audits"
+    "name": "list_audits",
+    "path": "/v1/deployments/{deployment_ref}/audits"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/runs/{run_id}/timeline",
     "methods": [
       "GET"
     ],
-    "name": "get_run_timeline"
+    "name": "get_run_timeline",
+    "path": "/v1/runs/{run_id}/timeline"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/runs/{run_id}/audit-verification",
     "methods": [
       "GET"
     ],
-    "name": "verify_run_audit_chain"
+    "name": "verify_run_audit_chain",
+    "path": "/v1/runs/{run_id}/audit-verification"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/runs/{run_id}/verify-chain",
     "methods": [
       "POST"
     ],
-    "name": "post_verify_run_chain"
+    "name": "post_verify_run_chain",
+    "path": "/v1/runs/{run_id}/verify-chain"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/audit-verification",
     "methods": [
       "GET"
     ],
-    "name": "verify_deployment_audit_chain"
+    "name": "verify_deployment_audit_chain",
+    "path": "/v1/deployments/{deployment_ref}/audit-verification"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/timeline",
     "methods": [
       "GET"
     ],
-    "name": "get_deployment_timeline"
+    "name": "get_deployment_timeline",
+    "path": "/v1/deployments/{deployment_ref}/timeline"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/runs/{run_id}/evidence",
     "methods": [
       "GET"
     ],
-    "name": "get_run_evidence"
+    "name": "get_run_evidence",
+    "path": "/v1/runs/{run_id}/evidence"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/evidence",
     "methods": [
       "GET"
     ],
-    "name": "get_deployment_evidence"
+    "name": "get_deployment_evidence",
+    "path": "/v1/deployments/{deployment_ref}/evidence"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/attestation",
     "methods": [
       "GET"
     ],
-    "name": "get_attestation"
+    "name": "get_attestation",
+    "path": "/v1/deployments/{deployment_ref}/attestation"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/verify-attestation",
     "methods": [
       "POST"
     ],
-    "name": "post_verify_attestation"
+    "name": "post_verify_attestation",
+    "path": "/v1/deployments/{deployment_ref}/verify-attestation"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/attestation/verify",
     "methods": [
       "GET"
     ],
-    "name": "get_attestation_verify"
+    "name": "get_attestation_verify",
+    "path": "/v1/deployments/{deployment_ref}/attestation/verify"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/approvals",
     "methods": [
       "GET"
     ],
-    "name": "list_approvals"
+    "name": "list_approvals",
+    "path": "/v1/deployments/{deployment_ref}/approvals"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_approval"
+    "name": "get_approval",
+    "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
     "methods": [
       "POST"
     ],
-    "name": "resolve_approval"
+    "name": "resolve_approval",
+    "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/runs",
     "methods": [
       "POST"
     ],
-    "name": "create_run"
+    "name": "create_run",
+    "path": "/v1/runs"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/runs/{run_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_run"
+    "name": "get_run",
+    "path": "/v1/runs/{run_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/metrics",
     "methods": [
       "GET"
     ],
-    "name": "get_metrics"
+    "name": "get_metrics",
+    "path": "/v1/metrics"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/admin/runs",
     "methods": [
       "GET"
     ],
-    "name": "list_admin_runs"
+    "name": "list_admin_runs",
+    "path": "/v1/admin/runs"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/admin/runs/{run_id}/cancel",
     "methods": [
       "POST"
     ],
-    "name": "cancel_run"
+    "name": "cancel_run",
+    "path": "/v1/admin/runs/{run_id}/cancel"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/admin/runs/{run_id}/replay",
     "methods": [
       "POST"
     ],
-    "name": "replay_run"
+    "name": "replay_run",
+    "path": "/v1/admin/runs/{run_id}/replay"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/admin/runs/{run_id}/interrupt",
     "methods": [
       "POST"
     ],
-    "name": "interrupt_run"
+    "name": "interrupt_run",
+    "path": "/v1/admin/runs/{run_id}/interrupt"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/tenants/{tenant_id}/cost",
     "methods": [
       "GET"
     ],
-    "name": "get_tenant_cost"
+    "name": "get_tenant_cost",
+    "path": "/v1/tenants/{tenant_id}/cost"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/tenants/{tenant_id}/budget",
     "methods": [
       "PUT"
     ],
-    "name": "set_tenant_budget"
+    "name": "set_tenant_budget",
+    "path": "/v1/tenants/{tenant_id}/budget"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/cost",
     "methods": [
       "GET"
     ],
-    "name": "get_deployment_cost"
+    "name": "get_deployment_cost",
+    "path": "/v1/deployments/{deployment_ref}/cost"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/rightsizing",
     "methods": [
       "POST"
     ],
-    "name": "suggest_rightsizing"
+    "name": "suggest_rightsizing",
+    "path": "/v1/econ/rightsizing"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/rightsizing/opportunities",
     "methods": [
       "GET"
     ],
-    "name": "rightsizing_opportunities"
+    "name": "rightsizing_opportunities",
+    "path": "/v1/econ/rightsizing/opportunities"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/rightsizing/experiment",
     "methods": [
       "POST"
     ],
-    "name": "run_rightsizing_experiment"
+    "name": "run_rightsizing_experiment",
+    "path": "/v1/econ/rightsizing/experiment"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/unit-economics",
     "methods": [
       "GET"
     ],
-    "name": "get_unit_economics"
+    "name": "get_unit_economics",
+    "path": "/v1/econ/unit-economics"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/waste",
     "methods": [
       "GET"
     ],
-    "name": "get_waste"
+    "name": "get_waste",
+    "path": "/v1/econ/waste"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/quality-verdict",
     "methods": [
       "POST"
     ],
-    "name": "attach_quality_verdict"
+    "name": "attach_quality_verdict",
+    "path": "/v1/econ/quality-verdict"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/kpis",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_kpis"
+    "name": "econ_dashboard_kpis",
+    "path": "/v1/econ/dashboard/kpis"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/top-creators",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_top_creators"
+    "name": "econ_dashboard_top_creators",
+    "path": "/v1/econ/dashboard/top-creators"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/capital-destroyers",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_capital_destroyers"
+    "name": "econ_dashboard_capital_destroyers",
+    "path": "/v1/econ/dashboard/capital-destroyers"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/capability-ranking",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_capability_ranking"
+    "name": "econ_dashboard_capability_ranking",
+    "path": "/v1/econ/dashboard/capability-ranking"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/confidence-trend",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_confidence_trend"
+    "name": "econ_dashboard_confidence_trend",
+    "path": "/v1/econ/dashboard/confidence-trend"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/efficiency-trend",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_efficiency_trend"
+    "name": "econ_dashboard_efficiency_trend",
+    "path": "/v1/econ/dashboard/efficiency-trend"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/calibration-trend",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_calibration_trend"
+    "name": "econ_dashboard_calibration_trend",
+    "path": "/v1/econ/dashboard/calibration-trend"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/action-suppression",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_action_suppression"
+    "name": "econ_dashboard_action_suppression",
+    "path": "/v1/econ/dashboard/action-suppression"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/econ/dashboard/data-quality-mix",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_data_quality_mix"
+    "name": "econ_dashboard_data_quality_mix",
+    "path": "/v1/econ/dashboard/data-quality-mix"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/webhooks/subscriptions",
     "methods": [
       "POST"
     ],
-    "name": "create_subscription"
+    "name": "create_subscription",
+    "path": "/v1/webhooks/subscriptions"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/webhooks/subscriptions",
     "methods": [
       "GET"
     ],
-    "name": "list_subscriptions"
+    "name": "list_subscriptions",
+    "path": "/v1/webhooks/subscriptions"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/webhooks/subscriptions/{subscription_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_subscription"
+    "name": "get_subscription",
+    "path": "/v1/webhooks/subscriptions/{subscription_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/webhooks/subscriptions/{subscription_id}",
     "methods": [
       "DELETE"
     ],
-    "name": "deactivate_subscription"
+    "name": "deactivate_subscription",
+    "path": "/v1/webhooks/subscriptions/{subscription_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/webhooks/dead-letters",
     "methods": [
       "GET"
     ],
-    "name": "list_dead_letters"
+    "name": "list_dead_letters",
+    "path": "/v1/webhooks/dead-letters"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
     "methods": [
       "POST"
     ],
-    "name": "replay_dead_letter"
+    "name": "replay_dead_letter",
+    "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/artifacts/{artifact_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_artifact"
+    "name": "get_artifact",
+    "path": "/v1/artifacts/{artifact_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/templates",
     "methods": [
       "GET"
     ],
-    "name": "list_templates"
+    "name": "list_templates",
+    "path": "/v1/templates"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/templates",
     "methods": [
       "POST"
     ],
-    "name": "create_template"
+    "name": "create_template",
+    "path": "/v1/templates"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/templates/{name}",
     "methods": [
       "GET"
     ],
-    "name": "get_template"
+    "name": "get_template",
+    "path": "/v1/templates/{name}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/templates/{name}/{version}",
     "methods": [
       "DELETE"
     ],
-    "name": "delete_template"
+    "name": "delete_template",
+    "path": "/v1/templates/{name}/{version}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/retention/policy",
     "methods": [
       "GET"
     ],
-    "name": "get_retention_policy"
+    "name": "get_retention_policy",
+    "path": "/v1/retention/policy"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/retention/policy",
     "methods": [
       "PUT"
     ],
-    "name": "put_retention_policy"
+    "name": "put_retention_policy",
+    "path": "/v1/retention/policy"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/retention/legal-holds",
     "methods": [
       "POST"
     ],
-    "name": "place_legal_hold"
+    "name": "place_legal_hold",
+    "path": "/v1/retention/legal-holds"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/retention/legal-holds/{hold_id}",
     "methods": [
       "DELETE"
     ],
-    "name": "release_legal_hold"
+    "name": "release_legal_hold",
+    "path": "/v1/retention/legal-holds/{hold_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/retention/erasure-requests",
     "methods": [
       "POST"
     ],
-    "name": "request_erasure"
+    "name": "request_erasure",
+    "path": "/v1/retention/erasure-requests"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments",
     "methods": [
       "GET"
     ],
-    "name": "list_deployments"
+    "name": "regulus_dashboard_kpis",
+    "path": "/v1/econ/regulus/dashboard/kpis"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/deployments",
-    "methods": [
-      "POST"
-    ],
-    "name": "create_deployment"
-  },
-  {
-    "kind": "APIRoute",
-    "path": "/v1/deployments/{deployment_ref}/rollback",
-    "methods": [
-      "POST"
-    ],
-    "name": "rollback_deployment"
-  },
-  {
-    "kind": "APIRoute",
-    "path": "/v1/connectors",
     "methods": [
       "GET"
     ],
-    "name": "list_connectors"
+    "name": "regulus_dashboard_top_creators",
+    "path": "/v1/econ/regulus/dashboard/top-creators"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/connectors",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_capital_destroyers",
+    "path": "/v1/econ/regulus/dashboard/capital-destroyers"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_capability_ranking",
+    "path": "/v1/econ/regulus/dashboard/capability-ranking"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_confidence_trend",
+    "path": "/v1/econ/regulus/dashboard/confidence-trend"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_efficiency_trend",
+    "path": "/v1/econ/regulus/dashboard/efficiency-trend"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_calibration_trend",
+    "path": "/v1/econ/regulus/dashboard/calibration-trend"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_action_suppression",
+    "path": "/v1/econ/regulus/dashboard/action-suppression"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_confidence_gate",
+    "path": "/v1/econ/regulus/dashboard/confidence-gate-status"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_data_quality",
+    "path": "/v1/econ/regulus/dashboard/data-quality-mix"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_policy_timeline",
+    "path": "/v1/econ/regulus/dashboard/policy-timeline"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_drift_timeline",
+    "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_dashboard_implementation_compare",
+    "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_registry_capabilities",
+    "path": "/v1/econ/regulus/registry/capabilities"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_registry_capability",
+    "path": "/v1/econ/regulus/registry/capabilities/{capability_id}"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_registry_implementation",
+    "path": "/v1/econ/regulus/registry/implementations/{implementation_id}"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_evaluations_latest",
+    "path": "/v1/econ/regulus/evaluations/{capability_id}/latest"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_evaluations_history",
+    "path": "/v1/econ/regulus/evaluations/{capability_id}/history"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_enforcement_actions",
+    "path": "/v1/econ/regulus/enforcement/actions"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_enforcement_policy_actions",
+    "path": "/v1/econ/regulus/enforcement/policy-actions"
+  },
+  {
+    "kind": "APIRoute",
     "methods": [
       "POST"
     ],
-    "name": "create_connector"
+    "name": "regulus_enforcement_approve",
+    "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/connectors/{ref}",
+    "methods": [
+      "POST"
+    ],
+    "name": "regulus_enforcement_reject",
+    "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_costing_profile",
+    "path": "/v1/econ/regulus/costing/profiles/{profile_id}"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_costing_estimate",
+    "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_performance_summary",
+    "path": "/v1/econ/regulus/performance/summary"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_performance_capabilities",
+    "path": "/v1/econ/regulus/performance/capabilities"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "regulus_reconciliation_calibration",
+    "path": "/v1/econ/regulus/reconciliation/calibration-summary"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_deployments",
+    "path": "/v1/deployments"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_deployment",
+    "path": "/v1/deployments"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "rollback_deployment",
+    "path": "/v1/deployments/{deployment_ref}/rollback"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_connectors",
+    "path": "/v1/connectors"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_connector",
+    "path": "/v1/connectors"
+  },
+  {
+    "kind": "APIRoute",
     "methods": [
       "PUT"
     ],
-    "name": "update_connector"
+    "name": "update_connector",
+    "path": "/v1/connectors/{ref}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/connectors/{ref}",
     "methods": [
       "DELETE"
     ],
-    "name": "delete_connector"
+    "name": "delete_connector",
+    "path": "/v1/connectors/{ref}"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/connectors/{ref}/test",
     "methods": [
       "POST"
     ],
-    "name": "test_connector"
+    "name": "test_connector",
+    "path": "/v1/connectors/{ref}/test"
   },
   {
     "kind": "APIRoute",
-    "path": "/v1/manifests",
     "methods": [
       "GET"
     ],
-    "name": "list_manifests"
+    "name": "list_manifests",
+    "path": "/v1/manifests"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/input-contract",
     "methods": [
       "GET"
     ],
-    "name": "get_input_contract"
+    "name": "get_input_contract",
+    "path": "/deployments/{deployment_ref}/input-contract"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/output-contract",
     "methods": [
       "GET"
     ],
-    "name": "get_output_contract"
+    "name": "get_output_contract",
+    "path": "/deployments/{deployment_ref}/output-contract"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/result-error-state-schema",
     "methods": [
       "GET"
     ],
-    "name": "get_result_error_state_schema"
+    "name": "get_result_error_state_schema",
+    "path": "/deployments/{deployment_ref}/result-error-state-schema"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/metadata",
     "methods": [
       "GET"
     ],
-    "name": "get_deployment_metadata"
+    "name": "get_deployment_metadata",
+    "path": "/deployments/{deployment_ref}/metadata"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/audits",
     "methods": [
       "GET"
     ],
-    "name": "list_audits"
+    "name": "list_audits",
+    "path": "/deployments/{deployment_ref}/audits"
   },
   {
     "kind": "APIRoute",
-    "path": "/runs/{run_id}/timeline",
     "methods": [
       "GET"
     ],
-    "name": "get_run_timeline"
+    "name": "get_run_timeline",
+    "path": "/runs/{run_id}/timeline"
   },
   {
     "kind": "APIRoute",
-    "path": "/runs/{run_id}/audit-verification",
     "methods": [
       "GET"
     ],
-    "name": "verify_run_audit_chain"
+    "name": "verify_run_audit_chain",
+    "path": "/runs/{run_id}/audit-verification"
   },
   {
     "kind": "APIRoute",
-    "path": "/runs/{run_id}/verify-chain",
     "methods": [
       "POST"
     ],
-    "name": "post_verify_run_chain"
+    "name": "post_verify_run_chain",
+    "path": "/runs/{run_id}/verify-chain"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/audit-verification",
     "methods": [
       "GET"
     ],
-    "name": "verify_deployment_audit_chain"
+    "name": "verify_deployment_audit_chain",
+    "path": "/deployments/{deployment_ref}/audit-verification"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/timeline",
     "methods": [
       "GET"
     ],
-    "name": "get_deployment_timeline"
+    "name": "get_deployment_timeline",
+    "path": "/deployments/{deployment_ref}/timeline"
   },
   {
     "kind": "APIRoute",
-    "path": "/runs/{run_id}/evidence",
     "methods": [
       "GET"
     ],
-    "name": "get_run_evidence"
+    "name": "get_run_evidence",
+    "path": "/runs/{run_id}/evidence"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/evidence",
     "methods": [
       "GET"
     ],
-    "name": "get_deployment_evidence"
+    "name": "get_deployment_evidence",
+    "path": "/deployments/{deployment_ref}/evidence"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/attestation",
     "methods": [
       "GET"
     ],
-    "name": "get_attestation"
+    "name": "get_attestation",
+    "path": "/deployments/{deployment_ref}/attestation"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/verify-attestation",
     "methods": [
       "POST"
     ],
-    "name": "post_verify_attestation"
+    "name": "post_verify_attestation",
+    "path": "/deployments/{deployment_ref}/verify-attestation"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/attestation/verify",
     "methods": [
       "GET"
     ],
-    "name": "get_attestation_verify"
+    "name": "get_attestation_verify",
+    "path": "/deployments/{deployment_ref}/attestation/verify"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/approvals",
     "methods": [
       "GET"
     ],
-    "name": "list_approvals"
+    "name": "list_approvals",
+    "path": "/deployments/{deployment_ref}/approvals"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/approvals/{approval_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_approval"
+    "name": "get_approval",
+    "path": "/deployments/{deployment_ref}/approvals/{approval_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
     "methods": [
       "POST"
     ],
-    "name": "resolve_approval"
+    "name": "resolve_approval",
+    "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve"
   },
   {
     "kind": "APIRoute",
-    "path": "/runs",
     "methods": [
       "POST"
     ],
-    "name": "create_run"
+    "name": "create_run",
+    "path": "/runs"
   },
   {
     "kind": "APIRoute",
-    "path": "/runs/{run_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_run"
+    "name": "get_run",
+    "path": "/runs/{run_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/metrics",
     "methods": [
       "GET"
     ],
-    "name": "get_metrics"
+    "name": "get_metrics",
+    "path": "/metrics"
   },
   {
     "kind": "APIRoute",
-    "path": "/admin/runs",
     "methods": [
       "GET"
     ],
-    "name": "list_admin_runs"
+    "name": "list_admin_runs",
+    "path": "/admin/runs"
   },
   {
     "kind": "APIRoute",
-    "path": "/admin/runs/{run_id}/cancel",
     "methods": [
       "POST"
     ],
-    "name": "cancel_run"
+    "name": "cancel_run",
+    "path": "/admin/runs/{run_id}/cancel"
   },
   {
     "kind": "APIRoute",
-    "path": "/admin/runs/{run_id}/replay",
     "methods": [
       "POST"
     ],
-    "name": "replay_run"
+    "name": "replay_run",
+    "path": "/admin/runs/{run_id}/replay"
   },
   {
     "kind": "APIRoute",
-    "path": "/admin/runs/{run_id}/interrupt",
     "methods": [
       "POST"
     ],
-    "name": "interrupt_run"
+    "name": "interrupt_run",
+    "path": "/admin/runs/{run_id}/interrupt"
   },
   {
     "kind": "APIRoute",
-    "path": "/tenants/{tenant_id}/cost",
     "methods": [
       "GET"
     ],
-    "name": "get_tenant_cost"
+    "name": "get_tenant_cost",
+    "path": "/tenants/{tenant_id}/cost"
   },
   {
     "kind": "APIRoute",
-    "path": "/tenants/{tenant_id}/budget",
     "methods": [
       "PUT"
     ],
-    "name": "set_tenant_budget"
+    "name": "set_tenant_budget",
+    "path": "/tenants/{tenant_id}/budget"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/cost",
     "methods": [
       "GET"
     ],
-    "name": "get_deployment_cost"
+    "name": "get_deployment_cost",
+    "path": "/deployments/{deployment_ref}/cost"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/rightsizing",
     "methods": [
       "POST"
     ],
-    "name": "suggest_rightsizing"
+    "name": "suggest_rightsizing",
+    "path": "/econ/rightsizing"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/rightsizing/opportunities",
     "methods": [
       "GET"
     ],
-    "name": "rightsizing_opportunities"
+    "name": "rightsizing_opportunities",
+    "path": "/econ/rightsizing/opportunities"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/rightsizing/experiment",
     "methods": [
       "POST"
     ],
-    "name": "run_rightsizing_experiment"
+    "name": "run_rightsizing_experiment",
+    "path": "/econ/rightsizing/experiment"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/unit-economics",
     "methods": [
       "GET"
     ],
-    "name": "get_unit_economics"
+    "name": "get_unit_economics",
+    "path": "/econ/unit-economics"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/waste",
     "methods": [
       "GET"
     ],
-    "name": "get_waste"
+    "name": "get_waste",
+    "path": "/econ/waste"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/quality-verdict",
     "methods": [
       "POST"
     ],
-    "name": "attach_quality_verdict"
+    "name": "attach_quality_verdict",
+    "path": "/econ/quality-verdict"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/kpis",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_kpis"
+    "name": "econ_dashboard_kpis",
+    "path": "/econ/dashboard/kpis"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/top-creators",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_top_creators"
+    "name": "econ_dashboard_top_creators",
+    "path": "/econ/dashboard/top-creators"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/capital-destroyers",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_capital_destroyers"
+    "name": "econ_dashboard_capital_destroyers",
+    "path": "/econ/dashboard/capital-destroyers"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/capability-ranking",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_capability_ranking"
+    "name": "econ_dashboard_capability_ranking",
+    "path": "/econ/dashboard/capability-ranking"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/confidence-trend",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_confidence_trend"
+    "name": "econ_dashboard_confidence_trend",
+    "path": "/econ/dashboard/confidence-trend"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/efficiency-trend",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_efficiency_trend"
+    "name": "econ_dashboard_efficiency_trend",
+    "path": "/econ/dashboard/efficiency-trend"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/calibration-trend",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_calibration_trend"
+    "name": "econ_dashboard_calibration_trend",
+    "path": "/econ/dashboard/calibration-trend"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/action-suppression",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_action_suppression"
+    "name": "econ_dashboard_action_suppression",
+    "path": "/econ/dashboard/action-suppression"
   },
   {
     "kind": "APIRoute",
-    "path": "/econ/dashboard/data-quality-mix",
     "methods": [
       "GET"
     ],
-    "name": "econ_dashboard_data_quality_mix"
+    "name": "econ_dashboard_data_quality_mix",
+    "path": "/econ/dashboard/data-quality-mix"
   },
   {
     "kind": "APIRoute",
-    "path": "/webhooks/subscriptions",
     "methods": [
       "POST"
     ],
-    "name": "create_subscription"
+    "name": "create_subscription",
+    "path": "/webhooks/subscriptions"
   },
   {
     "kind": "APIRoute",
-    "path": "/webhooks/subscriptions",
     "methods": [
       "GET"
     ],
-    "name": "list_subscriptions"
+    "name": "list_subscriptions",
+    "path": "/webhooks/subscriptions"
   },
   {
     "kind": "APIRoute",
-    "path": "/webhooks/subscriptions/{subscription_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_subscription"
+    "name": "get_subscription",
+    "path": "/webhooks/subscriptions/{subscription_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/webhooks/subscriptions/{subscription_id}",
     "methods": [
       "DELETE"
     ],
-    "name": "deactivate_subscription"
+    "name": "deactivate_subscription",
+    "path": "/webhooks/subscriptions/{subscription_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/webhooks/dead-letters",
     "methods": [
       "GET"
     ],
-    "name": "list_dead_letters"
+    "name": "list_dead_letters",
+    "path": "/webhooks/dead-letters"
   },
   {
     "kind": "APIRoute",
-    "path": "/webhooks/dead-letters/{dead_letter_id}/replay",
     "methods": [
       "POST"
     ],
-    "name": "replay_dead_letter"
+    "name": "replay_dead_letter",
+    "path": "/webhooks/dead-letters/{dead_letter_id}/replay"
   },
   {
     "kind": "APIRoute",
-    "path": "/artifacts/{artifact_id}",
     "methods": [
       "GET"
     ],
-    "name": "get_artifact"
+    "name": "get_artifact",
+    "path": "/artifacts/{artifact_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/templates",
     "methods": [
       "GET"
     ],
-    "name": "list_templates"
+    "name": "list_templates",
+    "path": "/templates"
   },
   {
     "kind": "APIRoute",
-    "path": "/templates",
     "methods": [
       "POST"
     ],
-    "name": "create_template"
+    "name": "create_template",
+    "path": "/templates"
   },
   {
     "kind": "APIRoute",
-    "path": "/templates/{name}",
     "methods": [
       "GET"
     ],
-    "name": "get_template"
+    "name": "get_template",
+    "path": "/templates/{name}"
   },
   {
     "kind": "APIRoute",
-    "path": "/templates/{name}/{version}",
     "methods": [
       "DELETE"
     ],
-    "name": "delete_template"
+    "name": "delete_template",
+    "path": "/templates/{name}/{version}"
   },
   {
     "kind": "APIRoute",
-    "path": "/retention/policy",
     "methods": [
       "GET"
     ],
-    "name": "get_retention_policy"
+    "name": "get_retention_policy",
+    "path": "/retention/policy"
   },
   {
     "kind": "APIRoute",
-    "path": "/retention/policy",
     "methods": [
       "PUT"
     ],
-    "name": "put_retention_policy"
+    "name": "put_retention_policy",
+    "path": "/retention/policy"
   },
   {
     "kind": "APIRoute",
-    "path": "/retention/legal-holds",
     "methods": [
       "POST"
     ],
-    "name": "place_legal_hold"
+    "name": "place_legal_hold",
+    "path": "/retention/legal-holds"
   },
   {
     "kind": "APIRoute",
-    "path": "/retention/legal-holds/{hold_id}",
     "methods": [
       "DELETE"
     ],
-    "name": "release_legal_hold"
+    "name": "release_legal_hold",
+    "path": "/retention/legal-holds/{hold_id}"
   },
   {
     "kind": "APIRoute",
-    "path": "/retention/erasure-requests",
     "methods": [
       "POST"
     ],
-    "name": "request_erasure"
+    "name": "request_erasure",
+    "path": "/retention/erasure-requests"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments",
     "methods": [
       "GET"
     ],
-    "name": "list_deployments"
+    "name": "list_deployments",
+    "path": "/deployments"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments",
     "methods": [
       "POST"
     ],
-    "name": "create_deployment"
+    "name": "create_deployment",
+    "path": "/deployments"
   },
   {
     "kind": "APIRoute",
-    "path": "/deployments/{deployment_ref}/rollback",
     "methods": [
       "POST"
     ],
-    "name": "rollback_deployment"
+    "name": "rollback_deployment",
+    "path": "/deployments/{deployment_ref}/rollback"
   },
   {
     "kind": "APIRoute",
-    "path": "/connectors",
     "methods": [
       "GET"
     ],
-    "name": "list_connectors"
+    "name": "list_connectors",
+    "path": "/connectors"
   },
   {
     "kind": "APIRoute",
-    "path": "/connectors",
     "methods": [
       "POST"
     ],
-    "name": "create_connector"
+    "name": "create_connector",
+    "path": "/connectors"
   },
   {
     "kind": "APIRoute",
-    "path": "/connectors/{ref}",
     "methods": [
       "PUT"
     ],
-    "name": "update_connector"
+    "name": "update_connector",
+    "path": "/connectors/{ref}"
   },
   {
     "kind": "APIRoute",
-    "path": "/connectors/{ref}",
     "methods": [
       "DELETE"
     ],
-    "name": "delete_connector"
+    "name": "delete_connector",
+    "path": "/connectors/{ref}"
   },
   {
     "kind": "APIRoute",
-    "path": "/connectors/{ref}/test",
     "methods": [
       "POST"
     ],
-    "name": "test_connector"
+    "name": "test_connector",
+    "path": "/connectors/{ref}/test"
   },
   {
     "kind": "APIRoute",
-    "path": "/manifests",
     "methods": [
       "GET"
     ],
-    "name": "list_manifests"
+    "name": "list_manifests",
+    "path": "/manifests"
   }
 ]
