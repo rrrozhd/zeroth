@@ -5,7 +5,7 @@
 // shapes cannot drift from the backend. The thin apiFetch wrapper adds the
 // runtime API base + X-API-Key from lib/config.ts.
 
-import type { components } from "./api-types";
+import type { components, operations } from "./api-types";
 import { getApiBase, getApiKey } from "./config";
 
 type S = components["schemas"];
@@ -37,13 +37,16 @@ export type StudioViewport = S["StudioViewport"];
 export type StudioContract = S["StudioContractResponse"];
 export type CreateContractRequest = S["CreateContractRequest"];
 export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
-export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
-export type QualityVerdictRequest = S["QualityVerdictRequest"];
-export type RunQualityVerdict = S["RunQualityVerdict"];
-export type ContractSchema = S["PublicContractSchemaResponse"];
 export type AuditVerification = S["AuditVerificationResponse"];
 export type DeploymentAttestation = S["DeploymentAttestationResponse"];
 export type AttestationVerification = S["AttestationVerificationResponse"];
+export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
+
+// GET /v1/metrics has no fixed schema — the OpenAPI spec types its 200 body as
+// an open object, so the generated operation's response type (`unknown`) flows
+// through unchanged rather than being hand-narrowed to a fabricated shape.
+export type MetricsResponse =
+  operations["get_metrics_v1_metrics_get"]["responses"][200]["content"]["application/json"];
 
 // The publish 422 payload — FastAPI types it as a generic validation error in
 // the spec, but the studio API fills `detail` with this structured issue list
@@ -374,38 +377,6 @@ export function getRunTimeline(runId: string): Promise<AuditTimeline> {
   return apiFetch<AuditTimeline>(`/v1/runs/${encodeURIComponent(runId)}/timeline`);
 }
 
-// ---- Run operator controls (RUN_ADMIN) ----
-
-/** Forcibly fail a run (operator_cancelled) and clear its lease. */
-export function cancelRun(runId: string): Promise<RunStatus> {
-  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/cancel`, {
-    method: "POST",
-  });
-}
-
-/** Reset a failed / dead-letter run to PENDING for replay. */
-export function replayRun(runId: string): Promise<RunStatus> {
-  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/replay`, {
-    method: "POST",
-  });
-}
-
-/** Interrupt a RUNNING run (transition to WAITING_INTERRUPT). */
-export function interruptRun(runId: string): Promise<RunStatus> {
-  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/interrupt`, {
-    method: "POST",
-  });
-}
-
-/** The deployment's pinned input contract (name + version + JSON Schema), used to
-    guide and validate run submission. Deployment-scoped (DEPLOYMENT_READ). */
-export async function getInputContract(): Promise<ContractSchema> {
-  const ref = await deploymentRef();
-  return apiFetch<ContractSchema>(
-    `/v1/deployments/${encodeURIComponent(ref)}/input-contract`,
-  );
-}
-
 // ---- Approvals (deployment-scoped) ----
 
 export async function listApprovals(): Promise<ApprovalRecord[]> {
@@ -445,30 +416,6 @@ export async function listNodeAudits(
   return (res.records ?? []).slice(-limit).reverse();
 }
 
-export type RunEvidence = S["RunEvidenceResponse"];
-export type DeploymentEvidence = S["DeploymentEvidenceResponse"];
-
-/** Verify the audit digest chain + signatures across every run of the
-    deployment (WS-D three-state), for a deployment-wide tamper-evidence badge. */
-export async function getDeploymentAuditVerification(): Promise<AuditVerification> {
-  const ref = await deploymentRef();
-  return apiFetch<AuditVerification>(
-    `/v1/deployments/${encodeURIComponent(ref)}/audit-verification`,
-  );
-}
-
-/** Full compliance evidence bundle for the deployment (runs + audits + approvals
-    + summary + policy events), for export. */
-export async function getDeploymentEvidence(): Promise<DeploymentEvidence> {
-  const ref = await deploymentRef();
-  return apiFetch<DeploymentEvidence>(`/v1/deployments/${encodeURIComponent(ref)}/evidence`);
-}
-
-/** Compliance evidence bundle for a single run, for export. */
-export function getRunEvidence(runId: string): Promise<RunEvidence> {
-  return apiFetch<RunEvidence>(`/v1/runs/${encodeURIComponent(runId)}/evidence`);
-}
-
 // ---- Deployments ----
 
 /** All persisted deployment versions; `serving` marks this service's own. */
@@ -485,16 +432,19 @@ export function createDeployment(body: CreateDeploymentRequest): Promise<Deploym
   });
 }
 
-/** Roll a deployment back to an earlier graph version — creates a new deployment
-    version pinned to `targetGraphVersion` (DEPLOYMENT_ADMIN). Serving it still
-    requires a restart with ZEROTH_DEPLOYMENT_REF set. */
+/** Roll a deployment back to an earlier graph version: creates a new deployment
+    version pinned to `targetGraphVersion` (DEPLOYMENT_ADMIN). Like createDeployment,
+    actually serving the new version still requires a restart. The endpoint
+    requires the target graph version in the body — the Overview derives it from a
+    deployment row's `graph_version_ref` (`{graph_id}@{version}`). */
 export function rollbackDeployment(
   ref: string,
   targetGraphVersion: number,
 ): Promise<DeploymentSummary> {
+  const body: RollbackDeploymentRequest = { target_graph_version: targetGraphVersion };
   return apiFetch<DeploymentSummary>(
     `/v1/deployments/${encodeURIComponent(ref)}/rollback`,
-    { method: "POST", body: JSON.stringify({ target_graph_version: targetGraphVersion }) },
+    { method: "POST", body: JSON.stringify(body) },
   );
 }
 
@@ -519,6 +469,15 @@ export async function verifyDeploymentAttestation(): Promise<AttestationVerifica
   return apiFetch<AttestationVerification>(
     `/v1/deployments/${encodeURIComponent(ref)}/attestation/verify`,
   );
+}
+
+// ---- Metrics ----
+
+/** Runtime metrics snapshot for the connected service. The spec leaves the
+    response body open (no fixed schema), so the type is `unknown` — callers that
+    consume specific keys must narrow at the use site. */
+export function getMetrics(): Promise<MetricsResponse> {
+  return apiFetch<MetricsResponse>("/v1/metrics");
 }
 
 // ---- Memory connectors ----
@@ -569,150 +528,11 @@ export function listManifests(): Promise<ManifestSummary[]> {
   return apiFetch<ManifestSummary[]>("/v1/manifests");
 }
 
-// ---- Prompt templates ----
-
-export type PromptTemplate = S["TemplateResponse"];
-export type PromptTemplateList = S["TemplateListResponse"];
-export type CreateTemplateRequest = S["CreateTemplateRequest"];
-
-/** Registered prompt templates (name + version + body + variables). */
-export function listTemplates(): Promise<PromptTemplateList> {
-  return apiFetch<PromptTemplateList>("/v1/templates");
-}
-
-/** Register a prompt template; re-posting a name creates the next version
-    (TEMPLATE_ADMIN). */
-export function createTemplate(body: CreateTemplateRequest): Promise<PromptTemplate> {
-  return apiFetch<PromptTemplate>("/v1/templates", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-/** Delete one version of a prompt template (TEMPLATE_ADMIN). */
-export function deleteTemplate(name: string, version: number): Promise<void> {
-  return apiFetch<void>(
-    `/v1/templates/${encodeURIComponent(name)}/${version}`,
-    { method: "DELETE" },
-  );
-}
-
-// ---- Webhooks / integrations (WEBHOOK_ADMIN) ----
-
-export type WebhookSubscription = S["WebhookSubscriptionResponse"];
-export type WebhookSubscriptionList = S["WebhookSubscriptionListResponse"];
-export type WebhookDeadLetter = S["WebhookDeadLetterResponse"];
-export type WebhookDeadLetterList = S["WebhookDeadLetterListResponse"];
-
-/** Active webhook subscriptions for this deployment. */
-export function listWebhookSubscriptions(): Promise<WebhookSubscriptionList> {
-  return apiFetch<WebhookSubscriptionList>("/v1/webhooks/subscriptions");
-}
-
-/** Create a webhook subscription. The response `secret` is shown once — it signs
-    delivery payloads (HMAC) and can't be retrieved again. */
-export async function createWebhookSubscription(
-  targetUrl: string,
-  eventTypes: string[],
-): Promise<WebhookSubscription> {
-  const ref = await deploymentRef();
-  return apiFetch<WebhookSubscription>("/v1/webhooks/subscriptions", {
-    method: "POST",
-    body: JSON.stringify({
-      deployment_ref: ref,
-      target_url: targetUrl,
-      event_types: eventTypes,
-    }),
-  });
-}
-
-/** Deactivate (soft-delete) a webhook subscription. */
-export function deleteWebhookSubscription(id: string): Promise<void> {
-  return apiFetch<void>(`/v1/webhooks/subscriptions/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-/** Dead-lettered webhook deliveries (exhausted retries). */
-export function listWebhookDeadLetters(): Promise<WebhookDeadLetterList> {
-  return apiFetch<WebhookDeadLetterList>("/v1/webhooks/dead-letters");
-}
-
-/** Re-enqueue a dead-lettered delivery for another attempt. */
-export function replayWebhookDeadLetter(id: string): Promise<unknown> {
-  return apiFetch<unknown>(
-    `/v1/webhooks/dead-letters/${encodeURIComponent(id)}/replay`,
-    { method: "POST" },
-  );
-}
-
-// ---- Retention & compliance (RETENTION_ADMIN) ----
-
-export type RetentionPolicy = S["RetentionPolicyResponse"];
-export type RetentionPolicyBody = S["RetentionPolicyBody"];
-export type LegalHold = S["LegalHoldResponse"];
-export type LegalHoldBody = S["LegalHoldBody"];
-export type ErasureRequestBody = S["ErasureRequestBody"];
-export type ErasureResult = S["ErasureResponse"];
-
-/** The tenant's retention policy — TTLs for runs/audits and whether purge is on. */
-export function getRetentionPolicy(): Promise<RetentionPolicy> {
-  return apiFetch<RetentionPolicy>("/v1/retention/policy");
-}
-
-/** Update the tenant's retention policy (enable purge, set run/audit TTLs). */
-export function updateRetentionPolicy(body: RetentionPolicyBody): Promise<RetentionPolicy> {
-  return apiFetch<RetentionPolicy>("/v1/retention/policy", {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
-}
-
-/** Place a legal hold (blocks erasure/purge) over a run or the whole tenant. */
-export function placeLegalHold(body: LegalHoldBody): Promise<LegalHold> {
-  return apiFetch<LegalHold>("/v1/retention/legal-holds", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-/** Release a legal hold by id. */
-export function releaseLegalHold(holdId: string): Promise<LegalHold> {
-  return apiFetch<LegalHold>(`/v1/retention/legal-holds/${encodeURIComponent(holdId)}`, {
-    method: "DELETE",
-  });
-}
-
-/** Right-to-erasure: redact a run (or all of a tenant's runs). 409 if a legal
-    hold blocks it. Returns per-run deletion counts. */
-export function requestErasure(body: ErasureRequestBody): Promise<ErasureResult> {
-  return apiFetch<ErasureResult>("/v1/retention/erasure-requests", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
 // ---- Cost (deployment-scoped) ----
 
 export async function getCost(): Promise<DeploymentCost> {
   const ref = await deploymentRef();
   return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
-}
-
-export type TenantCost = S["TenantCostResponse"];
-
-/** Month-to-date spend and budget cap for a tenant (METRICS_READ). Proxies to
-    the Regulus budget backend; 503 when it isn't configured. */
-export function getTenantCost(tenantId: string): Promise<TenantCost> {
-  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/cost`);
-}
-
-/** Set the tenant spend cap enforced before LLM calls and fan-out (METRICS_ADMIN). */
-export function setTenantBudget(tenantId: string, budgetCapUsd: number): Promise<TenantCost> {
-  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/budget`, {
-    method: "PUT",
-    body: JSON.stringify({ budget_cap_usd: budgetCapUsd }),
-  });
 }
 
 // ---- Model right-sizing (authoring-time nudge) ----
@@ -747,53 +567,6 @@ export function getUnitEconomics(): Promise<UnitEconomicsReport> {
 /** Deployment-wide structural-waste rollup (paid-for-failed, loops, retries) over the last N runs. */
 export function getWaste(): Promise<WasteRollup> {
   return apiFetch<WasteRollup>("/v1/econ/waste");
-}
-
-// ---- Econ portfolio dashboard (bundled Regulus, via /v1/econ/dashboard/* proxy) ----
-// These come from the bundled control plane, whose shapes aren't in the core
-// OpenAPI (the proxy forwards raw JSON), so they're hand-declared here — the
-// econ_plane-owned contract, mirrored like PublishIssue / GraphDiff above.
-
-export type EconKpis = {
-  total_ai_spend_usd: number;
-  total_ai_value_usd: number;
-  net_ai_margin_usd: number;
-  portfolio_confidence_score: number;
-  efficiency_index: number;
-};
-
-export type EconCapabilityValue = {
-  capability_id: string;
-  net_margin_usd: number;
-  confidence: number;
-};
-
-/** Portfolio KPIs (spend, value, net margin, confidence, efficiency) from the
-    bundled Regulus control plane. 503 when Regulus isn't configured. */
-export function getEconKpis(): Promise<EconKpis> {
-  return apiFetch<EconKpis>("/v1/econ/dashboard/kpis");
-}
-
-/** Capabilities creating the most net value. */
-export function getEconTopCreators(): Promise<EconCapabilityValue[]> {
-  return apiFetch<EconCapabilityValue[]>("/v1/econ/dashboard/top-creators");
-}
-
-/** Capabilities destroying the most value (negative net margin). */
-export function getEconCapitalDestroyers(): Promise<EconCapabilityValue[]> {
-  return apiFetch<EconCapabilityValue[]>("/v1/econ/dashboard/capital-destroyers");
-}
-
-/** Attach an external good/bad quality verdict to a terminal run (METRICS_ADMIN).
-    Feeds quality-aware unit economics — cost per *good* outcome. 409 if the run
-    isn't terminal yet. */
-export function attachQualityVerdict(
-  body: QualityVerdictRequest,
-): Promise<RunQualityVerdict> {
-  return apiFetch<RunQualityVerdict>("/v1/econ/quality-verdict", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
 }
 
 /** Measured right-sizing: replays the node's real inputs through cheaper models and
@@ -902,4 +675,263 @@ export function listNodeTypes(): Promise<NodeType[]> {
 
 export function errMsg(e: unknown): string {
   return e instanceof ApiError ? `${e.status || ""} ${e.message}`.trim() : String(e);
+}
+
+// ---------------------------------------------------------------------------
+// P1 Operate — admin run actions, run evidence/chain, deployment detail.
+// ---------------------------------------------------------------------------
+
+export type RunEvidence = S["RunEvidenceResponse"];
+export type DeploymentMetadata = S["DeploymentVersionMetadataResponse"];
+export type PublicContractSchema = S["PublicContractSchemaResponse"];
+export type DeploymentResultErrorStateSchema = S["DeploymentResultErrorStateSchemaResponse"];
+export type DeploymentEvidence = S["DeploymentEvidenceResponse"];
+
+export function cancelRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function interruptRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/interrupt`, {
+    method: "POST",
+  });
+}
+
+export function replayRun(runId: string): Promise<RunInvocationResponse> {
+  return apiFetch<RunInvocationResponse>(`/v1/admin/runs/${encodeURIComponent(runId)}/replay`, {
+    method: "POST",
+  });
+}
+
+export function getRunEvidence(runId: string): Promise<RunEvidence> {
+  return apiFetch<RunEvidence>(`/v1/runs/${encodeURIComponent(runId)}/evidence`);
+}
+
+export function verifyRunChain(runId: string): Promise<AuditVerification> {
+  return apiFetch<AuditVerification>(`/v1/runs/${encodeURIComponent(runId)}/verify-chain`, {
+    method: "POST",
+  });
+}
+
+// Deployment detail — ref-parameterized (the older attestation/cost/audit
+// helpers default to `deploymentRef()`; the Deployments screen targets a
+// selected ref explicitly).
+export function getDeploymentMetadata(ref: string): Promise<DeploymentMetadata> {
+  return apiFetch<DeploymentMetadata>(`/v1/deployments/${encodeURIComponent(ref)}/metadata`);
+}
+
+export function getDeploymentTimeline(ref: string): Promise<AuditTimeline> {
+  return apiFetch<AuditTimeline>(`/v1/deployments/${encodeURIComponent(ref)}/timeline`);
+}
+
+export function getDeploymentEvidence(ref: string): Promise<DeploymentEvidence> {
+  return apiFetch<DeploymentEvidence>(`/v1/deployments/${encodeURIComponent(ref)}/evidence`);
+}
+
+export function getInputContract(ref: string): Promise<PublicContractSchema> {
+  return apiFetch<PublicContractSchema>(
+    `/v1/deployments/${encodeURIComponent(ref)}/input-contract`,
+  );
+}
+
+export function getOutputContract(ref: string): Promise<PublicContractSchema> {
+  return apiFetch<PublicContractSchema>(
+    `/v1/deployments/${encodeURIComponent(ref)}/output-contract`,
+  );
+}
+
+export function getResultErrorStateSchema(
+  ref: string,
+): Promise<DeploymentResultErrorStateSchema> {
+  return apiFetch<DeploymentResultErrorStateSchema>(
+    `/v1/deployments/${encodeURIComponent(ref)}/result-error-state-schema`,
+  );
+}
+
+export function verifyDeploymentAuditChain(ref: string): Promise<AuditVerification> {
+  return apiFetch<AuditVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/audit-verification`,
+  );
+}
+
+// Attestation + cost — ref-parameterized. The older getDeploymentAttestation /
+// verifyDeploymentAttestation / getCost helpers target the *serving* deployment
+// (they resolve `deploymentRef()`); the Deployments screen selects an arbitrary
+// deployment, so it needs variants that take the ref explicitly.
+
+/** The persisted attestation for a specific deployment `ref` (WS-D). */
+export function getAttestationOf(ref: string): Promise<DeploymentAttestation> {
+  return apiFetch<DeploymentAttestation>(
+    `/v1/deployments/${encodeURIComponent(ref)}/attestation`,
+  );
+}
+
+/** GET self-verify: the server recomputes the digest + checks the signature of
+    its own persisted attestation for `ref`. */
+export function getAttestationVerifyOf(ref: string): Promise<AttestationVerification> {
+  return apiFetch<AttestationVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/attestation/verify`,
+  );
+}
+
+/** POST verify: submit an attestation body back to the server for verification.
+    The endpoint requires the attestation payload, so the persisted attestation is
+    fetched first and then round-tripped — proving the on-screen copy re-verifies. */
+export async function postVerifyAttestationOf(
+  ref: string,
+): Promise<AttestationVerification> {
+  const attestation = await getAttestationOf(ref);
+  return apiFetch<AttestationVerification>(
+    `/v1/deployments/${encodeURIComponent(ref)}/verify-attestation`,
+    { method: "POST", body: JSON.stringify(attestation) },
+  );
+}
+
+/** Cumulative spend for a specific deployment `ref` (ref-taking sibling of getCost). */
+export function getCostOf(ref: string): Promise<DeploymentCost> {
+  return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
+}
+
+// ---------------------------------------------------------------------------
+// P2 Build — templates + webhooks. List endpoints return envelopes.
+// ---------------------------------------------------------------------------
+
+export type TemplateList = S["TemplateListResponse"];
+export type Template = S["TemplateResponse"];
+export type CreateTemplateRequest = S["CreateTemplateRequest"];
+
+export function listTemplates(): Promise<TemplateList> {
+  return apiFetch<TemplateList>("/v1/templates");
+}
+export function getTemplate(name: string): Promise<Template> {
+  return apiFetch<Template>(`/v1/templates/${encodeURIComponent(name)}`);
+}
+export function createTemplate(body: CreateTemplateRequest): Promise<Template> {
+  return apiFetch<Template>("/v1/templates", { method: "POST", body: JSON.stringify(body) });
+}
+export function deleteTemplateVersion(name: string, version: string): Promise<void> {
+  return apiFetch<void>(
+    `/v1/templates/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
+    { method: "DELETE" },
+  );
+}
+
+export type WebhookSubscription = S["WebhookSubscriptionResponse"];
+export type WebhookSubscriptionList = S["WebhookSubscriptionListResponse"];
+export type CreateSubscriptionRequest = S["CreateSubscriptionRequest"];
+export type DeadLetter = S["WebhookDeadLetterResponse"];
+export type WebhookDeadLetterList = S["WebhookDeadLetterListResponse"];
+
+export function listWebhookSubscriptions(): Promise<WebhookSubscriptionList> {
+  return apiFetch<WebhookSubscriptionList>("/v1/webhooks/subscriptions");
+}
+export function createWebhookSubscription(
+  body: CreateSubscriptionRequest,
+): Promise<WebhookSubscription>;
+export function createWebhookSubscription(
+  targetUrl: string,
+  eventTypes: string[],
+): Promise<WebhookSubscription>;
+export async function createWebhookSubscription(
+  bodyOrTarget: CreateSubscriptionRequest | string,
+  eventTypes?: string[],
+): Promise<WebhookSubscription> {
+  const body =
+    typeof bodyOrTarget === "string"
+      ? {
+          deployment_ref: await deploymentRef(),
+          event_types: eventTypes ?? [],
+          target_url: bodyOrTarget,
+          tenant_id: "default",
+        }
+      : bodyOrTarget;
+  return apiFetch<WebhookSubscription>("/v1/webhooks/subscriptions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+export function deleteWebhookSubscription(id: string): Promise<void> {
+  return apiFetch<void>(`/v1/webhooks/subscriptions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+export function listDeadLetters(): Promise<WebhookDeadLetterList> {
+  return apiFetch<WebhookDeadLetterList>("/v1/webhooks/dead-letters");
+}
+export function replayDeadLetter(id: string): Promise<void> {
+  return apiFetch<void>(`/v1/webhooks/dead-letters/${encodeURIComponent(id)}/replay`, {
+    method: "POST",
+  });
+}
+
+// Destination-only Integrations page compatibility aliases. Keep one transport
+// implementation while the rebuilt Connectors page uses the shorter names.
+export type WebhookDeadLetter = DeadLetter;
+export const listWebhookDeadLetters = listDeadLetters;
+export const replayWebhookDeadLetter = replayDeadLetter;
+
+// ---------------------------------------------------------------------------
+// P3 Govern — tenant cost/budget, retention, econ quality verdict.
+// ---------------------------------------------------------------------------
+
+export type TenantCost = S["TenantCostResponse"];
+export type TenantBudgetRequest = S["TenantBudgetRequest"];
+
+export function getTenantCost(tenantId: string): Promise<TenantCost> {
+  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/cost`);
+}
+export function setTenantBudget(
+  tenantId: string,
+  body: TenantBudgetRequest,
+): Promise<TenantCost> {
+  return apiFetch<TenantCost>(`/v1/tenants/${encodeURIComponent(tenantId)}/budget`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export type RetentionPolicy = S["RetentionPolicyResponse"];
+export type RetentionPolicyBody = S["RetentionPolicyBody"];
+export type LegalHold = S["LegalHoldResponse"];
+export type LegalHoldBody = S["LegalHoldBody"];
+export type ErasureResult = S["ErasureResponse"];
+export type ErasureRequestBody = S["ErasureRequestBody"];
+
+export function getRetentionPolicy(): Promise<RetentionPolicy> {
+  return apiFetch<RetentionPolicy>("/v1/retention/policy");
+}
+export function putRetentionPolicy(body: RetentionPolicyBody): Promise<RetentionPolicy> {
+  return apiFetch<RetentionPolicy>("/v1/retention/policy", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+export function placeLegalHold(body: LegalHoldBody): Promise<LegalHold> {
+  return apiFetch<LegalHold>("/v1/retention/legal-holds", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+export function releaseLegalHold(holdId: string): Promise<LegalHold> {
+  return apiFetch<LegalHold>(`/v1/retention/legal-holds/${encodeURIComponent(holdId)}`, {
+    method: "DELETE",
+  });
+}
+export function requestErasure(body: ErasureRequestBody): Promise<ErasureResult> {
+  return apiFetch<ErasureResult>("/v1/retention/erasure-requests", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export type QualityVerdictRequest = S["QualityVerdictRequest"];
+export type RunQualityVerdict = S["RunQualityVerdict"];
+
+export function attachQualityVerdict(body: QualityVerdictRequest): Promise<RunQualityVerdict> {
+  return apiFetch<RunQualityVerdict>("/v1/econ/quality-verdict", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }

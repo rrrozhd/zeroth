@@ -1,322 +1,399 @@
 "use client";
 
-import Link from "next/link";
+// The Audit screen — the deployment's tamper-evident audit trail (handoff §5).
+//
+// A right-aligned chip runs the chain-verification state machine
+// (idle → verifying → intact / unsigned / failed); a successful verify greens
+// the `sig` column and completes the Overview checklist via localStorage. Rows
+// are colored by event kind derived from each record's real status/error/flags.
+// Reads are client-side and degrade to inline error / empty states.
+
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Button, Card, MonoLabel, Skeleton } from "@/app/components/primitives";
+import { useToast } from "@/app/components/Toast";
+import { useLoad } from "@/app/hooks/useLoad";
 import {
-  ApiErrorNote,
-  Button,
-  Empty,
-  fmtTime,
-  fmtUsd,
-  Json,
-  NotConnected,
-  PageHeader,
-  Skeleton,
-  StatusBadge,
-  useAsync,
-  useConnected,
-} from "@/app/components/ui";
-import {
-  type AuditVerification,
+  deploymentRef,
   errMsg,
-  getDeploymentAuditVerification,
-  getDeploymentEvidence,
-  getRunEvidence,
   listAudits,
+  verifyDeploymentAuditChain,
+  type AuditRecordList,
+  type AuditVerification,
   type NodeAuditRecord,
 } from "@/app/lib/api";
+import { isConfigured } from "@/app/lib/config";
 
-// Serialize a bundle to a downloaded JSON file (static-export-safe, client-only).
-function downloadJson(filename: string, data: unknown): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+const MONO = "var(--font-mono)";
+const COLS = "48px 66px 110px 110px minmax(160px,1fr) 170px 40px";
+const DENIED_BG = "rgba(248,113,113,0.06)";
+
+/** HH:MM:SS (24h) or "—". */
+function fmtClock(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleTimeString([], { hour12: false });
 }
 
+/** HH:MM UTC for the "last verified …" idle chip. */
+function fmtUtcHM(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm} UTC`;
+}
+
+/** `sha256:9f41c2…b8d0` — prefixed, truncated in the middle. */
+function shortDigest(d?: string | null): string {
+  if (!d) return "—";
+  const body = d.startsWith("sha256:") ? d.slice(7) : d;
+  if (body.length <= 12) return `sha256:${body}`;
+  return `sha256:${body.slice(0, 6)}…${body.slice(-4)}`;
+}
+
+type EventKind = "ok" | "warn" | "denied";
+
+/** Classify a record for row color. Hard failures/denials (failed, rejected,
+ *  or any error) read danger; redaction commitments, erasure, and approval
+ *  actions read warn; everything else (completed) reads ok. */
+function classifyEvent(r: NodeAuditRecord): EventKind {
+  const status = (r.status ?? "").toLowerCase();
+  if (r.error || status === "failed" || status === "rejected" || status === "denied" || status === "error") {
+    return "denied";
+  }
+  const hasPii = r.pii_commitments != null && Object.keys(r.pii_commitments).length > 0;
+  if (hasPii || r.erased || (r.approval_actions?.length ?? 0) > 0) return "warn";
+  return "ok";
+}
+
+/** A human event string built only from real fields. */
+function eventText(r: NodeAuditRecord): string {
+  if (r.error) return r.error;
+  const parts: string[] = [r.status || "record"];
+  if ((r.approval_actions?.length ?? 0) > 0) {
+    parts.push(`· approval ${r.approval_actions!.map((a) => a.action).join(", ")}`);
+  }
+  if (r.pii_commitments != null && Object.keys(r.pii_commitments).length > 0) parts.push("· redacted");
+  if (r.erased) parts.push(`· erased${r.erasure_reason ? ` (${r.erasure_reason})` : ""}`);
+  return parts.join(" ");
+}
+
+const EVENT_COLOR: Record<EventKind, string> = {
+  ok: "var(--text-secondary)",
+  warn: "var(--warning)",
+  denied: "var(--danger)",
+};
+
+type VerifyPhase = "idle" | "verifying" | "intact" | "unsigned" | "failed";
+
 export default function AuditPage() {
-  const connected = useConnected();
-  const { data, error, loading, reload } = useAsync(listAudits, []);
-  const records = data?.records ?? [];
+  const load = useLoad<AuditRecordList>(listAudits);
+  const toast = useToast();
+
+  const [connected, setConnected] = useState(false);
+  const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
+  useEffect(() => {
+    setConnected(isConfigured());
+    try {
+      if (window.localStorage.getItem("zeroth.auditVerified") === "1") {
+        setVerifiedAt(window.localStorage.getItem("zeroth.auditVerifiedAt"));
+      }
+    } catch {
+      /* localStorage unavailable — leave idle */
+    }
+  }, []);
+
+  const [phase, setPhase] = useState<VerifyPhase>("idle");
+  const [result, setResult] = useState<AuditVerification | null>(null);
+
+  const records = [...(load.data?.records ?? [])].sort(
+    (a, b) => (a.chain_sequence ?? Number.MAX_SAFE_INTEGER) - (b.chain_sequence ?? Number.MAX_SAFE_INTEGER),
+  );
+  const sigGreen = phase === "intact";
+
+  async function verify() {
+    setPhase("verifying");
+    setResult(null);
+    try {
+      const ref = await deploymentRef();
+      const res = await verifyDeploymentAuditChain(ref);
+      setResult(res);
+      if (res.verified && res.signature_verified === false) {
+        setPhase("failed");
+        toast("Chain digests intact, but a signature failed verification");
+        return;
+      }
+      if (!res.verified) {
+        setPhase("failed");
+        toast("Audit chain verification failed");
+        return;
+      }
+      // verified === true (signature true or unsigned-legacy null)
+      const signed = res.signature_verified === true;
+      setPhase(signed ? "intact" : "unsigned");
+      const now = new Date().toISOString();
+      setVerifiedAt(now);
+      try {
+        window.localStorage.setItem("zeroth.auditVerified", "1");
+        window.localStorage.setItem("zeroth.auditVerifiedAt", now);
+      } catch {
+        /* localStorage unavailable — checklist just won't persist */
+      }
+      toast(signed ? "Chain intact · signatures valid" : "Chain intact · unsigned (legacy)");
+    } catch (e) {
+      setPhase("failed");
+      toast(`Verification failed: ${errMsg(e)}`);
+    }
+  }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Audit"
-        subtitle="Per-node audit records for this deployment."
-        actions={
-          <div className="flex items-center gap-2">
-            {connected && <ExportEvidenceButton />}
-            <Button onClick={() => reload()} disabled={loading}>
-              {loading ? "Loading…" : "Refresh"}
+    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+      <header
+        style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 22 }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Audit</h1>
+          <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
+            Tamper-evident, per-node audit records for this deployment.
+          </p>
+        </div>
+        {connected && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <ChainChip phase={phase} result={result} recordCount={records.length} verifiedAt={verifiedAt} />
+            <Button variant="primary" onClick={verify} disabled={phase === "verifying"}>
+              {phase === "verifying" ? "Verifying…" : "Verify chain"}
             </Button>
           </div>
-        }
-      />
+        )}
+      </header>
 
-      {connected && <DeploymentVerifyBadge />}
-
-      {!connected && <NotConnected />}
-      {connected && error && <ApiErrorNote error={error} />}
-      {connected && loading && !data && <Skeleton rows={5} />}
-      {connected && data && records.length === 0 && (
-        <Empty>
-          No audit records yet. Every node execution writes one —{" "}
-          <Link href="/runs" className="font-medium text-accent hover:underline">
-            submit a run
-          </Link>{" "}
-          to see the trail: status, tokens, cost, tool calls, and memory access per node.
-        </Empty>
+      {!connected ? (
+        <ConnectNote />
+      ) : load.loading && !load.data ? (
+        <Card pad={16}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} height={18} />
+            ))}
+          </div>
+        </Card>
+      ) : load.error ? (
+        <ErrorNote message={load.error} onRetry={load.reload} />
+      ) : records.length === 0 ? (
+        <Card pad={20}>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            No audit records yet. Every node execution appends one to the chain —{" "}
+            <Link href="/runs" style={{ color: "var(--accent)", textDecoration: "none" }}>
+              submit a run
+            </Link>{" "}
+            to populate the trail.
+          </div>
+        </Card>
+      ) : (
+        <>
+          <Card pad={0} style={{ overflow: "hidden" }}>
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ minWidth: 720 }}>
+                {/* Header row */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: COLS,
+                    gap: 12,
+                    padding: "10px 16px",
+                    borderBottom: "1px solid var(--hair)",
+                  }}
+                >
+                  {["seq", "time", "run", "node", "event", "digest", "sig"].map((h) => (
+                    <MonoLabel key={h} style={{ fontSize: 10 }}>
+                      {h}
+                    </MonoLabel>
+                  ))}
+                </div>
+                {/* Body */}
+                {records.map((r) => {
+                  const kind = classifyEvent(r);
+                  return (
+                    <div
+                      key={r.audit_id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: COLS,
+                        gap: 12,
+                        padding: "9px 16px",
+                        borderBottom: "1px solid var(--hair)",
+                        background: kind === "denied" ? DENIED_BG : "transparent",
+                        fontFamily: MONO,
+                        fontSize: 11.5,
+                        alignItems: "center",
+                      }}
+                    >
+                      <Cell color="var(--text-faint)">{r.chain_sequence ?? "—"}</Cell>
+                      <Cell color="var(--text-muted)">{fmtClock(r.started_at)}</Cell>
+                      <Cell color="var(--text-muted)" title={r.run_id}>
+                        {r.run_id}
+                      </Cell>
+                      <Cell color="var(--text-secondary)" title={r.node_id}>
+                        {r.node_id}
+                      </Cell>
+                      <Cell color={EVENT_COLOR[kind]} title={eventText(r)}>
+                        {eventText(r)}
+                      </Cell>
+                      <Cell color="var(--text-faint)" title={r.record_digest ?? undefined}>
+                        {shortDigest(r.record_digest)}
+                      </Cell>
+                      <div
+                        style={{
+                          color: r.record_signature
+                            ? sigGreen
+                              ? "var(--success)"
+                              : "var(--text-faint)"
+                            : "var(--text-disabled)",
+                          textAlign: "center",
+                        }}
+                        title={r.record_signature ? "signed" : "unsigned"}
+                      >
+                        {r.record_signature ? "✓" : "—"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </Card>
+          <p style={{ marginTop: 12, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.6 }}>
+            Erasure is chain-safe: crypto-erasure removes payloads while the digest chain stays
+            continuous, so the audit trail remains verifiable after a right-to-erasure request.
+          </p>
+        </>
       )}
-
-      <div className="space-y-2">
-        {records.map((r) => (
-          <AuditRow key={r.audit_id} record={r} />
-        ))}
-      </div>
     </div>
   );
 }
 
-// Deployment-wide tamper-evidence: verifies the digest chain + signatures across
-// every run. Same three-state semantics as the run-level badge. Renders nothing
-// when unavailable (e.g. the key lacks audit-read).
-function DeploymentVerifyBadge() {
-  const [result, setResult] = useState<AuditVerification | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    getDeploymentAuditVerification()
-      .then((r) => !cancelled && setResult(r))
-      .catch(() => !cancelled && setResult(null));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  if (result === null || result.record_count === 0) return null;
-  const label = `${result.record_count} record${
-    result.record_count === 1 ? "" : "s"
-  } across the deployment`;
-  if (!result.verified) {
-    return (
-      <VerifyPill
-        tone="red"
-        icon="✕"
-        text="Audit chain broken"
-        title={`${result.error ?? "Digest chain broken"}${
-          result.failed_audit_id ? ` at ${result.failed_audit_id}` : ""
-        }`}
-      />
-    );
-  }
-  if (result.signature_verified === true) {
-    return (
-      <VerifyPill
-        tone="green"
-        icon="✓"
-        text="Signed & verified"
-        title={`Signed & verified over ${label}${
-          result.signing_key_id ? ` under key ${result.signing_key_id}` : ""
-        }`}
-      />
-    );
-  }
-  if (result.signature_verified === false) {
-    return (
-      <VerifyPill
-        tone="red"
-        icon="✕"
-        text="Signature invalid / tampered"
-        title={`A signed audit record failed signature verification${
-          result.failed_audit_id ? ` at ${result.failed_audit_id}` : ""
-        }`}
-      />
-    );
-  }
+function Cell({
+  color,
+  title,
+  children,
+}: {
+  color: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <VerifyPill
-      tone="amber"
-      icon="◇"
-      text="Chain intact (unsigned)"
-      title={`Digest chain intact over ${label}; records are not cryptographically signed`}
-    />
+    <div
+      title={title}
+      style={{
+        color,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        minWidth: 0,
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
-function VerifyPill({
-  tone,
-  icon,
-  text,
-  title,
+function ChainChip({
+  phase,
+  result,
+  recordCount,
+  verifiedAt,
 }: {
-  tone: "green" | "red" | "amber";
-  icon: string;
-  text: string;
-  title: string;
+  phase: VerifyPhase;
+  result: AuditVerification | null;
+  recordCount: number;
+  verifiedAt: string | null;
 }) {
-  const tones = {
-    green: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
-    red: "bg-red-500/12 text-red-700 dark:text-red-400",
-    amber: "bg-amber-500/12 text-amber-700 dark:text-amber-400",
-  };
+  let color = "var(--text-faint)";
+  let text: string;
+  switch (phase) {
+    case "verifying":
+      color = "var(--accent)";
+      text = `verifying ${recordCount.toLocaleString()} records…`;
+      break;
+    case "intact":
+      color = "var(--success)";
+      text = "chain intact · signatures valid";
+      break;
+    case "unsigned":
+      color = "var(--neutral)";
+      text = "chain intact · unsigned";
+      break;
+    case "failed":
+      color = "var(--danger)";
+      text = result?.failed_audit_id
+        ? `chain broken at ${result.failed_audit_id.slice(0, 8)}`
+        : "chain verification failed";
+      break;
+    default:
+      text = verifiedAt ? `last verified ${fmtUtcHM(verifiedAt)}` : "not yet verified";
+  }
   return (
     <span
-      title={title}
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${tones[tone]}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        color,
+        background: `color-mix(in srgb, ${color} 10%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 28%, transparent)`,
+        borderRadius: 6,
+        padding: "4px 9px",
+        fontFamily: MONO,
+        fontSize: 11,
+        whiteSpace: "nowrap",
+      }}
     >
-      <span aria-hidden>{icon}</span> {text}
+      {text}
     </span>
   );
 }
 
-// Download the deployment's full compliance evidence bundle as JSON.
-function ExportEvidenceButton() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  async function run() {
-    setBusy(true);
-    setError(null);
-    try {
-      const bundle = await getDeploymentEvidence();
-      downloadJson(`evidence-deployment-${new Date().toISOString().slice(0, 10)}.json`, bundle);
-    } catch (e) {
-      setError(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+function ConnectNote() {
   return (
-    <div className="flex flex-col items-end gap-1">
-      <Button onClick={run} disabled={busy}>
-        {busy ? "Exporting…" : "Export evidence"}
-      </Button>
-      {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
-    </div>
-  );
-}
-
-function AuditRow({ record }: { record: NodeAuditRecord }) {
-  return (
-    <details className="group rounded-xl border border-border bg-surface">
-      <summary className="flex cursor-pointer items-center justify-between px-4 py-3 [&::-webkit-details-marker]:hidden">
-        <span className="flex min-w-0 items-center gap-3">
-          <svg
-            aria-hidden
-            viewBox="0 0 16 16"
-            fill="none"
-            className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-open:rotate-90"
-          >
-            <path
-              d="M6 4l4 4-4 4"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <span className="font-medium">{record.node_id}</span>
-          <span className="truncate font-mono text-xs text-muted">{record.run_id}</span>
-        </span>
-        <span className="flex shrink-0 items-center gap-3 text-xs text-muted">
-          {record.started_at && <span>{fmtTime(record.started_at)}</span>}
-          {record.cost_usd != null && <span>{fmtUsd(record.cost_usd)}</span>}
-          {record.attempt != null && <span>attempt {record.attempt}</span>}
-          <RunEvidenceLink runId={record.run_id} />
-          <StatusBadge status={record.status} />
-        </span>
-      </summary>
-      <div className="space-y-3 border-t border-border p-4 text-sm">
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
-          <Field label="Audit ID" value={record.audit_id} mono />
-          <Field label="Started" value={fmtTime(record.started_at)} />
-          <Field label="Completed" value={fmtTime(record.completed_at)} />
-          {record.token_usage && (
-            <Field
-              label="Tokens"
-              value={`${record.token_usage.input_tokens ?? 0} in / ${record.token_usage.output_tokens ?? 0} out`}
-            />
-          )}
-        </dl>
-        {record.error && (
-          <div className="text-red-700 dark:text-red-400">{record.error}</div>
-        )}
-        {(record.tool_calls?.length ?? 0) > 0 && (
-          <details>
-            <summary className="cursor-pointer text-xs text-muted">
-              Tool calls ({record.tool_calls!.length})
-            </summary>
-            <div className="mt-2">
-              <Json value={record.tool_calls} />
-            </div>
-          </details>
-        )}
-        {(record.memory_interactions?.length ?? 0) > 0 && (
-          <details>
-            <summary className="cursor-pointer text-xs text-muted">
-              Memory interactions ({record.memory_interactions!.length})
-            </summary>
-            <div className="mt-2">
-              <Json value={record.memory_interactions} />
-            </div>
-          </details>
-        )}
-        {record.output_snapshot != null && (
-          <details>
-            <summary className="cursor-pointer text-xs text-muted">Output snapshot</summary>
-            <div className="mt-2">
-              <Json value={record.output_snapshot} />
-            </div>
-          </details>
-        )}
+    <Card pad={20}>
+      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+        Not connected. Open <span style={{ color: "var(--accent)" }}>Connect</span> (bottom-left) to
+        set the API base and key.
       </div>
-    </details>
+    </Card>
   );
 }
 
-// Per-run evidence export. Sits inside the row's <summary>, so it stops click
-// propagation to avoid toggling the disclosure when exporting.
-function RunEvidenceLink({ runId }: { runId: string }) {
-  const [busy, setBusy] = useState(false);
-  async function run(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setBusy(true);
-    try {
-      const bundle = await getRunEvidence(runId);
-      downloadJson(`evidence-run-${runId}.json`, bundle);
-    } catch {
-      /* surfaced at the deployment-level export; keep the row quiet */
-    } finally {
-      setBusy(false);
-    }
-  }
+function ErrorNote({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <button
-      onClick={run}
-      disabled={busy}
-      title="Export this run's evidence bundle"
-      className="rounded-md px-1.5 py-0.5 font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-foreground dark:hover:bg-zinc-800/60"
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        background: "rgba(248,113,113,0.08)",
+        border: "1px solid rgba(248,113,113,0.3)",
+        borderRadius: 8,
+        padding: "12px 14px",
+      }}
     >
-      {busy ? "…" : "Evidence"}
-    </button>
-  );
-}
-
-function Field({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-}) {
-  return (
-    <div>
-      <dt className="text-muted">{label}</dt>
-      <dd className={mono ? "font-mono" : ""}>{value}</dd>
+      <span
+        style={{
+          fontSize: 12.5,
+          color: "var(--danger)",
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {message}
+      </span>
+      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
+        Retry
+      </Button>
     </div>
   );
 }

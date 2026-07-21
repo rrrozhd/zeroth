@@ -20,9 +20,11 @@ must preserve.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 from zeroth.service.app import create_app
 
@@ -33,7 +35,11 @@ FIXTURE = (
 
 def current_route_inventory() -> list[dict[str, Any]]:
     """Return the ordered route inventory of a deployment-less application."""
-    app = create_app(SimpleNamespace(regulus_client=None))
+    # The optional console mount depends on deploy-time assets and is covered by
+    # tests/test_console_ui.py. Pin it absent here so a local `npm run build`
+    # cannot change the backend API characterization snapshot.
+    with patch.dict(os.environ, {"ZEROTH_CONSOLE_DIR": "/__zeroth_route_inventory_no_console__"}):
+        app = create_app(SimpleNamespace(regulus_client=None))
     inventory: list[dict[str, Any]] = []
     for route in app.routes:
         inventory.append(

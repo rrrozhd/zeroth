@@ -4,14 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run check:version && next build",
     "start": "next start",
     "gen:api": "uv run --project .. python ../scripts/dump_openapi.py --out openapi.json && openapi-typescript openapi.json -o app/lib/api-types.ts",
+    "gen:version": "uv run --project .. python ../scripts/generate_frontend_version.py --pyproject ../pyproject.toml --out app/lib/version.ts",
+    "check:version": "uv run --project .. python ../scripts/generate_frontend_version.py --pyproject ../pyproject.toml --out app/lib/version.ts --check",
     "test": "vitest"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-python": "^6.2.1",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "@uiw/react-codemirror": "^4.25.10",
     "@xyflow/react": "^12.11.1",
     "next": "16.2.9",
