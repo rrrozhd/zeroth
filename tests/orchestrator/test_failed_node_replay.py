@@ -104,7 +104,11 @@ def _join_graph() -> Graph:
     )
 
 
-@pytest.mark.parametrize("token_engine", [False, True], ids=["legacy", "token-join"])
+@pytest.mark.parametrize(
+    "token_engine",
+    [pytest.param(False, marks=pytest.mark.legacy_engine), True],
+    ids=["legacy", "token-join"],
+)
 async def test_failed_dispatch_replays_identical_payload_and_token_once(
     sqlite_db, token_engine: bool
 ) -> None:

@@ -1235,6 +1235,7 @@ async def test_multi_token_fork_shapes_rejected(name: str) -> None:
     assert ValidationCode.FANOUT_IN_LOOP in codes, f"{name} not caught as fan-out"
 
 
+@pytest.mark.legacy_engine
 async def test_exiting_diamond_guard_is_inert_when_token_engine_disabled() -> None:
     """D3's conservative publish guard must not change legacy validation."""
     graph = _fork_loop_graphs()["exiting_diamond"].model_copy(
