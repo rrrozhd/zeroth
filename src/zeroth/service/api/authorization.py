@@ -32,6 +32,9 @@ class Permission(StrEnum):
     # Deliberately admin-tier (ADMIN holds all permissions); erasure is
     # irreversible and destroys the plaintext behind the audit trail.
     RETENTION_ADMIN = "retention:admin"
+    # Global economic-control-plane mutations are deliberately excluded from
+    # tenant/deployment administrators.
+    ECON_ADMIN = "econ:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
@@ -65,7 +68,8 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # Cost/spend (METRICS_READ) stays admin-only.
         Permission.AUDIT_READ,
     },
-    ServiceRole.ADMIN: set(Permission),
+    ServiceRole.ADMIN: set(Permission) - {Permission.ECON_ADMIN},
+    ServiceRole.PLATFORM_ADMIN: set(Permission),
 }
 
 

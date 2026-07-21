@@ -21,6 +21,7 @@ class ServiceRole(StrEnum):
     OPERATOR = "operator"
     REVIEWER = "reviewer"
     ADMIN = "admin"
+    PLATFORM_ADMIN = "platform_admin"
 
 
 class PrincipalScope(BaseModel):

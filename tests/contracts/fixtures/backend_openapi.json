@@ -2960,7 +2960,8 @@
         "enum": [
           "operator",
           "reviewer",
-          "admin"
+          "admin",
+          "platform_admin"
         ],
         "type": "string"
       },

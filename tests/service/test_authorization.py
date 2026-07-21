@@ -21,3 +21,35 @@ def test_every_service_role_has_a_permission_set() -> None:
     for role in ServiceRole:
         assert role in ROLE_PERMISSIONS, f"role {role} has no permission mapping"
         assert all(isinstance(p, Permission) for p in ROLE_PERMISSIONS[role])
+
+
+def test_economic_administration_is_reserved_for_platform_admin() -> None:
+    from zeroth.governance.identity import ServiceRole
+    from zeroth.service.api.authorization import ROLE_PERMISSIONS, Permission
+
+    assert Permission.ECON_ADMIN not in ROLE_PERMISSIONS[ServiceRole.ADMIN]
+    assert Permission.ECON_ADMIN in ROLE_PERMISSIONS[ServiceRole.PLATFORM_ADMIN]
+    assert ROLE_PERMISSIONS[ServiceRole.ADMIN] < ROLE_PERMISSIONS[ServiceRole.PLATFORM_ADMIN]
+
+
+def test_trusted_static_configuration_can_deliver_platform_admin() -> None:
+    from zeroth.governance.identity import ServiceRole
+    from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
+
+    config = ServiceAuthConfig.model_validate(
+        {
+            "api_keys": [
+                {
+                    "credential_id": "platform",
+                    "secret": "trusted-secret",
+                    "subject": "platform-operator",
+                    "roles": ["platform_admin"],
+                }
+            ]
+        }
+    )
+
+    principal = ServiceAuthenticator(config).authenticate_headers(
+        {"X-API-Key": "trusted-secret"}
+    )
+    assert principal.roles == [ServiceRole.PLATFORM_ADMIN]
