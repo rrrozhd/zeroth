@@ -3,8 +3,8 @@
 This module is the foundation of the token/provenance join engine that replaces
 the counter-based loop-epoch model. It is PURE static graph analysis plus tag
 arithmetic — it does NOT dispatch anything and does not touch the runtime's
-current behaviour. Phases P2/P3 wire these into the drive loop behind the same
-``sequential_join_enabled`` flag.
+current behaviour. The drive loop uses it in effective token mode; explicit
+``sequential_join_enabled=False`` retains the legacy path.
 
 Why tokens instead of a recomputed epoch counter: a correct loop-join needs two
 facts the counter model recomputed locally and got wrong on some shape every

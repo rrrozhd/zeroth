@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from zeroth.contracts.graph import Graph, GraphRepository, GraphStatus, Node
+from zeroth.contracts.graph.engine_mode import effective_engine_mode, explicit_legacy_engine
 from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.graph.warnings import warn_legacy_engine
@@ -91,11 +92,7 @@ class DeploymentService:
                 graph_version=graph.version,
                 graph_version_ref=graph_version_ref(graph.graph_id, graph.version),
                 serialized_graph=serialized_graph,
-                engine_mode=(
-                    DeploymentEngineMode.TOKEN
-                    if graph.execution_settings.sequential_join_enabled is True
-                    else DeploymentEngineMode.LEGACY
-                ),
+                engine_mode=DeploymentEngineMode(effective_engine_mode(graph.execution_settings)),
                 attestation_payload_version=2,
                 entry_input_contract_ref=(entry_node.input_contract_ref if entry_node else None),
                 entry_input_contract_version=input_contract_version,
@@ -119,11 +116,7 @@ class DeploymentService:
                 tenant_id=graph.tenant_id,
                 workspace_id=graph.workspace_id,
             )
-            if (
-                "sequential_join_enabled"
-                in graph.execution_settings.model_fields_set
-                and graph.execution_settings.sequential_join_enabled is False
-            ):
+            if explicit_legacy_engine(graph.execution_settings):
                 warn_legacy_engine(stage="deployment_publication", stacklevel=2)
             deployment.attestation_digest = str(
                 build_attestation_payload(deployment)["attestation_digest"]

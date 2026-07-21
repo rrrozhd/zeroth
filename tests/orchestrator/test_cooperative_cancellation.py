@@ -205,10 +205,13 @@ async def test_cancel_then_replay_resumes_remaining_nodes(sqlite_db) -> None:
     assert result.status is RunStatus.FAILED
     assert n2.call_count == 0 and n3.call_count == 0
 
-    # The successor queued while n1 ran was persisted, not lost to a stale pending=[].
+    # The structured successor is durable in the token snapshot; the legacy
+    # pending-node projection is deliberately not an engine input.
     reloaded = await repo.get(persisted.run_id)
     assert reloaded is not None
-    assert reloaded.pending_node_ids == ["n2"]
+    snapshot = await repo.get_token_snapshot(persisted.run_id)
+    assert snapshot is not None
+    assert [token.current_node_id for token in snapshot.queue] == ["n2"]
 
     # Replay: FAILED -> PENDING (admin), worker claims (-> RUNNING), drive resumes.
     await repo.transition(persisted.run_id, RunStatus.PENDING)

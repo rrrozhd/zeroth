@@ -67,7 +67,7 @@ async def test_attestation_signed_on_deploy(sqlite_db) -> None:
     assert mismatches == []
     assert signature_ok is True
     assert build_attestation_payload(deployed)["attestation_payload_version"] == 2
-    assert build_attestation_payload(deployed)["engine_mode"] == "legacy"
+    assert build_attestation_payload(deployed)["engine_mode"] == "token"
 
 
 def test_version_one_attestation_payload_remains_byte_compatible() -> None:

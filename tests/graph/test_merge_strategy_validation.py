@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from zeroth.contracts.registry import ContractVersion
-from zeroth.contracts.graph.models import Graph
+from zeroth.contracts.graph.models import ExecutionSettings, Graph
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.contracts.graph.validation_errors import (
     GraphValidationError,
@@ -27,7 +27,20 @@ from zeroth.contracts.graph.validation_errors import (
 from zeroth.runtime.parallel.errors import ReducerRefValidationError
 from zeroth.runtime.parallel.models import ParallelConfig
 
-from tests.graph.test_validation import build_valid_graph
+from tests.graph.test_validation import build_valid_graph as _build_valid_graph
+
+pytestmark = pytest.mark.legacy_engine
+
+
+def build_valid_graph() -> Graph:
+    """Isolate merge-strategy validation from token-loop shape validation."""
+    return _build_valid_graph().model_copy(
+        update={
+            "execution_settings": ExecutionSettings.model_construct(
+                sequential_join_enabled=False
+            )
+        }
+    )
 
 
 # =========================================================================

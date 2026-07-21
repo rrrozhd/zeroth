@@ -85,13 +85,16 @@ class ExecutionSettings(BaseModel):
     failure_policy: str = "fail_fast"
     audit_enabled: bool = True
     sequential_join_enabled: bool = False
-    """B9 feature flag. When False (default) the runtime dispatches downstream
-    nodes exactly as it always has — the join-barrier dispatch/merge path is
-    dormant and execution is byte-identical to pre-B9. When True, a convergent
+    """Compatibility field whose authored presence selects the engine mode.
+
+    Omitted or explicit ``True`` selects the structured-token engine. Explicit
+    ``False`` selects the warned legacy runtime. The raw default remains False
+    solely to preserve the published model signature and wire compatibility.
+    In token mode, a convergent
     node (>1 non-tool inbound control-flow edge that is not a ``parallel_config``
     fan-in) is dispatched once per iteration after all its inbound edges resolve
     (delivered or suppressed), with delivered payloads merged via its
-    ``JoinConfig``. Opt-in until the parallel/loop/interrupt suites soak."""
+    ``JoinConfig``."""
 
     @model_validator(mode="after")
     def _warn_when_legacy_engine_is_explicit(self) -> ExecutionSettings:
@@ -331,7 +334,7 @@ class NodeBase(BaseModel):
     parallel_config: ParallelConfig | None = None
     join_config: JoinConfig | None = None
     """B9 merge policy for a convergent (join) node. Required at publish time
-    (only when ``execution_settings.sequential_join_enabled`` is set) on a node
+    (unless the graph explicitly selects the legacy engine) on a node
     with >=2 unconditional non-tool inbound edges — genuine concurrent delivery.
     Conditional reconvergence (mutually-exclusive inbound) needs no JoinConfig."""
 

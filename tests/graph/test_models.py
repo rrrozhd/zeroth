@@ -198,6 +198,27 @@ def test_graph_serialization_preserves_absent_engine_flag() -> None:
     assert "sequential_join_enabled" not in decoded.execution_settings.model_fields_set
 
 
+def test_unauthored_engine_flag_selects_structured_token_mode() -> None:
+    from zeroth.contracts.graph.engine_mode import token_engine_enabled
+
+    settings = ExecutionSettings()
+
+    # ABI remains pinned while authored-field presence controls effective mode.
+    assert settings.sequential_join_enabled is False
+    assert "sequential_join_enabled" not in settings.model_fields_set
+    assert token_engine_enabled(settings) is True
+
+
+@pytest.mark.parametrize(("authored", "expected"), [(True, True), (False, False)])
+def test_authored_engine_flag_controls_effective_mode(authored: bool, expected: bool) -> None:
+    from zeroth.contracts.graph.engine_mode import token_engine_enabled
+
+    with pytest.warns(LegacyEngineDeprecationWarning) if authored is False else nullcontext():
+        settings = ExecutionSettings(sequential_join_enabled=authored)
+
+    assert token_engine_enabled(settings) is expected
+
+
 def test_explicit_legacy_engine_emits_structured_validation_warning() -> None:
     with pytest.warns(LegacyEngineDeprecationWarning) as captured:
         ExecutionSettings(sequential_join_enabled=False)

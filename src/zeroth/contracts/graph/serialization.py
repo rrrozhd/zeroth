@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from zeroth.contracts.graph.engine_mode import apply_engine_mode_pin
 from zeroth.contracts.graph.models import Graph
 from zeroth.platform.storage.json import load_model, to_json_value
 
@@ -39,10 +40,5 @@ class DeployedGraphSnapshot(Protocol):
 def hydrate_deployed_graph(deployment: DeployedGraphSnapshot) -> Graph:
     """Deserialize a deployment and apply its immutable engine-mode pin."""
     graph = deserialize_graph(deployment.serialized_graph)
-    engine_mode = getattr(deployment.engine_mode, "value", deployment.engine_mode)
-    if engine_mode not in {"legacy", "token"}:
-        raise ValueError(f"unknown deployment engine mode: {engine_mode!r}")
-    settings = graph.execution_settings.model_copy(
-        update={"sequential_join_enabled": engine_mode == "token"}
-    )
+    settings = apply_engine_mode_pin(graph.execution_settings, deployment.engine_mode)
     return graph.model_copy(update={"execution_settings": settings})

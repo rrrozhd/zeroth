@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from functools import partial
+from time import perf_counter
 from typing import Any, cast
 
 from pydantic import JsonValue
@@ -21,10 +22,12 @@ from zeroth.contracts.graph.tokens import (
     IterationFrameState,
     JoinLifecycleState,
 )
+from zeroth.contracts.mappings.executor import _set_path
 from zeroth.core.runs import Run, RunStatus
 from zeroth.runtime.orchestration import token_scope as _ts
 from zeroth.runtime.orchestration.dispatcher import dispatch_subgraph_node
 from zeroth.runtime.orchestration.errors import OrchestratorError
+from zeroth.runtime.orchestration.parallel_executor import sum_run_cost
 from zeroth.runtime.orchestration.token_lifecycle import (
     TokenLifecycleAdapter,
     has_pending_structured_owner_work,
@@ -42,6 +45,7 @@ from zeroth.runtime.orchestration.token_scheduler import (
     claim_next_token,
     complete_dispatch,
     enqueue_dispatch,
+    fail_dispatch,
     initialize_token_snapshot,
     recover_dispatch,
 )
@@ -50,6 +54,7 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotStore,
 )
 from zeroth.runtime.orchestration.tool_executor import node_by_id
+from zeroth.runtime.parallel.reducers import dispatch_strategy
 
 
 class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
@@ -61,6 +66,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
 
     async def drive(self, graph: Graph, run: Run, *, step_tracker: Any = None) -> Run:
         del step_tracker  # token scheduling owns the aggregate work queue
+        started_at = perf_counter()
         await self._ensure_snapshot(graph, run)
         while True:
             snapshot = await self.store.get_token_snapshot(run.run_id)
@@ -80,6 +86,33 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         f"token snapshot is {snapshot.state.value} without a persisted run stop"
                     )
                 return stopped
+            if snapshot.state is TokenEngineSnapshotState.STOPPING:
+                drained = await self._drain_stopping_owner(graph, run, snapshot)
+                if drained is not snapshot:
+                    continue
+                await TokenLifecycleAdapter(self.store).stop(run.run_id)
+                current = await self.store.get_token_snapshot(run.run_id)
+                if current is not None and current.state is TokenEngineSnapshotState.STOPPING:
+                    stopped = await self.driver.external_stop(run)
+                    return stopped or run
+                continue
+            stopped = await self.driver.external_stop(run)
+            if stopped is not None:
+                return stopped
+            failed = await self.driver.policy_gate.enforce_loop_guards(graph, run, started_at)
+            if failed is not None:
+                return failed
+            if (
+                self.driver.per_run_cap_usd is not None
+                and sum_run_cost(run) >= self.driver.per_run_cap_usd
+            ):
+                spent = sum_run_cost(run)
+                return await self.driver.fail_run(
+                    run,
+                    "node_execution_failed",
+                    f"per-run budget exceeded: ${spent:.4f} >= "
+                    f"${self.driver.per_run_cap_usd:.4f}",
+                )
             if snapshot.state is TokenEngineSnapshotState.COMPLETED:
                 return await self._complete_run(run)
             if snapshot.in_flight_dispatches:
@@ -92,16 +125,6 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 )
             ):
                 claim = await self._claim(snapshot)
-            elif snapshot.state is TokenEngineSnapshotState.STOPPING:
-                drained = await self._drain_stopping_owner(graph, run, snapshot)
-                if drained is not snapshot:
-                    continue
-                await TokenLifecycleAdapter(self.store).stop(run.run_id)
-                current = await self.store.get_token_snapshot(run.run_id)
-                if current is not None and current.state is TokenEngineSnapshotState.STOPPING:
-                    stopped = await self.driver.external_stop(run)
-                    return stopped or run
-                continue
             else:
                 if any(token.settled_revision is None for token in snapshot.tokens):
                     raise OrchestratorError("token engine is non-terminal with an empty work queue")
@@ -342,6 +365,70 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 await self.driver.audit_recorder.record_failed_execution(
                     run, node, node.node_id, input_payload, exc, started_at=node_started_at
                 )
+                if envelope.fork_lineage:
+                    fork_id = envelope.fork_lineage[-1].fork_id
+                    fork = next(item for item in claim.snapshot.forks if item.fork_id == fork_id)
+                    parent = next(
+                        item
+                        for item in claim.snapshot.tokens
+                        if item.token_id == fork.parent_token_id
+                    )
+                    owner = node_by_id(graph, parent.current_node_id)
+                    owner_config = getattr(owner, "parallel_config", None)
+                    failure_mode = (
+                        owner_config.fail_mode
+                        if owner_config is not None
+                        else graph.execution_settings.failure_policy
+                    )
+                    committed = await self._transition(
+                        claim.snapshot,
+                        partial(
+                            fail_dispatch,
+                            dispatch_id=dispatch.dispatch_id,
+                            attempt=dispatch.attempt,
+                            cancellation_generation=dispatch.cancellation_generation,
+                        ),
+                    )
+                    if failure_mode == "best_effort":
+                        results = dict(run.metadata.get("token_fanout_results", {}))
+                        fork_results = dict(results.get(fork_id, {}))
+                        fork_results[envelope.token_id] = None
+                        results[fork_id] = fork_results
+                        closed = next(item for item in committed.forks if item.fork_id == fork_id)
+                        if closed.lifecycle_state.value == "closed":
+                            source = node_by_id(graph, parent.current_node_id)
+                            config = source.parallel_config
+                            if config is None:
+                                raise OrchestratorError(
+                                    "best-effort fork owner has no parallel configuration"
+                                ) from exc
+                            ordered = [fork_results[child.token_id] for child in closed.children]
+                            reduced = dispatch_strategy(
+                                config.merge_strategy,
+                                ordered,
+                                reducer_ref=config.reducer_ref,
+                            )
+                            merged: dict[str, Any] = {}
+                            _set_path(merged, config.split_path, reduced)
+                            run.metadata["last_output"] = merged
+                            results.pop(fork_id, None)
+                        if results:
+                            run.metadata["token_fanout_results"] = results
+                        else:
+                            run.metadata.pop("token_fanout_results", None)
+                        run.metadata.pop("token_dispatch", None)
+                        run.metadata.pop("in_flight_dispatch", None)
+                        run.current_node_ids = []
+                        run.current_step = None
+                        run.status = RunStatus.RUNNING
+                        run.touch()
+                        await self.driver.run_repository.put(run)
+                        await self.driver.run_repository.write_checkpoint(run)
+                        return None
+                    await TokenLifecycleAdapter(self.store).cancel(run.run_id)
+                    return await self.driver.fail_run(
+                        run, "parallel_execution_failed", str(exc)
+                    )
                 return await self.driver.fail_run(run, "node_execution_failed", str(exc))
 
         lifecycle_stop = await self._settle_cancellation_requests(run)
@@ -558,6 +645,9 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         run.metadata["last_output"] = output_data
         run.metadata.pop("token_dispatch", None)
         run.metadata.pop("in_flight_dispatch", None)
+        stopped = await self.driver.external_stop(run)
+        if stopped is not None:
+            return stopped
         run.status = RunStatus.RUNNING
         run.current_node_ids = []
         run.current_step = None

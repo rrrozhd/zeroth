@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
+from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation_errors import (
     ValidationCode,
@@ -21,12 +22,11 @@ def validate_join_configs(
     node_map: dict[str, Node],
     issues: list[ValidationIssue],
 ) -> None:
-    """B9: require a ``JoinConfig`` on genuinely-convergent nodes (flag-gated).
+    """B9: require a ``JoinConfig`` on genuinely-convergent token-mode nodes.
 
     This is the ONLY new validation added by the sequential join barrier, and
-    it fires solely when ``execution_settings.sequential_join_enabled`` is set
-    — so with the flag off (default) publish validation is byte-identical to
-    pre-B9 and no shipping graph is newly rejected.
+    Explicit ``sequential_join_enabled=False`` keeps publish validation
+    byte-identical to the legacy path.
 
     One rule:
 
@@ -47,7 +47,7 @@ def validate_join_configs(
     joined by the barrier before it runs, so a genuine multi-unconditional-
     inbound convergence must declare a JoinConfig even when it also fans out.
     """
-    if not graph.execution_settings.sequential_join_enabled:
+    if not token_engine_enabled(graph.execution_settings):
         return
 
     inbound_by_target: dict[str, list[Edge]] = defaultdict(list)

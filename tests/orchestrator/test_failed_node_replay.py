@@ -206,6 +206,7 @@ async def test_replay_rejects_conflicting_staged_payload(sqlite_db) -> None:
     assert attempts == 1
 
 
+@pytest.mark.legacy_engine
 async def test_failed_fan_out_does_not_create_ordinary_in_flight_record(sqlite_db) -> None:
     class FailingFanOutOrchestrator(RecordingOrchestrator):
         async def _execute_parallel_fan_out(self, *args, **kwargs):
@@ -217,6 +218,7 @@ async def test_failed_fan_out_does_not_create_ordinary_in_flight_record(sqlite_d
         graph_id="failed-fan-out",
         name="failed-fan-out",
         entry_step="source",
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[source],
         edges=[],
     )

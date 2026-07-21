@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import pytest
 
+from zeroth.contracts.graph import ExecutionSettings
 from zeroth.runtime.graph_validation import GraphValidator
 
 from ._graphs import BUILDERS
@@ -270,9 +271,17 @@ EXPECTED: dict[str, list[tuple[str, str, str, tuple[str, ...], str | None, str |
 
 
 @pytest.mark.asyncio
+@pytest.mark.legacy_engine
 @pytest.mark.parametrize("case", sorted(EXPECTED))
 async def test_validator_output_is_unchanged(case: str) -> None:
-    report = await GraphValidator().validate(BUILDERS[case]())
+    graph = BUILDERS[case]().model_copy(
+        update={
+            "execution_settings": ExecutionSettings.model_construct(
+                sequential_join_enabled=False
+            )
+        }
+    )
+    report = await GraphValidator().validate(graph)
     actual = [
         (
             issue.severity.value,

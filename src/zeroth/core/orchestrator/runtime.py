@@ -22,6 +22,7 @@ from zeroth.contracts.graph import (
     Node,
     RetrievalNode,
 )
+from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.mappings import MappingExecutor
 from zeroth.core.runs import Run, RunRepository, RunStatus
 from zeroth.governance.approvals import ApprovalRecord, ApprovalService
@@ -158,7 +159,7 @@ class RuntimeOrchestrator:
             current_node_ids=[],
             pending_node_ids=(
                 []
-                if graph.execution_settings.sequential_join_enabled is True
+                if token_engine_enabled(graph.execution_settings)
                 else [self._entry_step(graph)]
             ),
             metadata=self._initial_metadata(graph, initial_input),
@@ -495,7 +496,7 @@ class RuntimeOrchestrator:
         the run history, plans the next nodes, and sets the run back to
         RUNNING status so it can be resumed.
         """
-        if graph.execution_settings.sequential_join_enabled is True:
+        if token_engine_enabled(graph.execution_settings):
             action = (
                 approval_record.resolution.decision.value
                 if approval_record.resolution

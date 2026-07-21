@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
 from zeroth.runtime.agents import (
@@ -563,6 +564,7 @@ async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqli
     assert run.audit_refs == ["audit:1"]
 
 
+@pytest.mark.legacy_engine
 async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
     store = RepositoryThreadStateStore(sqlite_db)
     thread_resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
@@ -585,6 +587,7 @@ async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
         graph_id="graph-resume",
         name="resume",
         entry_step="agent",
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[
             AgentNode(
                 node_id="agent",

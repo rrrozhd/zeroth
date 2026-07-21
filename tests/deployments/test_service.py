@@ -102,7 +102,7 @@ async def test_deploy_published_graph_succeeds(sqlite_db) -> None:
 @pytest.mark.parametrize(
     ("authored_value", "expected_mode"),
     [
-        (None, DeploymentEngineMode.LEGACY),
+        (None, DeploymentEngineMode.TOKEN),
         (False, DeploymentEngineMode.LEGACY),
         (True, DeploymentEngineMode.TOKEN),
     ],

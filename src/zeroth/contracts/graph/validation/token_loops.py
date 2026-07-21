@@ -1,9 +1,9 @@
 """B9 token-engine loop-model guards: reducibility, latches, fan-out-in-loop.
 
-All checks are gated on ``execution_settings.sequential_join_enabled`` and run
+All checks run in effective token mode (omitted or explicit ``True``) and run
 over the ENABLED control-flow graph only — the same graph the token engine
 executes (``token_scope`` drops disabled edges), so the publish-time loop model
-cannot diverge from the runtime's.
+cannot diverge from the runtime's. Explicit ``False`` selects legacy mode.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
+from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.graph.validation.cycles import strongly_connected_components
 from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation_errors import (
@@ -144,7 +145,7 @@ def validate_reducibility(
     the remainder still contains a cycle, some cycle had no single dominating
     header — the graph is irreducible.
     """
-    if not graph.execution_settings.sequential_join_enabled:
+    if not token_engine_enabled(graph.execution_settings):
         return
     entry = graph.entry_step
     if entry is None or entry not in node_map:
@@ -252,7 +253,7 @@ def validate_fanout_in_loop(
     mutually-exclusive CONDITIONS (both non-``None``) — takes exactly one edge
     per visit and is a single token, so it is NOT rejected.
     """
-    if not graph.execution_settings.sequential_join_enabled:
+    if not token_engine_enabled(graph.execution_settings):
         return
     cyclic: set[str] = set()
     for component in strongly_connected_components(node_map.keys(), adjacency):

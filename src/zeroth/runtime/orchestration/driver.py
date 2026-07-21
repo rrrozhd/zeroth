@@ -30,6 +30,7 @@ from typing import Any
 from zeroth.contracts.conditions import NextStepPlanner
 from zeroth.contracts.conditions.models import ConditionContext, NextStepPlan, TraversalState
 from zeroth.contracts.graph import Edge, Graph, HumanApprovalNode, SubgraphNode
+from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.mappings import MappingExecutor
 from zeroth.contracts.mappings.executor import _set_path
 from zeroth.core.runs import Run, RunFailureState, RunStatus
@@ -216,7 +217,7 @@ class GraphDriver:
         run.metadata["node_payloads"] = payloads
         tags = dict(run.metadata.get("node_tags", {}))
         existing_tag = tags.get(node_id)
-        if graph.execution_settings.sequential_join_enabled is True:
+        if token_engine_enabled(graph.execution_settings):
             if token_tag is None:
                 raise OrchestratorError(
                     f"in-flight token node {node_id} is missing its provenance tag"
@@ -244,7 +245,7 @@ class GraphDriver:
     ) -> None:
         """Durably bind a popped node to its exact payload and provenance tag."""
         token_tag: Any = None
-        if graph.execution_settings.sequential_join_enabled is True:
+        if token_engine_enabled(graph.execution_settings):
             tags = run.metadata.get("node_tags", {})
             if node_id not in tags:
                 raise OrchestratorError(
@@ -279,7 +280,7 @@ class GraphDriver:
         next steps, and repeating until there are no more nodes to run,
         or until a guard/policy/approval stops execution.
         """
-        if graph.execution_settings.sequential_join_enabled is True:
+        if token_engine_enabled(graph.execution_settings):
             if self.token_snapshot_store is None:
                 raise RuntimeError("sequential_join_enabled requires a durable TokenSnapshotStore")
             from zeroth.runtime.orchestration.token_runtime import TokenRuntimeCoordinator
@@ -904,15 +905,15 @@ class GraphDriver:
         """Plan and enqueue the next nodes after ``source_node_id`` completes.
 
         Single entry point for the sequential (non-parallel) post-node flow.
-        With ``sequential_join_enabled`` off (default) this is byte-identical to
-        the historical ``plan_next_nodes`` + ``queue_next_nodes`` pairing. With
-        the flag on it routes through the token join engine: each edge carries a
+        With explicit ``sequential_join_enabled=False`` this is byte-identical
+        to the historical ``plan_next_nodes`` + ``queue_next_nodes`` pairing.
+        Token mode routes through the join engine: each edge carries a
         provenance tag that TRAVELS WITH THE TOKEN, a convergent node's join is
         keyed by that tag (so it re-joins cleanly on every loop iteration), and a
         loop-exit edge resolves only when its loop terminates.
         """
         plan = self.run_branch_planner(graph, run, source_node_id, output_data)
-        if graph.execution_settings.sequential_join_enabled is not True:
+        if not token_engine_enabled(graph.execution_settings):
             self.queue_next_nodes(graph, run, source_node_id, output_data, list(plan.next_node_ids))
             return
         source_tag = self._consume_node_tag(run, source_node_id)
@@ -1512,7 +1513,7 @@ class GraphDriver:
             "path": [],
             "audits": {},
         }
-        if graph.execution_settings.sequential_join_enabled is True:
+        if token_engine_enabled(graph.execution_settings):
             metadata["initial_input"] = dict(initial_input)
             # Empty compatibility containers preserve the public Run metadata
             # shape without using node-keyed state as scheduler storage.

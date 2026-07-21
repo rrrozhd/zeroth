@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-21
+
+### Added
+
+- Rebuilt operations console, including Studio, deployment, governance,
+  optional Regulus views, and destination-only Webhooks integration.
+- Platform-admin-only, allowlisted Regulus proxy with deterministic generated
+  platform and Regulus API clients.
+
+### Changed
+
+- The durable structured-token engine is now selected for unauthored graphs.
+  Explicit `sequential_join_enabled=False` remains the temporary warned legacy
+  compatibility escape hatch; immutable deployment engine pins still win.
+
+### Fixed
+
+- Structured loop boundary delivery, nested lifecycle cancellation, graceful
+  stop, replay, checker topology/schedule coverage, and deployment pinning
+  release blockers.
+
 ## [0.11.1] - 2026-07-20
 
 ### Added
