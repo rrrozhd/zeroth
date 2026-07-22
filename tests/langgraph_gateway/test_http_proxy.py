@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+import hashlib
 import json
 from pathlib import Path
 import tomllib
@@ -1269,7 +1270,11 @@ async def test_cancellation_during_admission_emits_terminal_event_without_connec
         compatibility=supported_compatibility(),
         event_sink=sink,
     )
-    task = asyncio.create_task(proxy.handle_http(governed_request(b'{"input":{"safe":true}}')))
+    raw_body = (
+        b'{"assistant_id":"assistant-cancel","run_id":"run-cancel",'
+        b'"input":{"secret":"raw-cancel-input"}}'
+    )
+    task = asyncio.create_task(proxy.handle_http(governed_request(raw_body)))
     await classifier_started.wait()
 
     task.cancel()
@@ -1277,7 +1282,14 @@ async def test_cancellation_during_admission_emits_terminal_event_without_connec
         await task
 
     assert calls == 0
-    assert sink.events[-1].status.value == "cancellation"
+    event = sink.events[-1]
+    assert event.status.value == "cancellation"
+    assert event.correlation.thread_id == "thread-4"
+    assert event.correlation.assistant_id == "assistant-cancel"
+    assert event.correlation.run_id == "run-cancel"
+    assert event.input_sha256 == hashlib.sha256(raw_body).hexdigest()
+    assert event.input_size_bytes == len(raw_body)
+    assert "raw-cancel-input" not in event.model_dump_json()
     await transport.aclose()
 
 
@@ -1366,4 +1378,149 @@ async def test_governed_terminal_event_keeps_request_ids_when_response_has_none(
     event = sink.events[-1]
     assert event.correlation.thread_id == "thread-4"
     assert event.correlation.assistant_id == "assistant-2"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure_kind", "expected_code", "expected_status", "expected_connects"),
+    [
+        ("policy", "zeroth.policy_denied", 403, 0),
+        ("credential", "zeroth.upstream_credential_unavailable", 503, 0),
+        ("connect", "zeroth.upstream_unavailable", 502, 1),
+        ("timeout", "zeroth.upstream_timeout", 504, 1),
+        ("signer", "zeroth.context_signing_unavailable", 503, 0),
+        ("misconfiguration", "zeroth.gateway_misconfigured", 503, 0),
+    ],
+)
+async def test_governed_terminal_failures_keep_known_safe_request_metadata(
+    failure_kind, expected_code, expected_status, expected_connects
+):
+    raw_body = (
+        b'{"assistant_id":"assistant-2","run_id":"run-known",'
+        b'"input":{"secret":"raw-input-must-not-leak"}}'
+    )
+    sink = RecordingEventSink()
+    connection_count = 0
+
+    async def upstream(request):
+        nonlocal connection_count
+        connection_count += 1
+        if failure_kind == "connect":
+            raise httpx.ConnectError("raw-connect-detail")
+        if failure_kind == "timeout":
+            raise httpx.ConnectTimeout("raw-timeout-detail")
+        return httpx.Response(204)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+        upstream_credential_ref=(
+            "private.raw-secret-ref" if failure_kind == "credential" else None
+        ),
+    )
+    signer = (
+        NullSigner() if failure_kind == "signer" else EnvHmacSigner(key_id="k", keys={"k": b"key"})
+    )
+
+    def clock():
+        if failure_kind == "misconfiguration":
+            raise RuntimeError("raw-misconfiguration-detail")
+        return 1000
+
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(signer, clock=lambda: 1000),
+        policy_guard=DenyPolicy() if failure_kind == "policy" else AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+        clock=clock,
+        correlation_factory=lambda: "corr-failure",
+    )
+
+    response = await proxy.handle_http(governed_request(raw_body))
+
+    assert response.status_code == expected_status
+    envelope = json.loads(response.body)
+    assert envelope["code"] == expected_code
+    assert envelope["correlation_id"] == "corr-failure"
+    assert "raw-input-must-not-leak" not in response.body.decode()
+    assert "raw-connect-detail" not in response.body.decode()
+    assert "raw-timeout-detail" not in response.body.decode()
+    assert "raw-misconfiguration-detail" not in response.body.decode()
+    assert "private.raw-secret-ref" not in response.body.decode()
+    assert connection_count == expected_connects
+
+    [event] = sink.events
+    assert event.correlation.thread_id == "thread-4"
+    assert event.correlation.assistant_id == "assistant-2"
+    assert event.correlation.run_id == "run-known"
+    assert event.input_sha256 == hashlib.sha256(raw_body).hexdigest()
+    assert event.input_size_bytes == len(raw_body)
+    assert "raw-input-must-not-leak" not in event.model_dump_json()
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("body", "max_body_bytes", "expected_code"),
+    [
+        (b'{"assistant_id":"incomplete"', 1024, "zeroth.invalid_request"),
+        (b'{"assistant_id":"not-safely-known"}', 4, "zeroth.request_too_large"),
+    ],
+)
+async def test_unvalidated_or_incomplete_body_does_not_create_input_fingerprint(
+    body, max_body_bytes, expected_code
+):
+    sink = RecordingEventSink()
+    calls = 0
+
+    async def upstream(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(204)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+        max_governed_body_bytes=max_body_bytes,
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+    )
+
+    response = await proxy.handle_http(governed_request(body))
+
+    assert json.loads(response.body)["code"] == expected_code
+    assert calls == 0
+    [event] = sink.events
+    assert event.correlation.thread_id == "thread-4"
+    assert event.correlation.assistant_id is None
+    assert event.correlation.run_id is None
+    assert event.input_sha256 is None
+    assert event.input_size_bytes is None
+    assert "incomplete" not in event.model_dump_json()
+    assert "not-safely-known" not in event.model_dump_json()
     await transport.aclose()

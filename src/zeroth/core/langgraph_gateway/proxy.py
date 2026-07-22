@@ -121,7 +121,7 @@ class GatewayProxy:
         decision: AdmissionDecision | None = None
         input_sha256: str | None = None
         input_size_bytes: int | None = None
-        request_identifiers: dict[str, str] = {}
+        request_identifiers = _path_identifiers(request.url.path)
 
         try:
             principal = self._principal_resolver(request)
@@ -136,6 +136,7 @@ class GatewayProxy:
                         operation=operation,
                         disposition=RouteDisposition.UNSUPPORTED,
                         started_at=started_at,
+                        identifiers=request_identifiers,
                     )
                 compatibility_error = self._compatibility_error(correlation_id)
                 if compatibility_error is not None:
@@ -147,6 +148,7 @@ class GatewayProxy:
                         disposition=RouteDisposition.UNSUPPORTED,
                         status=GatewayEventStatus.GATEWAY_DENIAL,
                         started_at=started_at,
+                        identifiers=request_identifiers,
                     )
                     return self._error_response(error, status_code)
                 logger.warning(
@@ -160,6 +162,7 @@ class GatewayProxy:
                     operation=operation,
                     disposition=RouteDisposition.UNSUPPORTED,
                     started_at=started_at,
+                    request_identifiers=request_identifiers,
                     governance_header=(_GOVERNANCE_MODE_HEADER, "ungoverned"),
                 )
 
@@ -173,6 +176,7 @@ class GatewayProxy:
                     disposition=disposition or RouteDisposition.UNSUPPORTED,
                     status=GatewayEventStatus.GATEWAY_DENIAL,
                     started_at=started_at,
+                    identifiers=request_identifiers,
                 )
                 return self._error_response(error, status_code)
 
@@ -201,6 +205,7 @@ class GatewayProxy:
                             operation=operation,
                             disposition=disposition,
                             started_at=started_at,
+                            identifiers=request_identifiers,
                             input_sha256=input_sha256,
                             input_size_bytes=input_size_bytes,
                         )
@@ -235,14 +240,16 @@ class GatewayProxy:
                         input_size_bytes=len(raw_body),
                         policy_bindings=self._settings.policy_bindings,
                     )
-                    request_identifiers = {
-                        key: value
-                        for key, value in {
-                            "assistant_id": admission_request.assistant_id,
-                            "thread_id": admission_request.thread_id,
-                        }.items()
-                        if value is not None
-                    }
+                    request_identifiers.update(
+                        {
+                            key: value
+                            for key, value in {
+                                "assistant_id": admission_request.assistant_id,
+                                "run_id": _optional_identifier(target.get("run_id")),
+                            }.items()
+                            if value is not None
+                        }
+                    )
                     decision = await admit(
                         admission_request,
                         policy_guard=self._policy_guard,
@@ -261,6 +268,7 @@ class GatewayProxy:
                             disposition=disposition,
                             started_at=started_at,
                             decision=decision,
+                            identifiers=request_identifiers,
                             input_sha256=input_sha256,
                             input_size_bytes=input_size_bytes,
                         )
@@ -319,6 +327,7 @@ class GatewayProxy:
                     status=GatewayEventStatus.CANCELLATION,
                     started_at=started_at,
                     decision=decision,
+                    identifiers=request_identifiers,
                     input_sha256=input_sha256,
                     input_size_bytes=input_size_bytes,
                 )
@@ -342,6 +351,7 @@ class GatewayProxy:
                 disposition=disposition or RouteDisposition.UNSUPPORTED,
                 started_at=started_at,
                 decision=decision,
+                identifiers=request_identifiers,
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
             )
@@ -357,6 +367,9 @@ class GatewayProxy:
                 disposition=disposition or RouteDisposition.UNSUPPORTED,
                 started_at=started_at,
                 decision=decision,
+                identifiers=request_identifiers,
+                input_sha256=input_sha256,
+                input_size_bytes=input_size_bytes,
             )
         except (httpx.TimeoutException, TimeoutError):
             return await self._caught_error(
@@ -370,6 +383,9 @@ class GatewayProxy:
                 disposition=disposition or RouteDisposition.UNSUPPORTED,
                 started_at=started_at,
                 decision=decision,
+                identifiers=request_identifiers,
+                input_sha256=input_sha256,
+                input_size_bytes=input_size_bytes,
             )
         except httpx.HTTPError:
             return await self._caught_error(
@@ -383,6 +399,9 @@ class GatewayProxy:
                 disposition=disposition or RouteDisposition.UNSUPPORTED,
                 started_at=started_at,
                 decision=decision,
+                identifiers=request_identifiers,
+                input_sha256=input_sha256,
+                input_size_bytes=input_size_bytes,
             )
         except RuntimeError:
             return await self._caught_error(
@@ -396,6 +415,9 @@ class GatewayProxy:
                 disposition=disposition or RouteDisposition.UNSUPPORTED,
                 started_at=started_at,
                 decision=decision,
+                identifiers=request_identifiers,
+                input_sha256=input_sha256,
+                input_size_bytes=input_size_bytes,
             )
 
     async def _read_governed_json(self, request: Request) -> tuple[bytes, dict[str, Any]]:
@@ -551,6 +573,7 @@ class GatewayProxy:
         disposition: RouteDisposition,
         started_at: datetime,
         decision: AdmissionDecision | None = None,
+        identifiers: dict[str, str] | None = None,
         input_sha256: str | None = None,
         input_size_bytes: int | None = None,
     ) -> JSONResponse:
@@ -563,6 +586,7 @@ class GatewayProxy:
                 status=GatewayEventStatus.GATEWAY_DENIAL,
                 started_at=started_at,
                 decision=decision,
+                identifiers=identifiers,
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
             )
@@ -694,6 +718,23 @@ def _optional_identifier(value: object) -> str | None:
 def _thread_id(path: str) -> str | None:
     parts = path.strip("/").split("/")
     return parts[1] if len(parts) > 2 and parts[0] == "threads" else None
+
+
+def _path_identifiers(path: str) -> dict[str, str]:
+    """Extract only identifiers that are unambiguous in the claimed URL shape."""
+    parts = path.strip("/").split("/")
+    identifiers: dict[str, str] = {}
+    if len(parts) >= 2 and parts[0] == "threads" and parts[1]:
+        identifiers["thread_id"] = parts[1]
+    if (
+        len(parts) >= 4
+        and parts[0] == "threads"
+        and parts[2] == "runs"
+        and parts[3]
+        and parts[3] not in {"stream", "wait"}
+    ):
+        identifiers["run_id"] = parts[3]
+    return identifiers
 
 
 def _safe_admission_reason(code: str) -> str:
