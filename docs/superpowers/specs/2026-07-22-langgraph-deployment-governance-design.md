@@ -44,7 +44,7 @@ The integration exposes three cumulative capability levels:
 |---|---|---|
 | `admission` | Gateway only | Authentication, principal resolution, run admission, budget/rate controls, request/run audit, streaming-preserving proxy, existing interrupt visibility |
 | `observed` | Gateway + governed graph callback adapter | All admission capabilities plus per-node/LLM/tool causal audit and OTel export |
-| `enforced` | Gateway + governed tool boundary | All observed capabilities plus tool allow/deny and adapter-defined approval interrupts |
+| `enforced` | Gateway + `govern_graph` + complete governed-tool boundary | All observed capabilities plus tool allow/deny and adapter-defined approval interrupts |
 
 The gateway publishes the active level per deployment. The console, audit records, health endpoint, CLI output, and documentation use these exact levels. A missing or unhealthy adapter causes the reported level to fall back; it never silently claims `enforced`.
 
