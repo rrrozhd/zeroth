@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+import json
 from pathlib import Path
 import tomllib
 
@@ -12,9 +13,18 @@ from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 
 from zeroth.core.config.settings import LangGraphGatewaySettings
+from zeroth.core.econ.budget import BudgetCheckResult
+from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
+from zeroth.core.langgraph_gateway.compatibility import CompatibilityResult
+from zeroth.core.langgraph_gateway.context import ReservedContextCodec
 from zeroth.core.langgraph_gateway.headers import UpstreamCredentialUnavailableError
+from zeroth.core.langgraph_gateway.inventory import classify_endpoint
+from zeroth.core.langgraph_gateway.models import CompatibilityStatus
+from zeroth.core.langgraph_gateway.proxy import GatewayProxy
 from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
+from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.core.secrets.provider import EnvSecretProvider
+from zeroth.core.signing import EnvHmacSigner, NullSigner
 
 
 async def upstream_fixture(request: Request) -> Response:
@@ -671,3 +681,689 @@ def test_all_extra_includes_langgraph_gateway_runtime():
     project = tomllib.loads(Path("pyproject.toml").read_text())
 
     assert "zeroth-core[langgraph-gateway]" in project["project"]["optional-dependencies"]["all"]
+
+
+class AllowPolicy:
+    def evaluate_run_admission(self, request):
+        return RunAdmissionResult(allowed=True, policy_version="sha256:policy")
+
+
+class DenyPolicy:
+    def evaluate_run_admission(self, request):
+        return RunAdmissionResult(
+            allowed=False,
+            policy_version="sha256:policy",
+            reason="zeroth.policy_denied",
+        )
+
+
+class AllowBudget:
+    async def check_budget_status(self, tenant_id):
+        return BudgetCheckResult(allowed=True, spend_usd=1, cap_usd=10)
+
+
+def supported_compatibility() -> CompatibilityResult:
+    return CompatibilityResult(
+        tested_langgraph_versions=("1.2.9",),
+        tested_agent_server_versions=("0.11.1",),
+        detected_agent_server_version="0.11.1",
+        openapi_fingerprint="sha256:openapi",
+        status=CompatibilityStatus.SUPPORTED,
+    )
+
+
+def principal() -> AuthenticatedPrincipal:
+    return AuthenticatedPrincipal(
+        subject="user-7",
+        auth_method=AuthMethod.API_KEY,
+        roles=[ServiceRole.OPERATOR],
+        tenant_id="tenant-a",
+    )
+
+
+def governed_request(
+    body: bytes,
+    *,
+    path: str = "/threads/thread-4/runs/stream",
+    receive_hook=None,
+) -> Request:
+    sent = False
+
+    async def receive():
+        nonlocal sent
+        if sent:
+            return {"type": "http.disconnect"}
+        sent = True
+        if receive_hook is not None:
+            receive_hook()
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "headers": [(b"content-type", b"application/json")],
+            "server": ("gateway", 80),
+            "client": ("test", 123),
+            "state": {"principal": principal()},
+        },
+        receive,
+    )
+
+
+def authenticated_empty_request(path: str) -> Request:
+    request = empty_request(path, raw_path=path.encode())
+    request.state.principal = principal()
+    return request
+
+
+@pytest.mark.asyncio
+async def test_governed_pipeline_order_and_signed_claims_are_exact():
+    order = []
+    captured = {}
+
+    class RecordingClassifier:
+        async def classify(self, payload):
+            order.append("admission")
+            return "internal"
+
+    class RecordingSigner:
+        def __init__(self):
+            self.delegate = EnvHmacSigner(key_id="gateway", keys={"gateway": b"shared-key"})
+
+        def algorithm(self):
+            return self.delegate.algorithm()
+
+        def key_id(self):
+            return self.delegate.key_id()
+
+        def sign(self, payload):
+            order.append("signed injection")
+            return self.delegate.sign(payload)
+
+        def verify(self, payload, signature, key_id):
+            return self.delegate.verify(payload, signature, key_id)
+
+    class RecordingSecrets(EnvSecretProvider):
+        async def resolve_secret_async(self, logical_name, **kwargs):
+            order.append("credential replacement")
+            return "upstream-secret"
+
+    async def upstream(request):
+        order.append("transport")
+        captured["headers"] = request.headers
+        captured["body"] = await request.aread()
+
+        class ResultStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b'{"run_id":"run-9"}'
+
+        return httpx.Response(
+            200,
+            stream=ResultStream(),
+            headers={"content-type": "application/json"},
+        )
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="agent-server:fixture",
+        deployment_ref="deployment-a",
+        upstream_credential_ref="agent.credential",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        RecordingSecrets(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    signer = RecordingSigner()
+
+    def route_classifier(method, path):
+        order.append("route classification")
+        return classify_endpoint(method, path)
+
+    def principal_resolver(request):
+        order.append("principal")
+        return request.state.principal
+
+    request = governed_request(
+        b'{"assistant_id":"assistant-2","input":{"question":"hello"}}',
+        receive_hook=lambda: order.append("bounded parse"),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(signer, clock=lambda: 1000),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        classifier=RecordingClassifier(),
+        compatibility=supported_compatibility(),
+        principal_resolver=principal_resolver,
+        route_classifier=route_classifier,
+        clock=lambda: 1000,
+        correlation_factory=lambda: "corr-1",
+    )
+
+    response = await proxy.handle_http(request)
+    response_body = b"".join([chunk async for chunk in response.body_iterator])
+
+    assert order == [
+        "route classification",
+        "principal",
+        "bounded parse",
+        "admission",
+        "signed injection",
+        "credential replacement",
+        "transport",
+    ]
+    assert response_body == b'{"run_id":"run-9"}'
+    assert response.headers["x-correlation-id"] == "corr-1"
+    assert response.headers["x-zeroth-governance-level"] == "admission"
+    assert captured["headers"]["authorization"] == "Bearer upstream-secret"
+    forwarded = json.loads(captured["body"])
+    token = forwarded["config"]["configurable"]["_zeroth"]
+    claims = ReservedContextCodec(signer, clock=lambda: 1000).decode(
+        token,
+        audience="agent-server:fixture",
+        deployment_ref="deployment-a",
+    )
+    assert claims.model_dump() == {
+        "schema_version": 1,
+        "tenant_id": "tenant-a",
+        "principal_id": "user-7",
+        "roles": ("operator",),
+        "deployment_ref": "deployment-a",
+        "audience": "agent-server:fixture",
+        "correlation_id": "corr-1",
+        "policy_version": "sha256:policy",
+        "issued_at": 1000,
+        "expires_at": 1300,
+        "content_classification": "internal",
+    }
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "body", "policy", "signer", "max_bytes", "compatibility", "status", "code"),
+    [
+        (
+            "/threads/thread-4/runs",
+            b'{"input":{}}',
+            DenyPolicy(),
+            EnvHmacSigner(key_id="k", keys={"k": b"key"}),
+            1024,
+            supported_compatibility(),
+            403,
+            "zeroth.policy_denied",
+        ),
+        (
+            "/threads/thread-4/runs",
+            b"not-json",
+            AllowPolicy(),
+            EnvHmacSigner(key_id="k", keys={"k": b"key"}),
+            1024,
+            supported_compatibility(),
+            400,
+            "zeroth.invalid_request",
+        ),
+        (
+            "/threads/thread-4/runs",
+            b'{"input":"too-large"}',
+            AllowPolicy(),
+            EnvHmacSigner(key_id="k", keys={"k": b"key"}),
+            4,
+            supported_compatibility(),
+            413,
+            "zeroth.request_too_large",
+        ),
+        (
+            "/crons",
+            b"{}",
+            AllowPolicy(),
+            EnvHmacSigner(key_id="k", keys={"k": b"key"}),
+            1024,
+            supported_compatibility(),
+            501,
+            "zeroth.unsupported_endpoint",
+        ),
+        (
+            "/threads/thread-4/runs",
+            b'{"input":{}}',
+            AllowPolicy(),
+            NullSigner(),
+            1024,
+            supported_compatibility(),
+            503,
+            "zeroth.context_signing_unavailable",
+        ),
+        (
+            "/threads/thread-4/runs",
+            b'{"input":{}}',
+            AllowPolicy(),
+            EnvHmacSigner(key_id="k", keys={"k": b"key"}),
+            1024,
+            CompatibilityResult(
+                tested_langgraph_versions=("1.2.9",),
+                tested_agent_server_versions=("0.11.1",),
+                status=CompatibilityStatus.UNSUPPORTED,
+            ),
+            501,
+            "zeroth.unsupported_upstream",
+        ),
+    ],
+)
+async def test_preflight_denials_use_stable_safe_errors_and_never_connect(
+    path, body, policy, signer, max_bytes, compatibility, status, code
+):
+    calls = 0
+
+    async def upstream(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(204)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+        max_governed_body_bytes=max_bytes,
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(signer),
+        policy_guard=policy,
+        budget_checker=AllowBudget(),
+        compatibility=compatibility,
+        correlation_factory=lambda: "corr-safe",
+    )
+
+    response = await proxy.handle_http(governed_request(body, path=path))
+
+    assert response.status_code == status
+    error = json.loads(response.body)
+    assert error["code"] == code
+    assert error["correlation_id"] == "corr-safe"
+    assert error["retryable"] is (code == "zeroth.context_signing_unavailable")
+    assert isinstance(error["reason"], str) and error["reason"]
+    assert b"too-large" not in response.body
+    assert calls == 0
+    await transport.aclose()
+
+
+class RecordingEventSink:
+    def __init__(self, *, fail=False):
+        self.events = []
+        self.fail = fail
+
+    async def emit(self, event):
+        self.events.append(event)
+        if self.fail:
+            raise RuntimeError("audit backend unavailable")
+
+
+@pytest.mark.asyncio
+async def test_unknown_pass_ungoverned_is_marked_and_audited_without_body_rewrite():
+    received = {}
+    sink = RecordingEventSink()
+
+    async def upstream(request):
+        received["body"] = await request.aread()
+
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"upstream-bytes"
+
+        return httpx.Response(418, stream=Body(), headers={"content-type": "text/plain"})
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+        unknown_endpoint_mode="pass_ungoverned",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+        correlation_factory=lambda: "corr-unknown",
+    )
+
+    response = await proxy.handle_http(governed_request(b"opaque-body", path="/custom"))
+    body = b"".join([chunk async for chunk in response.body_iterator])
+
+    assert response.status_code == 418
+    assert body == b"upstream-bytes"
+    assert received["body"] == b"opaque-body"
+    assert response.headers["x-zeroth-governance"] == "ungoverned"
+    assert response.headers["x-correlation-id"] == "corr-unknown"
+    assert sink.events[-1].status.value == "upstream_error"
+    assert sink.events[-1].disposition.value == "unsupported"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_event_sink_failure_is_counted_and_does_not_change_or_reorder_response():
+    sink = RecordingEventSink(fail=True)
+
+    async def upstream(request):
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"one-"
+                yield b"two"
+
+        return httpx.Response(200, stream=Body(), headers={"content-type": "text/plain"})
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+    )
+
+    response = await proxy.handle_http(authenticated_empty_request("/ok"))
+    chunks = [chunk async for chunk in response.body_iterator]
+
+    assert chunks == [b"one-", b"two"]
+    assert proxy.sink_failure_count == 1
+    assert sink.events[-1].status.value == "success"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_generator_close_emits_client_disconnect_terminal_event():
+    sink = RecordingEventSink()
+
+    async def upstream(request):
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"first"
+                yield b"second"
+
+        return httpx.Response(200, stream=Body(), headers={"content-type": "text/plain"})
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+    )
+
+    response = await proxy.handle_http(authenticated_empty_request("/ok"))
+    assert await anext(response.body_iterator) == b"first"
+    await response.body_iterator.aclose()
+
+    assert sink.events[-1].status.value == "client_disconnect"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("upstream_error", "status", "code"),
+    [
+        (httpx.ConnectError("refused"), 502, "zeroth.upstream_unavailable"),
+        (
+            httpx.ConnectTimeout("TOP-SECRET-timeout-value"),
+            504,
+            "zeroth.upstream_timeout",
+        ),
+    ],
+)
+async def test_transport_failures_map_to_safe_gateway_errors(upstream_error, status, code):
+    async def upstream(request):
+        raise upstream_error
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        correlation_factory=lambda: "corr-transport",
+    )
+
+    response = await proxy.handle_http(authenticated_empty_request("/ok"))
+
+    assert response.status_code == status
+    assert json.loads(response.body)["code"] == code
+    assert b"refused" not in response.body
+    assert b"TOP-SECRET-timeout-value" not in response.body
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_missing_upstream_credential_maps_to_503_without_connecting():
+    calls = 0
+
+    async def upstream(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(204)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+        upstream_credential_ref="private.secret.ref",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        correlation_factory=lambda: "corr-credential",
+    )
+
+    response = await proxy.handle_http(authenticated_empty_request("/ok"))
+
+    assert response.status_code == 503
+    assert json.loads(response.body)["code"] == "zeroth.upstream_credential_unavailable"
+    assert b"private.secret.ref" not in response.body
+    assert calls == 0
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_admission_emits_terminal_event_without_connecting():
+    classifier_started = asyncio.Event()
+    sink = RecordingEventSink()
+    calls = 0
+
+    class BlockingClassifier:
+        async def classify(self, payload):
+            classifier_started.set()
+            await asyncio.Future()
+
+    async def upstream(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(204)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        classifier=BlockingClassifier(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+    )
+    task = asyncio.create_task(proxy.handle_http(governed_request(b'{"input":{"safe":true}}')))
+    await classifier_started.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert calls == 0
+    assert sink.events[-1].status.value == "cancellation"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_known_transparent_protocol_command_preserves_consumed_body_bytes():
+    captured_body = None
+
+    async def upstream(request):
+        nonlocal captured_body
+        captured_body = await request.aread()
+
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b'{"ok":true}'
+
+        return httpx.Response(200, stream=Body(), headers={"content-type": "application/json"})
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+    )
+    command = b'{"jsonrpc":"2.0","method":"agent.getTree","params":{"depth":3}}'
+
+    response = await proxy.handle_http(governed_request(command, path="/threads/thread-4/commands"))
+    response_body = b"".join([chunk async for chunk in response.body_iterator])
+
+    assert response.status_code == 200
+    assert response_body == b'{"ok":true}'
+    assert captured_body == command
+    assert "x-zeroth-governance-level" not in response.headers
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_governed_terminal_event_keeps_request_ids_when_response_has_none():
+    sink = RecordingEventSink()
+
+    async def upstream(request):
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"accepted"
+
+        return httpx.Response(202, stream=Body(), headers={"content-type": "text/plain"})
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+    )
+
+    response = await proxy.handle_http(
+        governed_request(b'{"assistant_id":"assistant-2","input":{}}')
+    )
+    _ = [chunk async for chunk in response.body_iterator]
+
+    event = sink.events[-1]
+    assert event.correlation.thread_id == "thread-4"
+    assert event.correlation.assistant_id == "assistant-2"
+    await transport.aclose()
