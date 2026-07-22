@@ -865,6 +865,41 @@ async def test_post_accept_stream_failure_is_not_mapped_as_a_handshake_failure()
 
 
 @pytest.mark.asyncio
+async def test_real_post_accept_pump_failure_has_one_transport_owned_1011_close():
+    upstream_closed: asyncio.Future[tuple[int | None, str]] = asyncio.Future()
+
+    async def upstream(connection) -> None:
+        await connection.send("trigger downstream failure")
+        try:
+            await connection.recv()
+        except websockets.ConnectionClosed:
+            upstream_closed.set_result((connection.close_code, connection.close_reason or ""))
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(configured, EnvSecretProvider())
+        endpoint = _endpoint_with_transport(transport)
+        websocket = MemoryWebSocket(
+            headers=[(b"x-api-key", b"client-key")],
+            send_error=RuntimeError("downstream send failed"),
+        )
+
+        await endpoint(websocket)
+
+        assert websocket.accepted is True
+        assert websocket.close_calls == [(1011, "gateway stream failed")]
+        assert await asyncio.wait_for(upstream_closed, timeout=2) == (
+            1011,
+            "gateway stream failed",
+        )
+        await asyncio.sleep(0)
+        assert _bridge_pump_tasks() == []
+        assert transport.websocket_active_count == 0
+        await transport.aclose()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("headers", [[], [(b"x-api-key", b"wrong")]])
 async def test_missing_or_invalid_auth_closes_4401_without_calling_upstream(headers):
     downstream = RecordingWebSocketHandler()

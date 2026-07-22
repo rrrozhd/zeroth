@@ -97,7 +97,8 @@ class WebSocketGatewayHandler:
         except BaseExceptionGroup as group:
             close = _find_gateway_close(group)
             if close is None:
-                await websocket.close(code=1011, reason="gateway stream failed")
+                if not _websocket_was_accepted(websocket):
+                    await websocket.close(code=1011, reason="gateway stream failed")
                 return
             await websocket.close(code=close.code, reason=close.reason)
         except WebSocketGatewayCloseError as exc:
