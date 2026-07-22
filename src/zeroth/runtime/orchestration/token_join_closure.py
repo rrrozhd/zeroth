@@ -140,10 +140,6 @@ def _transfer_outer_join(
     """Move an unresolved outer arrival slot onto one reduced inner outcome."""
     if inner_fork.parent_fork_id is None:
         return joins
-    delivered = [
-        item for item in inner_join.obligations if item.outcome is JoinObligationOutcome.DELIVERED
-    ]
-    representative = (delivered or list(inner_join.obligations))[0].inbound_edge_id
     updated = joins
     for outer in joins:
         if (
@@ -168,7 +164,6 @@ def _transfer_outer_join(
                     {
                         **_model_data(obligation),
                         "source_token_id": continuation.token_id,
-                        "inbound_edge_id": representative,
                     }
                 )
             )

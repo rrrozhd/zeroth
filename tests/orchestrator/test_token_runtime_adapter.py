@@ -411,8 +411,9 @@ async def test_default_on_nested_fanout_inner_join_preserves_outer_ownership(sql
 
 
 @pytest.mark.parametrize("outer_x_first", [True, False], ids=("inner-first", "sibling-first"))
+@pytest.mark.parametrize("inner_c_first", [False, True], ids=("b-child-first", "c-child-first"))
 async def test_nested_inner_and_outer_cohorts_reconverge_at_same_join(
-    sqlite_db, outer_x_first
+    sqlite_db, outer_x_first, inner_c_first
 ) -> None:
     node_ids = ("A", "X", "Y", "B", "C", "J", "T")
     nodes = {node_id: _node(node_id) for node_id in node_ids}
@@ -438,8 +439,17 @@ async def test_nested_inner_and_outer_cohorts_reconverge_at_same_join(
                     Edge(edge_id="A-X", source_node_id="A", target_node_id="X"),
                 ]
             ),
-            Edge(edge_id="X-B", source_node_id="X", target_node_id="B"),
-            Edge(edge_id="X-C", source_node_id="X", target_node_id="C"),
+            *(
+                [
+                    Edge(edge_id="X-C", source_node_id="X", target_node_id="C"),
+                    Edge(edge_id="X-B", source_node_id="X", target_node_id="B"),
+                ]
+                if inner_c_first
+                else [
+                    Edge(edge_id="X-B", source_node_id="X", target_node_id="B"),
+                    Edge(edge_id="X-C", source_node_id="X", target_node_id="C"),
+                ]
+            ),
             Edge(edge_id="B-J", source_node_id="B", target_node_id="J"),
             Edge(edge_id="C-J", source_node_id="C", target_node_id="J"),
             Edge(edge_id="Y-J", source_node_id="Y", target_node_id="J"),
@@ -458,7 +468,8 @@ async def test_nested_inner_and_outer_cohorts_reconverge_at_same_join(
     run = await orchestrator.run_graph(graph, {"value": 0})
 
     assert run.status is RunStatus.COMPLETED, run.error
-    expected_middle = ["X", "B", "C", "Y"] if outer_x_first else ["Y", "X", "B", "C"]
+    inner_children = ["C", "B"] if inner_c_first else ["B", "C"]
+    expected_middle = ["X", *inner_children, "Y"] if outer_x_first else ["Y", "X", *inner_children]
     assert [entry.node_id for entry in run.execution_history] == [
         "A",
         *expected_middle,

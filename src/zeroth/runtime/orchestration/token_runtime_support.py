@@ -436,6 +436,19 @@ class TokenRuntimeSupport:
             elif (
                 child_token.current_node_id == target and child_token.continuation_parent_token_ids
             ):
+                registered = next(
+                    (
+                        obligation.inbound_edge_id
+                        for outer_join in snapshot.joins
+                        if outer_join.fork_id == fork.fork_id
+                        and outer_join.target_node_id == target
+                        and outer_join.lifecycle_state
+                        in {JoinLifecycleState.OPEN, JoinLifecycleState.READY}
+                        for obligation in outer_join.obligations
+                        if obligation.source_token_id == child_token.token_id
+                    ),
+                    None,
+                )
                 join = next(
                     item
                     for item in snapshot.joins
@@ -447,7 +460,11 @@ class TokenRuntimeSupport:
                     if item.outcome is JoinObligationOutcome.DELIVERED
                 }
                 candidates = delivered or {item.inbound_edge_id for item in join.obligations}
-                inbound = [min(candidates, key=edge_order.__getitem__)]
+                inbound = [
+                    registered
+                    if registered is not None
+                    else min(candidates, key=edge_order.__getitem__)
+                ]
             else:
                 inbound = self._reachable_inbound_edges(graph, child_token.current_node_id, target)
             if not inbound:
