@@ -184,7 +184,7 @@ class CompatibilityDetector:
         if 200 <= info_response.status_code < 300:
             try:
                 decoded_info = json.loads(info_response.body)
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, RecursionError, ValueError):
                 decoded_info = None
             if not isinstance(decoded_info, Mapping):
                 malformed_info = True
@@ -244,7 +244,7 @@ class CompatibilityDetector:
                 if not isinstance(openapi_document, Mapping):
                     raise ValueError("OpenAPI response is not an object")
                 openapi_digest = fingerprint_openapi(openapi_document)
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, RecursionError, ValueError):
                 openapi_malformed = True
 
         if not 200 <= ok_response.status_code < 300:

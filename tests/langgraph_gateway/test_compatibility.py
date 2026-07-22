@@ -71,6 +71,32 @@ async def _detect_asgi(app, **detector_options: object):
         return await CompatibilityDetector(client, **detector_options).detect()
 
 
+class TrackedByteStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes], *, delay_seconds: float = 0.0) -> None:
+        self.chunks = chunks
+        self.delay_seconds = delay_seconds
+        self.yielded = 0
+        self.closed = False
+
+    async def __aiter__(self):
+        for chunk in self.chunks:
+            if self.delay_seconds:
+                await asyncio.sleep(self.delay_seconds)
+            self.yielded += 1
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class ProbeStreamTransport(httpx.AsyncBaseTransport):
+    def __init__(self, streams: dict[str, TrackedByteStream]) -> None:
+        self.streams = streams
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=self.streams[request.url.path], request=request)
+
+
 @pytest.mark.asyncio
 async def test_exact_version_and_expected_openapi_fingerprint_are_supported() -> None:
     transport, calls = _transport()
@@ -126,6 +152,23 @@ async def test_malformed_info_is_unsupported() -> None:
 
 
 @pytest.mark.asyncio
+async def test_deeply_nested_info_json_is_safely_malformed() -> None:
+    nested = (b"[" * 10_000) + b"0" + (b"]" * 10_000)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/info":
+            return httpx.Response(200, content=nested)
+        if request.url.path == "/ok":
+            return httpx.Response(200, json={"ok": True})
+        return httpx.Response(404)
+
+    result = await _detect(httpx.MockTransport(handler))
+
+    assert result.status is CompatibilityStatus.UNSUPPORTED
+    assert result.reason == "upstream /info response is malformed"
+
+
+@pytest.mark.asyncio
 async def test_changed_openapi_shape_is_unsupported() -> None:
     document = _openapi_document()
     document["paths"]["/threads"]["post"]["operationId"] = "changed_operation"  # type: ignore[index]
@@ -135,6 +178,23 @@ async def test_changed_openapi_shape_is_unsupported() -> None:
 
     assert result.status is CompatibilityStatus.UNSUPPORTED
     assert result.reason == "upstream version and OpenAPI evidence conflict"
+
+
+@pytest.mark.asyncio
+async def test_deeply_nested_openapi_json_is_safely_malformed() -> None:
+    nested = (b"[" * 10_000) + b"0" + (b"]" * 10_000)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/info":
+            return httpx.Response(200, json={"langgraph_api_version": "0.11.1"})
+        if request.url.path == "/ok":
+            return httpx.Response(200, json={"ok": True})
+        return httpx.Response(200, content=nested)
+
+    result = await _detect(httpx.MockTransport(handler))
+
+    assert result.status is CompatibilityStatus.UNSUPPORTED
+    assert result.reason == "upstream OpenAPI response is malformed"
 
 
 @pytest.mark.asyncio
@@ -213,6 +273,26 @@ async def test_streamed_oversize_openapi_is_rejected_and_closed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_oversize_probe_stops_incremental_stream_and_closes_it() -> None:
+    openapi_stream = TrackedByteStream([b"x" * 10] * 1_000)
+    streams = {
+        "/info": TrackedByteStream([b'{"langgraph_api_version":"0.11.1"}']),
+        "/ok": TrackedByteStream([b'{"ok":true}']),
+        "/openapi.json": openapi_stream,
+    }
+    async with httpx.AsyncClient(
+        transport=ProbeStreamTransport(streams), base_url="https://upstream.test"
+    ) as client:
+        result = await CompatibilityDetector(
+            client, timeout_seconds=0.2, openapi_max_response_bytes=15
+        ).detect()
+
+    assert result.status is CompatibilityStatus.UNSUPPORTED
+    assert openapi_stream.yielded == 2
+    assert openapi_stream.closed is True
+
+
+@pytest.mark.asyncio
 async def test_slow_streaming_probe_obeys_wall_clock_deadline_and_cleans_up() -> None:
     stream_cancelled = asyncio.Event()
 
@@ -236,6 +316,24 @@ async def test_slow_streaming_probe_obeys_wall_clock_deadline_and_cleans_up() ->
     assert result.reason == "upstream Agent Server probe timed out"
     assert elapsed < 0.2
     assert stream_cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_timeout_stops_incremental_stream_and_closes_it() -> None:
+    info_stream = TrackedByteStream([b" "] * 1_000, delay_seconds=0.02)
+    streams = {
+        "/info": info_stream,
+        "/ok": TrackedByteStream([b'{"ok":true}']),
+        "/openapi.json": TrackedByteStream([b"{}"]),
+    }
+    async with httpx.AsyncClient(
+        transport=ProbeStreamTransport(streams), base_url="https://upstream.test"
+    ) as client:
+        result = await CompatibilityDetector(client, timeout_seconds=0.05).detect()
+
+    assert result.status is CompatibilityStatus.UNAVAILABLE
+    assert info_stream.yielded < len(info_stream.chunks)
+    assert info_stream.closed is True
 
 
 @pytest.mark.asyncio
@@ -336,6 +434,16 @@ class FalsyEvidenceProvider(StaticEvidenceProvider):
 class RaisingEvidenceProvider:
     async def evidence_for_run(self, correlation_id: str) -> RunCapabilityEvidence | None:
         raise ValueError("malformed backend evidence containing secret")
+
+
+class RaisingEvidence:
+    @property
+    def signature_valid(self) -> bool:
+        raise RuntimeError("evidence validation failed")
+
+
+class FatalClockError(BaseException):
+    pass
 
 
 NOW = datetime(2026, 7, 22, tzinfo=UTC)
@@ -479,6 +587,35 @@ async def test_provider_failure_falls_back_to_admission() -> None:
         await reporter.level_for_run("corr-1", graph_version="graph-v1")
         is GovernanceLevel.ADMISSION
     )
+
+
+@pytest.mark.parametrize("error", [RuntimeError("clock failed"), OSError("clock failed")])
+def test_clock_failure_falls_back_to_admission(error: Exception) -> None:
+    def broken_clock() -> datetime:
+        raise error
+
+    reporter = CapabilityReporter(now=broken_clock)
+
+    assert reporter.level_for_deployment(_evidence()) is GovernanceLevel.ADMISSION
+
+
+def test_evidence_validation_failure_falls_back_to_admission() -> None:
+    reporter = CapabilityReporter(now=lambda: NOW)
+
+    assert (
+        reporter.level_for_deployment(RaisingEvidence())  # type: ignore[arg-type]
+        is GovernanceLevel.ADMISSION
+    )
+
+
+def test_base_exception_from_clock_propagates() -> None:
+    def interrupted_clock() -> datetime:
+        raise FatalClockError
+
+    reporter = CapabilityReporter(now=interrupted_clock)
+
+    with pytest.raises(FatalClockError):
+        reporter.level_for_deployment(_evidence())
 
 
 @pytest.mark.parametrize("stale_after", [0.0, -1.0, math.nan, math.inf, -math.inf])

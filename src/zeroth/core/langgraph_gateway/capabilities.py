@@ -89,7 +89,7 @@ class CapabilityReporter:
             ):
                 return GovernanceLevel.ENFORCED
             return GovernanceLevel.OBSERVED
-        except (AttributeError, OverflowError, TypeError, ValueError):
+        except Exception:
             return GovernanceLevel.ADMISSION
 
     async def level_for_run(
