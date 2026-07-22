@@ -8,8 +8,9 @@ of a policy check contains.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 
 class Capability(StrEnum):
@@ -57,15 +58,32 @@ class PolicyDefinition(BaseModel):
     approval_required_for_side_effects: bool = False
     timeout_override_seconds: float | None = None
     sandbox_strictness_mode: str | None = None
-    allowed_tenants: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
-    allowed_principals: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
-    required_roles: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
-    allowed_assistants: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
-    allowed_deployments: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
-    allowed_input_classifications: list[str] = Field(
-        default_factory=list, exclude_if=lambda value: not value
-    )
-    max_input_bytes: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
+    allowed_tenants: list[str] = Field(default_factory=list)
+    allowed_principals: list[str] = Field(default_factory=list)
+    required_roles: list[str] = Field(default_factory=list)
+    allowed_assistants: list[str] = Field(default_factory=list)
+    allowed_deployments: list[str] = Field(default_factory=list)
+    allowed_input_classifications: list[str] = Field(default_factory=list)
+    max_input_bytes: int | None = Field(default=None, ge=0)
+
+    @model_serializer(mode="wrap")
+    def _serialize_legacy_compatible(self, handler: Any) -> dict[str, Any]:
+        """Omit default admission fields on every supported Pydantic 2.x."""
+        data = handler(self)
+        list_fields = (
+            "allowed_tenants",
+            "allowed_principals",
+            "required_roles",
+            "allowed_assistants",
+            "allowed_deployments",
+            "allowed_input_classifications",
+        )
+        for field in list_fields:
+            if not getattr(self, field):
+                data.pop(field, None)
+        if self.max_input_bytes is None:
+            data.pop("max_input_bytes", None)
+        return data
 
 
 class RunAdmissionResult(BaseModel):

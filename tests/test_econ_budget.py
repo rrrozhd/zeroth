@@ -7,11 +7,12 @@ Also integration tests for AgentRunner with budget_enforcer.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from zeroth.core.agent_runtime.errors import BudgetExceededError
 from zeroth.core.agent_runtime.models import AgentConfig
@@ -74,9 +75,13 @@ async def test_check_budget_status_unlimited_success_is_not_degraded():
 
     assert status.allowed is True
     assert status.spend_usd == 0.0
-    assert status.cap_usd == float("inf")
+    assert status.cap_usd is None
     assert status.degraded is False
     assert status.failure_mode == "none"
+
+    json.dumps(status.model_dump(mode="json"), allow_nan=False)
+    encoded = status.model_dump_json()
+    assert BudgetCheckResult.model_validate_json(encoded) == status
 
 
 @pytest.mark.asyncio
@@ -108,7 +113,7 @@ async def test_check_budget_status_cached_success_remains_not_degraded():
             BudgetCheckResult(
                 allowed=True,
                 spend_usd=0.0,
-                cap_usd=float("inf"),
+                cap_usd=None,
                 degraded=True,
                 failure_mode="fail_open",
             ),
@@ -156,6 +161,26 @@ async def test_check_budget_status_failure_is_not_cached():
     assert recovered.degraded is False
     assert recovered.spend_usd == 1.0
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_check_budget_status_cached_result_cannot_be_mutated():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"total_cost_usd": 1, "budget_cap_usd": 10})
+
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    status = await enforcer.check_budget_status("tenant-immutable")
+
+    with pytest.raises(ValidationError):
+        status.allowed = False
+
+    cached = await enforcer.check_budget_status("tenant-immutable")
+    assert cached.allowed is True
+    assert calls == 1
 
 
 # -- Test 1: under budget --

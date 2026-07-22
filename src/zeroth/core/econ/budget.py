@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 import httpx
 from cachetools import TTLCache
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,11 @@ logger = logging.getLogger(__name__)
 class BudgetCheckResult(BaseModel):
     """Rich budget status that distinguishes outages from unlimited success."""
 
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     allowed: bool
-    spend_usd: float
-    cap_usd: float
+    spend_usd: float = Field(allow_inf_nan=False)
+    cap_usd: float | None = Field(allow_inf_nan=False)
     degraded: bool = False
     failure_mode: Literal["none", "fail_open", "fail_closed"] = "none"
 
@@ -95,7 +97,8 @@ class BudgetEnforcer:
         * Successful results are cached per tenant for the configured TTL.
         """
         status = await self._check_budget_status(tenant_id)
-        return status.allowed, status.spend_usd, status.cap_usd
+        legacy_cap = status.cap_usd if status.cap_usd is not None else float("inf")
+        return status.allowed, status.spend_usd, legacy_cap
 
     async def check_budget_status(self, tenant_id: str) -> BudgetCheckResult:
         """Return budget status including whether the backend check degraded."""
@@ -126,8 +129,8 @@ class BudgetEnforcer:
                 spend = float(data.get("total_cost_usd", 0))
                 # No configured cap comes back as null — unlimited, not an error.
                 cap_raw = data.get("budget_cap_usd")
-                cap = float(cap_raw) if cap_raw is not None else float("inf")
-                allowed = spend < cap
+                cap = float(cap_raw) if cap_raw is not None else None
+                allowed = cap is None or spend < cap
                 result = BudgetCheckResult(
                     allowed=allowed,
                     spend_usd=spend,
@@ -167,7 +170,7 @@ class BudgetEnforcer:
             return BudgetCheckResult(
                 allowed=True,
                 spend_usd=0.0,
-                cap_usd=float("inf"),
+                cap_usd=None,
                 degraded=True,
                 failure_mode="fail_open",
             )

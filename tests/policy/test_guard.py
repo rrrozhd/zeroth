@@ -168,6 +168,31 @@ def test_policy_definition_backwards_compatible_dump_excluding_defaults() -> Non
     }
 
 
+def test_policy_definition_legacy_serialization_does_not_require_exclude_if() -> None:
+    admission_fields = (
+        "allowed_tenants",
+        "allowed_principals",
+        "required_roles",
+        "allowed_assistants",
+        "allowed_deployments",
+        "allowed_input_classifications",
+        "max_input_bytes",
+    )
+
+    for field_name in admission_fields:
+        field = PolicyDefinition.model_fields[field_name]
+        assert getattr(field, "exclude_if", None) is None
+        assert not (field.json_schema_extra or {}).get("exclude_if")
+
+    configured = PolicyDefinition(
+        policy_id="policy://configured",
+        allowed_tenants=["tenant-a"],
+        max_input_bytes=10,
+    ).model_dump(mode="json")
+    assert configured["allowed_tenants"] == ["tenant-a"]
+    assert configured["max_input_bytes"] == 10
+
+
 @pytest.mark.parametrize(
     ("constraint", "request_update"),
     [
@@ -243,6 +268,26 @@ def test_run_admission_missing_binding_is_typed_safe_denial() -> None:
     assert decision.allowed is False
     assert decision.reason == "zeroth.policy_unavailable"
     assert decision.policy_version.startswith("sha256:")
+
+
+def test_run_admission_unavailable_version_is_binding_order_independent() -> None:
+    known = PolicyDefinition(
+        policy_id="policy://known",
+        allowed_tenants=["tenant-a"],
+    )
+    guard = _admission_guard(known)
+
+    missing_first = guard.evaluate_run_admission(
+        _admission_request(policy_bindings=("policy://missing", "policy://known"))
+    )
+    missing_last = guard.evaluate_run_admission(
+        _admission_request(policy_bindings=("policy://known", "policy://missing"))
+    )
+
+    assert missing_first.allowed is False
+    assert missing_last.allowed is False
+    assert missing_first.reason == missing_last.reason == "zeroth.policy_unavailable"
+    assert missing_first.policy_version == missing_last.policy_version
 
 
 def test_run_admission_empty_bindings_allow_with_deterministic_version() -> None:

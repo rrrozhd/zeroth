@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -7,7 +8,7 @@ import pytest
 
 from zeroth.core.econ.budget import BudgetCheckResult, BudgetEnforcer
 from zeroth.core.langgraph_gateway.admission import admit
-from zeroth.core.langgraph_gateway.models import AdmissionRequest
+from zeroth.core.langgraph_gateway.models import AdmissionDecision, AdmissionRequest
 from zeroth.core.policy.models import RunAdmissionResult
 
 
@@ -129,7 +130,7 @@ async def test_admission_policy_denial_short_circuits_budget() -> None:
             BudgetCheckResult(
                 allowed=True,
                 spend_usd=0.0,
-                cap_usd=float("inf"),
+                cap_usd=None,
                 degraded=True,
                 failure_mode="fail_open",
             ),
@@ -151,7 +152,7 @@ async def test_admission_policy_denial_short_circuits_budget() -> None:
             BudgetCheckResult(
                 allowed=True,
                 spend_usd=4.0,
-                cap_usd=float("inf"),
+                cap_usd=None,
             ),
             True,
             None,
@@ -181,10 +182,32 @@ async def test_admission_preserves_budget_posture(
 
 
 @pytest.mark.asyncio
+async def test_admission_unlimited_budget_is_strict_json_round_trip_safe() -> None:
+    calls: list[Any] = []
+    decision = await admit(
+        _request(),
+        classifier=RecordingClassifier(calls),
+        policy_guard=RecordingPolicyGuard(
+            calls,
+            RunAdmissionResult(allowed=True, policy_version="sha256:policy"),
+        ),
+        budget_checker=RecordingBudget(
+            calls,
+            BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=None),
+        ),
+    )
+
+    assert decision.budget_cap_usd is None
+    json.dumps(decision.model_dump(mode="json"), allow_nan=False)
+    encoded = decision.model_dump_json()
+    assert AdmissionDecision.model_validate_json(encoded) == decision
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("fail_closed", "expected_allowed", "expected_reason", "expected_cap"),
     [
-        (False, True, None, float("inf")),
+        (False, True, None, None),
         (True, False, "zeroth.budget_unavailable", 0.0),
     ],
 )
@@ -192,7 +215,7 @@ async def test_admission_uses_configured_budget_enforcer_failure_posture(
     fail_closed: bool,
     expected_allowed: bool,
     expected_reason: str | None,
-    expected_cap: float,
+    expected_cap: float | None,
 ) -> None:
     def unavailable_backend(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("backend-only detail")
@@ -307,6 +330,43 @@ class RaisingBudget:
         raise RuntimeError("secret budget detail")
 
 
+class ReturningClassifier:
+    def __init__(self, result: object) -> None:
+        self.result = result
+
+    async def classify(self, payload: object) -> object:
+        return self.result
+
+
+class ReturningPolicyGuard:
+    def __init__(self, result: object) -> None:
+        self.result = result
+
+    def evaluate_run_admission(self, request: AdmissionRequest) -> object:
+        return self.result
+
+
+class AsyncPolicyGuard:
+    async def evaluate_run_admission(self, request: AdmissionRequest) -> RunAdmissionResult:
+        return RunAdmissionResult(allowed=True, policy_version="sha256:unexpected")
+
+
+class ReturningBudget:
+    def __init__(self, result: object) -> None:
+        self.result = result
+
+    async def check_budget_status(self, tenant_id: str) -> object:
+        return self.result
+
+
+class NestedAwaitableBudget:
+    async def check_budget_status(self, tenant_id: str) -> object:
+        async def nested() -> BudgetCheckResult:
+            return BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=None)
+
+        return nested()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("classifier", "policy_guard", "budget_checker", "expected_reason"),
@@ -351,3 +411,85 @@ async def test_admission_dependency_exceptions_fail_safely_without_leaking(
     assert decision.allowed is False
     assert decision.reason == expected_reason
     assert "secret" not in repr(decision)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("classifier", "policy_guard", "budget_checker", "expected_reason"),
+    [
+        (
+            ReturningClassifier(None),
+            RecordingPolicyGuard(
+                [], RunAdmissionResult(allowed=True, policy_version="sha256:unused")
+            ),
+            RecordingBudget([], BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=1.0)),
+            "zeroth.classifier_unavailable",
+        ),
+        (
+            ReturningClassifier({"classification": "internal"}),
+            RecordingPolicyGuard(
+                [], RunAdmissionResult(allowed=True, policy_version="sha256:unused")
+            ),
+            RecordingBudget([], BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=1.0)),
+            "zeroth.classifier_unavailable",
+        ),
+        (
+            RecordingClassifier([]),
+            ReturningPolicyGuard(None),
+            RecordingBudget([], BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=1.0)),
+            "zeroth.policy_unavailable",
+        ),
+        (
+            RecordingClassifier([]),
+            ReturningPolicyGuard({"allowed": "yes"}),
+            RecordingBudget([], BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=1.0)),
+            "zeroth.policy_unavailable",
+        ),
+        (
+            RecordingClassifier([]),
+            AsyncPolicyGuard(),
+            RecordingBudget([], BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=1.0)),
+            "zeroth.policy_unavailable",
+        ),
+        (
+            RecordingClassifier([]),
+            RecordingPolicyGuard(
+                [], RunAdmissionResult(allowed=True, policy_version="sha256:policy")
+            ),
+            ReturningBudget(None),
+            "zeroth.budget_unavailable",
+        ),
+        (
+            RecordingClassifier([]),
+            RecordingPolicyGuard(
+                [], RunAdmissionResult(allowed=True, policy_version="sha256:policy")
+            ),
+            ReturningBudget({"allowed": "yes"}),
+            "zeroth.budget_unavailable",
+        ),
+        (
+            RecordingClassifier([]),
+            RecordingPolicyGuard(
+                [], RunAdmissionResult(allowed=True, policy_version="sha256:policy")
+            ),
+            NestedAwaitableBudget(),
+            "zeroth.budget_unavailable",
+        ),
+    ],
+)
+async def test_admission_invalid_dependency_results_fail_safely(
+    classifier: object,
+    policy_guard: object,
+    budget_checker: object,
+    expected_reason: str,
+) -> None:
+    decision = await admit(
+        _request(),
+        classifier=classifier,
+        policy_guard=policy_guard,
+        budget_checker=budget_checker,
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == expected_reason
+    assert "raw-payload" not in repr(decision)

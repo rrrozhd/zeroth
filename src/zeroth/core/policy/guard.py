@@ -138,14 +138,20 @@ class PolicyGuard:
     def evaluate_run_admission(self, request: RunAdmissionRequest) -> RunAdmissionResult:
         """Evaluate only the policies explicitly bound to a run request."""
         policies: dict[str, PolicyDefinition] = {}
-        try:
-            for ref in request.policy_bindings:
+        unavailable_bindings: set[str] = set()
+        for ref in sorted(set(request.policy_bindings)):
+            try:
                 policy = self.policy_registry.resolve(ref)
                 policies[policy.policy_id] = policy
-        except KeyError:
+            except KeyError:
+                unavailable_bindings.add(ref)
+        if unavailable_bindings:
             return RunAdmissionResult(
                 allowed=False,
-                policy_version=self._admission_policy_version(list(policies.values())),
+                policy_version=self._admission_policy_version(
+                    list(policies.values()),
+                    unavailable_bindings=unavailable_bindings,
+                ),
                 reason="zeroth.policy_unavailable",
             )
 
@@ -188,7 +194,11 @@ class PolicyGuard:
         )
 
     @staticmethod
-    def _admission_policy_version(policies: list[PolicyDefinition]) -> str:
+    def _admission_policy_version(
+        policies: list[PolicyDefinition],
+        *,
+        unavailable_bindings: set[str] | None = None,
+    ) -> str:
         projection: list[dict[str, object]] = []
         for policy in policies:
             item = policy.model_dump(mode="json")
@@ -197,7 +207,13 @@ class PolicyGuard:
                     item[field] = sorted(value)
             projection.append(item)
         projection.sort(key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
-        canonical = json.dumps(projection, sort_keys=True, separators=(",", ":"))
+        payload: object = projection
+        if unavailable_bindings:
+            payload = {
+                "policies": projection,
+                "unavailable_bindings": sorted(unavailable_bindings),
+            }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
 
     def _allowed_capabilities(
