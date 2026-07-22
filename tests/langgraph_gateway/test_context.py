@@ -26,6 +26,19 @@ def _decode_part(part: str) -> object:
     return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
 
 
+def _noncanonical_pad_bits(segment: str) -> str:
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    unused_mask = {2: 0b1111, 3: 0b0011}[len(segment) % 4]
+    last_index = alphabet.index(segment[-1])
+    assert last_index & unused_mask == 0
+    altered = segment[:-1] + alphabet[last_index | 1]
+    assert altered != segment
+    assert base64.urlsafe_b64decode(altered + "=" * (-len(altered) % 4)) == (
+        base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
+    )
+    return altered
+
+
 def _claims(**updates: object) -> ReservedContextClaims:
     values = {
         "tenant_id": "tenant-a",
@@ -138,6 +151,25 @@ def test_tampered_token_is_rejected(codec: ReservedContextCodec, part: int) -> N
     with pytest.raises(GatewayContextError) as exc_info:
         codec.decode(
             _replace_part(token, part, replacement),
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    assert exc_info.value.code == "zeroth.invalid_context"
+
+
+@pytest.mark.parametrize("part", [0, 1, 2], ids=["header", "payload", "signature"])
+def test_noncanonical_base64url_pad_bits_are_rejected(
+    signer: EnvHmacSigner, codec: ReservedContextCodec, part: int
+) -> None:
+    parts = codec.encode(_claims()).split(".")
+    parts[part] = _noncanonical_pad_bits(parts[part])
+    if part < 2:
+        parts[2] = _b64url(signer.sign(f"{parts[0]}.{parts[1]}".encode("ascii")))
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        codec.decode(
+            ".".join(parts),
             audience="agent-server:fixture",
             deployment_ref="external-agent",
         )

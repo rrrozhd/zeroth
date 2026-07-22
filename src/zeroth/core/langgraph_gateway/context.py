@@ -271,9 +271,12 @@ def _decode_segment(value: str) -> bytes:
     if not value or not _BASE64URL.fullmatch(value) or len(value) % 4 == 1:
         raise ValueError("invalid compact segment")
     try:
-        return base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
+        decoded = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
     except (binascii.Error, ValueError) as exc:
         raise ValueError("invalid compact segment") from exc
+    if _encode_segment(decoded) != value:
+        raise ValueError("noncanonical compact segment")
+    return decoded
 
 
 def _decode_json_object(value: str) -> dict[str, object]:
