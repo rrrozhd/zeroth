@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
@@ -39,9 +40,11 @@ class CapabilityReporter:
         expected_graph_version: str | None = None,
         now: Callable[[], datetime] = _utc_now,
     ) -> None:
-        if stale_after_seconds <= 0:
-            raise ValueError("stale_after_seconds must be positive")
-        self._evidence_provider = evidence_provider or NoCapabilityEvidenceProvider()
+        if not math.isfinite(stale_after_seconds) or stale_after_seconds <= 0:
+            raise ValueError("stale_after_seconds must be positive and finite")
+        self._evidence_provider = (
+            NoCapabilityEvidenceProvider() if evidence_provider is None else evidence_provider
+        )
         self._stale_after_seconds = stale_after_seconds
         self._expected_graph_version = expected_graph_version
         self._now = now
@@ -53,30 +56,41 @@ class CapabilityReporter:
         correlation_id: str | None = None,
         graph_version: str | None = None,
     ) -> GovernanceLevel:
-        if evidence is None or not evidence.signature_valid:
-            return GovernanceLevel.ADMISSION
-        if correlation_id is not None and evidence.correlation_id != correlation_id:
-            return GovernanceLevel.ADMISSION
+        try:
+            if evidence is None or not evidence.signature_valid:
+                return GovernanceLevel.ADMISSION
+            if correlation_id is not None and evidence.correlation_id != correlation_id:
+                return GovernanceLevel.ADMISSION
 
-        expected_graph_version = graph_version or self._expected_graph_version
-        if expected_graph_version is not None and evidence.graph_version != expected_graph_version:
-            return GovernanceLevel.ADMISSION
+            expected_graph_version = (
+                graph_version if graph_version is not None else self._expected_graph_version
+            )
+            if (
+                expected_graph_version is not None
+                and evidence.graph_version != expected_graph_version
+            ):
+                return GovernanceLevel.ADMISSION
 
-        observed_at = evidence.observed_at
-        if observed_at.tzinfo is None:
-            return GovernanceLevel.ADMISSION
-        age_seconds = (self._now() - observed_at).total_seconds()
-        if age_seconds < 0 or age_seconds > self._stale_after_seconds:
-            return GovernanceLevel.ADMISSION
+            observed_at = evidence.observed_at
+            current_time = self._now()
+            if observed_at.tzinfo is None or current_time.tzinfo is None:
+                return GovernanceLevel.ADMISSION
+            age_seconds = (current_time - observed_at).total_seconds()
+            if not math.isfinite(age_seconds):
+                return GovernanceLevel.ADMISSION
+            if age_seconds < 0 or age_seconds > self._stale_after_seconds:
+                return GovernanceLevel.ADMISSION
 
-        if evidence.governance_level is GovernanceLevel.ADMISSION:
+            if evidence.governance_level is GovernanceLevel.ADMISSION:
+                return GovernanceLevel.ADMISSION
+            if (
+                evidence.governance_level is GovernanceLevel.ENFORCED
+                and evidence.tool_manifest_complete
+            ):
+                return GovernanceLevel.ENFORCED
+            return GovernanceLevel.OBSERVED
+        except (AttributeError, OverflowError, TypeError, ValueError):
             return GovernanceLevel.ADMISSION
-        if (
-            evidence.governance_level is GovernanceLevel.ENFORCED
-            and evidence.tool_manifest_complete
-        ):
-            return GovernanceLevel.ENFORCED
-        return GovernanceLevel.OBSERVED
 
     async def level_for_run(
         self,
@@ -87,7 +101,10 @@ class CapabilityReporter:
     ) -> GovernanceLevel:
         """Report a run from its own attestation; heartbeat evidence cannot upgrade it."""
         del deployment_evidence
-        evidence = await self._evidence_provider.evidence_for_run(correlation_id)
+        try:
+            evidence = await self._evidence_provider.evidence_for_run(correlation_id)
+        except Exception:
+            return GovernanceLevel.ADMISSION
         return self._validated_level(
             evidence,
             correlation_id=correlation_id,
