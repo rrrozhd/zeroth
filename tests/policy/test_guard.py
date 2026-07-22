@@ -274,7 +274,7 @@ def test_run_admission_policy_version_is_binding_order_independent() -> None:
     assert forward.policy_version == reverse.policy_version
 
 
-def test_run_admission_policy_version_changes_with_constraints() -> None:
+def test_run_admission_policy_version_changes_with_admission_constraints() -> None:
     original = _admission_guard(
         PolicyDefinition(policy_id="policy://admission", max_input_bytes=20)
     ).evaluate_run_admission(_admission_request())
@@ -283,3 +283,49 @@ def test_run_admission_policy_version_changes_with_constraints() -> None:
     ).evaluate_run_admission(_admission_request())
 
     assert original.policy_version != changed.policy_version
+
+
+@pytest.mark.parametrize(
+    ("first_fields", "second_fields"),
+    [
+        (
+            {"allowed_capabilities": [Capability.MEMORY_READ]},
+            {"denied_capabilities": [Capability.MEMORY_READ]},
+        ),
+        (
+            {"network_mode": "deny"},
+            {"network_mode": "allow"},
+        ),
+    ],
+)
+def test_run_admission_policy_version_hashes_full_resolved_policy_definition(
+    first_fields: dict[str, object], second_fields: dict[str, object]
+) -> None:
+    first = _admission_guard(
+        PolicyDefinition(policy_id="policy://admission", **first_fields)
+    ).evaluate_run_admission(_admission_request())
+    second = _admission_guard(
+        PolicyDefinition(policy_id="policy://admission", **second_fields)
+    ).evaluate_run_admission(_admission_request())
+
+    assert first.policy_version != second.policy_version
+
+
+def test_run_admission_policy_version_canonicalizes_full_policy_list_order() -> None:
+    first_policy = PolicyDefinition(
+        policy_id="policy://admission",
+        allowed_capabilities=[Capability.MEMORY_READ, Capability.SECRET_ACCESS],
+        allowed_secrets=["B", "A"],
+        allowed_tenants=["tenant-b", "tenant-a"],
+    )
+    reordered_policy = PolicyDefinition(
+        policy_id="policy://admission",
+        allowed_capabilities=[Capability.SECRET_ACCESS, Capability.MEMORY_READ],
+        allowed_secrets=["A", "B"],
+        allowed_tenants=["tenant-a", "tenant-b"],
+    )
+
+    first = _admission_guard(first_policy).evaluate_run_admission(_admission_request())
+    reordered = _admission_guard(reordered_policy).evaluate_run_admission(_admission_request())
+
+    assert first.policy_version == reordered.policy_version

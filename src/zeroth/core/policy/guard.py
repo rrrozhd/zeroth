@@ -189,24 +189,16 @@ class PolicyGuard:
 
     @staticmethod
     def _admission_policy_version(policies: list[PolicyDefinition]) -> str:
-        fields = (
-            "allowed_tenants",
-            "allowed_principals",
-            "required_roles",
-            "allowed_assistants",
-            "allowed_deployments",
-            "allowed_input_classifications",
-        )
-        projection = []
+        projection: list[dict[str, object]] = []
         for policy in policies:
-            item: dict[str, object] = {"policy_id": policy.policy_id}
-            for field in fields:
-                item[field] = sorted(set(getattr(policy, field)))
-            item["max_input_bytes"] = policy.max_input_bytes
+            item = policy.model_dump(mode="json")
+            for field, value in item.items():
+                if isinstance(value, list):
+                    item[field] = sorted(value)
             projection.append(item)
-        projection.sort(key=lambda item: str(item["policy_id"]))
+        projection.sort(key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
         canonical = json.dumps(projection, sort_keys=True, separators=(",", ":"))
-        return f"sha256:{hashlib.sha256(canonical.encode()).hexdigest()}"
+        return f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
 
     def _allowed_capabilities(
         self,

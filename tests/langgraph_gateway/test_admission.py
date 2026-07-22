@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 import pytest
 
-from zeroth.core.econ.budget import BudgetCheckResult
+from zeroth.core.econ.budget import BudgetCheckResult, BudgetEnforcer
 from zeroth.core.langgraph_gateway.admission import admit
 from zeroth.core.langgraph_gateway.models import AdmissionRequest
 from zeroth.core.policy.models import RunAdmissionResult
@@ -177,6 +178,97 @@ async def test_admission_preserves_budget_posture(
     assert decision.budget_spend_usd == budget.spend_usd
     assert decision.budget_cap_usd == budget.cap_usd
     assert decision.budget_check_degraded is budget.degraded
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("fail_closed", "expected_allowed", "expected_reason", "expected_cap"),
+    [
+        (False, True, None, float("inf")),
+        (True, False, "zeroth.budget_unavailable", 0.0),
+    ],
+)
+async def test_admission_uses_configured_budget_enforcer_failure_posture(
+    fail_closed: bool,
+    expected_allowed: bool,
+    expected_reason: str | None,
+    expected_cap: float,
+) -> None:
+    def unavailable_backend(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("backend-only detail")
+
+    calls: list[Any] = []
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1",
+        fail_closed=fail_closed,
+        _transport=unavailable_backend,
+    )
+
+    decision = await admit(
+        _request(),
+        classifier=RecordingClassifier(calls),
+        policy_guard=RecordingPolicyGuard(
+            calls,
+            RunAdmissionResult(allowed=True, policy_version="sha256:policy"),
+        ),
+        budget_checker=enforcer,
+    )
+
+    assert decision.allowed is expected_allowed
+    assert decision.reason == expected_reason
+    assert decision.budget_cap_usd == expected_cap
+    assert decision.budget_check_degraded is True
+    assert "backend-only detail" not in repr(decision)
+
+
+class RecordingTransport:
+    def __init__(self) -> None:
+        self.requests: list[AdmissionRequest] = []
+
+    async def forward(self, request: AdmissionRequest) -> None:
+        self.requests.append(request)
+
+
+async def _admit_then_forward(
+    request: AdmissionRequest,
+    *,
+    transport: RecordingTransport,
+    policy_guard: RecordingPolicyGuard,
+    budget_checker: RecordingBudget,
+    classifier: RecordingClassifier,
+) -> None:
+    """Test seam representing the Task-4 caller without implementing proxying."""
+    decision = await admit(
+        request,
+        policy_guard=policy_guard,
+        budget_checker=budget_checker,
+        classifier=classifier,
+    )
+    if decision.allowed:
+        await transport.forward(request)
+
+
+@pytest.mark.asyncio
+async def test_admission_budget_denial_stops_before_downstream_transport() -> None:
+    calls: list[Any] = []
+    transport = RecordingTransport()
+
+    await _admit_then_forward(
+        _request(),
+        transport=transport,
+        classifier=RecordingClassifier(calls),
+        policy_guard=RecordingPolicyGuard(
+            calls,
+            RunAdmissionResult(allowed=True, policy_version="sha256:policy"),
+        ),
+        budget_checker=RecordingBudget(
+            calls,
+            BudgetCheckResult(allowed=False, spend_usd=11.0, cap_usd=10.0),
+        ),
+    )
+
+    assert [call[0] for call in calls] == ["classifier", "policy", "budget"]
+    assert transport.requests == []
 
 
 @pytest.mark.asyncio
