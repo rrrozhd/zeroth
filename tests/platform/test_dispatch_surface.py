@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_dispatch_is_the_same_surface_through_both_paths() -> None:
@@ -54,3 +58,11 @@ def test_dispatch_cold_imports_from_both_directions(first: str, second: str) -> 
         text=True,
     )
     assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+
+def test_dispatch_extra_smoke_uses_the_canonical_packaged_surface() -> None:
+    """The wheel gate must follow dispatch moves and exercise its dependencies."""
+    workflow = (REPO_ROOT / ".github/workflows/verify-extras.yml").read_text(encoding="utf-8")
+
+    assert "zeroth.core.dispatch.worker" not in workflow
+    assert workflow.count("import arq, redis, zeroth.platform.dispatch.arq_wakeup") == 2
