@@ -68,35 +68,6 @@ UNSUPPORTED = [
     ("DELETE", "/threads/t"),
 ]
 
-CLAIMED_OPENAPI_PATHS = {
-    ("GET", "/ok"),
-    ("GET", "/info"),
-    ("GET", "/openapi.json"),
-    ("POST", "/assistants"),
-    ("GET", "/assistants/{assistant_id}"),
-    ("GET", "/assistants/{assistant_id}/graph"),
-    ("POST", "/assistants/search"),
-    ("POST", "/threads"),
-    ("GET", "/threads/{thread_id}"),
-    ("POST", "/threads/search"),
-    ("GET", "/threads/{thread_id}/stream"),
-    ("GET", "/threads/{thread_id}/state"),
-    ("POST", "/threads/{thread_id}/state"),
-    ("POST", "/threads/{thread_id}/state/checkpoint"),
-    ("POST", "/threads/{thread_id}/history"),
-    ("POST", "/threads/{thread_id}/runs"),
-    ("POST", "/threads/{thread_id}/runs/stream"),
-    ("POST", "/threads/{thread_id}/runs/wait"),
-    ("POST", "/runs/stream"),
-    ("POST", "/runs/wait"),
-    ("GET", "/threads/{thread_id}/runs/{run_id}"),
-    ("GET", "/threads/{thread_id}/runs/{run_id}/join"),
-    ("GET", "/threads/{thread_id}/runs/{run_id}/stream"),
-    ("POST", "/threads/{thread_id}/runs/{run_id}/cancel"),
-    ("POST", "/threads/{thread_id}/commands"),
-    ("POST", "/threads/{thread_id}/stream/events"),
-}
-
 
 @pytest.mark.parametrize(("method", "path"), GOVERNED)
 def test_governed_endpoint_inventory(method, path):
@@ -163,11 +134,16 @@ def test_claimed_http_inventory_matches_pinned_openapi_projection():
     fixture = Path(__file__).parent / "fixtures" / "openapi-0.11.1.operations.json"
     projection = json.loads(fixture.read_text(encoding="utf-8"))
     projected_routes = {(method, path) for method, path, _ in projection["operations"]}
+    claimed_routes = {(rule.method, rule.path_template) for rule in ENDPOINT_RULES}
 
     # An OpenAPI document conventionally does not list its own serving route.
     # WebSocket is the other explicit exception because OpenAPI cannot express it.
-    projection_exceptions = {("GET", "/openapi.json")}
-    assert CLAIMED_OPENAPI_PATHS - projection_exceptions <= projected_routes
+    projection_exceptions = {
+        ("GET", "/openapi.json"),
+        ("WS", "/threads/{thread_id}/stream/events"),
+    }
+    assert projection_exceptions <= claimed_routes
+    assert claimed_routes - projection_exceptions <= projected_routes
     assert projection["package_version"] == "0.11.1"
 
 

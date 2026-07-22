@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -65,18 +66,51 @@ def test_upstream_url_must_be_absolute_http_or_https(url):
 
 
 @pytest.mark.parametrize(
-    "url",
+    ("url", "canonical_url"),
     [
-        "http://agent-server",
-        "https://agent-server:8123/base/path",
-        "http://127.0.0.1:8123",
-        "http://[::1]:8123/base",
+        ("http://agent-server", "http://agent-server/"),
+        ("https://agent-server:8123/base/path", "https://agent-server:8123/base/path"),
+        ("http://127.0.0.1:8123", "http://127.0.0.1:8123/"),
+        ("http://[::1]:8123/base", "http://[::1]:8123/base"),
     ],
 )
-def test_upstream_url_accepts_valid_http_authorities(url):
+def test_upstream_url_accepts_valid_http_authorities(url, canonical_url):
     settings = LangGraphGatewaySettings(**(VALID_ENABLED | {"upstream_url": url}))
 
-    assert settings.upstream_url == url
+    assert settings.upstream_url == canonical_url
+
+
+@pytest.mark.parametrize(
+    ("raw_url", "canonical_url", "expected_host", "expected_port", "expected_path"),
+    [
+        (
+            "http://example.com\\evil",
+            "http://example.com/evil",
+            "example.com",
+            None,
+            "/evil",
+        ),
+        ("http://%65xample.com", "http://example.com/", "example.com", None, "/"),
+        (
+            "https://EXAMPLE.COM:8443/base",
+            "https://example.com:8443/base",
+            "example.com",
+            8443,
+            "/base",
+        ),
+    ],
+)
+def test_upstream_url_is_stored_in_the_transport_canonical_form(
+    raw_url, canonical_url, expected_host, expected_port, expected_path
+):
+    settings = LangGraphGatewaySettings(**(VALID_ENABLED | {"upstream_url": raw_url}))
+
+    assert settings.upstream_url == canonical_url
+    transport_url = httpx.URL(settings.upstream_url)
+    assert transport_url.scheme == canonical_url.partition(":")[0]
+    assert transport_url.host == expected_host
+    assert transport_url.port == expected_port
+    assert transport_url.path == expected_path
 
 
 @pytest.mark.parametrize(
@@ -93,6 +127,21 @@ def test_upstream_url_accepts_valid_http_authorities(url):
 )
 @pytest.mark.parametrize("value", [0, -1])
 def test_positive_gateway_limits(field, value):
+    with pytest.raises(ValidationError):
+        LangGraphGatewaySettings(**(VALID_ENABLED | {field: value}))
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "connect_timeout_seconds",
+        "read_timeout_seconds",
+        "write_timeout_seconds",
+        "pool_timeout_seconds",
+    ],
+)
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_gateway_timeouts_must_be_finite(field, value):
     with pytest.raises(ValidationError):
         LangGraphGatewaySettings(**(VALID_ENABLED | {field: value}))
 

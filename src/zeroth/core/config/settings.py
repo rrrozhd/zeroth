@@ -286,10 +286,10 @@ class LangGraphGatewaySettings(BaseModel):
     upstream_credential_ref: str | None = None
     upstream_credential_header: str = "Authorization"
     upstream_credential_scheme: str = "Bearer"
-    connect_timeout_seconds: float = Field(default=5.0, gt=0)
-    read_timeout_seconds: float = Field(default=60.0, gt=0)
-    write_timeout_seconds: float = Field(default=60.0, gt=0)
-    pool_timeout_seconds: float = Field(default=5.0, gt=0)
+    connect_timeout_seconds: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    read_timeout_seconds: float = Field(default=60.0, gt=0, allow_inf_nan=False)
+    write_timeout_seconds: float = Field(default=60.0, gt=0, allow_inf_nan=False)
+    pool_timeout_seconds: float = Field(default=5.0, gt=0, allow_inf_nan=False)
     context_ttl_seconds: int = Field(default=300, gt=0)
     max_governed_body_bytes: int = Field(default=1_048_576, gt=0)
     unknown_endpoint_mode: Literal["deny", "pass_ungoverned"] = "deny"
@@ -308,8 +308,9 @@ class LangGraphGatewaySettings(BaseModel):
         if value != value.strip():
             raise ValueError("upstream_url must be an absolute HTTP(S) URL")
         try:
-            _HTTP_URL_ADAPTER.validate_python(value)
-            parsed = urlsplit(value)
+            supplied_url = urlsplit(value)
+            canonical_url = str(_HTTP_URL_ADAPTER.validate_python(value))
+            parsed = urlsplit(canonical_url)
             # Accessing these properties validates bracketed hosts and ports.
             hostname = parsed.hostname
             port = parsed.port
@@ -318,6 +319,8 @@ class LangGraphGatewaySettings(BaseModel):
         if (
             parsed.scheme not in {"http", "https"}
             or not hostname
+            or supplied_url.username is not None
+            or supplied_url.password is not None
             or parsed.username is not None
             or parsed.password is not None
             or parsed.query
@@ -325,7 +328,7 @@ class LangGraphGatewaySettings(BaseModel):
             or (port is not None and not 0 <= port <= 65_535)
         ):
             raise ValueError("upstream_url must be an absolute HTTP(S) URL")
-        return value.rstrip("/")
+        return canonical_url
 
     @field_validator("upstream_credential_header", "upstream_credential_scheme")
     @classmethod
