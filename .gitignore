@@ -45,7 +45,7 @@ GEMINI.md
 .claude/scheduled_tasks.lock
 .claude/settings.json
 .claude/skills/
-.planning/.next-call-count
+/.planning/
 live_scenarios/
 
 # Generated local state for runnable examples
