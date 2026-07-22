@@ -16,10 +16,14 @@ from zeroth.core.langgraph_gateway.context import ReservedContextCodec
 from zeroth.core.langgraph_gateway.headers import UpstreamCredentialUnavailableError
 from zeroth.core.langgraph_gateway.routes import (
     GatewayWebSocketEndpoint,
+    WebSocketGatewayCloseError,
     WebSocketGatewayHandler,
     register_gateway_routes,
 )
-from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
+from zeroth.core.langgraph_gateway.transport import (
+    HTTPGatewayTransport,
+    WebSocketClientError,
+)
 from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.core.secrets.provider import EnvSecretProvider
 from zeroth.core.service.auth import (
@@ -60,6 +64,7 @@ class MemoryWebSocket:
         self.accepted_subprotocol: str | None = None
         self.accepted_headers: list[tuple[bytes, bytes]] = []
         self.closed: tuple[int, str] | None = None
+        self.close_calls: list[tuple[int, str]] = []
         self.accepted_event = asyncio.Event()
         self.receive_cancelled = asyncio.Event()
 
@@ -98,6 +103,7 @@ class MemoryWebSocket:
 
     async def close(self, code: int = 1000, reason: str | None = None) -> None:
         self.closed = (code, reason or "")
+        self.close_calls.append(self.closed)
         await self._outgoing.put(("close", self.closed))
 
     async def client_text(self, data: str) -> None:
@@ -113,13 +119,15 @@ class MemoryWebSocket:
         return await asyncio.wait_for(self._outgoing.get(), timeout=2)
 
 
-def settings(upstream_url: str) -> LangGraphGatewaySettings:
-    return LangGraphGatewaySettings(
+def settings(upstream_url: str, **updates: Any) -> LangGraphGatewaySettings:
+    values = dict(
         enabled=True,
         upstream_url=upstream_url,
         upstream_audience="agent-server:fixture",
         deployment_ref="deployment-a",
     )
+    values.update(updates)
+    return LangGraphGatewaySettings(**values)
 
 
 @pytest.mark.asyncio
@@ -248,6 +256,98 @@ async def test_slow_consumer_uses_configurable_bounded_queue_without_reorder_or_
         await transport.aclose()
 
 
+@pytest.mark.asyncio
+async def test_slow_consumer_total_queued_bytes_stays_bounded_without_reorder():
+    release = asyncio.Event()
+    frames = [f"{index:02d}-" + ("x" * 13) for index in range(6)]
+
+    async def upstream(connection) -> None:
+        for frame in frames:
+            await connection.send(frame)
+        await connection.close(1000, "done")
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(
+            configured,
+            EnvSecretProvider(),
+            websocket_queue_size=16,
+            websocket_max_message_bytes=16,
+            websocket_max_queued_bytes=20,
+        )
+        websocket = MemoryWebSocket(slow_send=release)
+        task = asyncio.create_task(transport.forward_websocket(websocket, tenant_id="tenant-a"))
+        await websocket.accepted_event.wait()
+        await asyncio.sleep(0.05)
+        assert transport.websocket_max_buffered_bytes <= 20
+        release.set()
+
+        received = [await websocket.next_server_event() for _ in range(len(frames) + 1)]
+        await asyncio.wait_for(task, timeout=2)
+        assert received[:-1] == [("text", frame) for frame in frames]
+        assert received[-1] == ("close", (1000, "done"))
+        assert transport.websocket_max_buffered_bytes <= 20
+        await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oversized_client_frame_closes_once_and_closes_upstream():
+    upstream_closed = asyncio.Event()
+
+    async def upstream(connection) -> None:
+        try:
+            await connection.recv()
+        except websockets.ConnectionClosed:
+            upstream_closed.set()
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(
+            configured,
+            EnvSecretProvider(),
+            websocket_max_message_bytes=32,
+            websocket_max_queued_bytes=64,
+        )
+        active, _, _, _ = handler(f"http://127.0.0.1:{port}", transport=transport)
+        websocket = MemoryWebSocket()
+        websocket.state.principal = principal()
+        websocket.state.correlation_id = "corr-ws"
+        task = asyncio.create_task(active.handle(websocket))
+        await websocket.accepted_event.wait()
+        await websocket.client_text("x" * 33)
+
+        await asyncio.wait_for(task, timeout=2)
+
+        assert websocket.close_calls == [(4400, "zeroth.websocket_message_too_large")]
+        await asyncio.wait_for(upstream_closed.wait(), timeout=2)
+        await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oversized_upstream_frame_closes_downstream_with_safe_1009():
+    async def upstream(connection) -> None:
+        await connection.send("x" * 65)
+        await connection.wait_closed()
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(
+            configured,
+            EnvSecretProvider(),
+            websocket_max_message_bytes=64,
+            websocket_max_queued_bytes=128,
+        )
+        websocket = MemoryWebSocket()
+
+        await transport.forward_websocket(websocket, tenant_id="tenant-a")
+
+        assert websocket.close_calls == [(1009, "websocket message too large")]
+        await transport.aclose()
+
+
 def _bridge_pump_tasks() -> list[asyncio.Task[Any]]:
     current = asyncio.current_task()
     return [
@@ -326,6 +426,65 @@ async def test_downstream_pump_failure_cancels_siblings_and_closes_both_sockets(
         await transport.aclose()
 
 
+@pytest.mark.asyncio
+async def test_governance_error_closes_downstream_once_while_closing_upstream():
+    upstream_closed = asyncio.Event()
+
+    async def upstream(connection) -> None:
+        try:
+            await connection.recv()
+        except websockets.ConnectionClosed:
+            upstream_closed.set()
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        active, _, _, transport = handler(f"http://127.0.0.1:{port}")
+        websocket = MemoryWebSocket()
+        websocket.state.principal = principal()
+        websocket.state.correlation_id = "corr-ws"
+        task = asyncio.create_task(active.handle(websocket))
+        await websocket.accepted_event.wait()
+        await websocket.client_text('{"method":"run.start","params":[]}')
+
+        await asyncio.wait_for(task, timeout=2)
+
+        assert websocket.close_calls == [(4400, "zeroth.invalid_request")]
+        await asyncio.wait_for(upstream_closed.wait(), timeout=2)
+        await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aclose_cancels_and_drains_active_websocket_then_rejects_new_dial():
+    connection_count = 0
+    upstream_closed = asyncio.Event()
+
+    async def upstream(connection) -> None:
+        nonlocal connection_count
+        connection_count += 1
+        try:
+            await connection.recv()
+        except websockets.ConnectionClosed:
+            upstream_closed.set()
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(configured, EnvSecretProvider())
+        websocket = MemoryWebSocket()
+        forward = asyncio.create_task(transport.forward_websocket(websocket, tenant_id="tenant-a"))
+        await websocket.accepted_event.wait()
+
+        await asyncio.wait_for(transport.aclose(), timeout=2)
+
+        assert forward.cancelled()
+        assert websocket.closed == (1001, "gateway stream cancelled")
+        await asyncio.wait_for(upstream_closed.wait(), timeout=2)
+        assert transport.websocket_active_count == 0
+        with pytest.raises(RuntimeError, match="transport is closed"):
+            await transport.forward_websocket(MemoryWebSocket(), tenant_id="tenant-a")
+        assert connection_count == 1
+
+
 class AllowPolicy:
     def __init__(self) -> None:
         self.requests = []
@@ -355,8 +514,8 @@ def principal() -> AuthenticatedPrincipal:
     )
 
 
-def handler(upstream_url: str, *, transport=None):
-    configured = settings(upstream_url)
+def handler(upstream_url: str, *, transport=None, settings_overrides=None):
+    configured = settings(upstream_url, **(settings_overrides or {}))
     policy = AllowPolicy()
     active_transport = transport or HTTPGatewayTransport(configured, EnvSecretProvider())
     codec = ReservedContextCodec(
@@ -437,6 +596,56 @@ async def test_non_run_frames_are_byte_identical(frame: str | bytes):
     await transport.aclose()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "frame",
+    [
+        '{"method":"run\\u002estart","params":{},"padding":"xxxxxxxx"}',
+        '{"metho\\u0064":"run.start","params":{},"padding":"xxxxxxxx"}',
+        '{"method":"subscription.subscribe","padding":"xxxxxxxxxxxxxxxx"}',
+    ],
+)
+async def test_oversized_text_frames_fail_closed_before_json_classification(frame: str):
+    active, _, _, transport = handler(
+        "http://127.0.0.1:9",
+        settings_overrides={"max_governed_body_bytes": 32},
+    )
+    websocket = MemoryWebSocket()
+    websocket.state.principal = principal()
+    websocket.state.correlation_id = "corr-ws"
+
+    with pytest.raises(WebSocketGatewayCloseError) as caught:
+        await active.transform_client_message(websocket, frame)
+
+    assert (caught.value.code, caught.value.reason) == (
+        4400,
+        "zeroth.request_too_large",
+    )
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "frame",
+    [
+        '{"method":"subscription.subscribe","method":"run.start","params":{}}',
+        '{"method":"subscription.subscribe","metho\\u0064":"run.start","params":{}}',
+        '{"method":"run.start","params":{},"params":{"input":"spoof"}}',
+    ],
+)
+async def test_duplicate_json_keys_are_rejected_as_ambiguous(frame: str):
+    active, _, _, transport = handler("http://127.0.0.1:9")
+    websocket = MemoryWebSocket()
+    websocket.state.principal = principal()
+    websocket.state.correlation_id = "corr-ws"
+
+    with pytest.raises(WebSocketGatewayCloseError) as caught:
+        await active.transform_client_message(websocket, frame)
+
+    assert (caught.value.code, caught.value.reason) == (4400, "zeroth.invalid_request")
+    await transport.aclose()
+
+
 class RecordingWebSocketHandler:
     def __init__(self) -> None:
         self.calls = 0
@@ -461,6 +670,104 @@ def _authenticator() -> ServiceAuthenticator:
             ]
         )
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("protocol_header", "correlation_id"),
+    [
+        (b"", "corr"),
+        (b"ok,", "corr"),
+        (b"ok, bad protocol", "corr"),
+        (b"ok, \x01bad", "corr"),
+        (b",".join(f"p{index}".encode() for index in range(17)), "corr"),
+        (b"x" * 129, "corr"),
+        (b"lg-v2", "corr\nspoof"),
+        (b"lg-v2", "x" * 129),
+        (b"lg-v2", "corr-\N{SNOWMAN}"),
+    ],
+)
+async def test_invalid_handshake_metadata_is_rejected_before_upstream_dial(
+    protocol_header: bytes,
+    correlation_id: str,
+):
+    connection_count = 0
+
+    async def upstream(connection) -> None:
+        nonlocal connection_count
+        connection_count += 1
+        await connection.wait_closed()
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(configured, EnvSecretProvider())
+        websocket = MemoryWebSocket(headers=[(b"sec-websocket-protocol", protocol_header)])
+
+        with pytest.raises(WebSocketClientError) as caught:
+            await transport.forward_websocket(
+                websocket,
+                tenant_id="tenant-a",
+                correlation_id=correlation_id,
+            )
+
+        assert (caught.value.code, caught.value.reason) == (
+            4400,
+            "zeroth.invalid_websocket_handshake",
+        )
+        assert connection_count == 0
+        await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_authenticated_invalid_handshake_maps_one_safe_close_without_dial():
+    connection_count = 0
+
+    async def upstream(connection) -> None:
+        nonlocal connection_count
+        connection_count += 1
+        await connection.wait_closed()
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(configured, EnvSecretProvider())
+        active, _, _, _ = handler(f"http://127.0.0.1:{port}", transport=transport)
+        endpoint = GatewayWebSocketEndpoint(
+            authenticator=_authenticator(),
+            handler=active,
+            correlation_factory=lambda: "corr-fixed",
+        )
+        websocket = MemoryWebSocket(
+            headers=[
+                (b"x-api-key", b"client-key"),
+                (b"sec-websocket-protocol", b"bad protocol"),
+            ]
+        )
+
+        await endpoint(websocket)
+
+        assert websocket.close_calls == [(4400, "zeroth.invalid_websocket_handshake")]
+        assert connection_count == 0
+        await transport.aclose()
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"websocket_max_message_bytes": 0}, "websocket_max_message_bytes"),
+        ({"websocket_max_message_bytes": True}, "websocket_max_message_bytes"),
+        ({"websocket_max_queued_bytes": 0}, "websocket_max_queued_bytes"),
+        ({"websocket_max_queued_bytes": float("inf")}, "websocket_max_queued_bytes"),
+    ],
+)
+def test_websocket_memory_bounds_require_finite_positive_integers(options, message):
+    with pytest.raises(ValueError, match=message):
+        HTTPGatewayTransport(
+            settings("http://agent-server.invalid"),
+            EnvSecretProvider(),
+            **options,
+        )
 
 
 @pytest.mark.asyncio

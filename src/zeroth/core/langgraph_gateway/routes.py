@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -31,13 +30,16 @@ from zeroth.core.langgraph_gateway.context import (
 from zeroth.core.langgraph_gateway.headers import UpstreamCredentialUnavailableError
 from zeroth.core.langgraph_gateway.inventory import classify_protocol_command
 from zeroth.core.langgraph_gateway.models import AdmissionRequest, RouteDisposition
-from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport, WebSocketMessage
+from zeroth.core.langgraph_gateway.transport import (
+    HTTPGatewayTransport,
+    WebSocketClientError,
+    WebSocketMessage,
+)
 from zeroth.core.observability.correlation import set_correlation_id
 from zeroth.core.service.auth import AuthenticationError, ServiceAuthenticator
 
 _CORRELATION_HEADER = "X-Correlation-ID"
 _AUTHENTICATION_CLOSE_CODE = 4401
-_GOVERNED_METHOD = re.compile(r'"method"\s*:\s*"(?:run\.start|input\.respond)"')
 
 
 class HTTPGatewayProxy(Protocol):
@@ -50,6 +52,11 @@ class WebSocketGatewayCloseError(Exception):
 
     code: int
     reason: str
+    preserve_downstream_close = True
+
+
+class _DuplicateJSONKeyError(ValueError):
+    """A JSON object cannot be classified safely when a key is repeated."""
 
 
 class WebSocketGatewayHandler:
@@ -95,6 +102,8 @@ class WebSocketGatewayHandler:
             await websocket.close(code=close.code, reason=close.reason)
         except WebSocketGatewayCloseError as exc:
             await websocket.close(code=exc.code, reason=exc.reason)
+        except WebSocketClientError as exc:
+            await websocket.close(code=exc.code, reason=exc.reason)
         except GatewayContextError as exc:
             await websocket.close(code=_context_close_code(exc), reason=exc.code)
         except UpstreamCredentialUnavailableError:
@@ -124,16 +133,15 @@ class WebSocketGatewayHandler:
             return message
         raw = message.encode("utf-8")
         if len(raw) > self._settings.max_governed_body_bytes:
-            # Large opaque/non-run frames remain transparent. A cheap method check
-            # avoids parsing unbounded JSON merely to discover that fact.
-            if _GOVERNED_METHOD.search(message):
-                raise WebSocketGatewayCloseError(4400, "zeroth.request_too_large")
-            return message
+            raise WebSocketGatewayCloseError(4400, "zeroth.request_too_large")
         try:
             payload = json.loads(
                 message,
                 parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
+                object_pairs_hook=_unique_json_object,
             )
+        except _DuplicateJSONKeyError:
+            raise WebSocketGatewayCloseError(4400, "zeroth.invalid_request") from None
         except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, ValueError):
             return message
         if classify_protocol_command(payload) is not RouteDisposition.GOVERNED:
@@ -312,6 +320,15 @@ def _optional_identifier(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise _DuplicateJSONKeyError
+        value[key] = item
+    return value
+
+
 def _context_close_code(exc: GatewayContextError) -> int:
     if exc.code == "zeroth.request_too_large":
         return 4400
@@ -322,9 +339,9 @@ def _context_close_code(exc: GatewayContextError) -> int:
 
 def _find_gateway_close(
     group: BaseExceptionGroup[BaseException],
-) -> WebSocketGatewayCloseError | None:
+) -> WebSocketGatewayCloseError | WebSocketClientError | None:
     for exception in group.exceptions:
-        if isinstance(exception, WebSocketGatewayCloseError):
+        if isinstance(exception, (WebSocketGatewayCloseError, WebSocketClientError)):
             return exception
         if isinstance(exception, BaseExceptionGroup):
             nested = _find_gateway_close(exception)
