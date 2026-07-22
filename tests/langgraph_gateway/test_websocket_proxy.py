@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 import websockets
 from starlette.applications import Starlette
+from starlette.websockets import WebSocket, WebSocketState
 
 from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.econ.budget import BudgetCheckResult
@@ -865,8 +866,19 @@ async def test_post_accept_stream_failure_is_not_mapped_as_a_handshake_failure()
 
 
 @pytest.mark.asyncio
-async def test_real_post_accept_pump_failure_has_one_transport_owned_1011_close():
+async def test_starlette_post_accept_pump_failure_has_one_transport_owned_1011_close():
     upstream_closed: asyncio.Future[tuple[int | None, str]] = asyncio.Future()
+    incoming: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    await incoming.put({"type": "websocket.connect"})
+    sent: list[dict[str, Any]] = []
+
+    async def receive() -> dict[str, Any]:
+        return await incoming.get()
+
+    async def send(message: dict[str, Any]) -> None:
+        if message["type"] == "websocket.send":
+            raise RuntimeError("downstream send failed")
+        sent.append(message)
 
     async def upstream(connection) -> None:
         await connection.send("trigger downstream failure")
@@ -880,23 +892,45 @@ async def test_real_post_accept_pump_failure_has_one_transport_owned_1011_close(
         configured = settings(f"http://127.0.0.1:{port}")
         transport = HTTPGatewayTransport(configured, EnvSecretProvider())
         endpoint = _endpoint_with_transport(transport)
-        websocket = MemoryWebSocket(
-            headers=[(b"x-api-key", b"client-key")],
-            send_error=RuntimeError("downstream send failed"),
+        websocket = WebSocket(
+            {
+                "type": "websocket",
+                "asgi": {"version": "3.0"},
+                "scheme": "ws",
+                "path": "/threads/thread-a/stream/events",
+                "raw_path": b"/threads/thread-a/stream/events",
+                "query_string": b"",
+                "headers": [(b"x-api-key", b"client-key")],
+                "client": ("127.0.0.1", 12345),
+                "server": ("127.0.0.1", 80),
+                "subprotocols": [],
+                "state": {},
+                "path_params": {"thread_id": "thread-a"},
+            },
+            receive,
+            send,
         )
 
-        await endpoint(websocket)
+        try:
+            await endpoint(websocket)
 
-        assert websocket.accepted is True
-        assert websocket.close_calls == [(1011, "gateway stream failed")]
-        assert await asyncio.wait_for(upstream_closed, timeout=2) == (
-            1011,
-            "gateway stream failed",
-        )
-        await asyncio.sleep(0)
-        assert _bridge_pump_tasks() == []
-        assert transport.websocket_active_count == 0
-        await transport.aclose()
+            assert websocket.application_state is WebSocketState.DISCONNECTED
+            assert [message for message in sent if message["type"] == "websocket.close"] == [
+                {
+                    "type": "websocket.close",
+                    "code": 1011,
+                    "reason": "gateway stream failed",
+                }
+            ]
+            assert await asyncio.wait_for(upstream_closed, timeout=2) == (
+                1011,
+                "gateway stream failed",
+            )
+            await asyncio.sleep(0)
+            assert _bridge_pump_tasks() == []
+            assert transport.websocket_active_count == 0
+        finally:
+            await transport.aclose()
 
 
 @pytest.mark.asyncio
