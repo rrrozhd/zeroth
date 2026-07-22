@@ -76,6 +76,30 @@ def test_comparison_never_reorders_chunks_or_discards_unknown_fields() -> None:
     assert "final_json" in report.semantic_divergences
 
 
+@pytest.mark.parametrize(
+    "proxied_frames",
+    [
+        (b"event: values\ndata: one\n\n",),
+        (b"event: custom\ndata: two\n\n", b"event: values\ndata: one\n\n"),
+        (b"event: values\ndata: one\r\n\r\n", b"event: custom\ndata: two\n\n"),
+    ],
+    ids=["missing", "reordered", "altered-framing"],
+)
+def test_sse_frame_comparison_rejects_missing_reordered_or_reframed_bytes(
+    proxied_frames: tuple[bytes, ...],
+) -> None:
+    direct = _capture(
+        raw_chunks=(
+            b"event: values\ndata: one\n\n",
+            b"event: custom\ndata: two\n\n",
+        ),
+        final_json=None,
+    )
+    proxied = _capture(raw_chunks=proxied_frames, final_json=None)
+
+    assert "raw_chunks" in compare_exchanges(direct, proxied).semantic_divergences
+
+
 def test_normalization_requires_an_explicit_pair_mapping() -> None:
     direct = _capture(final_json={"assistant_id": "assistant-direct"})
     proxied = _capture(final_json={"assistant_id": "assistant-proxy"})
@@ -176,6 +200,28 @@ def test_every_manifest_case_runs_direct_and_through_the_real_gateway(
     assert set(report.expected_governance_additions) <= set(EXPECTED_GOVERNANCE_ADDITIONS)
     if case.governance == "governed":
         assert report.expected_governance_additions == list(EXPECTED_GOVERNANCE_ADDITIONS)
+
+
+@pytest.mark.parametrize("case_name", ["thread-stream", "protocol-event-stream"])
+def test_paired_subscriptions_capture_bounded_exact_sse_frames(
+    servers: ConformanceServers,
+    case_name: str,
+) -> None:
+    case = next(case for case in CASES if case.name == case_name)
+    result = execute_paired_case(servers, case)
+
+    assert result.direct.raw_chunks
+    assert result.proxied.raw_chunks
+    assert len(result.direct.raw_chunks) <= 12
+    assert len(result.proxied.raw_chunks) <= 12
+    assert all(frame.endswith((b"\n\n", b"\r\n\r\n")) for frame in result.direct.raw_chunks)
+    assert all(frame.endswith((b"\n\n", b"\r\n\r\n")) for frame in result.proxied.raw_chunks)
+    report = compare_exchanges(
+        result.direct,
+        result.proxied,
+        generated_values=result.generated_values,
+    )
+    assert report.semantic_divergences == []
 
 
 def _interrupt_resume(

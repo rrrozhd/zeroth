@@ -6,10 +6,12 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from contextlib import ExitStack, asynccontextmanager
 from dataclasses import asdict, dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +98,10 @@ class DifferentialReport:
 class GeneratedValueMap:
     direct: tuple[tuple[str, str], ...] = ()
     proxied: tuple[tuple[str, str], ...] = ()
+    direct_sse_ids: tuple[str | None, ...] = ()
+    proxied_sse_ids: tuple[str | None, ...] = ()
+    direct_sse_values: tuple[tuple[tuple[str, str], ...], ...] = ()
+    proxied_sse_values: tuple[tuple[tuple[str, str], ...], ...] = ()
 
     @classmethod
     def from_pairs(cls, pairs: Sequence[tuple[object, object]]) -> GeneratedValueMap:
@@ -154,6 +160,8 @@ def _semantic_projection(
     *,
     proxied: bool,
     replacements: tuple[tuple[str, str], ...],
+    sse_ids: tuple[str | None, ...],
+    sse_values: tuple[tuple[tuple[str, str], ...], ...],
 ) -> dict[str, Any]:
     def normalize(value: Any) -> Any:
         if proxied:
@@ -167,6 +175,16 @@ def _semantic_projection(
         and not (proxied and name.lower() in _ADDITION_HEADERS)
     )
     raw_chunks: Any = capture.raw_chunks
+    if sse_ids:
+        raw_chunks = tuple(
+            _normalize_generated(
+                _normalize_sse_frame_id(frame, frame_id, index),
+                frame_replacements,
+            )
+            for index, (frame, frame_id, frame_replacements) in enumerate(
+                zip(capture.raw_chunks, sse_ids, sse_values, strict=True)
+            )
+        )
     if len(capture.raw_chunks) == 1 and capture.final_json is not None:
         raw_json = _without_reserved_context(capture.final_json) if proxied else capture.final_json
         raw_chunks = (
@@ -192,6 +210,20 @@ def _semantic_projection(
     }
 
 
+def _normalize_sse_frame_id(frame: bytes, frame_id: str | None, index: int) -> bytes:
+    if frame_id is None:
+        return frame
+    expected = f"id: {frame_id}".encode()
+    normalized: list[bytes] = []
+    for line in frame.splitlines(keepends=True):
+        ending = line[len(line.rstrip(b"\r\n")) :]
+        content = line[: len(line) - len(ending)] if ending else line
+        if content == expected:
+            content = f"id: <generated-sse-id:{index}>".encode()
+        normalized.append(content + ending)
+    return b"".join(normalized)
+
+
 def compare_exchanges(
     direct: CapturedExchange,
     proxied: CapturedExchange,
@@ -200,10 +232,18 @@ def compare_exchanges(
 ) -> DifferentialReport:
     generated_values = generated_values or GeneratedValueMap()
     direct_projection = _semantic_projection(
-        direct, proxied=False, replacements=generated_values.direct
+        direct,
+        proxied=False,
+        replacements=generated_values.direct,
+        sse_ids=generated_values.direct_sse_ids,
+        sse_values=generated_values.direct_sse_values,
     )
     proxied_projection = _semantic_projection(
-        proxied, proxied=True, replacements=generated_values.proxied
+        proxied,
+        proxied=True,
+        replacements=generated_values.proxied,
+        sse_ids=generated_values.proxied_sse_ids,
+        sse_values=generated_values.proxied_sse_values,
     )
     divergences = [
         field
@@ -611,29 +651,37 @@ def _capture_case_request(
     evidence: tuple[dict[str, Any], ...] = (),
 ) -> CapturedExchange:
     payload = _render_case_value(case.request(context), context)
-    with client.stream(
-        case.method,
-        f"{base_url}{case.path(context)}",
-        json=payload,
-        headers=headers,
-        timeout=15,
-    ) as response:
-        if case.expected_content_type == "text/event-stream" and case.group in {
-            "threads",
-            "event-stream",
-        }:
-            raw_chunks: tuple[bytes, ...] = ()
-        elif case.expected_content_type != "text/event-stream":
-            raw_chunks = (response.read(),)
-        else:
-            raw_chunks = tuple(f"{line}\n".encode() for line in response.iter_lines())
-        response_body = b"".join(raw_chunks)
-        captured_response = httpx.Response(
-            response.status_code,
-            headers=response.headers,
-            content=response_body,
-            request=response.request,
+    if case.expected_content_type == "text/event-stream" and case.group in {
+        "threads",
+        "event-stream",
+    }:
+        captured_response, raw_chunks = _capture_subscription_frames(
+            client,
+            base_url,
+            case,
+            context,
+            headers,
+            payload,
         )
+    else:
+        with client.stream(
+            case.method,
+            f"{base_url}{case.path(context)}",
+            json=payload,
+            headers=headers,
+            timeout=15,
+        ) as response:
+            if case.expected_content_type == "text/event-stream":
+                raw_chunks = tuple(_exact_sse_frames(response.iter_raw()))
+            else:
+                raw_chunks = (response.read(),)
+            captured_response = httpx.Response(
+                response.status_code,
+                headers=response.headers,
+                content=b"".join(raw_chunks),
+                request=response.request,
+            )
+    response_body = b"".join(raw_chunks)
 
     final_json: Any = None
     if response_body and captured_response.headers.get("content-type", "").startswith(
@@ -711,6 +759,92 @@ def _capture_case_request(
     )
 
 
+def _exact_sse_frames(chunks: Iterator[bytes]) -> Iterator[bytes]:
+    pending = b""
+    for chunk in chunks:
+        pending += chunk
+        while True:
+            endings = [
+                (index, delimiter)
+                for delimiter in (b"\r\n\r\n", b"\n\n")
+                if (index := pending.find(delimiter)) >= 0
+            ]
+            if not endings:
+                break
+            index, delimiter = min(endings, key=lambda item: item[0])
+            frame_end = index + len(delimiter)
+            yield pending[:frame_end]
+            pending = pending[frame_end:]
+
+
+def _capture_subscription_frames(
+    trigger_client: httpx.Client,
+    base_url: str,
+    case: ConformanceCase,
+    context: Mapping[str, str],
+    headers: Mapping[str, str],
+    payload: Any,
+) -> tuple[httpx.Response, tuple[bytes, ...]]:
+    frame_limit = 6 if case.group == "threads" else 4
+    ready = threading.Event()
+    finished = threading.Event()
+    result: dict[str, Any] = {}
+
+    def subscribe() -> None:
+        try:
+            with httpx.Client(timeout=httpx.Timeout(15, read=15)) as subscriber:
+                with subscriber.stream(
+                    case.method,
+                    f"{base_url}{case.path(context)}",
+                    json=payload,
+                    headers=headers,
+                ) as response:
+                    result["response"] = httpx.Response(
+                        response.status_code,
+                        headers=response.headers,
+                        request=response.request,
+                    )
+                    frames = _exact_sse_frames(response.iter_raw())
+                    if case.group == "event-stream":
+                        next(frames)
+                    ready.set()
+                    result["frames"] = tuple(islice(frames, frame_limit))
+        except BaseException as exc:
+            result["error"] = exc
+            ready.set()
+        finally:
+            finished.set()
+
+    subscriber_thread = threading.Thread(target=subscribe, daemon=True)
+    subscriber_thread.start()
+    if not ready.wait(timeout=10):
+        raise TimeoutError(f"subscription did not become ready: {case.name}")
+    if "error" in result:
+        raise result["error"]
+
+    triggered = trigger_client.post(
+        f"{base_url}/threads/{context['thread_id']}/runs/wait",
+        json={
+            "assistant_id": context["assistant_id"],
+            "input": {"mode": "echo", "text": "subscription-trigger"},
+            "stream_mode": ["custom", "values"],
+        },
+        headers=headers,
+        timeout=15,
+    )
+    triggered.raise_for_status()
+    if not finished.wait(timeout=15):
+        raise TimeoutError(f"subscription did not yield {frame_limit} frames: {case.name}")
+    if "error" in result:
+        raise result["error"]
+    frames = result.get("frames", ())
+    if len(frames) != frame_limit:
+        raise AssertionError(
+            f"subscription yielded {len(frames)} of {frame_limit} frames: {case.name}"
+        )
+    return result["response"], frames
+
+
 def _matching_generated_pairs(
     direct: Any,
     proxied: Any,
@@ -740,14 +874,34 @@ def _matching_generated_pairs(
 
 def _sse_payloads(chunks: tuple[bytes, ...]) -> list[Any]:
     payloads: list[Any] = []
-    for chunk in chunks:
-        if not chunk.startswith(b"data: "):
-            continue
-        try:
-            payloads.append(json.loads(chunk.removeprefix(b"data: ").strip()))
-        except (TypeError, ValueError):
-            continue
+    for frame in chunks:
+        for line in frame.splitlines():
+            if not line.startswith(b"data: "):
+                continue
+            try:
+                payloads.append(json.loads(line.removeprefix(b"data: ")))
+            except (TypeError, ValueError):
+                continue
     return payloads
+
+
+def _sse_payload(frame: bytes) -> Any:
+    payloads = _sse_payloads((frame,))
+    return payloads[0] if payloads else None
+
+
+def _sse_frame_ids(chunks: tuple[bytes, ...]) -> list[str | None]:
+    return [
+        next(
+            (
+                line.removeprefix(b"id: ").decode()
+                for line in frame.splitlines()
+                if line.startswith(b"id: ")
+            ),
+            None,
+        )
+        for frame in chunks
+    ]
 
 
 def execute_paired_case(servers: ConformanceServers, case: ConformanceCase) -> PairedCaseResult:
@@ -831,13 +985,6 @@ def execute_paired_case(servers: ConformanceServers, case: ConformanceCase) -> P
     )
     pairs.extend(
         _matching_generated_pairs(
-            _sse_payloads(direct.raw_chunks),
-            _sse_payloads(proxied.raw_chunks),
-            allowed_keys=frozenset({"created_at", "event_id", "id", "run_id", "updated_at"}),
-        )
-    )
-    pairs.extend(
-        _matching_generated_pairs(
             direct.state,
             proxied.state,
             allowed_keys=frozenset(
@@ -854,7 +1001,28 @@ def execute_paired_case(servers: ConformanceServers, case: ConformanceCase) -> P
             ),
         )
     )
-    return PairedCaseResult(direct, proxied, GeneratedValueMap.from_pairs(pairs))
+    generated_values = GeneratedValueMap.from_pairs(pairs)
+    sse_value_maps = [
+        GeneratedValueMap.from_pairs(
+            _matching_generated_pairs(
+                _sse_payload(direct_frame),
+                _sse_payload(proxy_frame),
+                allowed_keys=frozenset(
+                    {"created_at", "event_id", "run_id", "timestamp", "updated_at"}
+                ),
+            )
+        )
+        for direct_frame, proxy_frame in zip(direct.raw_chunks, proxied.raw_chunks, strict=True)
+    ]
+    generated_values = GeneratedValueMap(
+        direct=generated_values.direct,
+        proxied=generated_values.proxied,
+        direct_sse_ids=tuple(_sse_frame_ids(direct.raw_chunks)),
+        proxied_sse_ids=tuple(_sse_frame_ids(proxied.raw_chunks)),
+        direct_sse_values=tuple(mapping.direct for mapping in sse_value_maps),
+        proxied_sse_values=tuple(mapping.proxied for mapping in sse_value_maps),
+    )
+    return PairedCaseResult(direct, proxied, generated_values)
 
 
 def capture_response(
