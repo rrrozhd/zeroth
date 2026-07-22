@@ -157,7 +157,7 @@ class CapabilityEvidenceProvider(Protocol):
 - Create: `tests/langgraph_gateway/fixtures/capture_openapi.py`
 - Create: `tests/langgraph_gateway/fixtures/openapi-0.11.1.operations.json`
 
-- [ ] **Step 1: Write failing settings validation tests**
+- [x] **Step 1: Write failing settings validation tests**
 
 Cover disabled defaults, required upstream URL/deployment/audience when enabled, absolute HTTP(S) URL validation, positive timeouts/context TTL/body limit, credential header/scheme validation, and `stale_threshold_seconds > 2 * heartbeat_interval_seconds` even though heartbeat evidence is implemented later.
 
@@ -176,23 +176,23 @@ def test_unknown_routes_default_to_deny():
     assert settings.unknown_endpoint_mode == "deny"
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_settings.py`
 Expected: FAIL because `LangGraphGatewaySettings` does not exist.
 
-- [ ] **Step 3: Implement the settings model and top-level wiring**
+- [x] **Step 3: Implement the settings model and top-level wiring**
 
 Add fields for `enabled`, `upstream_url`, `upstream_audience`, `deployment_ref`, `upstream_credential_ref`, `upstream_credential_header`, `upstream_credential_scheme`, `connect_timeout_seconds`, `read_timeout_seconds`, `write_timeout_seconds`, `pool_timeout_seconds`, `context_ttl_seconds`, `max_governed_body_bytes`, `unknown_endpoint_mode`, `policy_bindings`, `supported_langgraph_versions=("1.2.9",)`, `supported_agent_server_versions=("0.11.1",)`, `heartbeat_interval_seconds=30`, and `stale_threshold_seconds=90`. Add `langgraph_gateway: LangGraphGatewaySettings` to `ZerothSettings`.
 
-- [ ] **Step 4: Capture the pinned OpenAPI operation projection**
+- [x] **Step 4: Capture the pinned OpenAPI operation projection**
 
 `capture_openapi.py` uses `importlib.metadata.files("langgraph-api")` to locate the distribution's bundled `openapi.json`, retains only sorted `(method, path, operationId)` rows plus the package version, and writes deterministic JSON. Generate it directly from the pinned distribution:
 
 Run: `uv run --with langgraph-api==0.11.1 python tests/langgraph_gateway/fixtures/capture_openapi.py --output tests/langgraph_gateway/fixtures/openapi-0.11.1.operations.json`
 Expected: a committed projection with `package_version: "0.11.1"`; a second run produces no diff.
 
-- [ ] **Step 5: Write the failing inventory table tests**
+- [x] **Step 5: Write the failing inventory table tests**
 
 Parameterize the complete baseline:
 
@@ -220,7 +220,7 @@ TRANSPARENT = [
 
 Assert every route in the scope table exists in the committed OpenAPI projection (except the WebSocket upgrade over the event-stream path, which OpenAPI cannot express). Assert `commands` is body-dependent: `run.start` and `input.respond` are governed, read-only commands are transparent, and unknown methods are unsupported.
 
-- [ ] **Step 6: Run RED, implement declarative compiled patterns, then run GREEN**
+- [x] **Step 6: Run RED, implement declarative compiled patterns, then run GREEN**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_inventory.py`
 Expected RED: no classifier. Implement immutable `EndpointRule` values with anchored regexes and one `classify_protocol_command` parser; do not use a permissive catch-all for claimed routes.
@@ -228,7 +228,7 @@ Expected RED: no classifier. Implement immutable `EndpointRule` values with anch
 Run: `uv run pytest -q tests/langgraph_gateway/test_settings.py tests/langgraph_gateway/test_inventory.py`
 Expected GREEN: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/zeroth/core/langgraph_gateway src/zeroth/core/config/settings.py tests/langgraph_gateway/test_settings.py tests/langgraph_gateway/test_inventory.py tests/langgraph_gateway/fixtures
@@ -241,7 +241,7 @@ git commit -m "feat: define LangGraph gateway inventory"
 - Create: `src/zeroth/core/langgraph_gateway/context.py`
 - Test: `tests/langgraph_gateway/test_context.py`
 
-- [ ] **Step 1: Write failing envelope tests**
+- [x] **Step 1: Write failing envelope tests**
 
 Use a deterministic clock and `EnvHmacSigner`. Assert claims contain schema version, tenant, principal, sorted roles, deployment, audience, correlation ID, policy version, `iat`, `exp`, and optional content classification. Assert all values are JSON serializable and canonical bytes do not change with input dictionary ordering.
 
@@ -261,20 +261,20 @@ token = codec.encode(claims)
 assert codec.decode(token, audience="agent-server:fixture", deployment_ref="external-agent") == claims
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_context.py`
 Expected: FAIL because the codec is missing.
 
-- [ ] **Step 3: Implement the versioned envelope**
+- [x] **Step 3: Implement the versioned envelope**
 
 Use base64url without padding and a compact `header.payload.signature` representation. The header is `{"alg": signer.algorithm(), "kid": signer.key_id(), "typ": "ZEROTH-RUN-CONTEXT", "v": 1}`. Sign `base64url(header) + b"." + base64url(payload)` with the existing `SigningKeyProvider`; reject `NullSigner`, missing signatures, unknown key IDs, bad signatures, wrong audience/deployment, future `iat`, expired `exp`, or excessive TTL. Verification uses `hmac.compare_digest` through the provider and never logs token contents.
 
-- [ ] **Step 4: Write failing request mutation tests**
+- [x] **Step 4: Write failing request mutation tests**
 
 Cover threaded/stateless run bodies and protocol-v2 `params`. Seed attacker values at top-level `_zeroth`, `context._zeroth`, `metadata._zeroth`, and `config.configurable._zeroth`. Assert all are removed and exactly one gateway token is written at `config.configurable._zeroth`. Preserve callbacks and every unrelated unknown field byte-semantically after JSON decode/encode. Reject non-object JSON and over-limit governed bodies with `zeroth.invalid_request` / `zeroth.request_too_large`.
 
-- [ ] **Step 5: Implement `inject_reserved_context`, run GREEN, and commit**
+- [x] **Step 5: Implement `inject_reserved_context`, run GREEN, and commit**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_context.py`
 Expected: PASS.
@@ -295,35 +295,35 @@ git commit -m "feat: sign LangGraph gateway context"
 - Test: `tests/test_econ_budget.py`
 - Test: `tests/langgraph_gateway/test_admission.py`
 
-- [ ] **Step 1: Add failing backward-compatibility and admission-policy tests**
+- [x] **Step 1: Add failing backward-compatibility and admission-policy tests**
 
 Existing node policy tests must remain unchanged. Add optional `allowed_tenants`, `allowed_principals`, `required_roles`, `allowed_assistants`, `allowed_deployments`, `allowed_input_classifications`, and `max_input_bytes` fields to `PolicyDefinition`, all empty/`None` by default. Test that old policies serialize identically except for default-excluded new fields and that multiple bindings combine by intersection/strictest limit.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `uv run pytest -q tests/policy/test_guard.py -k 'admission or backwards'`
 Expected: FAIL because run admission constraints and evaluation do not exist.
 
-- [ ] **Step 3: Implement `PolicyGuard.evaluate_run_admission`**
+- [x] **Step 3: Implement `PolicyGuard.evaluate_run_admission`**
 
 The method accepts `AdmissionRequest`, resolves only its declared `policy_bindings` from the existing `PolicyRegistry`, denies missing required role or any value outside a non-empty allow-list, applies the lowest configured input-size ceiling, and returns a stable policy version `sha256:` digest over canonical resolved definitions. A missing binding is a `zeroth.policy_unavailable` failure, not allow. Do not fabricate a Zeroth graph/node/run to call the node-oriented evaluator.
 
-- [ ] **Step 4: Write failing rich budget-status compatibility tests**
+- [x] **Step 4: Write failing rich budget-status compatibility tests**
 
 Keep `BudgetEnforcer.check_budget()` returning the existing `(allowed, spend, cap)` tuple for every current caller. Add `check_budget_status()` returning `BudgetCheckResult`: successful capped/unlimited responses use `degraded=False`; caught backend failures use `degraded=True` and `failure_mode="fail_open"|"fail_closed"`. Both methods share one internal check so they cannot disagree or make duplicate backend calls.
 
 Run: `uv run pytest -q tests/test_econ_budget.py -k 'status or fail'`
 Expected RED: `check_budget_status` does not exist.
 
-- [ ] **Step 5: Implement the backward-compatible budget API**
+- [x] **Step 5: Implement the backward-compatible budget API**
 
 Move the existing cache/request/error logic into `_check_budget_status`. `check_budget_status` returns the rich model; `check_budget` projects it to the legacy tuple. Cache successful results only and include `degraded=False` in cached status. Never infer degradation from `(True, 0.0, inf)` because that is also a legitimate unlimited budget.
 
-- [ ] **Step 6: Write failing admission orchestration tests**
+- [x] **Step 6: Write failing admission orchestration tests**
 
 Use recording policy guard, classifier, and rich budget fakes. Prove order: classification -> policy -> budget -> context decision. A policy deny never calls budget; a budget deny returns before transport is touched; allowed requests carry spend/cap into audit metadata. Test configured BudgetEnforcer fail-open as `allowed=True, budget_check_degraded=True` and fail-closed as a denial. The orchestrator does not change `BudgetEnforcer`'s configured outage posture.
 
-- [ ] **Step 7: Implement minimal protocols and orchestrator**
+- [x] **Step 7: Implement minimal protocols and orchestrator**
 
 ```python
 class InputClassifier(Protocol):
@@ -342,7 +342,7 @@ async def admit(request, *, policy_guard, budget_checker, classifier) -> Admissi
 
 Default classification is `unclassified`; deployments that deny unclassified inputs must inject a real classifier in a later policy package.
 
-- [ ] **Step 8: Run GREEN and commit**
+- [x] **Step 8: Run GREEN and commit**
 
 Run: `uv run pytest -q tests/policy/test_guard.py tests/test_econ_budget.py tests/langgraph_gateway/test_admission.py`
 Expected: PASS.
@@ -359,19 +359,19 @@ git commit -m "feat: admit LangGraph runs by policy and budget"
 - Create: `src/zeroth/core/langgraph_gateway/capabilities.py`
 - Test: `tests/langgraph_gateway/test_compatibility.py`
 
-- [ ] **Step 1: Write failing exact-version detection tests**
+- [x] **Step 1: Write failing exact-version detection tests**
 
 Use `httpx.MockTransport` for: exact `0.11.1` server info + expected OpenAPI fingerprint, version-only exact match, managed server with no version but known fingerprint, `0.11.2` unknown patch, malformed info, changed OpenAPI shape, and outage. Only the first three are supported. Normalize OpenAPI by sorting method/path/operation IDs and hashing that projection, not descriptions or examples.
 
-- [ ] **Step 2: Implement the compatibility matrix**
+- [x] **Step 2: Implement the compatibility matrix**
 
 `CompatibilityDetector.detect()` probes `/info`, `/ok`, then `/openapi.json` with short bounded timeouts. Return `tested_versions`, `detected_version`, `openapi_fingerprint`, `status` (`supported|unsupported|unavailable`), and a safe reason. Do not retry indefinitely during startup and do not infer a package version from arbitrary response headers.
 
-- [ ] **Step 3: Write failing capability tests**
+- [x] **Step 3: Write failing capability tests**
 
 Assert no evidence => `admission`; a heartbeat without run attestation => run remains `admission`; partial tool manifest => at most `observed`; stale evidence => deployment `admission`; invalid signature/mismatched graph version => lower level. These are model/validation seam tests only—no callback, tool, heartbeat endpoint, or persistence implementation.
 
-- [ ] **Step 4: Implement clamped reporting, run GREEN, and commit**
+- [x] **Step 4: Implement clamped reporting, run GREEN, and commit**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_compatibility.py`
 Expected: PASS.
@@ -391,31 +391,31 @@ git commit -m "feat: report LangGraph compatibility and capability"
 - Test: `tests/langgraph_gateway/test_headers.py`
 - Test: `tests/langgraph_gateway/test_http_proxy.py`
 
-- [ ] **Step 1: Write failing header tests**
+- [x] **Step 1: Write failing header tests**
 
 Verify request/response hop-by-hop headers named by RFC connection semantics are removed, repeated end-to-end headers survive, `Host` is rebuilt for upstream, and client `Authorization`/`X-API-Key` never reach upstream. Resolve the deployment-scoped credential through `resolve_secret_async` and insert only the configured upstream header/scheme. A missing configured credential fails `zeroth.upstream_credential_unavailable` before connecting.
 
-- [ ] **Step 2: Implement pure header helpers and run GREEN**
+- [x] **Step 2: Implement pure header helpers and run GREEN**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_headers.py`
 Expected: PASS.
 
-- [ ] **Step 3: Write failing byte-transparency tests**
+- [x] **Step 3: Write failing byte-transparency tests**
 
 Start an in-process upstream ASGI fixture that returns JSON, binary data, 204, repeated headers, 422, 500, and SSE chunks split at hostile byte boundaries. Assert exact status, ordered body bytes, content type, and end-to-end headers. Assert upstream 4xx/5xx bodies are never wrapped in `GatewayError`.
 
-- [ ] **Step 4: Implement the long-lived streaming transport**
+- [x] **Step 4: Implement the long-lived streaming transport**
 
 Construct one `httpx.AsyncClient(http2=True, follow_redirects=False)` per gateway with explicit connect/read/write/pool timeouts and limits. Use `client.send(request, stream=True)`. Response bodies are `aiter_raw()` generators whose `finally` always calls `response.aclose()`. Transparent request bodies use `request.stream()`; only governed JSON bodies are buffered by the earlier size-limited mutator. Never call `.json()`, `.aread()`, or `StreamingResponse(content=bytes)` on upstream responses.
 
-- [ ] **Step 5: Add the WebSocket dependency and run GREEN**
+- [x] **Step 5: Add the WebSocket dependency and run GREEN**
 
 Add `websockets>=15,<16` to a `langgraph-gateway` optional extra and the conformance group to development sync. Regenerate lock with `uv lock`.
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_headers.py tests/langgraph_gateway/test_http_proxy.py`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add pyproject.toml uv.lock src/zeroth/core/langgraph_gateway/headers.py src/zeroth/core/langgraph_gateway/transport.py tests/langgraph_gateway/test_headers.py tests/langgraph_gateway/test_http_proxy.py
@@ -430,29 +430,29 @@ git commit -m "feat: stream Agent Server HTTP transparently"
 - Test: `tests/langgraph_gateway/test_events.py`
 - Test: `tests/langgraph_gateway/test_http_proxy.py`
 
-- [ ] **Step 1: Write failing pipeline-order tests**
+- [x] **Step 1: Write failing pipeline-order tests**
 
 With recording fakes, assert: route classification -> principal resolution -> bounded body parse -> admission -> signed injection -> upstream credential replacement -> transport. An admission deny, invalid JSON, oversized body, unsupported endpoint, incompatible upstream, missing signer, or missing credential must leave the upstream call count at zero.
 
-- [ ] **Step 2: Write failing Zeroth error-envelope tests**
+- [x] **Step 2: Write failing Zeroth error-envelope tests**
 
 Map only gateway-origin failures to `{code, correlation_id, retryable, reason}` with documented status codes: authentication remains existing 401 middleware; policy/budget deny 403; invalid body 400; too large 413; unsupported endpoint/version 501; upstream connect/timeout 502/504; gateway misconfiguration 503. Safe reasons cannot include request values, tokens, secret refs, or upstream response bodies.
 
-- [ ] **Step 3: Implement `GatewayProxy.handle_http`**
+- [x] **Step 3: Implement `GatewayProxy.handle_http`**
 
 Set `X-Correlation-ID` on every response. For allowed governed requests, build claims from `current_principal(request)`, the configured deployment/audience, the admission policy version, and the current correlation ID. Preserve upstream successes/errors exactly except for the added correlation header. Respect `unknown_endpoint_mode`: default deny; optional `pass_ungoverned` adds `X-Zeroth-Governance: ungoverned` and emits a warning audit event.
 
 Also set `X-Zeroth-Governance-Level: admission` on governed run responses. This header and the terminal `langgraph.gateway` audit record are the foundation's per-run capability surfaces; upstream response bodies stay byte-transparent. A later evidence provider may raise the reported value only when valid run evidence is available before response headers are committed.
 
-- [ ] **Step 4: Write failing correlation/audit tests**
+- [x] **Step 4: Write failing correlation/audit tests**
 
 Incrementally observe a tee without delaying downstream delivery. Extract `run_id`, `thread_id`, and `assistant_id` from JSON and complete SSE `data:` frames only; malformed/oversized observation frames disable extraction but continue streaming. Emit a terminal `GatewayEvent` for success, upstream error, client disconnect, gateway denial, and cancellation. The existing audit sink writes a `NodeAuditRecord(node_id="langgraph.gateway", actor=principal.to_actor())` containing IDs, operation, policy/budget result, governance level, compatibility fingerprint, status, timings, and hashes/sizes—not raw input/output.
 
-- [ ] **Step 5: Implement best-effort observation**
+- [x] **Step 5: Implement best-effort observation**
 
 `TeeObserver.observe(chunk)` must be synchronous and bounded. `GatewayEventSink.emit` failures are logged and counted but never fail or reorder a healthy upstream response. A finalizer runs on normal exhaustion, error, cancellation, and generator close.
 
-- [ ] **Step 6: Run GREEN and commit**
+- [x] **Step 6: Run GREEN and commit**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_events.py tests/langgraph_gateway/test_http_proxy.py`
 Expected: PASS.
@@ -469,21 +469,21 @@ git commit -m "feat: govern and correlate proxied LangGraph runs"
 - Create: `src/zeroth/core/langgraph_gateway/routes.py`
 - Test: `tests/langgraph_gateway/test_websocket_proxy.py`
 
-- [ ] **Step 1: Write failing duplex tests**
+- [x] **Step 1: Write failing duplex tests**
 
 Use a real ephemeral WebSocket upstream. Assert subprotocol selection, text/binary frames, order, close codes/reasons, ping/pong liveness, upstream-first close, client-first close, and abrupt disconnect propagation. For in-band `run.start`/`input.respond`, assert admission and signed context mutation before send; non-run protocol messages are byte-identical.
 
 The gateway route authenticates WebSocket headers with the existing `ServiceAuthenticator` **before** `accept()`, sets `websocket.state.principal`, and creates/sets the correlation ID because `@app.middleware("http")` never sees WebSocket scopes. Missing or invalid client credentials close with documented code 4401 before any upstream connection; client credentials are never forwarded upstream.
 
-- [ ] **Step 2: Write the slow-consumer backpressure test**
+- [x] **Step 2: Write the slow-consumer backpressure test**
 
 Have upstream publish numbered frames faster than the client reads. Instrument maximum buffered frames and assert it never exceeds `websocket_queue_size` (default 16); no frame is reordered or silently dropped. Cancellation of either pump cancels its sibling and closes both sockets.
 
-- [ ] **Step 3: Implement the duplex pump**
+- [x] **Step 3: Implement the duplex pump**
 
 Use two bounded `asyncio.Queue`s and one `TaskGroup` for client->upstream and upstream->client. Do not spawn detached tasks. Read the authenticated identity only from `websocket.state.principal`; never accept identity claims from an in-band command. Resolve upstream credentials during handshake, strip client credentials, preserve allowed subprotocols, and map only gateway handshake failures to the stable envelope via WebSocket close reason/code documented in tests.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_websocket_proxy.py`
 Expected: PASS.
@@ -502,19 +502,19 @@ git commit -m "feat: proxy LangGraph protocol streams"
 - Test: `tests/service/test_app.py`
 - Test: `tests/langgraph_gateway/test_health.py`
 
-- [ ] **Step 1: Write failing bootstrap ownership tests**
+- [x] **Step 1: Write failing bootstrap ownership tests**
 
 When disabled, no client/probes/routes are constructed. When enabled, `ServiceBootstrap` owns one gateway proxy, transport, detector result, and capability reporter using the already-created authenticator, secret provider, signer, policy guard, budget enforcer, audit repository, and deployment identity. Assert the httpx client closes exactly once during lifespan, including startup failure.
 
-- [ ] **Step 2: Implement bootstrap construction**
+- [x] **Step 2: Implement bootstrap construction**
 
 Create gateway dependencies only after the shared secret provider and signer exist. Enabled gateway startup fails closed if signing is unavailable. Run one bounded compatibility detection; keep the service alive with health `unsupported`/`unavailable`, but reject proxied requests until supported. Do not instantiate callback, tool, or approval components.
 
-- [ ] **Step 3: Write failing route-precedence tests**
+- [x] **Step 3: Write failing route-precedence tests**
 
 Zeroth-native `/health`, `/health/live`, `/health/ready`, `/v1/*`, `/console*`, and `/regulus*` routes must win. Gateway routes expose root Agent Server paths such as `/threads`, `/assistants`, `/runs`, `/info`, and protocol stream paths only when enabled. Authentication middleware still resolves the Zeroth principal before proxy code.
 
-- [ ] **Step 4: Register routes and extend health output**
+- [x] **Step 4: Register routes and extend health output**
 
 `/health/ready` adds `agent_server`; the deployment health payload adds:
 
@@ -535,7 +535,7 @@ Zeroth-native `/health`, `/health/live`, `/health/ready`, `/v1/*`, `/console*`, 
 }
 ```
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `uv run pytest -q tests/service/test_app.py tests/test_health_probes.py tests/langgraph_gateway/test_health.py`
 Expected: PASS.
@@ -556,29 +556,33 @@ git commit -m "feat: mount LangGraph gateway service mode"
 - Create: `tests/langgraph_gateway/conformance/cassettes/deterministic.json`
 - Create: `tests/langgraph_gateway/conformance/test_agent_server_0_11_1.py`
 
-- [ ] **Step 1: Pin the release-gate environment**
+- [x] **Step 1: Pin the release-gate environment**
 
 Add a `gateway-conformance` dependency group with exact `langgraph==1.2.9`, `langgraph-api==0.11.1`, and the compatible `langgraph-sdk` resolved by those pins. Add a `langgraph_conformance` pytest marker; keep it out of the default fast unit suite only if startup cost is material, but run it in the explicit release command.
 
-- [ ] **Step 2: Write the deterministic graph and cassette**
+- [x] **Step 2: Write the deterministic graph and cassette**
 
 Create a StateGraph with deterministic nodes for echo/update, ordered custom/token-like stream events, a controlled interrupt/resume, a long-running cancellation point, a predictable upstream exception, and a recorded fake tool sequence. No real LLM/network call is permitted; cassette misses fail the test.
 
-- [ ] **Step 3: Write the manifest-driven endpoint cases**
+- [x] **Step 3: Write the manifest-driven endpoint cases**
 
 Each case declares method, path builder, request builder, expected status/content type, comparison normalizer, governance expectation, and cleanup. Include all inventory operations: assistant/thread create/read/search, state/history, threaded background/wait/stream, stateless wait/stream, get/join/join-stream/cancel, protocol-v2 `run.start`/`input.respond` and POST event stream, interrupt and native resume, auth errors, validation errors, and unsupported groups.
 
-- [ ] **Step 4: Run RED against missing fixture behavior, then complete fixture**
+- [x] **Step 4: Run RED against missing fixture behavior, then complete fixture**
 
 Run: `uv run --group gateway-conformance pytest -q -m langgraph_conformance tests/langgraph_gateway/conformance/test_agent_server_0_11_1.py`
 Expected first run: FAIL on any incomplete case. Iterate fixture code only until every direct Agent Server case is deterministic and passes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml uv.lock tests/langgraph_gateway/conformance
 git commit -m "test: define Agent Server conformance fixture"
 ```
+
+### Consolidated release slice: Tasks 10–12
+
+> **Execution update (user-authorized 2026-07-22):** Execute Tasks 10, 11, and 12 in one implementer context and one coherent release slice. Preserve every acceptance criterion below, use focused TDD while implementing, then run one integrated Tasks 9–12 review followed by one final full-suite/lint gate.
 
 ### Task 10: Add SDK, RemoteGraph, and direct-versus-proxied differential harnesses
 
@@ -587,7 +591,7 @@ git commit -m "test: define Agent Server conformance fixture"
 - Create: `tests/langgraph_gateway/conformance/test_sdk_remote_graph.py`
 - Create: `tests/langgraph_gateway/conformance/test_differential.py`
 
-- [ ] **Step 1: Write failing comparison-report tests**
+- [x] **Step 1: Write failing comparison-report tests**
 
 `DifferentialReport` separates `semantic_divergences` from `expected_governance_additions`. Normalize only generated IDs/timestamps and explicitly declared correlation/governance additions. Never sort ordered streams or tool sequences, coerce status codes, discard errors, or ignore unknown fields.
 
@@ -601,19 +605,19 @@ assert report.expected_governance_additions == [
 ]
 ```
 
-- [ ] **Step 2: Implement paired case execution**
+- [x] **Step 2: Implement paired case execution**
 
 For each manifest case, create isolated direct/proxied threads, replay the same cassette/input, capture status, headers, raw ordered chunks, final JSON, thread state, interrupts/resume values, tool sequence, errors, cancellation outcome, and terminal state. Write a human-readable report artifact under pytest's temporary directory on divergence.
 
-- [ ] **Step 3: Add official Python SDK parity tests**
+- [x] **Step 3: Add official Python SDK parity tests**
 
 Use `langgraph_sdk.get_client` against direct and gateway URLs for assistants, threads, stateful/stateless runs, stream/wait, join/join-stream, and cancel. The only client change is URL/API credential.
 
-- [ ] **Step 4: Add RemoteGraph parity tests**
+- [x] **Step 4: Add RemoteGraph parity tests**
 
 Use `langgraph.pregel.remote.RemoteGraph` for `invoke`, `ainvoke`, `stream`, `astream`, `get_state`, `get_state_history`, and `update_state`. Assert output/state/ordered chunks match direct behavior and no graph source change is required.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `uv run --group gateway-conformance pytest -q -m langgraph_conformance tests/langgraph_gateway/conformance`
 Expected: PASS with zero semantic divergences.
@@ -629,23 +633,23 @@ git commit -m "test: prove LangGraph gateway differential parity"
 - Create: `tests/langgraph_gateway/test_resilience.py`
 - Modify: `tests/langgraph_gateway/conformance/test_differential.py`
 
-- [ ] **Step 1: Add deterministic client-disconnect tests**
+- [x] **Step 1: Add deterministic client-disconnect tests**
 
 Use a socket-level ASGI client so the connection can close mid-SSE rather than merely stop iterating a buffered TestClient response. Assert the upstream response task is cancelled/closed promptly, no detached task remains, the audit event is `disconnected`, and a run configured upstream with `on_disconnect=continue` is not falsely reported cancelled.
 
-- [ ] **Step 2: Add explicit cancellation parity tests**
+- [x] **Step 2: Add explicit cancellation parity tests**
 
 Create a background run, call the documented cancel endpoint through direct and proxy paths, then join/read state. Compare status code, response body, upstream terminal run status, and final state.
 
-- [ ] **Step 3: Add slow-reader and slow-writer tests**
+- [x] **Step 3: Add slow-reader and slow-writer tests**
 
 Bound the upstream producer lead under a slow downstream reader and bound request upload lead under a slow upstream reader. Assert maximum observed queue/buffer stays within configured limits and resident data does not scale with total stream length.
 
-- [ ] **Step 4: Add timeout/error/finalizer tests**
+- [x] **Step 4: Add timeout/error/finalizer tests**
 
 Cover connect timeout, read timeout before headers, read timeout mid-stream, client cancellation during admission, cancellation during upstream connect, audit parser exception, audit sink exception, and app shutdown with active streams. Every path closes response/client resources once and preserves upstream bytes already delivered.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `uv run pytest -q tests/langgraph_gateway/test_resilience.py tests/langgraph_gateway/test_http_proxy.py tests/langgraph_gateway/test_websocket_proxy.py`
 Expected: PASS.
@@ -663,7 +667,7 @@ git commit -m "test: harden LangGraph proxy stream lifecycle"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-22-langgraph-gateway-foundation.md` only to check completed boxes during execution.
 
-- [ ] **Step 1: Audit scope mechanically**
+- [x] **Step 1: Audit scope mechanically**
 
 Run: `git diff --name-only <foundation-base>...HEAD`
 Expected: only files listed in this plan. Confirm no changes under the existing LangGraph instrumentation adapter, approvals implementation, tool runtime/wrappers, OTel mapper/exporter, or migrations.
@@ -671,17 +675,17 @@ Expected: only files listed in this plan. Confirm no changes under the existing 
 Run: `rg -n "govern_graph|govern_tools|ZerothMiddleware|interrupt\(|Command\(resume|wrap_tool_call" src/zeroth/core/langgraph_gateway`
 Expected: no implementation matches; interface/docstrings may name later concepts only where necessary.
 
-- [ ] **Step 2: Run focused and adjacent tests**
+- [x] **Step 2: Run focused and adjacent tests**
 
 Run: `uv run pytest -q tests/langgraph_gateway tests/policy/test_guard.py tests/service/test_app.py tests/test_health_probes.py tests/service/test_auth_api.py tests/signing/test_signing.py tests/test_econ_budget.py`
 Expected: PASS.
 
-- [ ] **Step 3: Run the pinned conformance release gate**
+- [x] **Step 3: Run the pinned conformance release gate**
 
 Run: `uv run --group gateway-conformance pytest -q -m langgraph_conformance tests/langgraph_gateway/conformance`
 Expected: PASS for LangGraph 1.2.9 / Agent Server 0.11.1 with zero semantic divergences.
 
-- [ ] **Step 4: Run repository quality gates**
+- [x] **Step 4: Run repository quality gates**
 
 Run: `uv run ruff check src/ tests/langgraph_gateway`
 Expected: PASS.
@@ -692,11 +696,11 @@ Expected: PASS.
 Run: `uv run pytest -q`
 Expected: PASS.
 
-- [ ] **Step 5: Inspect graph impact and coverage per AGENTS.md**
+- [x] **Step 5: Inspect graph impact and coverage per AGENTS.md**
 
 Rebuild the code-review graph, run change detection, inspect affected flows, and query `tests_for` for the new gateway entry points. Resolve any high-risk untested edge before completion.
 
-- [ ] **Step 6: Final atomic verification commit if needed**
+- [x] **Step 6: Final atomic verification commit if needed**
 
 Only if verification required test/fixture corrections:
 
