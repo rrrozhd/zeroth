@@ -17,7 +17,7 @@ L2 interoperation and L3 transpilation remain later, separate deliverables. L1 w
 ## Goals
 
 1. Put Zeroth in front of an existing Agent Server deployment without changing the graph or replacing LangGraph clients.
-2. Preserve the behavior of REST, SDK, `RemoteGraph`, streaming, thread state, interrupts, and resume operations.
+2. Preserve the behavior of REST, SDK, `RemoteGraph`, streaming, thread state, interrupts, and resume operations within the documented L1 version and endpoint inventory.
 3. Enforce principal-, tenant-, assistant-, deployment-, budget-, and input-level policy before a run is admitted.
 4. Add causal node, LLM, and tool audit with a minimal Python deployment change.
 5. Enforce tool allow, deny, and require-approval decisions before side effects occur.
@@ -96,15 +96,17 @@ graph = govern_graph(graph)
 # Raw tool lists used by StateGraph or ToolNode: tool enforcement.
 tools = govern_tools(tools)
 
-# create_agent applications: native wrap_tool_call enforcement.
-agent = create_agent(..., middleware=[ZerothMiddleware()])
+# create_agent applications: native wrap_tool_call enforcement plus graph audit.
+agent = govern_graph(
+    create_agent(..., middleware=[ZerothMiddleware()])
+)
 ```
 
 `govern_graph` delegates `invoke`, `ainvoke`, `stream`, and `astream`, merges the Zeroth callback handler into the runtime configuration, preserves user callbacks, and delegates unsupported attributes to the wrapped graph.
 
 `govern_tools` returns governed wrappers without mutating the original tool or its `.func`. `ZerothMiddleware` uses the supported `wrap_tool_call` call path for applications built with `create_agent`. Both tool surfaces share the same decision client, exception types, interrupt schema, redaction, and audit behavior.
 
-If only `govern_graph` is installed, the level is `observed`, not `enforced`. The adapter must not infer control of tool calls from callback visibility.
+`enforced` is cumulative and requires both surfaces: `govern_graph` must emit the valid run-start observation attestation, and `govern_tools` or `ZerothMiddleware` must register a matching complete tool inventory. `ZerothMiddleware` alone controls its tool path but cannot claim `enforced` because it does not provide the full callback tree or run attestation. If only `govern_graph` is installed, the level is `observed`. The adapter must not infer control of tool calls from callback visibility.
 
 ### Existing Zeroth seams
 
@@ -175,6 +177,24 @@ The decision request has an idempotency key built from deployment, thread, graph
 The approval begins in `awaiting_checkpoint`. Observing the matching structured interrupt moves it to `ready`. For streaming and wait requests, the proxy observes it inline. For background runs or disconnected clients, a bounded reconciler uses the configured upstream service credential to inspect the known run/thread until the interrupt is confirmed, the run terminates, or the reconciliation deadline expires. Reconciliation state is durable across gateway restart. A customer webhook remains untouched; Zeroth does not replace it. Duplicate response, stream, webhook, or polling delivery resolves to the same approval record.
 
 An approval may be reviewed while awaiting checkpoint confirmation, but the gateway never resumes upstream until it is `ready`. If the run terminates first, the approval becomes `orphaned` and cannot execute. Stateless runs cannot safely support tool approvals because they lack a persistent thread cursor; `require_approval` therefore fails closed with `zeroth.approval_requires_thread` while allow/deny and audit continue to work.
+
+The implementation plan must preserve this approval state machine:
+
+```text
+awaiting_checkpoint -> ready -> decided -> resuming -> resolved
+          |             |         |           |
+          +-------------+---------+-----------+-> orphaned / expired
+```
+
+Only `ready` approvals may enter `decided`; a reviewer response received earlier is stored but not applied. Terminal or expired states cannot return to an executable state.
+
+Per-run capability status is also monotonic within evidence received for that run:
+
+```text
+admission -> observed -> enforced
+```
+
+The transition to `observed` requires a valid `govern_graph` run attestation. The transition to `enforced` additionally requires a matching complete governed-tool manifest. Missing or invalid evidence leaves the run at the lower level. Deployment-level last-known status may downgrade on heartbeat expiry, but a heartbeat alone never upgrades a run.
 
 On resume, the value returned by `interrupt()` is validated against the requested approval and allowed action set. Policy is revalidated immediately before tool execution. Approval does not override a newer deny. Edited tool arguments are revalidated and re-evaluated.
 
