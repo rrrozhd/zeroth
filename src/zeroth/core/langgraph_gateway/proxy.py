@@ -574,7 +574,12 @@ class GatewayProxy:
             status = GatewayEventStatus.UPSTREAM_ERROR
             raise
         finally:
-            observer.finish()
+            try:
+                observer.finish()
+            finally:
+                close_body = getattr(body, "aclose", None)
+                if close_body is not None:
+                    await close_body()
             identifiers = dict(request_identifiers or {})
             identifiers.update(observer.identifiers)
             await self._emit_terminal(

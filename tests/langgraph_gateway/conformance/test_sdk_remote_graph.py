@@ -139,7 +139,7 @@ async def test_official_sdk_parity_covers_inventory_modes(servers: ConformanceSe
     proxied = await _exercise_sdk(
         servers.gateway_url,
         "gateway-key",
-        observation_url=servers.direct_url,
+        observation_url=servers.proxy_upstream_url,
     )
     assert proxied == direct
 

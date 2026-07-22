@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 import pytest
 
-from .cases import CASES, REQUIRED_OPERATION_GROUPS, ConformanceCase
+from .cases import CASES, CLAIMED_OPERATIONS, REQUIRED_OPERATION_GROUPS, ConformanceCase
 from .graph import graph
 
 
@@ -25,14 +25,29 @@ def test_manifest_covers_the_complete_gateway_inventory() -> None:
     assert CASES
     assert {case.group for case in CASES} == REQUIRED_OPERATION_GROUPS
     assert len({case.name for case in CASES}) == len(CASES)
+    case_operations = {
+        (case.method, case.path_template)
+        for case in CASES
+        if case.group not in {"auth", "validation", "unsupported", "interrupt-resume"}
+    }
+    assert case_operations == CLAIMED_OPERATIONS
+    projection_path = Path(__file__).parents[1] / "fixtures" / "openapi-0.11.1.operations.json"
+    projection = json.loads(projection_path.read_text(encoding="utf-8"))
+    projected_operations = {(method, path) for method, path, _ in projection["operations"]}
+    # The document describes itself at /openapi.json, so that system route is not
+    # represented as an OpenAPI operation in the pinned projection.
+    projected_operations.add(("GET", "/openapi.json"))
+    assert projected_operations >= CLAIMED_OPERATIONS
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
 def test_every_case_declares_the_release_gate_contract(case: ConformanceCase) -> None:
     assert case.method
+    assert case.path_template
     assert callable(case.path)
     assert callable(case.request)
     assert case.expected_status
+    assert case.gateway_expected_status
     assert case.expected_content_type
     assert callable(case.normalizer)
     assert case.governance
@@ -108,7 +123,12 @@ def _render(value: Any, context: dict[str, str]) -> Any:
 
 def _setup_case(client: httpx.Client, case: ConformanceCase) -> dict[str, str]:
     assistant = client.post(
-        "/assistants", json={"graph_id": "conformance", "name": f"fixture-{case.name}"}
+        "/assistants",
+        json={
+            "graph_id": "conformance",
+            "name": f"fixture-{case.name}",
+            "metadata": {"pair": case.name},
+        },
     )
     assistant.raise_for_status()
     thread = client.post(

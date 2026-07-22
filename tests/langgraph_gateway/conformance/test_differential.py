@@ -10,9 +10,12 @@ from .harness import (
     EXPECTED_GOVERNANCE_ADDITIONS,
     CapturedExchange,
     ConformanceServers,
+    GeneratedValueMap,
     capture_response,
     compare_exchanges,
+    execute_paired_case,
 )
+from .cases import CASES, ConformanceCase
 
 
 pytestmark = pytest.mark.langgraph_conformance
@@ -52,7 +55,10 @@ def test_report_separates_only_the_four_declared_governance_additions() -> None:
         audit_event_present=True,
     )
 
-    report = compare_exchanges(direct, proxied)
+    generated = GeneratedValueMap.from_pairs(
+        [("generated-a", "generated-b"), ("generated-time-a", "generated-time-b")]
+    )
+    report = compare_exchanges(direct, proxied, generated_values=generated)
 
     assert report.semantic_divergences == []
     assert report.expected_governance_additions == list(EXPECTED_GOVERNANCE_ADDITIONS)
@@ -68,6 +74,22 @@ def test_comparison_never_reorders_chunks_or_discards_unknown_fields() -> None:
     proxied = _capture(final_json={"result": "ok", "unknown": True})
     report = compare_exchanges(direct, proxied)
     assert "final_json" in report.semantic_divergences
+
+
+def test_normalization_requires_an_explicit_pair_mapping() -> None:
+    direct = _capture(final_json={"assistant_id": "assistant-direct"})
+    proxied = _capture(final_json={"assistant_id": "assistant-proxy"})
+    assert "final_json" in compare_exchanges(direct, proxied).semantic_divergences
+
+    arbitrary_direct = "value-11111111-1111-1111-1111-111111111111"
+    arbitrary_proxy = "value-22222222-2222-2222-2222-222222222222"
+    direct = _capture(final_json={"payload": arbitrary_direct})
+    proxied = _capture(final_json={"payload": arbitrary_proxy})
+    mapping = GeneratedValueMap.from_pairs([("known-direct", "known-proxy")])
+    assert (
+        "final_json"
+        in compare_exchanges(direct, proxied, generated_values=mapping).semantic_divergences
+    )
 
 
 @pytest.fixture(scope="module")
@@ -98,28 +120,82 @@ def test_live_direct_and_proxied_wait_cases_have_zero_semantic_divergence(
     payload = {"assistant_id": "conformance", "input": input_payload}
     with httpx.Client(timeout=15) as client:
         direct = capture_response(client.post(f"{servers.direct_url}/runs/wait", json=payload))
-        proxied = capture_response(client.post(f"{servers.gateway_url}/runs/wait", json=payload))
-    report = compare_exchanges(direct, proxied)
+        evidence_start = len(servers.evidence())
+        proxied_response = client.post(
+            f"{servers.gateway_url}/runs/wait",
+            json=payload,
+            headers={"x-api-key": "gateway-key"},
+        )
+        evidence = servers.evidence(since=evidence_start)
+        proxied = capture_response(
+            proxied_response,
+            forwarded_context_present=any(
+                row.get("kind") == "forwarded" and row.get("zeroth_present") for row in evidence
+            ),
+            audit_event_present=any(row.get("kind") == "audit" for row in evidence),
+        )
+    direct_headers = dict(direct.headers)
+    proxied_headers = dict(proxied.headers)
+    header_pairs = []
+    for header in ("date", "location", "content-location"):
+        if header in direct_headers and header in proxied_headers:
+            header_pairs.append((direct_headers[header], proxied_headers[header]))
+    report = compare_exchanges(
+        direct,
+        proxied,
+        generated_values=GeneratedValueMap.from_pairs(header_pairs),
+    )
     if report.semantic_divergences:
         report.write_human_report(tmp_path / "differential-report.txt")
     assert report.semantic_divergences == []
     assert report.expected_governance_additions == list(EXPECTED_GOVERNANCE_ADDITIONS)
 
 
-def _interrupt_resume(url: str) -> tuple[dict[str, object], dict[str, object]]:
+@pytest.mark.parametrize("case", CASES, ids=lambda case: f"paired-{case.name}")
+def test_every_manifest_case_runs_direct_and_through_the_real_gateway(
+    servers: ConformanceServers,
+    case: ConformanceCase,
+    tmp_path: Path,
+) -> None:
+    result = execute_paired_case(servers, case)
+    assert result.direct.status_code in case.expected_status
+    assert result.proxied.status_code in case.gateway_expected_status
+
+    if case.group in {"auth", "unsupported"}:
+        assert result.proxied.status_code in case.gateway_expected_status
+        return
+
+    report = compare_exchanges(
+        result.direct,
+        result.proxied,
+        generated_values=result.generated_values,
+    )
+    if report.semantic_divergences:
+        report.write_human_report(tmp_path / f"{case.name}-differential-report.txt")
+    assert report.semantic_divergences == []
+    assert set(report.expected_governance_additions) <= set(EXPECTED_GOVERNANCE_ADDITIONS)
+    if case.governance == "governed":
+        assert report.expected_governance_additions == list(EXPECTED_GOVERNANCE_ADDITIONS)
+
+
+def _interrupt_resume(
+    url: str, *, headers: dict[str, str] | None = None
+) -> tuple[dict[str, object], dict[str, object]]:
     with httpx.Client(base_url=url, timeout=15) as client:
-        thread = client.post("/threads", json={}).json()
+        thread = client.post("/threads", json={}, headers=headers).json()
         paused = client.post(
             f"/threads/{thread['thread_id']}/runs/wait",
             json={
                 "assistant_id": "conformance",
                 "input": {"mode": "interrupt", "text": "approve"},
             },
+            headers=headers,
         )
         paused.raise_for_status()
         resumed = client.post(
             f"/threads/{thread['thread_id']}/runs/wait",
             json={"assistant_id": "conformance", "command": {"resume": "approved"}},
+            headers=headers,
         )
         resumed.raise_for_status()
         return paused.json(), resumed.json()
@@ -127,6 +203,8 @@ def _interrupt_resume(url: str) -> tuple[dict[str, object], dict[str, object]]:
 
 def test_live_interrupt_and_native_resume_values_match(servers: ConformanceServers) -> None:
     direct_paused, direct_resumed = _interrupt_resume(servers.direct_url)
-    proxy_paused, proxy_resumed = _interrupt_resume(servers.gateway_url)
+    proxy_paused, proxy_resumed = _interrupt_resume(
+        servers.gateway_url, headers={"x-api-key": "gateway-key"}
+    )
     assert proxy_paused["__interrupt__"][0]["value"] == direct_paused["__interrupt__"][0]["value"]
     assert proxy_resumed == direct_resumed

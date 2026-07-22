@@ -154,6 +154,19 @@ async def test_connect_and_midstream_timeouts_leave_no_open_response() -> None:
     assert not transport._open_responses
     await transport.aclose()
 
+    async def read_timeout_before_headers(_: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("read timed out before response headers")
+
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(read_timeout_before_headers),
+    )
+    with pytest.raises(httpx.ReadTimeout, match="before response headers"):
+        await transport.forward(_request())
+    assert not transport._open_responses
+    await transport.aclose()
+
     class TimeoutStream(httpx.AsyncByteStream):
         def __init__(self) -> None:
             self.close_calls = 0
@@ -181,6 +194,120 @@ async def test_connect_and_midstream_timeouts_leave_no_open_response() -> None:
     with pytest.raises(httpx.ReadTimeout):
         await anext(iterator)
     assert stream.close_calls == 1
+    assert not transport._open_responses
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_upstream_connect_leaves_no_inflight_or_open_response() -> None:
+    connect_started = asyncio.Event()
+    connect_cancelled = asyncio.Event()
+
+    async def connecting(_: httpx.Request) -> httpx.Response:
+        connect_started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            connect_cancelled.set()
+            raise
+
+    transport = HTTPGatewayTransport(
+        _settings("http://upstream"),
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(connecting),
+    )
+    forward = asyncio.create_task(transport.forward(_request()))
+    await connect_started.wait()
+    forward.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await forward
+
+    assert connect_cancelled.is_set()
+    assert not transport._open_responses
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_observer_exception_preserves_delivered_bytes_and_closes_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zeroth.core.langgraph_gateway.proxy as proxy_module
+    from tests.langgraph_gateway.test_http_proxy import (
+        AllowBudget,
+        AllowPolicy,
+        RecordingEventSink,
+        authenticated_empty_request,
+        supported_compatibility,
+    )
+    from zeroth.core.langgraph_gateway.context import ReservedContextCodec
+    from zeroth.core.langgraph_gateway.proxy import GatewayProxy
+    from zeroth.core.signing import EnvHmacSigner
+
+    finish_calls = 0
+
+    class ExplodingObserver:
+        identifiers: dict[str, str] = {}
+        output_sha256 = None
+        output_size_bytes = 0
+
+        def __init__(self, *_: Any, **__: Any) -> None:
+            self.seen = 0
+
+        def observe(self, chunk: bytes) -> bytes:
+            self.seen += 1
+            self.output_size_bytes += len(chunk)
+            if self.seen == 2:
+                raise RuntimeError("observer parser failed")
+            return chunk
+
+        def finish(self) -> None:
+            nonlocal finish_calls
+            finish_calls += 1
+
+    class CloseOnceStream(httpx.AsyncByteStream):
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"already-delivered"
+            yield b"parser-trigger"
+
+        async def aclose(self) -> None:
+            self.close_calls += 1
+
+    stream = CloseOnceStream()
+
+    async def upstream(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=stream, headers={"content-type": "application/json"})
+
+    monkeypatch.setattr(proxy_module, "TeeObserver", ExplodingObserver)
+    settings = _settings("http://upstream")
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    sink = RecordingEventSink()
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(
+            EnvHmacSigner(key_id="resilience", keys={"resilience": b"key"})
+        ),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+    )
+    response = await proxy.handle_http(authenticated_empty_request("/ok"))
+    iterator = response.body_iterator.__aiter__()
+    assert await anext(iterator) == b"already-delivered"
+    with pytest.raises(RuntimeError, match="observer parser failed"):
+        await anext(iterator)
+
+    assert finish_calls == 1
+    assert stream.close_calls == 1
+    assert sink.events[-1].status == GatewayEventStatus.UPSTREAM_ERROR
     assert not transport._open_responses
     await transport.aclose()
 

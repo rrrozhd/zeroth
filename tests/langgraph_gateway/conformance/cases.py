@@ -37,9 +37,11 @@ class ConformanceCase:
     name: str
     group: str
     method: str
+    path_template: str
     path: PathBuilder
     request: RequestBuilder
     expected_status: tuple[int, ...]
+    gateway_expected_status: tuple[int, ...]
     expected_content_type: str
     normalizer: Normalizer
     governance: str
@@ -47,6 +49,7 @@ class ConformanceCase:
 
 
 REQUIRED_OPERATION_GROUPS = {
+    "system",
     "assistants",
     "threads",
     "state",
@@ -68,6 +71,35 @@ REQUIRED_OPERATION_GROUPS = {
     "unsupported",
 }
 
+CLAIMED_OPERATIONS = {
+    ("GET", "/ok"),
+    ("GET", "/info"),
+    ("GET", "/openapi.json"),
+    ("POST", "/assistants"),
+    ("GET", "/assistants/{assistant_id}"),
+    ("GET", "/assistants/{assistant_id}/graph"),
+    ("POST", "/assistants/search"),
+    ("POST", "/threads"),
+    ("GET", "/threads/{thread_id}"),
+    ("POST", "/threads/search"),
+    ("GET", "/threads/{thread_id}/stream"),
+    ("GET", "/threads/{thread_id}/state"),
+    ("POST", "/threads/{thread_id}/state"),
+    ("POST", "/threads/{thread_id}/state/checkpoint"),
+    ("POST", "/threads/{thread_id}/history"),
+    ("POST", "/threads/{thread_id}/runs"),
+    ("POST", "/threads/{thread_id}/runs/stream"),
+    ("POST", "/threads/{thread_id}/runs/wait"),
+    ("POST", "/runs/stream"),
+    ("POST", "/runs/wait"),
+    ("GET", "/threads/{thread_id}/runs/{run_id}"),
+    ("GET", "/threads/{thread_id}/runs/{run_id}/join"),
+    ("GET", "/threads/{thread_id}/runs/{run_id}/stream"),
+    ("POST", "/threads/{thread_id}/runs/{run_id}/cancel"),
+    ("POST", "/threads/{thread_id}/commands"),
+    ("POST", "/threads/{thread_id}/stream/events"),
+}
+
 
 def _case(
     name: str,
@@ -77,6 +109,7 @@ def _case(
     request: dict[str, Any] | None,
     *,
     status: tuple[int, ...] = (200,),
+    gateway_status: tuple[int, ...] | None = None,
     content_type: str = "application/json",
     governance: str = "transparent",
 ) -> ConformanceCase:
@@ -84,9 +117,11 @@ def _case(
         name=name,
         group=group,
         method=method,
+        path_template=path,
         path=lambda context, template=path: template.format_map(context),
         request=lambda _context, payload=request: payload,
         expected_status=status,
+        gateway_expected_status=gateway_status or status,
         expected_content_type=content_type,
         normalizer=_stable_json if content_type == "application/json" else _identity,
         governance=governance,
@@ -99,6 +134,9 @@ _STREAM_RUN = {**_RUN, "stream_mode": ["custom", "values"]}
 
 
 CASES = (
+    _case("system-ok", "system", "GET", "/ok", None),
+    _case("system-info", "system", "GET", "/info", None),
+    _case("system-openapi", "system", "GET", "/openapi.json", None),
     _case(
         "assistant-create",
         "assistants",
@@ -113,7 +151,7 @@ CASES = (
         "assistants",
         "POST",
         "/assistants/search",
-        {"graph_id": "conformance", "limit": 10},
+        {"graph_id": "conformance", "metadata": {"pair": "assistant-search"}, "limit": 10},
     ),
     _case("thread-create", "threads", "POST", "/threads", {"metadata": {"fixture": True}}),
     _case("thread-read", "threads", "GET", "/threads/{thread_id}", None),
@@ -122,7 +160,7 @@ CASES = (
         "threads",
         "POST",
         "/threads/search",
-        {"metadata": {"fixture": True}, "limit": 10},
+        {"metadata": {"pair": "thread-search"}, "limit": 10},
     ),
     _case(
         "thread-stream",
@@ -243,7 +281,15 @@ CASES = (
         {"assistant_id": "{assistant_id}", "command": {"resume": "approved"}},
         governance="governed",
     ),
-    _case("auth-error", "auth", "GET", "/assistants/{assistant_id}", None, status=(200, 401, 403)),
+    _case(
+        "auth-error",
+        "auth",
+        "GET",
+        "/assistants/{assistant_id}",
+        None,
+        status=(200,),
+        gateway_status=(401,),
+    ),
     _case(
         "validation-error",
         "validation",
@@ -264,6 +310,7 @@ CASES = (
             "enabled": False,
         },
         status=(200,),
+        gateway_status=(501,),
         governance="unsupported",
     ),
     _case(
@@ -273,6 +320,7 @@ CASES = (
         "/a2a",
         {},
         status=(404, 405, 422),
+        gateway_status=(501,),
         governance="unsupported",
     ),
     _case(
@@ -282,6 +330,7 @@ CASES = (
         "/mcp/",
         {},
         status=(307,),
+        gateway_status=(501,),
         content_type="none",
         governance="unsupported",
     ),
@@ -292,6 +341,7 @@ CASES = (
         "/store/items?namespace=fixture&key=missing",
         None,
         status=(200,),
+        gateway_status=(501,),
         governance="unsupported",
     ),
     _case(
@@ -301,6 +351,7 @@ CASES = (
         "/custom/fixture",
         None,
         status=(404,),
+        gateway_status=(501,),
         governance="unsupported",
     ),
 )
