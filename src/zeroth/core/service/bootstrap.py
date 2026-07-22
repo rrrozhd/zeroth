@@ -562,187 +562,193 @@ async def bootstrap_service(
             await gateway_transport.aclose()
             raise
 
-    # Phase 35: Resilient HTTP client construction — auth secrets resolve
-    # through the same provider, not a second env-only one.
-    http_client_instance: object | None = None
-    http_settings = settings.http_client
+    try:
+        # Phase 35: Resilient HTTP client construction — auth secrets resolve
+        # through the same provider, not a second env-only one.
+        http_client_instance: object | None = None
+        http_settings = settings.http_client
 
-    from zeroth.core.http import ResilientHttpClient  # noqa: PLC0415
+        from zeroth.core.http import ResilientHttpClient  # noqa: PLC0415
 
-    http_client_instance = ResilientHttpClient(
-        settings=http_settings,
-        secret_provider=secret_provider,
-    )
-    orchestrator.http_client = http_client_instance
-
-    # Phase 36: Template registry and renderer.
-    from zeroth.core.templates import TemplateRegistry, TemplateRenderer  # noqa: PLC0415
-
-    template_registry = TemplateRegistry()
-    template_renderer = TemplateRenderer()
-    orchestrator.template_registry = template_registry
-    orchestrator.template_renderer = template_renderer
-
-    # Phase 39: Subgraph composition.
-    from zeroth.core.subgraph.executor import SubgraphExecutor  # noqa: PLC0415
-    from zeroth.core.subgraph.resolver import SubgraphResolver  # noqa: PLC0415
-
-    subgraph_resolver = SubgraphResolver(deployment_service=deployment_service)
-    subgraph_executor = SubgraphExecutor(resolver=subgraph_resolver)
-    orchestrator.subgraph_executor = subgraph_executor
-
-    # Phase 15: Webhook delivery and SLA enforcement.
-    webhook_repository = None
-    webhook_service_obj = None
-    delivery_worker_obj = None
-    sla_checker_obj = None
-    webhook_http_client = None
-
-    if settings.webhook.enabled:
-        try:
-            from zeroth.core.webhooks.repository import WebhookRepository
-            from zeroth.core.webhooks.service import WebhookService
-
-            webhook_repository = WebhookRepository(database)
-            webhook_service_obj = WebhookService(
-                repository=webhook_repository,
-                default_max_retries=settings.webhook.default_max_retries,
-            )
-            # Wire webhook_service into orchestrator and approval_service
-            orchestrator.webhook_service = webhook_service_obj
-            approval_service.webhook_service = webhook_service_obj
-
-            import httpx
-
-            from zeroth.core.webhooks.delivery import WebhookDeliveryWorker
-
-            webhook_http_client = httpx.AsyncClient(
-                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-                timeout=httpx.Timeout(settings.webhook.delivery_timeout),
-            )
-            delivery_worker_obj = WebhookDeliveryWorker(
-                repository=webhook_repository,
-                http_client=webhook_http_client,
-                poll_interval=settings.webhook.delivery_poll_interval,
-                max_concurrency=settings.webhook.max_delivery_concurrency,
-                retry_base_delay=settings.webhook.retry_base_delay,
-                retry_max_delay=settings.webhook.retry_max_delay,
-            )
-        except ImportError:
-            pass
-
-    if settings.approval_sla.enabled:
-        try:
-            from zeroth.core.approvals.sla_checker import ApprovalSLAChecker
-
-            sla_checker_obj = ApprovalSLAChecker(
-                approval_service=approval_service,
-                webhook_service=webhook_service_obj,
-                poll_interval=settings.approval_sla.checker_poll_interval,
-            )
-        except ImportError:
-            pass
-
-    # WS-E: retention / right-to-erasure wiring. Repositories + the erasure
-    # service are ALWAYS constructed so the API works regardless of the worker;
-    # the background purge worker is only built when retention.enabled is True.
-    # The econ-event eraser is intentionally left unwired here (None) — see
-    # docs/retention-and-erasure.md for the run->join_key deferral.
-    from zeroth.core.retention import (
-        LegalHoldRepository,
-        RetentionAuditLogRepository,
-        RetentionErasureService,
-        RetentionPolicyRepository,
-        RetentionPurgeWorker,
-    )
-
-    retention_default_policy = None
-    if (
-        settings.retention.default_audit_ttl_seconds is not None
-        or settings.retention.default_run_ttl_seconds is not None
-    ):
-        from zeroth.core.retention.models import SYSTEM_DEFAULT_TENANT, RetentionPolicy
-
-        retention_default_policy = RetentionPolicy(
-            tenant_id=SYSTEM_DEFAULT_TENANT,
-            audit_ttl_seconds=settings.retention.default_audit_ttl_seconds,
-            run_ttl_seconds=settings.retention.default_run_ttl_seconds,
+        http_client_instance = ResilientHttpClient(
+            settings=http_settings,
+            secret_provider=secret_provider,
         )
-    retention_policy_repository = RetentionPolicyRepository(
-        database, default_policy=retention_default_policy
-    )
-    legal_hold_repository = LegalHoldRepository(database)
-    retention_log_repository = RetentionAuditLogRepository(database)
-    retention_erasure_service = RetentionErasureService(
-        audit_repository=audit_repository,
-        run_repository=run_repository,
-        policy_repository=retention_policy_repository,
-        legal_hold_repository=legal_hold_repository,
-        log_repository=retention_log_repository,
-        artifact_store=artifact_store,
-        econ_eraser=None,
-    )
-    retention_worker_obj: object | None = None
-    if settings.retention.enabled:
-        retention_worker_obj = RetentionPurgeWorker(
-            erasure_service=retention_erasure_service,
+        orchestrator.http_client = http_client_instance
+
+        # Phase 36: Template registry and renderer.
+        from zeroth.core.templates import TemplateRegistry, TemplateRenderer  # noqa: PLC0415
+
+        template_registry = TemplateRegistry()
+        template_renderer = TemplateRenderer()
+        orchestrator.template_registry = template_registry
+        orchestrator.template_renderer = template_renderer
+
+        # Phase 39: Subgraph composition.
+        from zeroth.core.subgraph.executor import SubgraphExecutor  # noqa: PLC0415
+        from zeroth.core.subgraph.resolver import SubgraphResolver  # noqa: PLC0415
+
+        subgraph_resolver = SubgraphResolver(deployment_service=deployment_service)
+        subgraph_executor = SubgraphExecutor(resolver=subgraph_resolver)
+        orchestrator.subgraph_executor = subgraph_executor
+
+        # Phase 15: Webhook delivery and SLA enforcement.
+        webhook_repository = None
+        webhook_service_obj = None
+        delivery_worker_obj = None
+        sla_checker_obj = None
+        webhook_http_client = None
+
+        if settings.webhook.enabled:
+            try:
+                from zeroth.core.webhooks.repository import WebhookRepository
+                from zeroth.core.webhooks.service import WebhookService
+
+                webhook_repository = WebhookRepository(database)
+                webhook_service_obj = WebhookService(
+                    repository=webhook_repository,
+                    default_max_retries=settings.webhook.default_max_retries,
+                )
+                # Wire webhook_service into orchestrator and approval_service
+                orchestrator.webhook_service = webhook_service_obj
+                approval_service.webhook_service = webhook_service_obj
+
+                import httpx
+
+                from zeroth.core.webhooks.delivery import WebhookDeliveryWorker
+
+                webhook_http_client = httpx.AsyncClient(
+                    limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                    timeout=httpx.Timeout(settings.webhook.delivery_timeout),
+                )
+                delivery_worker_obj = WebhookDeliveryWorker(
+                    repository=webhook_repository,
+                    http_client=webhook_http_client,
+                    poll_interval=settings.webhook.delivery_poll_interval,
+                    max_concurrency=settings.webhook.max_delivery_concurrency,
+                    retry_base_delay=settings.webhook.retry_base_delay,
+                    retry_max_delay=settings.webhook.retry_max_delay,
+                )
+            except ImportError:
+                pass
+
+        if settings.approval_sla.enabled:
+            try:
+                from zeroth.core.approvals.sla_checker import ApprovalSLAChecker
+
+                sla_checker_obj = ApprovalSLAChecker(
+                    approval_service=approval_service,
+                    webhook_service=webhook_service_obj,
+                    poll_interval=settings.approval_sla.checker_poll_interval,
+                )
+            except ImportError:
+                pass
+
+        # WS-E: retention / right-to-erasure wiring. Repositories + the erasure
+        # service are ALWAYS constructed so the API works regardless of the worker;
+        # the background purge worker is only built when retention.enabled is True.
+        # The econ-event eraser is intentionally left unwired here (None) — see
+        # docs/retention-and-erasure.md for the run->join_key deferral.
+        from zeroth.core.retention import (
+            LegalHoldRepository,
+            RetentionAuditLogRepository,
+            RetentionErasureService,
+            RetentionPolicyRepository,
+            RetentionPurgeWorker,
+        )
+
+        retention_default_policy = None
+        if (
+            settings.retention.default_audit_ttl_seconds is not None
+            or settings.retention.default_run_ttl_seconds is not None
+        ):
+            from zeroth.core.retention.models import SYSTEM_DEFAULT_TENANT, RetentionPolicy
+
+            retention_default_policy = RetentionPolicy(
+                tenant_id=SYSTEM_DEFAULT_TENANT,
+                audit_ttl_seconds=settings.retention.default_audit_ttl_seconds,
+                run_ttl_seconds=settings.retention.default_run_ttl_seconds,
+            )
+        retention_policy_repository = RetentionPolicyRepository(
+            database, default_policy=retention_default_policy
+        )
+        legal_hold_repository = LegalHoldRepository(database)
+        retention_log_repository = RetentionAuditLogRepository(database)
+        retention_erasure_service = RetentionErasureService(
+            audit_repository=audit_repository,
+            run_repository=run_repository,
             policy_repository=retention_policy_repository,
-            poll_interval=settings.retention.worker_poll_interval,
+            legal_hold_repository=legal_hold_repository,
+            log_repository=retention_log_repository,
+            artifact_store=artifact_store,
+            econ_eraser=None,
         )
+        retention_worker_obj: object | None = None
+        if settings.retention.enabled:
+            retention_worker_obj = RetentionPurgeWorker(
+                erasure_service=retention_erasure_service,
+                policy_repository=retention_policy_repository,
+                poll_interval=settings.retention.worker_poll_interval,
+            )
 
-    return ServiceBootstrap(
-        database=database,
-        graph_repository=graph_repository,
-        deployment_service=deployment_service,
-        deployment=deployment,
-        graph=graph,
-        run_repository=run_repository,
-        thread_repository=thread_repository,
-        approval_service=approval_service,
-        audit_repository=audit_repository,
-        contract_registry=contract_registry,
-        orchestrator=orchestrator,
-        auth_config=resolved_auth_config,
-        authenticator=authenticator,
-        worker=worker,
-        lease_manager=lease_manager,
-        guardrail_config=resolved_guardrail_config,
-        rate_limiter=rate_limiter,
-        quota_enforcer=quota_enforcer,
-        dead_letter_manager=dead_letter_manager,
-        metrics_collector=metrics_collector,
-        queue_gauge=queue_gauge,
-        regulus_client=regulus_client,
-        budget_enforcer=budget_enforcer,
-        memory_registry=memory_registry,
-        memory_connector_config_repository=memory_connector_config_repository,
-        memory_resolver=memory_resolver,
-        webhook_service=webhook_service_obj,
-        webhook_repository=webhook_repository,
-        delivery_worker=delivery_worker_obj,
-        sla_checker=sla_checker_obj,
-        webhook_http_client=webhook_http_client,
-        cost_estimator=cost_estimator,
-        arq_pool=arq_pool,
-        redis_client=redis_client,
-        artifact_store=artifact_store,
-        http_client=http_client_instance,
-        template_registry=template_registry,
-        subgraph_executor=subgraph_executor,
-        secret_provider=secret_provider,
-        signer=signer,
-        policy_guard=policy_guard,
-        langgraph_gateway_proxy=gateway_proxy,
-        langgraph_gateway_transport=gateway_transport,
-        langgraph_gateway_compatibility=gateway_compatibility,
-        langgraph_gateway_capability_reporter=gateway_capability_reporter,
-        langgraph_gateway_websocket_handler=gateway_websocket_handler,
-        retention_policy_repository=retention_policy_repository,
-        legal_hold_repository=legal_hold_repository,
-        retention_log_repository=retention_log_repository,
-        retention_erasure_service=retention_erasure_service,
-        retention_worker=retention_worker_obj,
-    )
+        service = ServiceBootstrap(
+            database=database,
+            graph_repository=graph_repository,
+            deployment_service=deployment_service,
+            deployment=deployment,
+            graph=graph,
+            run_repository=run_repository,
+            thread_repository=thread_repository,
+            approval_service=approval_service,
+            audit_repository=audit_repository,
+            contract_registry=contract_registry,
+            orchestrator=orchestrator,
+            auth_config=resolved_auth_config,
+            authenticator=authenticator,
+            worker=worker,
+            lease_manager=lease_manager,
+            guardrail_config=resolved_guardrail_config,
+            rate_limiter=rate_limiter,
+            quota_enforcer=quota_enforcer,
+            dead_letter_manager=dead_letter_manager,
+            metrics_collector=metrics_collector,
+            queue_gauge=queue_gauge,
+            regulus_client=regulus_client,
+            budget_enforcer=budget_enforcer,
+            memory_registry=memory_registry,
+            memory_connector_config_repository=memory_connector_config_repository,
+            memory_resolver=memory_resolver,
+            webhook_service=webhook_service_obj,
+            webhook_repository=webhook_repository,
+            delivery_worker=delivery_worker_obj,
+            sla_checker=sla_checker_obj,
+            webhook_http_client=webhook_http_client,
+            cost_estimator=cost_estimator,
+            arq_pool=arq_pool,
+            redis_client=redis_client,
+            artifact_store=artifact_store,
+            http_client=http_client_instance,
+            template_registry=template_registry,
+            subgraph_executor=subgraph_executor,
+            secret_provider=secret_provider,
+            signer=signer,
+            policy_guard=policy_guard,
+            langgraph_gateway_proxy=gateway_proxy,
+            langgraph_gateway_transport=gateway_transport,
+            langgraph_gateway_compatibility=gateway_compatibility,
+            langgraph_gateway_capability_reporter=gateway_capability_reporter,
+            langgraph_gateway_websocket_handler=gateway_websocket_handler,
+            retention_policy_repository=retention_policy_repository,
+            legal_hold_repository=legal_hold_repository,
+            retention_log_repository=retention_log_repository,
+            retention_erasure_service=retention_erasure_service,
+            retention_worker=retention_worker_obj,
+        )
+    except BaseException:
+        if gateway_transport is not None:
+            await gateway_transport.aclose()
+        raise
+    return service
 
 
 async def bootstrap_app(

@@ -29,7 +29,12 @@ from zeroth.core.langgraph_gateway.context import (
 )
 from zeroth.core.langgraph_gateway.headers import UpstreamCredentialUnavailableError
 from zeroth.core.langgraph_gateway.inventory import classify_protocol_command
-from zeroth.core.langgraph_gateway.models import AdmissionRequest, RouteDisposition
+from zeroth.core.langgraph_gateway.models import (
+    AdmissionRequest,
+    CompatibilityResult,
+    CompatibilityStatus,
+    RouteDisposition,
+)
 from zeroth.core.langgraph_gateway.transport import (
     HTTPGatewayTransport,
     WebSocketClientError,
@@ -239,10 +244,12 @@ class GatewayWebSocketEndpoint:
         *,
         authenticator: ServiceAuthenticator,
         handler: WebSocketGatewayHandler,
+        compatibility: CompatibilityResult | None = None,
         correlation_factory: Callable[[], str] = lambda: uuid4().hex,
     ) -> None:
         self._authenticator = authenticator
         self._handler = handler
+        self._compatibility = compatibility
         self._correlation_factory = correlation_factory
 
     async def __call__(self, websocket: WebSocket) -> None:
@@ -255,6 +262,13 @@ class GatewayWebSocketEndpoint:
                 reason="zeroth.authentication_required",
             )
             return
+        if self._compatibility is not None:
+            if self._compatibility.status is CompatibilityStatus.UNSUPPORTED:
+                await websocket.close(code=4501, reason="zeroth.unsupported_upstream")
+                return
+            if self._compatibility.status is CompatibilityStatus.UNAVAILABLE:
+                await websocket.close(code=4502, reason="zeroth.upstream_unavailable")
+                return
         websocket.state.principal = principal
         websocket.state.correlation_id = correlation_id
         set_correlation_id(correlation_id)
@@ -267,12 +281,14 @@ def register_gateway_routes(
     proxy: HTTPGatewayProxy,
     websocket_handler: WebSocketGatewayHandler,
     authenticator: ServiceAuthenticator,
+    compatibility: CompatibilityResult | None = None,
     correlation_factory: Callable[[], str] = lambda: uuid4().hex,
 ) -> None:
     """Register the exact event WebSocket followed by the HTTP catch-all."""
     websocket_endpoint = GatewayWebSocketEndpoint(
         authenticator=authenticator,
         handler=websocket_handler,
+        compatibility=compatibility,
         correlation_factory=correlation_factory,
     )
 

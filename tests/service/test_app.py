@@ -17,6 +17,7 @@ from zeroth.core.graph import GraphRepository
 from zeroth.core.langgraph_gateway.models import CompatibilityResult, CompatibilityStatus
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.service.app import create_app
+from zeroth.core.service.auth import ServiceAuthConfig, ServiceAuthenticator
 from zeroth.core.service.bootstrap import (
     DeploymentBootstrapError,
     bootstrap_app,
@@ -259,6 +260,68 @@ async def test_gateway_enabled_reuses_shared_dependencies(sqlite_db, monkeypatch
     assert service.signer is signer
 
 
+async def test_later_bootstrap_failure_closes_gateway_transport_once(
+    sqlite_db, monkeypatch
+) -> None:
+    from zeroth.core.config.settings import LangGraphGatewaySettings, get_settings
+    from zeroth.core.signing import EnvHmacSigner
+
+    deployment = await _deploy_test_graph(sqlite_db, "graph-gateway-late-failure")
+    gateway_settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server.test",
+        upstream_audience="agent-server:test",
+        deployment_ref=deployment.deployment_ref,
+    )
+    settings = get_settings().model_copy(update={"langgraph_gateway": gateway_settings})
+    signer = EnvHmacSigner(key_id="test", keys={"test": b"gateway-signing-key"})
+    closes = 0
+
+    class FakeTransport:
+        def __init__(self, _settings, _secret_provider) -> None:
+            self.client = SimpleNamespace(base_url=None)
+
+        async def aclose(self) -> None:
+            nonlocal closes
+            closes += 1
+
+    class FakeDetector:
+        def __init__(self, _client, **_kwargs) -> None:
+            pass
+
+        async def detect(self) -> CompatibilityResult:
+            return CompatibilityResult(
+                tested_langgraph_versions=("1.2.9",),
+                tested_agent_server_versions=("0.11.1",),
+                detected_agent_server_version="0.11.1",
+                status=CompatibilityStatus.SUPPORTED,
+            )
+
+    async def fake_build_signer(_settings, _secret_provider):
+        return signer
+
+    class LaterBootstrapFailure:
+        def __init__(self, **_kwargs) -> None:
+            raise RuntimeError("later bootstrap construction failed")
+
+    monkeypatch.setattr("zeroth.core.service.bootstrap.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "zeroth.core.service.bootstrap.build_signing_provider_async", fake_build_signer
+    )
+    monkeypatch.setattr("zeroth.core.service.bootstrap.HTTPGatewayTransport", FakeTransport)
+    monkeypatch.setattr("zeroth.core.service.bootstrap.CompatibilityDetector", FakeDetector)
+    monkeypatch.setattr("zeroth.core.http.ResilientHttpClient", LaterBootstrapFailure)
+
+    with pytest.raises(RuntimeError, match="later bootstrap construction failed"):
+        await bootstrap_service(
+            sqlite_db,
+            deployment_ref=deployment.deployment_ref,
+            secret_provider=object(),
+        )
+
+    assert closes == 1
+
+
 def test_gateway_transport_closes_once_when_startup_fails() -> None:
     closes = 0
 
@@ -279,6 +342,27 @@ def test_gateway_transport_closes_once_when_startup_fails() -> None:
     app = create_app(bootstrap)
 
     with pytest.raises(RuntimeError, match="startup failed"), TestClient(app):
+        pass
+
+    assert closes == 1
+
+
+def test_gateway_transport_closes_once_after_successful_lifespan() -> None:
+    closes = 0
+
+    class GatewayTransport:
+        async def aclose(self) -> None:
+            nonlocal closes
+            closes += 1
+
+    bootstrap = SimpleNamespace(
+        worker=None,
+        langgraph_gateway_transport=GatewayTransport(),
+        regulus_client=None,
+    )
+    app = create_app(bootstrap)
+
+    with TestClient(app):
         pass
 
     assert closes == 1
@@ -364,3 +448,45 @@ def test_gateway_routes_are_absent_when_disabled() -> None:
     )
 
     assert "langgraph-gateway" not in {getattr(route, "name", None) for route in app.router.routes}
+
+
+@pytest.mark.parametrize("path", ["/health-private", "/healthz", "/health/extra"])
+def test_only_exact_native_health_paths_bypass_authentication(path: str) -> None:
+    proxy_calls = 0
+
+    class Proxy:
+        async def handle_http(self, _request):
+            nonlocal proxy_calls
+            proxy_calls += 1
+            return JSONResponse({"proxied": True})
+
+    deployment = SimpleNamespace(
+        deployment_ref="external-agent",
+        version=1,
+        graph_version_ref="graph:test@1",
+    )
+    app = create_app(
+        SimpleNamespace(
+            deployment=deployment,
+            authenticator=ServiceAuthenticator(ServiceAuthConfig()),
+            audit_repository=None,
+            regulus_client=None,
+            langgraph_gateway_proxy=Proxy(),
+            langgraph_gateway_websocket_handler=object(),
+            langgraph_gateway_transport=None,
+            langgraph_gateway_compatibility=CompatibilityResult(
+                tested_langgraph_versions=("1.2.9",),
+                tested_agent_server_versions=("0.11.1",),
+                detected_agent_server_version="0.11.1",
+                status=CompatibilityStatus.SUPPORTED,
+            ),
+        )
+    )
+
+    with TestClient(app) as client:
+        native_health = client.get("/health")
+        response = client.get(path)
+
+    assert native_health.status_code == 200
+    assert response.status_code == 401
+    assert proxy_calls == 0

@@ -39,6 +39,8 @@ from zeroth.core.service.webhook_api import register_webhook_routes
 
 logger = logging.getLogger(__name__)
 
+_PUBLIC_HEALTH_PATHS = frozenset({"/health", "/health/live", "/health/ready"})
+
 
 class ServiceBootstrapLike(Protocol):
     """Minimal bootstrap contract needed by the HTTP app."""
@@ -389,7 +391,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         #    outermost and answers these before they reach here.
         path = request.url.path
         if (
-            path.startswith("/health")
+            path in _PUBLIC_HEALTH_PATHS
             or path == "/console"
             or path.startswith("/console/")
             or request.method == "OPTIONS"
@@ -525,6 +527,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             proxy=gateway_proxy,
             websocket_handler=gateway_websocket_handler,
             authenticator=bootstrap.authenticator,
+            compatibility=getattr(bootstrap, "langgraph_gateway_compatibility", None),
         )
 
     # Compatibility aliases are deliberately registered after the gateway.

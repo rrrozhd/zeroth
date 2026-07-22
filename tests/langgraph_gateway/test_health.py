@@ -3,14 +3,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.datastructures import Headers
 
 from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.core.langgraph_gateway.models import (
     CompatibilityResult,
     CompatibilityStatus,
 )
+from zeroth.core.langgraph_gateway.routes import GatewayWebSocketEndpoint
 from zeroth.core.service.app import create_app
 from zeroth.core.service.health import DependencyStatus, register_health_routes
 
@@ -24,6 +27,71 @@ def compatibility(status: CompatibilityStatus = CompatibilityStatus.SUPPORTED):
         status=status,
         reason=None if status is CompatibilityStatus.SUPPORTED else "safe probe status",
     )
+
+
+class _WebSocket:
+    def __init__(self) -> None:
+        self.headers = Headers()
+        self.state = SimpleNamespace()
+        self.closed: tuple[int, str] | None = None
+
+    async def close(self, code: int, reason: str) -> None:
+        self.closed = (code, reason)
+
+
+class _Authenticator:
+    def authenticate_headers(self, _headers):
+        return object()
+
+
+class _RecordingWebSocketHandler:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def handle(self, _websocket) -> None:
+        self.calls += 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "expected_close"),
+    [
+        (CompatibilityStatus.UNSUPPORTED, (4501, "zeroth.unsupported_upstream")),
+        (CompatibilityStatus.UNAVAILABLE, (4502, "zeroth.upstream_unavailable")),
+    ],
+)
+async def test_websocket_compatibility_rejects_before_handler_or_transport(
+    status: CompatibilityStatus,
+    expected_close: tuple[int, str],
+) -> None:
+    handler = _RecordingWebSocketHandler()
+    endpoint = GatewayWebSocketEndpoint(
+        authenticator=_Authenticator(),
+        handler=handler,
+        compatibility=compatibility(status),
+    )
+    websocket = _WebSocket()
+
+    await endpoint(websocket)
+
+    assert websocket.closed == expected_close
+    assert handler.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_supported_websocket_compatibility_preserves_handler_path() -> None:
+    handler = _RecordingWebSocketHandler()
+    endpoint = GatewayWebSocketEndpoint(
+        authenticator=_Authenticator(),
+        handler=handler,
+        compatibility=compatibility(),
+    )
+    websocket = _WebSocket()
+
+    await endpoint(websocket)
+
+    assert websocket.closed is None
+    assert handler.calls == 1
 
 
 def test_deployment_health_reports_exact_gateway_capability_and_compatibility() -> None:
