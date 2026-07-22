@@ -22,6 +22,10 @@ _INVALID_CONTEXT = "zeroth.invalid_context"
 _INVALID_REQUEST = "zeroth.invalid_request"
 _REQUEST_TOO_LARGE = "zeroth.request_too_large"
 _SIGNING_UNAVAILABLE = "zeroth.context_signing_unavailable"
+_DEFAULT_MAX_TOKEN_CHARS = 8192
+_DEFAULT_MAX_HEADER_BYTES = 1024
+_DEFAULT_MAX_PAYLOAD_BYTES = 4096
+_DEFAULT_MAX_SIGNATURE_BYTES = 512
 
 
 class GatewayContextError(ValueError):
@@ -66,37 +70,57 @@ class ReservedContextCodec:
         *,
         clock: Callable[[], int | float] = time.time,
         max_ttl_seconds: int = 300,
+        max_token_chars: int = _DEFAULT_MAX_TOKEN_CHARS,
+        max_header_bytes: int = _DEFAULT_MAX_HEADER_BYTES,
+        max_payload_bytes: int = _DEFAULT_MAX_PAYLOAD_BYTES,
+        max_signature_bytes: int = _DEFAULT_MAX_SIGNATURE_BYTES,
     ) -> None:
-        if max_ttl_seconds <= 0:
-            raise ValueError("max_ttl_seconds must be positive")
+        limits = (
+            max_ttl_seconds,
+            max_token_chars,
+            max_header_bytes,
+            max_payload_bytes,
+            max_signature_bytes,
+        )
+        if any(type(value) is not int or value <= 0 for value in limits):
+            raise ValueError("context limits must be positive integers")
         self._signer = signer
         self._clock = clock
         self._max_ttl_seconds = max_ttl_seconds
+        self._max_token_chars = max_token_chars
+        self._max_header_bytes = max_header_bytes
+        self._max_payload_bytes = max_payload_bytes
+        self._max_signature_bytes = max_signature_bytes
 
     def encode(self, claims: ReservedContextClaims) -> str:
         """Return a canonical compact token, failing closed without a signature."""
-        header = {
-            "alg": self._signer.algorithm(),
-            "kid": self._signer.key_id(),
-            "typ": _CONTEXT_TYPE,
-            "v": _SCHEMA_VERSION,
-        }
-        header_part = _encode_segment(_canonical_json(header))
-        payload_part = _encode_segment(
-            _canonical_json(claims.model_dump(mode="json", exclude_none=True))
-        )
-        signing_input = f"{header_part}.{payload_part}".encode("ascii")
         try:
-            signature = self._signer.sign(signing_input)
-        except Exception as exc:
-            raise GatewayContextError(
-                _SIGNING_UNAVAILABLE, "reserved context signing is unavailable"
-            ) from exc
-        if not signature:
-            raise GatewayContextError(
-                _SIGNING_UNAVAILABLE, "reserved context signing is unavailable"
+            algorithm = self._signer.algorithm()
+            key_id = self._signer.key_id()
+            if type(algorithm) is not str or not algorithm:
+                raise ValueError("invalid signing algorithm")
+            if type(key_id) is not str or not key_id:
+                raise ValueError("invalid signing key id")
+            header = {
+                "alg": algorithm,
+                "kid": key_id,
+                "typ": _CONTEXT_TYPE,
+                "v": _SCHEMA_VERSION,
+            }
+            header_part = _encode_segment(_canonical_json(header))
+            payload_part = _encode_segment(
+                _canonical_json(claims.model_dump(mode="json", exclude_none=True))
             )
-        return f"{header_part}.{payload_part}.{_encode_segment(signature)}"
+            signing_input = f"{header_part}.{payload_part}".encode("ascii")
+            signature = self._signer.sign(signing_input)
+            if type(signature) is not bytes or not signature:
+                raise ValueError("invalid signature")
+            signature_part = _encode_segment(signature)
+            return f"{header_part}.{payload_part}.{signature_part}"
+        except Exception:
+            raise GatewayContextError(
+                _SIGNING_UNAVAILABLE, "reserved context signing is unavailable"
+            ) from None
 
     def decode(
         self,
@@ -107,13 +131,18 @@ class ReservedContextCodec:
     ) -> ReservedContextClaims:
         """Verify a token and its deployment, audience, and lifetime bounds."""
         try:
+            if type(token) is not str or len(token) > self._max_token_chars:
+                raise ValueError("invalid compact token size")
             parts = token.split(".")
             if len(parts) != 3:
                 raise ValueError("wrong segment count")
             header_part, payload_part, signature_part = parts
-            header = _decode_json_object(header_part)
-            payload = _decode_json_object(payload_part)
-            signature = _decode_segment(signature_part)
+            _validate_segment_encoding(header_part, self._max_header_bytes)
+            _validate_segment_encoding(payload_part, self._max_payload_bytes)
+            _validate_segment_encoding(signature_part, self._max_signature_bytes)
+
+            header = _decode_json_object(header_part, self._max_header_bytes)
+            signature = _decode_segment(signature_part, self._max_signature_bytes)
             if not signature:
                 raise ValueError("empty signature")
 
@@ -132,8 +161,11 @@ class ReservedContextCodec:
             if not self._signer.verify(signing_input, signature, header["kid"]):
                 raise ValueError("invalid signature")
 
+            payload = _decode_json_object(payload_part, self._max_payload_bytes)
             claims = ReservedContextClaims.model_validate(payload)
             now = self._clock()
+            if type(now) is not int and (type(now) is not float or not math.isfinite(now)):
+                raise ValueError("invalid clock value")
             if claims.audience != audience or claims.deployment_ref != deployment_ref:
                 raise ValueError("context target mismatch")
             if claims.issued_at > now:
@@ -146,8 +178,8 @@ class ReservedContextCodec:
                 raise ValueError("context lifetime exceeds maximum")
         except GatewayContextError:
             raise
-        except Exception as exc:
-            raise GatewayContextError(_INVALID_CONTEXT, "reserved context is invalid") from exc
+        except Exception:
+            raise GatewayContextError(_INVALID_CONTEXT, "reserved context is invalid") from None
         return claims
 
 
@@ -267,20 +299,30 @@ def _encode_segment(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def _decode_segment(value: str) -> bytes:
-    if not value or not _BASE64URL.fullmatch(value) or len(value) % 4 == 1:
+def _validate_segment_encoding(value: str, max_bytes: int) -> None:
+    max_chars = (max_bytes * 4 + 2) // 3
+    if (
+        not value
+        or len(value) > max_chars
+        or not _BASE64URL.fullmatch(value)
+        or len(value) % 4 == 1
+    ):
         raise ValueError("invalid compact segment")
+
+
+def _decode_segment(value: str, max_bytes: int) -> bytes:
+    _validate_segment_encoding(value, max_bytes)
     try:
         decoded = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
     except (binascii.Error, ValueError) as exc:
         raise ValueError("invalid compact segment") from exc
-    if _encode_segment(decoded) != value:
+    if len(decoded) > max_bytes or _encode_segment(decoded) != value:
         raise ValueError("noncanonical compact segment")
     return decoded
 
 
-def _decode_json_object(value: str) -> dict[str, object]:
-    raw = _decode_segment(value)
+def _decode_json_object(value: str, max_bytes: int) -> dict[str, object]:
+    raw = _decode_segment(value, max_bytes)
     decoded = json.loads(
         raw,
         parse_constant=lambda _value: (_ for _ in ()).throw(ValueError("non-JSON number")),

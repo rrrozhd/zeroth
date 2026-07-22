@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import copy
 import json
+import traceback
 from collections.abc import Mapping
 
 import pytest
@@ -177,6 +178,80 @@ def test_noncanonical_base64url_pad_bits_are_rejected(
     assert exc_info.value.code == "zeroth.invalid_context"
 
 
+def test_decode_rejects_oversized_total_token(signer: EnvHmacSigner) -> None:
+    token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+    codec = ReservedContextCodec(signer, clock=lambda: 120, max_token_chars=len(token) - 1)
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        codec.decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    assert exc_info.value.code == "zeroth.invalid_context"
+
+
+@pytest.mark.parametrize(
+    "limit",
+    [
+        {"max_header_bytes": 1},
+        {"max_payload_bytes": 1},
+        {"max_signature_bytes": 1},
+    ],
+    ids=["header", "payload", "signature"],
+)
+def test_decode_rejects_independently_oversized_segments(
+    signer: EnvHmacSigner, limit: dict[str, int]
+) -> None:
+    token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+    codec = ReservedContextCodec(signer, clock=lambda: 120, **limit)
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        codec.decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    assert exc_info.value.code == "zeroth.invalid_context"
+
+
+class _RecordingRejectingSigner:
+    verify_called = False
+
+    def key_id(self) -> str:
+        return "gateway-k1"
+
+    def algorithm(self) -> str:
+        return "HS256"
+
+    def sign(self, message: bytes) -> bytes:
+        return b"unused"
+
+    def verify(self, message: bytes, signature: bytes, key_id: str) -> bool:
+        self.verify_called = True
+        return False
+
+
+def test_invalid_signature_is_rejected_before_payload_decode(
+    signer: EnvHmacSigner,
+) -> None:
+    parts = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims()).split(".")
+    parts[1] = _b64url(b"\xff")
+    verifier = _RecordingRejectingSigner()
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        ReservedContextCodec(verifier, clock=lambda: 120).decode(
+            ".".join(parts),
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    assert verifier.verify_called is True
+    assert exc_info.value.code == "zeroth.invalid_context"
+
+
 @pytest.mark.parametrize(
     ("header_update", "claims_update", "audience", "deployment_ref"),
     [
@@ -245,6 +320,75 @@ def test_null_and_empty_signers_cannot_mint_context() -> None:
         with pytest.raises(GatewayContextError) as exc_info:
             codec.encode(_claims())
         assert exc_info.value.code == "zeroth.context_signing_unavailable"
+
+
+class _HostileSigningProvider:
+    def __init__(self, failure: str) -> None:
+        self.failure = failure
+
+    def algorithm(self) -> object:
+        if self.failure == "algorithm_raises":
+            raise RuntimeError("secret algorithm failure")
+        if self.failure == "algorithm_invalid":
+            return object()
+        return "HS256"
+
+    def key_id(self) -> object:
+        if self.failure == "key_id_raises":
+            raise RuntimeError("secret key-id failure")
+        if self.failure == "key_id_invalid":
+            return ""
+        return "gateway-k1"
+
+    def sign(self, message: bytes) -> object:
+        if self.failure == "sign_raises":
+            raise RuntimeError("secret signing failure")
+        if self.failure == "signature_invalid":
+            return object()
+        return b"signature"
+
+    def verify(self, message: bytes, signature: bytes, key_id: str) -> bool:
+        return False
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "algorithm_raises",
+        "algorithm_invalid",
+        "key_id_raises",
+        "key_id_invalid",
+        "sign_raises",
+        "signature_invalid",
+    ],
+)
+def test_encode_maps_hostile_provider_failures_to_safe_error(failure: str) -> None:
+    codec = ReservedContextCodec(_HostileSigningProvider(failure), clock=lambda: 120)
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        codec.encode(_claims())
+
+    assert exc_info.value.code == "zeroth.context_signing_unavailable"
+    rendered = "".join(
+        traceback.format_exception(
+            type(exc_info.value), exc_info.value, exc_info.value.__traceback__
+        )
+    )
+    assert "secret" not in rendered
+
+
+@pytest.mark.parametrize("now", [float("nan"), float("inf"), float("-inf")])
+def test_decode_rejects_nonfinite_clock(now: float, signer: EnvHmacSigner) -> None:
+    token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        ReservedContextCodec(signer, clock=lambda: now).decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    assert exc_info.value.code == "zeroth.invalid_context"
 
 
 class _VerifyOnlySigner:
