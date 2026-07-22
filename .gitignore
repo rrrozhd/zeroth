@@ -42,9 +42,7 @@ docs/assets/openapi/
 .mcp.json
 .opencode.json
 GEMINI.md
-.claude/scheduled_tasks.lock
-.claude/settings.json
-.claude/skills/
+.claude/
 /.planning/
 live_scenarios/
 
