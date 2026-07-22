@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.routing import Match
 
 from tests.graph.test_models import build_graph
 from tests.service.helpers import default_service_auth_config, operator_headers
@@ -10,6 +14,9 @@ from zeroth.core.contracts import ContractRegistry
 from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
 from zeroth.core.execution_units import ExecutableUnitRunner
 from zeroth.core.graph import GraphRepository
+from zeroth.core.langgraph_gateway.models import CompatibilityResult, CompatibilityStatus
+from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.core.service.app import create_app
 from zeroth.core.service.bootstrap import (
     DeploymentBootstrapError,
     bootstrap_app,
@@ -148,3 +155,212 @@ async def test_lifespan_closes_secret_provider_exactly_once(sqlite_db) -> None:
     with TestClient(app):
         pass
     assert closes == 1
+
+
+async def test_gateway_disabled_constructs_no_gateway_dependencies(sqlite_db) -> None:
+    deployment = await _deploy_test_graph(sqlite_db, "graph-gateway-disabled")
+
+    service = await bootstrap_service(sqlite_db, deployment_ref=deployment.deployment_ref)
+
+    assert service.langgraph_gateway_proxy is None
+    assert service.langgraph_gateway_transport is None
+    assert service.langgraph_gateway_compatibility is None
+    assert service.langgraph_gateway_capability_reporter is None
+    assert service.langgraph_gateway_websocket_handler is None
+
+
+async def test_gateway_enabled_reuses_shared_dependencies(sqlite_db, monkeypatch) -> None:
+    from zeroth.core.config.settings import LangGraphGatewaySettings, get_settings
+    from zeroth.core.signing import EnvHmacSigner
+
+    deployment = await _deploy_test_graph(sqlite_db, "graph-gateway-enabled")
+    gateway_settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server.test",
+        upstream_audience="agent-server:test",
+        deployment_ref=deployment.deployment_ref,
+    )
+    settings = get_settings().model_copy(update={"langgraph_gateway": gateway_settings})
+    signer = EnvHmacSigner(key_id="test", keys={"test": b"gateway-signing-key"})
+    secret_provider = object()
+    constructions: dict[str, object] = {}
+
+    class FakeTransport:
+        def __init__(self, configured_settings, configured_secret_provider) -> None:
+            constructions["transport_settings"] = configured_settings
+            constructions["transport_secret_provider"] = configured_secret_provider
+            self.client = SimpleNamespace(base_url=None)
+
+        async def aclose(self) -> None:
+            pass
+
+    class FakeDetector:
+        def __init__(self, client, **kwargs) -> None:
+            constructions["detector_client"] = client
+            constructions["detector_kwargs"] = kwargs
+
+        async def detect(self) -> CompatibilityResult:
+            return CompatibilityResult(
+                tested_langgraph_versions=("1.2.9",),
+                tested_agent_server_versions=("0.11.1",),
+                detected_agent_server_version="0.11.1",
+                openapi_fingerprint="sha256:test",
+                status=CompatibilityStatus.SUPPORTED,
+            )
+
+    class FakeReporter:
+        def __init__(self, **kwargs) -> None:
+            constructions["reporter_kwargs"] = kwargs
+
+    class FakeProxy:
+        def __init__(self, **kwargs) -> None:
+            constructions["proxy_kwargs"] = kwargs
+
+    class FakeWebSocketHandler:
+        def __init__(self, **kwargs) -> None:
+            constructions["websocket_kwargs"] = kwargs
+
+    async def fake_build_signer(_settings, configured_secret_provider):
+        assert configured_secret_provider is secret_provider
+        return signer
+
+    monkeypatch.setattr("zeroth.core.service.bootstrap.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "zeroth.core.service.bootstrap.build_signing_provider_async", fake_build_signer
+    )
+    monkeypatch.setattr("zeroth.core.service.bootstrap.HTTPGatewayTransport", FakeTransport)
+    monkeypatch.setattr("zeroth.core.service.bootstrap.CompatibilityDetector", FakeDetector)
+    monkeypatch.setattr("zeroth.core.service.bootstrap.CapabilityReporter", FakeReporter)
+    monkeypatch.setattr("zeroth.core.service.bootstrap.GatewayProxy", FakeProxy)
+    monkeypatch.setattr(
+        "zeroth.core.service.bootstrap.WebSocketGatewayHandler", FakeWebSocketHandler
+    )
+
+    service = await bootstrap_service(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        secret_provider=secret_provider,
+    )
+
+    proxy_kwargs = constructions["proxy_kwargs"]
+    websocket_kwargs = constructions["websocket_kwargs"]
+    assert isinstance(proxy_kwargs, dict)
+    assert isinstance(websocket_kwargs, dict)
+    assert service.langgraph_gateway_transport is not None
+    assert service.langgraph_gateway_compatibility.status is CompatibilityStatus.SUPPORTED
+    assert proxy_kwargs["transport"] is service.langgraph_gateway_transport
+    assert proxy_kwargs["policy_guard"] is service.policy_guard
+    assert proxy_kwargs["budget_checker"] is service.budget_enforcer
+    assert proxy_kwargs["compatibility"] is service.langgraph_gateway_compatibility
+    assert websocket_kwargs["transport"] is service.langgraph_gateway_transport
+    assert websocket_kwargs["policy_guard"] is service.policy_guard
+    assert websocket_kwargs["budget_checker"] is service.budget_enforcer
+    assert constructions["transport_secret_provider"] is service.secret_provider
+    assert service.signer is signer
+
+
+def test_gateway_transport_closes_once_when_startup_fails() -> None:
+    closes = 0
+
+    class FailingWorker:
+        async def start(self) -> None:
+            raise RuntimeError("startup failed")
+
+    class GatewayTransport:
+        async def aclose(self) -> None:
+            nonlocal closes
+            closes += 1
+
+    bootstrap = SimpleNamespace(
+        worker=FailingWorker(),
+        langgraph_gateway_transport=GatewayTransport(),
+        regulus_client=None,
+    )
+    app = create_app(bootstrap)
+
+    with pytest.raises(RuntimeError, match="startup failed"), TestClient(app):
+        pass
+
+    assert closes == 1
+
+
+def _first_matching_route_name(app, method: str, path: str) -> str | None:
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": [],
+        "server": ("testserver", 80),
+        "client": ("testclient", 50000),
+        "root_path": "",
+        "app": app,
+    }
+    for route in app.router.routes:
+        match, _ = route.matches(scope)
+        if match is Match.FULL:
+            return route.name
+    return None
+
+
+def test_gateway_routes_follow_native_precedence_and_own_agent_server_roots() -> None:
+    seen_principal = None
+
+    class Authenticator:
+        def authenticate_headers(self, _headers):
+            return AuthenticatedPrincipal(
+                subject="operator",
+                auth_method=AuthMethod.API_KEY,
+                roles=[ServiceRole.OPERATOR],
+                tenant_id="tenant-a",
+            )
+
+    class Proxy:
+        async def handle_http(self, request):
+            nonlocal seen_principal
+            seen_principal = request.state.principal
+            return JSONResponse({"upstream": request.url.path})
+
+    deployment = SimpleNamespace(
+        deployment_ref="external-agent",
+        version=1,
+        graph_version_ref="graph:test@1",
+    )
+    bootstrap = SimpleNamespace(
+        deployment=deployment,
+        authenticator=Authenticator(),
+        audit_repository=None,
+        regulus_client=None,
+        langgraph_gateway_proxy=Proxy(),
+        langgraph_gateway_websocket_handler=object(),
+        langgraph_gateway_transport=None,
+    )
+    app = create_app(bootstrap)
+
+    assert _first_matching_route_name(app, "GET", "/health") == "health"
+    assert _first_matching_route_name(app, "POST", "/v1/runs") != "langgraph-gateway"
+    for path in ("/threads", "/assistants", "/runs", "/info"):
+        assert _first_matching_route_name(app, "GET", path) == "langgraph-gateway"
+
+    with TestClient(app) as client:
+        response = client.get("/info", headers={"X-API-Key": "accepted-by-fake"})
+
+    assert response.status_code == 200
+    assert response.json() == {"upstream": "/info"}
+    assert seen_principal.subject == "operator"
+
+
+def test_gateway_routes_are_absent_when_disabled() -> None:
+    app = create_app(
+        SimpleNamespace(
+            regulus_client=None,
+            langgraph_gateway_proxy=None,
+            langgraph_gateway_websocket_handler=None,
+            langgraph_gateway_transport=None,
+        )
+    )
+
+    assert "langgraph-gateway" not in {getattr(route, "name", None) for route in app.router.routes}

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import uuid4
 
-from fastapi import APIRouter, FastAPI, WebSocket
+from fastapi import APIRouter, FastAPI, Request, WebSocket
 from pydantic import ValidationError
 
 from zeroth.core.config.settings import LangGraphGatewaySettings
@@ -279,7 +279,7 @@ def register_gateway_routes(
     async def protocol_events(websocket: WebSocket) -> None:
         await websocket_endpoint(websocket)
 
-    async def catch_all(request: Any) -> Any:
+    async def catch_all(request: Request) -> Any:
         return await proxy.handle_http(request)
 
     add_api_websocket_route = getattr(app, "add_api_websocket_route", None)

@@ -15,6 +15,8 @@ from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import from_url as redis_from_url
 
+from zeroth.core.langgraph_gateway.models import CompatibilityResult
+
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
@@ -60,6 +62,7 @@ def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
     db_status = checks.get("database")
     redis_status = checks.get("redis")
     regulus_status = checks.get("regulus")
+    agent_server_status = checks.get("agent_server")
 
     if (db_status and db_status.status != "ok") or (
         redis_status and redis_status.status not in {"ok", "unavailable"}
@@ -67,6 +70,9 @@ def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
         return "unhealthy"
 
     if regulus_status and regulus_status.status != "ok":
+        return "degraded"
+
+    if agent_server_status and agent_server_status.status != "supported":
         return "degraded"
 
     return "ok"
@@ -162,6 +168,12 @@ def register_health_routes(app: FastAPI) -> None:
             "redis": redis_check,
             "regulus": regulus_check,
         }
+        compatibility = getattr(bootstrap, "langgraph_gateway_compatibility", None)
+        if isinstance(compatibility, CompatibilityResult):
+            checks["agent_server"] = DependencyStatus(
+                status=compatibility.status.value,
+                detail=compatibility.reason,
+            )
 
         status = determine_readiness_status(checks)
         return ReadinessResponse(status=status, checks=checks)

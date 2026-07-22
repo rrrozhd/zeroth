@@ -23,6 +23,15 @@ from zeroth.core.graph.versioning import graph_version_ref
 from zeroth.core.guardrails.config import GuardrailConfig
 from zeroth.core.guardrails.dead_letter import DeadLetterManager
 from zeroth.core.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.core.identity import ActorIdentity, AuthMethod
+from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
+from zeroth.core.langgraph_gateway.compatibility import CompatibilityDetector
+from zeroth.core.langgraph_gateway.context import ReservedContextCodec
+from zeroth.core.langgraph_gateway.events import AuditGatewayEventSink
+from zeroth.core.langgraph_gateway.models import CompatibilityResult
+from zeroth.core.langgraph_gateway.proxy import GatewayProxy
+from zeroth.core.langgraph_gateway.routes import WebSocketGatewayHandler
+from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
 from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.core.memory.factory import register_memory_connectors
 from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
@@ -36,7 +45,7 @@ from zeroth.core.runs import RunRepository, ThreadRepository
 from zeroth.core.secrets import SecretProvider, build_secret_provider
 from zeroth.core.service.app import create_app
 from zeroth.core.service.auth import JWTBearerTokenVerifier, ServiceAuthConfig, ServiceAuthenticator
-from zeroth.core.signing import SigningKeyProvider, build_signing_provider_async
+from zeroth.core.signing import NullSigner, SigningKeyProvider, build_signing_provider_async
 from zeroth.core.storage import AsyncDatabase
 
 
@@ -165,6 +174,15 @@ class ServiceBootstrap:
     # chain). None when signing is unconfigured (unsigned-legacy). Threaded into
     # the verify endpoints for the dual (digest + signature) check.
     signer: SigningKeyProvider | None = None
+    # LangGraph Agent Server gateway foundation. All remain absent when the
+    # mode is disabled so the ordinary service creates no upstream client or
+    # probe traffic.
+    policy_guard: PolicyGuard | None = None
+    langgraph_gateway_proxy: object | None = None
+    langgraph_gateway_transport: object | None = None
+    langgraph_gateway_compatibility: CompatibilityResult | None = None
+    langgraph_gateway_capability_reporter: object | None = None
+    langgraph_gateway_websocket_handler: object | None = None
     # WS-E: retention / right-to-erasure surface (per-tenant TTLs, legal holds,
     # full-surface erasure that preserves the audit hash-chain). Always wired;
     # the purge WORKER is only started when ZEROTH_RETENTION__ENABLED is true.
@@ -405,11 +423,12 @@ async def bootstrap_service(
     # (capability_bindings=["memory_read", ...]). Apps that override
     # orchestrator.policy_guard after bootstrap (e.g. with a bespoke ref scheme)
     # are unaffected — this only sets a default.
+    policy_guard = PolicyGuard(
+        policy_registry=PolicyRegistry(),
+        capability_registry=default_capability_registry(),
+    )
     if settings.policy.enforce_capabilities:
-        orchestrator.policy_guard = PolicyGuard(
-            policy_registry=PolicyRegistry(),
-            capability_registry=default_capability_registry(),
-        )
+        orchestrator.policy_guard = policy_guard
     # Local per-run cost ceiling — wired INDEPENDENT of regulus.enabled so the
     # tighter, control-plane-free guard works even without the backend.
     orchestrator.per_run_cap_usd = settings.regulus.per_run_cap_usd
@@ -471,6 +490,77 @@ async def bootstrap_service(
     # orchestrator / approval service, so post-hoc assignment propagates.
     deployment_service.signer = signer
     audit_repository._signer = signer  # noqa: SLF001 - same-package wiring seam
+
+    gateway_proxy: object | None = None
+    gateway_transport: HTTPGatewayTransport | None = None
+    gateway_compatibility: CompatibilityResult | None = None
+    gateway_capability_reporter: object | None = None
+    gateway_websocket_handler: object | None = None
+    gateway_settings = settings.langgraph_gateway
+    if gateway_settings.enabled:
+        if signer is None or isinstance(signer, NullSigner):
+            raise DeploymentBootstrapError(
+                "LangGraph gateway requires an available provenance signer"
+            )
+        if budget_enforcer is None:
+            from zeroth.core.econ.budget import BudgetEnforcer
+
+            budget_enforcer = BudgetEnforcer(
+                regulus_base_url=settings.regulus.base_url,
+                cache_ttl=settings.regulus.budget_cache_ttl,
+                timeout=settings.regulus.request_timeout,
+                fail_closed=settings.regulus.fail_closed,
+            )
+            orchestrator.budget_enforcer = budget_enforcer
+
+        context_codec = ReservedContextCodec(
+            signer,
+            max_ttl_seconds=gateway_settings.context_ttl_seconds,
+        )
+        gateway_transport = HTTPGatewayTransport(gateway_settings, secret_provider)
+        try:
+            # CompatibilityDetector intentionally uses relative probe paths.
+            # Give the transport's sole long-lived client the same upstream
+            # base URL rather than allocating a second probe client.
+            gateway_transport.client.base_url = gateway_settings.upstream_url
+            detector = CompatibilityDetector(
+                gateway_transport.client,
+                tested_langgraph_versions=gateway_settings.supported_langgraph_versions,
+                tested_agent_server_versions=(gateway_settings.supported_agent_server_versions),
+                timeout_seconds=gateway_settings.connect_timeout_seconds,
+            )
+            gateway_compatibility = await detector.detect()
+            gateway_capability_reporter = CapabilityReporter(
+                stale_after_seconds=gateway_settings.stale_threshold_seconds,
+                expected_graph_version=deployment.graph_version_ref,
+            )
+            event_sink = AuditGatewayEventSink(
+                audit_repository,
+                actor_for=lambda event: ActorIdentity(
+                    subject=event.correlation.principal_id,
+                    auth_method=AuthMethod.API_KEY,
+                    tenant_id=event.correlation.tenant_id,
+                ),
+            )
+            gateway_proxy = GatewayProxy(
+                settings=gateway_settings,
+                transport=gateway_transport,
+                context_codec=context_codec,
+                policy_guard=policy_guard,
+                budget_checker=budget_enforcer,
+                compatibility=gateway_compatibility,
+                event_sink=event_sink,
+            )
+            gateway_websocket_handler = WebSocketGatewayHandler(
+                settings=gateway_settings,
+                transport=gateway_transport,
+                context_codec=context_codec,
+                policy_guard=policy_guard,
+                budget_checker=budget_enforcer,
+            )
+        except BaseException:
+            await gateway_transport.aclose()
+            raise
 
     # Phase 35: Resilient HTTP client construction — auth secrets resolve
     # through the same provider, not a second env-only one.
@@ -641,6 +731,12 @@ async def bootstrap_service(
         subgraph_executor=subgraph_executor,
         secret_provider=secret_provider,
         signer=signer,
+        policy_guard=policy_guard,
+        langgraph_gateway_proxy=gateway_proxy,
+        langgraph_gateway_transport=gateway_transport,
+        langgraph_gateway_compatibility=gateway_compatibility,
+        langgraph_gateway_capability_reporter=gateway_capability_reporter,
+        langgraph_gateway_websocket_handler=gateway_websocket_handler,
         retention_policy_repository=retention_policy_repository,
         legal_hold_repository=legal_hold_repository,
         retention_log_repository=retention_log_repository,

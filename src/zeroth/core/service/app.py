@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from zeroth.core.langgraph_gateway.models import CompatibilityResult, GovernanceLevel
 from zeroth.core.observability.correlation import (
     get_correlation_id,
     new_correlation_id,
@@ -61,13 +62,61 @@ class HealthResponse(BaseModel):
     deployment_ref: str
     deployment_version: int
     graph_version_ref: str
+    langgraph_gateway: LangGraphGatewayHealth | None = None
+
+
+class LangGraphCompatibilityHealth(BaseModel):
+    """Evidence from the one bounded Agent Server startup detection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tested_langgraph: tuple[str, ...]
+    tested_agent_server: tuple[str, ...]
+    detected_agent_server: str | None
+    status: str
+    openapi_fingerprint: str | None
+
+
+class LangGraphGatewayHealth(BaseModel):
+    """Conservative deployment-level gateway capability surface."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    governance_level: GovernanceLevel
+    limitation: str = "internal tool calls are not enforced in gateway-only mode"
+    compatibility: LangGraphCompatibilityHealth
+
+
+def _langgraph_gateway_health(bootstrap: object) -> LangGraphGatewayHealth | None:
+    compatibility = getattr(bootstrap, "langgraph_gateway_compatibility", None)
+    if not isinstance(compatibility, CompatibilityResult):
+        return None
+    reporter = getattr(bootstrap, "langgraph_gateway_capability_reporter", None)
+    level = GovernanceLevel.ADMISSION
+    if reporter is not None:
+        reported = reporter.report_deployment(
+            graph_version=getattr(getattr(bootstrap, "deployment", None), "graph_version_ref", None)
+        )
+        if isinstance(reported, GovernanceLevel):
+            level = reported
+    return LangGraphGatewayHealth(
+        governance_level=level,
+        compatibility=LangGraphCompatibilityHealth(
+            tested_langgraph=compatibility.tested_langgraph_versions,
+            tested_agent_server=compatibility.tested_agent_server_versions,
+            detected_agent_server=compatibility.detected_agent_server_version,
+            status=compatibility.status.value,
+            openapi_fingerprint=compatibility.openapi_fingerprint,
+        ),
+    )
 
 
 def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     """Create the service API for a single deployment."""
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def service_lifespan(app: FastAPI):
         # When the bundled Regulus control plane is mounted in-process, initialize
         # its own schema + seed data here: Starlette does not run a mounted
         # sub-app's startup events, so econ_plane.main's on_startup never fires.
@@ -265,6 +314,19 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             if inspect.isawaitable(close_result):
                 await close_result
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            async with service_lifespan(app):
+                yield
+        finally:
+            gateway_transport = getattr(app.state.bootstrap, "langgraph_gateway_transport", None)
+            gateway_aclose = getattr(gateway_transport, "aclose", None)
+            if callable(gateway_aclose):
+                close_result = gateway_aclose()
+                if inspect.isawaitable(close_result):
+                    await close_result
+
     app = FastAPI(
         title="Zeroth Platform API",
         description="Governed medium-code platform for production-grade multi-agent systems",
@@ -374,13 +436,14 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         response.headers["X-Correlation-ID"] = get_correlation_id()
         return response
 
-    @app.get("/health", response_model=HealthResponse)
+    @app.get("/health", response_model=HealthResponse, response_model_exclude_none=True)
     async def health() -> HealthResponse:
         deployment = app.state.bootstrap.deployment
         return HealthResponse(
             deployment_ref=deployment.deployment_ref,
             deployment_version=deployment.version,
             graph_version_ref=deployment.graph_version_ref,
+            langgraph_gateway=_langgraph_gateway_health(app.state.bootstrap),
         )
 
     # Primary: versioned routes under /v1/ (per D-06)
@@ -435,8 +498,6 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_connector_routes(compat_router)
     register_manifest_routes(compat_router)
 
-    app.include_router(compat_router)
-
     # Standalone-console support: enable CORS only when origins are configured
     # (mounted mode is same-origin and needs none). Added last so it sits
     # OUTERMOST and answers OPTIONS preflight before the auth middleware.
@@ -450,7 +511,25 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             allow_credentials=False,
         )
 
-    # Mount the static console UI at /console when a build is present.
+    # Native static/control-plane surfaces must be registered before the
+    # gateway catch-all so they retain first-match precedence.
     mount_console(app)
+
+    gateway_proxy = getattr(bootstrap, "langgraph_gateway_proxy", None)
+    gateway_websocket_handler = getattr(bootstrap, "langgraph_gateway_websocket_handler", None)
+    if gateway_proxy is not None and gateway_websocket_handler is not None:
+        from zeroth.core.langgraph_gateway.routes import register_gateway_routes
+
+        register_gateway_routes(
+            app,
+            proxy=gateway_proxy,
+            websocket_handler=gateway_websocket_handler,
+            authenticator=bootstrap.authenticator,
+        )
+
+    # Compatibility aliases are deliberately registered after the gateway.
+    # In gateway mode, Agent Server root paths (notably /runs) therefore win;
+    # versioned /v1 routes above remain the unambiguous Zeroth-native API.
+    app.include_router(compat_router)
 
     return app
