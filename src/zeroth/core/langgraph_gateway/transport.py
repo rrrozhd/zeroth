@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from urllib.parse import quote
 
 import httpx
 from starlette.requests import Request
@@ -55,6 +56,10 @@ class HTTPGatewayTransport:
         self._upstream_url = httpx.URL(settings.upstream_url)
         self._open_responses: set[httpx.Response] = set()
         self._closing_responses: dict[httpx.Response, asyncio.Task[None]] = {}
+        self._lifecycle = asyncio.Condition()
+        self._in_flight_sends = 0
+        self._closing = False
+        self._shutdown_task: asyncio.Task[None] | None = None
         self._client = httpx.AsyncClient(
             http2=True,
             follow_redirects=False,
@@ -81,7 +86,7 @@ class HTTPGatewayTransport:
     def _request_url(self, request: Request) -> httpx.URL:
         incoming_path = request.scope.get("raw_path")
         if incoming_path is None:
-            incoming_path = httpx.URL(path=request.url.path).raw_path
+            incoming_path = quote(request.scope["path"], safe="/").encode("ascii")
         base_path = self._upstream_url.raw_path.rstrip(b"/")
         raw_path = base_path + b"/" + incoming_path.lstrip(b"/")
         query = request.scope.get("query_string", b"")
@@ -96,21 +101,38 @@ class HTTPGatewayTransport:
         tenant_id: str | None = None,
     ) -> StreamingResponse:
         """Forward a request without buffering either request or response content."""
-        headers = await prepare_upstream_request_headers(
-            request.headers.raw,
-            upstream_url=self._upstream_url,
-            settings=self._settings,
-            secret_provider=self._secret_provider,
-            tenant_id=tenant_id,
-        )
-        upstream_request = self._client.build_request(
-            request.method,
-            self._request_url(request),
-            headers=headers,
-            content=request.stream(),
-        )
-        upstream_response = await self._client.send(upstream_request, stream=True)
+        async with self._lifecycle:
+            if self._closing:
+                raise RuntimeError("HTTP gateway transport is closed")
+            self._in_flight_sends += 1
+
+        try:
+            headers = await prepare_upstream_request_headers(
+                request.headers.raw,
+                upstream_url=self._upstream_url,
+                settings=self._settings,
+                secret_provider=self._secret_provider,
+                tenant_id=tenant_id,
+            )
+            upstream_request = self._client.build_request(
+                request.method,
+                self._request_url(request),
+                headers=headers,
+                content=request.stream(),
+            )
+            upstream_response = await self._client.send(upstream_request, stream=True)
+        except BaseException:
+            await self._finish_send_shielded()
+            raise
         self._open_responses.add(upstream_response)
+        try:
+            closing = await self._finish_send_shielded()
+        except BaseException:
+            await self._close_upstream_response(upstream_response)
+            raise
+        if closing:
+            await self._close_upstream_response(upstream_response)
+            raise RuntimeError("HTTP gateway transport is closed")
         downstream_response = _UpstreamStreamingResponse(
             self._response_body(upstream_response),
             status_code=upstream_response.status_code,
@@ -118,6 +140,20 @@ class HTTPGatewayTransport:
         )
         downstream_response.raw_headers = strip_hop_by_hop_headers(upstream_response.headers.raw)
         return downstream_response
+
+    async def _finish_send(self) -> bool:
+        async with self._lifecycle:
+            self._in_flight_sends -= 1
+            self._lifecycle.notify_all()
+            return self._closing
+
+    async def _finish_send_shielded(self) -> bool:
+        finish_task = asyncio.create_task(self._finish_send())
+        try:
+            return await asyncio.shield(finish_task)
+        except asyncio.CancelledError:
+            await finish_task
+            raise
 
     async def _response_body(self, response: httpx.Response) -> AsyncIterator[bytes]:
         try:
@@ -153,6 +189,17 @@ class HTTPGatewayTransport:
 
     async def aclose(self) -> None:
         """Close the gateway's owned connection pool."""
+        async with self._lifecycle:
+            if self._shutdown_task is None:
+                self._closing = True
+                self._shutdown_task = asyncio.create_task(self._shutdown())
+            shutdown_task = self._shutdown_task
+        await asyncio.shield(shutdown_task)
+
+    async def _shutdown(self) -> None:
+        async with self._lifecycle:
+            while self._in_flight_sends:
+                await self._lifecycle.wait()
         if self._open_responses:
             await asyncio.gather(
                 *(self._close_upstream_response(response) for response in self._open_responses)

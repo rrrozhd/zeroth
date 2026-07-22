@@ -228,6 +228,10 @@ async def test_upstream_request_omits_httpx_semantic_default_headers():
     ("path", "raw_path", "query_string", "expected_raw_path"),
     [
         ("/café", None, b"q=caf%C3%A9", b"/base/caf%C3%A9?q=caf%C3%A9"),
+        ("/a?b", None, b"query=separate", b"/base/a%3Fb?query=separate"),
+        ("/a#b", None, b"", b"/base/a%23b"),
+        ("/a%b", None, b"", b"/base/a%25b"),
+        ("/a/b", None, b"", b"/base/a/b"),
         (
             "/already/escaped",
             b"/already%2Fescaped",
@@ -467,6 +471,124 @@ async def test_transport_close_waits_for_an_in_progress_response_close():
 
 
 @pytest.mark.asyncio
+async def test_shutdown_waits_for_in_flight_sends_and_closes_late_responses():
+    send_started = [asyncio.Event(), asyncio.Event()]
+    release_sends = asyncio.Event()
+    streams = [CloseTrackedStream(), CloseTrackedStream()]
+    send_count = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal send_count
+        index = send_count
+        send_count += 1
+        send_started[index].set()
+        await release_sends.wait()
+        return httpx.Response(200, stream=streams[index])
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="fixture-deployment",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(handler),
+    )
+    forward_tasks = [
+        asyncio.create_task(transport.forward(empty_request(f"/send-{index}")))
+        for index in range(2)
+    ]
+    await asyncio.gather(*(event.wait() for event in send_started))
+
+    close_task = asyncio.create_task(transport.aclose())
+    await asyncio.sleep(0)
+    shutdown_waited = not close_task.done()
+    with pytest.raises(RuntimeError, match="^HTTP gateway transport is closed$"):
+        await transport.forward(empty_request("/late-send"))
+    release_sends.set()
+    results = await asyncio.gather(*forward_tasks, return_exceptions=True)
+    await close_task
+
+    assert shutdown_waited is True
+    assert all(
+        isinstance(result, RuntimeError) and str(result) == "HTTP gateway transport is closed"
+        for result in results
+    )
+    assert all(stream.closed for stream in streams)
+    assert send_count == 2
+
+
+@pytest.mark.asyncio
+async def test_forward_after_shutdown_fails_before_network():
+    connection_count = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal connection_count
+        connection_count += 1
+        return httpx.Response(204)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="fixture-deployment",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(handler),
+    )
+    await transport.aclose()
+
+    with pytest.raises(RuntimeError, match="^HTTP gateway transport is closed$"):
+        await transport.forward(empty_request())
+
+    assert connection_count == 0
+
+
+@pytest.mark.asyncio
+async def test_cancellation_after_send_does_not_block_shutdown_or_leak_response():
+    handler_started = asyncio.Event()
+    handler_returning = asyncio.Event()
+    release_send = asyncio.Event()
+    stream = CloseTrackedStream()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        handler_started.set()
+        await release_send.wait()
+        handler_returning.set()
+        return httpx.Response(200, stream=stream)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="fixture-deployment",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(handler),
+    )
+    forward_task = asyncio.create_task(transport.forward(empty_request()))
+    await handler_started.wait()
+
+    async with transport._lifecycle:
+        release_send.set()
+        await handler_returning.wait()
+        await asyncio.sleep(0)
+        forward_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await forward_task
+    await asyncio.wait_for(transport.aclose(), timeout=0.1)
+
+    assert stream.closed is True
+
+
+@pytest.mark.asyncio
 async def test_missing_credential_fails_before_opening_upstream_connection():
     connection_count = 0
 
@@ -542,7 +664,7 @@ async def test_hostile_credential_configuration_never_connects(
     assert credential not in str(caught.value)
     assert credential not in repr(caught.value)
     assert connection_count == 0
-    await transport.aclose()
+    await asyncio.wait_for(transport.aclose(), timeout=0.1)
 
 
 def test_all_extra_includes_langgraph_gateway_runtime():
