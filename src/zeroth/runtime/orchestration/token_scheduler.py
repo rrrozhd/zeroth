@@ -168,7 +168,9 @@ def claim_next_token(snapshot: TokenEngineSnapshot) -> DispatchClaim:
             (
                 index
                 for index, token in enumerate(snapshot.queue)
-                if token.fork_lineage or token.iteration_memberships
+                if token.fork_lineage
+                or token.iteration_memberships
+                or token.continuation_parent_token_ids
             ),
             -1,
         )

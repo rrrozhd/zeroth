@@ -59,20 +59,21 @@ def _next(snapshot: TokenEngineSnapshot, **updates: object) -> TokenEngineSnapsh
 
 def has_pending_structured_owner_work(snapshot: TokenEngineSnapshot) -> bool:
     """Return whether a durable join/loop still requires an owner transition."""
-    return any(
-        join.lifecycle_state in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
-        for join in snapshot.joins
-    ) or any(
-        loop.lifecycle_state is LoopLifecycleState.STOPPING
-        or loop.reduction_claim_id is not None
-        or (
-            loop.frames
-            and loop.frames[-1].state is IterationFrameState.BARRIER_READY
+    return (
+        any(
+            join.lifecycle_state in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
+            for join in snapshot.joins
         )
-        for loop in snapshot.loops
-        if loop.lifecycle_state
-        not in {LoopLifecycleState.CANCELLED, LoopLifecycleState.COMPLETED}
-    ) or bool(snapshot.deferred_join_deliveries)
+        or any(
+            loop.lifecycle_state is LoopLifecycleState.STOPPING
+            or loop.reduction_claim_id is not None
+            or (loop.frames and loop.frames[-1].state is IterationFrameState.BARRIER_READY)
+            for loop in snapshot.loops
+            if loop.lifecycle_state
+            not in {LoopLifecycleState.CANCELLED, LoopLifecycleState.COMPLETED}
+        )
+        or bool(snapshot.deferred_join_deliveries)
+    )
 
 
 def pause_snapshot(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
@@ -108,9 +109,14 @@ def stop_snapshot(snapshot: TokenEngineSnapshot) -> TokenEngineSnapshot:
         TokenEngineSnapshotState.STOPPING,
     }:
         raise TokenSchedulerTransitionError(f"cannot stop a {snapshot.state.value} token snapshot")
-    needs_drain = bool(snapshot.in_flight_dispatches) or any(
-        token.fork_lineage or token.iteration_memberships for token in snapshot.queue
-    ) or has_pending_structured_owner_work(snapshot)
+    needs_drain = (
+        bool(snapshot.in_flight_dispatches)
+        or any(
+            token.fork_lineage or token.iteration_memberships or token.continuation_parent_token_ids
+            for token in snapshot.queue
+        )
+        or has_pending_structured_owner_work(snapshot)
+    )
     if needs_drain:
         if snapshot.state is TokenEngineSnapshotState.STOPPING:
             return snapshot
@@ -240,11 +246,7 @@ def _cancel_joins(
             updated_joins.append(join)
             continue
         all_settled = all(item.outcome is not None for item in obligations)
-        lifecycle_state = (
-            JoinLifecycleState.CANCELLED
-            if all_settled
-            else JoinLifecycleState.OPEN
-        )
+        lifecycle_state = JoinLifecycleState.CANCELLED if all_settled else JoinLifecycleState.OPEN
         updated_joins.append(
             JoinInstance.model_validate(
                 {
@@ -293,11 +295,7 @@ def _cancel_loops(
             parent_id = by_id[parent_id].enclosing_owner.enclosing_loop_instance_id
         return result
 
-    outcome = (
-        IterationMemberState.SUPPRESSED
-        if best_effort
-        else IterationMemberState.CANCELLED
-    )
+    outcome = IterationMemberState.SUPPRESSED if best_effort else IterationMemberState.CANCELLED
     ordered = sorted(loops, key=depth, reverse=True)
     for original in ordered:
         loop = by_id[original.loop_instance_id]
@@ -446,9 +444,7 @@ def _cancel_loops(
                 "reduction_claim_owner_id": None,
                 "reduction_claim_revision": None,
                 "lifecycle_state": (
-                    LoopLifecycleState.CANCELLED
-                    if terminal
-                    else LoopLifecycleState.STOPPING
+                    LoopLifecycleState.CANCELLED if terminal else LoopLifecycleState.STOPPING
                 ),
                 "updated_revision": revision,
                 "completed_revision": revision if terminal else None,
@@ -634,9 +630,7 @@ def acknowledge_cancellation(
     revision = snapshot.revision + 1
     token_id = dispatch.token.token_id
     acknowledged_ids = tuple(sorted((*fence.acknowledged_token_ids, token_id)))
-    acknowledged_dispatch_ids = tuple(
-        sorted((*fence.acknowledged_dispatch_ids, dispatch_id))
-    )
+    acknowledged_dispatch_ids = tuple(sorted((*fence.acknowledged_dispatch_ids, dispatch_id)))
     remaining = tuple(
         item for item in snapshot.in_flight_dispatches if item.dispatch_id != dispatch_id
     )

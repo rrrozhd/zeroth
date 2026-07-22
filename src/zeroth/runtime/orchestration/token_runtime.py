@@ -21,6 +21,7 @@ from zeroth.contracts.graph.tokens import (
     DispatchLifecycleState,
     IterationFrameState,
     JoinLifecycleState,
+    PayloadDelivery,
 )
 from zeroth.contracts.mappings.executor import _set_path
 from zeroth.core.runs import Run, RunStatus
@@ -122,6 +123,22 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 drained = await self._drain_stopping_owner(graph, run, snapshot)
                 if drained is not snapshot:
                     continue
+                if snapshot.in_flight_dispatches:
+                    claim = await self._recover(snapshot)
+                elif any(
+                    token.fork_lineage
+                    or token.iteration_memberships
+                    or token.continuation_parent_token_ids
+                    for token in snapshot.queue
+                ):
+                    claim = await self._claim(snapshot)
+                else:
+                    claim = None
+                if claim is not None:
+                    terminal = await self._dispatch_claim(graph, run, claim)
+                    if terminal is not None:
+                        return terminal
+                    continue
                 await TokenLifecycleAdapter(self.store).stop(run.run_id)
                 current = await self.store.get_token_snapshot(run.run_id)
                 if current is not None and current.state is TokenEngineSnapshotState.STOPPING:
@@ -132,8 +149,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             if stopped is not None:
                 return stopped
             fork_owned = any(
-                token.fork_lineage and token.settled_revision is None
-                for token in snapshot.tokens
+                token.fork_lineage and token.settled_revision is None for token in snapshot.tokens
             )
             failed = await self.driver.policy_gate.enforce_loop_guards(
                 graph,
@@ -151,8 +167,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 return await self.driver.fail_run(
                     run,
                     "node_execution_failed",
-                    f"per-run budget exceeded: ${spent:.4f} >= "
-                    f"${self.driver.per_run_cap_usd:.4f}",
+                    f"per-run budget exceeded: ${spent:.4f} >= ${self.driver.per_run_cap_usd:.4f}",
                 )
             if snapshot.state is TokenEngineSnapshotState.COMPLETED:
                 return await self._complete_run(run)
@@ -161,8 +176,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             elif snapshot.queue and (
                 snapshot.state is TokenEngineSnapshotState.RUNNING
                 or any(
-                    token.fork_lineage or token.iteration_memberships
-                    for token in snapshot.queue
+                    token.fork_lineage or token.iteration_memberships for token in snapshot.queue
                 )
             ):
                 claim = await self._claim(snapshot)
@@ -186,9 +200,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             if frame.fork_id in self._fanout_spans:
                 continue
             fork = next(item for item in snapshot.forks if item.fork_id == frame.fork_id)
-            parent = next(
-                item for item in snapshot.tokens if item.token_id == fork.parent_token_id
-            )
+            parent = next(item for item in snapshot.tokens if item.token_id == fork.parent_token_id)
             owner = node_by_id(graph, parent.current_node_id)
             span = start_span(
                 "zeroth.fanout",
@@ -219,8 +231,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             (
                 join
                 for join in snapshot.joins
-                if join.lifecycle_state
-                in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
+                if join.lifecycle_state in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
             ),
             None,
         )
@@ -229,8 +240,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 edge
                 for edge in graph.edges
                 if edge.target_node_id == ready_join.target_node_id
-                and edge.edge_id
-                in {item.inbound_edge_id for item in ready_join.obligations}
+                and edge.edge_id in {item.inbound_edge_id for item in ready_join.obligations}
             )
             return await self._close_join_if_ready(
                 graph,
@@ -243,8 +253,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             (
                 loop
                 for loop in reversed(snapshot.loops)
-                if loop.frames
-                and loop.frames[-1].state is IterationFrameState.BARRIER_READY
+                if loop.frames and loop.frames[-1].state is IterationFrameState.BARRIER_READY
             ),
             None,
         )
@@ -361,12 +370,20 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 or envelope.continuation_parent_token_ids
             )
         ):
-            inbound_edge_id = envelope.causal_inbound_edge_id or self._continuation_inbound_edge(
-                claim.snapshot, envelope.token_id
+            fork = next(
+                item
+                for item in claim.snapshot.forks
+                if item.fork_id == envelope.fork_lineage[-1].fork_id
             )
-            edge = next(item for item in graph.edges if item.edge_id == inbound_edge_id)
-            await self._route_join(graph, run, claim, edge, input_payload, delivered=True)
-            return None
+            routes = self._cohort_routes_if_reachable(graph, claim.snapshot, fork, node.node_id)
+            if routes is not None:
+                inbound_edge_id = (
+                    envelope.causal_inbound_edge_id
+                    or self._continuation_inbound_edge(claim.snapshot, envelope.token_id)
+                )
+                edge = next(item for item in graph.edges if item.edge_id == inbound_edge_id)
+                await self._route_join(graph, run, claim, edge, input_payload, delivered=True)
+                return None
         run.current_node_ids = [node.node_id]
         run.current_step = node.node_id
         run.metadata["token_dispatch"] = {
@@ -428,9 +445,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     return pending_approval
                 if consuming_side_effect:
                     run.pending_node_ids = [
-                        pending
-                        for pending in run.pending_node_ids
-                        if pending != node.node_id
+                        pending for pending in run.pending_node_ids if pending != node.node_id
                     ]
                 if envelope.fork_lineage:
                     denial_reason = await self.driver.policy_gate.enforce_policy_for_branch(
@@ -545,9 +560,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         await self.driver.run_repository.write_checkpoint(run)
                         return None
                     await TokenLifecycleAdapter(self.store).cancel(run.run_id)
-                    return await self.driver.fail_run(
-                        run, "parallel_execution_failed", str(exc)
-                    )
+                    return await self.driver.fail_run(run, "parallel_execution_failed", str(exc))
                 await self.driver.audit_recorder.record_failed_execution(
                     run, node, node.node_id, input_payload, exc, started_at=node_started_at
                 )
@@ -627,41 +640,25 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             transition = None
         elif deferred_target is not None:
             deferred_edge = next(
-                edge
-                for edge in (*active, *suppressed)
-                if edge.target_node_id == deferred_target
+                edge for edge in (*active, *suppressed) if edge.target_node_id == deferred_target
             )
-            waiters = self._deferred_join_waiters(claim.snapshot, deferred_target)
             edge_order = {edge.edge_id: index for index, edge in enumerate(graph.edges)}
-            deliveries = [
-                (
-                    waiter.inbound_edge_id,
-                    waiter.delivery.model_dump(mode="json")["payload"],
-                )
-                for waiter in waiters
-            ]
             if deferred_edge in active:
-                current_payload = cast(
-                    JsonValue,
-                    self.driver.edge_payload(
-                        graph,
-                        run,
-                        node.node_id,
-                        deferred_target,
-                        output_data,
-                        deferred_edge,
-                    ),
+                current_delivery = PayloadDelivery(
+                    payload=cast(
+                        JsonValue,
+                        self.driver.edge_payload(
+                            graph,
+                            run,
+                            node.node_id,
+                            deferred_target,
+                            output_data,
+                            deferred_edge,
+                        ),
+                    )
                 )
-                deliveries.append((deferred_edge.edge_id, current_payload))
-            deliveries.sort(key=lambda item: edge_order[item[0]])
-            merged_payload = cast(
-                JsonValue,
-                self.driver._merge_join_payloads(
-                    graph,
-                    deferred_target,
-                    [payload for _, payload in deliveries],
-                ),
-            )
+            else:
+                current_delivery = None
             committed = await self._transition(
                 claim.snapshot,
                 partial(
@@ -671,7 +668,11 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     cancellation_generation=dispatch.cancellation_generation,
                     target_node_id=deferred_target,
                     inbound_edge_id=deferred_edge.edge_id,
-                    merged_payload=merged_payload,
+                    current_delivery=current_delivery,
+                    edge_order=edge_order,
+                    merge_payloads=partial(
+                        self.driver._merge_join_payloads, graph, deferred_target
+                    ),
                 ),
             )
             transition = None
@@ -710,11 +711,12 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         committed,
                         partial(
                             self._append_deferred_join_delivery,
-                            parent=envelope,
                             target_node_id=deferred_edge.target_node_id,
                             inbound_edge_id=deferred_edge.edge_id,
                             payload=cast(JsonValue, next_payload),
                             dispatch_id=dispatch.dispatch_id,
+                            attempt=dispatch.attempt,
+                            cancellation_generation=dispatch.cancellation_generation,
                         ),
                     )
                 for next_edge in mixed_active:
@@ -901,8 +903,13 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         run.metadata.pop("token_dispatch", None)
         run.metadata.pop("in_flight_dispatch", None)
         stopped = await self.driver.external_stop(run)
-        if stopped is not None:
+        if stopped is not None and committed.state is not TokenEngineSnapshotState.STOPPING:
             return stopped
+        if committed.state is TokenEngineSnapshotState.STOPPING:
+            # The run-level interrupt remains persisted by ``external_stop``, but
+            # already-owned structured work must continue until its durable
+            # fork/join/loop frontier is settled.
+            return None
         run.status = RunStatus.RUNNING
         run.current_node_ids = []
         run.current_step = None

@@ -26,6 +26,14 @@ from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 from zeroth.runtime.orchestration.token_runtime_support import TokenRuntimeSupport
+from zeroth.runtime.orchestration.token_scheduler import (
+    FanOutBranch,
+    claim_next_token,
+    fan_out_dispatch,
+    initialize_token_snapshot,
+)
+from zeroth.runtime.orchestration.token_lifecycle import request_cancellation, stop_snapshot
+from zeroth.runtime.orchestration.token_scheduler import TokenSchedulerTransitionError
 from zeroth.runtime.parallel.models import JoinConfig
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.runtime.runs import Run, RunStatus
@@ -303,14 +311,155 @@ async def test_default_on_nested_diamond_resolves_join_and_other_successor_once(
     assert (
         TokenRuntimeSupport._append_deferred_join_delivery(
             deferred,
-            parent=persisted_dispatch.token,
             target_node_id=persisted_delivery.target_node_id,
             inbound_edge_id=persisted_delivery.inbound_edge_id,
             payload=persisted_delivery.delivery.model_dump(mode="json")["payload"],
             dispatch_id=persisted_dispatch.dispatch_id,
+            attempt=persisted_dispatch.attempt,
+            cancellation_generation=persisted_dispatch.cancellation_generation,
         )
         is deferred
     )
+
+
+def test_stale_completion_cannot_append_deferred_join_delivery_after_cancellation() -> None:
+    root = initialize_token_snapshot(run_id="stale-deferred", root_node_id="A", payload={})
+    parent = claim_next_token(root)
+    forked = fan_out_dispatch(
+        parent.snapshot,
+        dispatch_id=parent.dispatch.dispatch_id,
+        attempt=parent.dispatch.attempt,
+        cancellation_generation=parent.dispatch.cancellation_generation,
+        branches=(
+            FanOutBranch(node_id="B", inbound_edge_id="A-B", payload={}),
+            FanOutBranch(node_id="C", inbound_edge_id="A-C", payload={}),
+        ),
+    )
+    stale = claim_next_token(forked)
+    cancelling = request_cancellation(stale.snapshot)
+
+    with pytest.raises(TokenSchedulerTransitionError):
+        TokenRuntimeSupport._append_deferred_join_delivery(
+            cancelling,
+            target_node_id="T",
+            inbound_edge_id="B-T",
+            payload={"value": 1},
+            dispatch_id=stale.dispatch.dispatch_id,
+            attempt=stale.dispatch.attempt,
+            cancellation_generation=stale.dispatch.cancellation_generation,
+        )
+
+
+async def test_default_on_nested_fanout_inner_join_preserves_outer_ownership(sqlite_db) -> None:
+    node_ids = ("A", "X", "Y", "B", "C", "J", "T")
+    nodes = {node_id: _node(node_id) for node_id in node_ids}
+    for node in nodes.values():
+        node.input_contract_ref = "contract://input"
+        node.output_contract_ref = "contract://output"
+    nodes["J"].join_config = JoinConfig(merge_strategy="merge")
+    nodes["T"].join_config = JoinConfig(merge_strategy="merge")
+    graph = Graph(
+        graph_id="token-nested-fanout-inner-join",
+        name="token-nested-fanout-inner-join",
+        entry_step="A",
+        execution_settings=ExecutionSettings(),
+        nodes=list(nodes.values()),
+        edges=[
+            Edge(edge_id="A-X", source_node_id="A", target_node_id="X"),
+            Edge(edge_id="A-Y", source_node_id="A", target_node_id="Y"),
+            Edge(edge_id="X-B", source_node_id="X", target_node_id="B"),
+            Edge(edge_id="X-C", source_node_id="X", target_node_id="C"),
+            Edge(edge_id="B-J", source_node_id="B", target_node_id="J"),
+            Edge(edge_id="B-T", source_node_id="B", target_node_id="T"),
+            Edge(edge_id="C-J", source_node_id="C", target_node_id="J"),
+            Edge(edge_id="J-T", source_node_id="J", target_node_id="T"),
+        ],
+    )
+    report = await GraphValidator().validate(graph)
+    assert report.is_valid, report.issues
+    store = ReloadingMemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in node_ids},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert run.status is RunStatus.COMPLETED, run.error
+    assert [entry.node_id for entry in run.execution_history] == [
+        "A",
+        "X",
+        "B",
+        "C",
+        "Y",
+        "J",
+        "T",
+    ]
+    assert sum(entry.node_id == "J" for entry in run.execution_history) == 1
+    assert sum(entry.node_id == "T" for entry in run.execution_history) == 1
+    assert store.snapshot is not None
+    assert store.snapshot.state is TokenEngineSnapshotState.COMPLETED
+
+
+async def test_graceful_stop_drains_persisted_overlapping_join_frontier(sqlite_db) -> None:
+    nodes = {node_id: _node(node_id) for node_id in ("A", "B", "C", "J", "T")}
+    for node in nodes.values():
+        node.input_contract_ref = "contract://input"
+        node.output_contract_ref = "contract://output"
+    nodes["J"].join_config = JoinConfig(merge_strategy="merge")
+    nodes["T"].join_config = JoinConfig(merge_strategy="merge")
+    graph = Graph(
+        graph_id="token-graceful-overlap",
+        name="token-graceful-overlap",
+        entry_step="A",
+        execution_settings=ExecutionSettings(),
+        nodes=list(nodes.values()),
+        edges=[
+            Edge(edge_id="A-B", source_node_id="A", target_node_id="B"),
+            Edge(edge_id="A-C", source_node_id="A", target_node_id="C"),
+            Edge(edge_id="B-J", source_node_id="B", target_node_id="J"),
+            Edge(edge_id="B-T", source_node_id="B", target_node_id="T"),
+            Edge(edge_id="C-J", source_node_id="C", target_node_id="J"),
+            Edge(edge_id="J-T", source_node_id="J", target_node_id="T"),
+        ],
+    )
+    repository = RunRepository(sqlite_db)
+
+    class _GracefulStopStore(ReloadingMemoryTokenStore):
+        stopping = False
+
+        async def compare_and_swap_token_snapshot(self, run_id, *, expected_revision, snapshot):
+            if not self.stopping and snapshot.deferred_join_deliveries:
+                snapshot = stop_snapshot(snapshot)
+                self.stopping = True
+            committed = await super().compare_and_swap_token_snapshot(
+                run_id, expected_revision=expected_revision, snapshot=snapshot
+            )
+            if self.stopping:
+                persisted = await repository.get(run_id)
+                if persisted is not None:
+                    persisted.status = RunStatus.WAITING_INTERRUPT
+                    persisted.touch()
+                    await repository.put(persisted)
+            return committed
+
+    store = _GracefulStopStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=repository,
+        agent_runners={node_id: _runner() for node_id in nodes},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert store.stopping
+    assert run.status is RunStatus.WAITING_INTERRUPT
+    assert [entry.node_id for entry in run.execution_history] == ["A", "B", "C", "J", "T"]
+    assert store.snapshot is not None
+    assert store.snapshot.state is TokenEngineSnapshotState.STOPPED
+    assert store.snapshot.queue == ()
+    assert store.snapshot.deferred_join_deliveries == ()
 
 
 async def test_flag_on_loop_persists_iteration_ownership(sqlite_db) -> None:
@@ -687,9 +836,7 @@ async def test_flag_on_multi_boundary_exit_hands_off_reserved_join_once(sqlite_d
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
         run_repository=RunRepository(sqlite_db),
-        agent_runners={
-            node_id: _runner() for node_id in ("S", "P", "H", "B", "J", "END")
-        },
+        agent_runners={node_id: _runner() for node_id in ("S", "P", "H", "B", "J", "END")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
 
@@ -702,12 +849,9 @@ async def test_flag_on_multi_boundary_exit_hands_off_reserved_join_once(sqlite_d
         loop
         for snapshot in reversed(store.history)
         for loop in snapshot.loops
-        if loop.loop_header_node_id == "H"
-        and loop.lifecycle_state is LoopLifecycleState.COMPLETED
+        if loop.loop_header_node_id == "H" and loop.lifecycle_state is LoopLifecycleState.COMPLETED
     )
-    assert [record.delivery.payload for record in completed_loop.exits[0].records] == [
-        {"value": 3}
-    ]
+    assert [record.delivery.payload for record in completed_loop.exits[0].records] == [{"value": 3}]
     completed_join = next(
         join
         for snapshot in reversed(store.history)

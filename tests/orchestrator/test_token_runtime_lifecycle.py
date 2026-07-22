@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from types import SimpleNamespace
 
 import pytest
@@ -7,7 +8,11 @@ import zeroth.runtime.orchestration.token_runtime_support as runtime_support
 
 from zeroth.contracts.graph.models import JoinConfig
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
-from zeroth.contracts.graph.tokens import IterationMemberState, JoinLifecycleState
+from zeroth.contracts.graph.tokens import (
+    IterationMemberState,
+    JoinLifecycleState,
+    PayloadDelivery,
+)
 from zeroth.runtime.orchestration.token_lifecycle import (
     pause_snapshot,
     request_cancellation,
@@ -125,6 +130,27 @@ async def test_graceful_stop_finalizes_without_claiming_unowned_queue() -> None:
     assert driver.stops == 1
 
 
+def test_graceful_stop_claims_already_owned_fork_work() -> None:
+    root = initialize_token_snapshot(run_id="run-stop-fork", root_node_id="root", payload={})
+    parent = claim_next_token(root)
+    forked = fan_out_dispatch(
+        parent.snapshot,
+        dispatch_id=parent.dispatch.dispatch_id,
+        attempt=parent.dispatch.attempt,
+        cancellation_generation=parent.dispatch.cancellation_generation,
+        branches=(
+            FanOutBranch(node_id="left", inbound_edge_id="root-left", payload={}),
+            FanOutBranch(node_id="right", inbound_edge_id="root-right", payload={}),
+        ),
+    )
+    stopping = stop_snapshot(forked)
+
+    claim = claim_next_token(stopping)
+
+    assert claim.dispatch.token.token_id == forked.queue[0].token_id
+    assert claim.snapshot.state is TokenEngineSnapshotState.STOPPING
+
+
 async def test_graceful_stop_recovers_and_drains_persisted_join_claim() -> None:
     root = initialize_token_snapshot(run_id="run-join-claim", root_node_id="root", payload={})
     parent = claim_next_token(root)
@@ -139,8 +165,7 @@ async def test_graceful_stop_recovers_and_drains_persisted_join_claim() -> None:
         ),
     )
     routes = {
-        child.token_id: f"join-{child.creation_ordinal}"
-        for child in snapshot.forks[0].children
+        child.token_id: f"join-{child.creation_ordinal}" for child in snapshot.forks[0].children
     }
     for payload in ("left", "right"):
         claim = claim_next_token(snapshot)
@@ -155,6 +180,7 @@ async def test_graceful_stop_recovers_and_drains_persisted_join_claim() -> None:
             payload=payload,
         )
     store = _MemoryStore(snapshot)
+
     class _Crash(BaseException):
         pass
 
@@ -185,6 +211,103 @@ async def test_graceful_stop_recovers_and_drains_persisted_join_claim() -> None:
     )
 
     assert drained.joins[0].lifecycle_state is JoinLifecycleState.CLOSED
+
+
+async def test_deferred_join_merge_reloads_waiters_after_cas_race() -> None:
+    root = initialize_token_snapshot(run_id="run-deferred-race", root_node_id="A", payload={})
+    parent = claim_next_token(root)
+    forked = fan_out_dispatch(
+        parent.snapshot,
+        dispatch_id=parent.dispatch.dispatch_id,
+        attempt=parent.dispatch.attempt,
+        cancellation_generation=parent.dispatch.cancellation_generation,
+        branches=(
+            FanOutBranch(node_id="B", inbound_edge_id="A-B", payload={}),
+            FanOutBranch(node_id="C", inbound_edge_id="A-C", payload={}),
+        ),
+    )
+    left = claim_next_token(forked)
+    deferred = TokenRuntimeCoordinator._append_deferred_join_delivery(
+        left.snapshot,
+        target_node_id="T",
+        inbound_edge_id="B-T",
+        payload={"source": "B"},
+        dispatch_id=left.dispatch.dispatch_id,
+        attempt=left.dispatch.attempt,
+        cancellation_generation=left.dispatch.cancellation_generation,
+    )
+    routes = {child.token_id: f"{child.token_id}-J" for child in forked.forks[0].children}
+    waiting = deliver_to_join(
+        deferred,
+        dispatch_id=left.dispatch.dispatch_id,
+        attempt=left.dispatch.attempt,
+        cancellation_generation=left.dispatch.cancellation_generation,
+        target_node_id="J",
+        inbound_edge_id=routes[left.dispatch.token.token_id],
+        cohort_inbound_edges=routes,
+        payload={"source": "B"},
+    )
+    right = claim_next_token(waiting)
+    first = right.snapshot.deferred_join_deliveries[0]
+    raced_delivery = first.model_copy(
+        update={
+            "delivery_id": "delivery_raced",
+            "source_token_id": "token_raced",
+            "inbound_edge_id": "D-T",
+            "delivery": PayloadDelivery(payload={"source": "D"}),
+            "created_revision": right.snapshot.revision + 1,
+        }
+    )
+    raced = right.snapshot.model_copy(
+        update={
+            "revision": right.snapshot.revision + 1,
+            "deferred_join_deliveries": (
+                *right.snapshot.deferred_join_deliveries,
+                raced_delivery,
+            ),
+        }
+    )
+
+    class _ConflictOnceStore(_MemoryStore):
+        conflicted = False
+
+        async def compare_and_swap_token_snapshot(self, run_id, *, expected_revision, snapshot):
+            if not self.conflicted:
+                self.conflicted = True
+                self.snapshot = raced
+                raise TokenSnapshotConcurrencyError(
+                    run_id,
+                    expected_revision=expected_revision,
+                    actual_revision=raced.revision,
+                )
+            return await super().compare_and_swap_token_snapshot(
+                run_id, expected_revision=expected_revision, snapshot=snapshot
+            )
+
+    store = _ConflictOnceStore(right.snapshot)
+    coordinator = TokenRuntimeCoordinator(_Driver(), store)
+
+    committed = await coordinator._transition(
+        right.snapshot,
+        partial(
+            coordinator._close_deferred_join,
+            dispatch_id=right.dispatch.dispatch_id,
+            attempt=right.dispatch.attempt,
+            cancellation_generation=right.dispatch.cancellation_generation,
+            target_node_id="T",
+            inbound_edge_id="C-T",
+            current_delivery=PayloadDelivery(payload={"source": "C"}),
+            edge_order={"B-T": 0, "D-T": 1, "C-T": 2},
+            merge_payloads=lambda payloads: payloads,
+        ),
+    )
+
+    assert committed.queue[-1].model_dump(mode="json")["payload"] == [
+        {"source": "B"},
+        {"source": "D"},
+        {"source": "C"},
+    ]
+    assert committed.deferred_join_deliveries == ()
 
 
 async def test_graceful_stop_recovers_and_drains_persisted_loop_claim() -> None:
@@ -242,8 +365,7 @@ async def test_join_claim_replay_resolves_already_claimed_continuation_from_toke
         ),
     )
     routes = {
-        child.token_id: f"join-{child.creation_ordinal}"
-        for child in snapshot.forks[0].children
+        child.token_id: f"join-{child.creation_ordinal}" for child in snapshot.forks[0].children
     }
     for payload in ("left", "right"):
         claim = claim_next_token(snapshot)

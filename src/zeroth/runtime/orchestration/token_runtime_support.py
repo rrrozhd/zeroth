@@ -7,7 +7,7 @@ This coordinator owns the flag-on queue and never reconstructs work from
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from functools import partial
 from typing import Any, cast
@@ -126,13 +126,20 @@ class TokenRuntimeSupport:
     def _append_deferred_join_delivery(
         snapshot: TokenEngineSnapshot,
         *,
-        parent: TokenEnvelope,
         target_node_id: str,
         inbound_edge_id: str,
         payload: JsonValue,
         dispatch_id: str,
+        attempt: int,
+        cancellation_generation: int,
     ) -> TokenEngineSnapshot:
         """Persist one overlapping-join delivery without making it runnable."""
+        dispatch = _matching_dispatch(
+            snapshot,
+            dispatch_id=dispatch_id,
+            attempt=attempt,
+            cancellation_generation=cancellation_generation,
+        )
         delivery_id = _stable_id(
             "delivery",
             snapshot.run_id,
@@ -140,18 +147,17 @@ class TokenRuntimeSupport:
             0,
         )
         if any(
-            delivery.delivery_id == delivery_id
-            for delivery in snapshot.deferred_join_deliveries
+            delivery.delivery_id == delivery_id for delivery in snapshot.deferred_join_deliveries
         ):
             return snapshot
         revision = snapshot.revision + 1
         delivery = DeferredJoinDelivery(
             delivery_id=delivery_id,
-            source_token_id=parent.token_id,
+            source_token_id=dispatch.token.token_id,
             target_node_id=target_node_id,
             inbound_edge_id=inbound_edge_id,
             delivery=PayloadDelivery(payload=payload),
-            cancellation_generation=parent.cancellation_generation,
+            cancellation_generation=dispatch.token.cancellation_generation,
             created_revision=revision,
         )
         data = {name: getattr(snapshot, name) for name in type(snapshot).model_fields}
@@ -170,7 +176,9 @@ class TokenRuntimeSupport:
         cancellation_generation: int,
         target_node_id: str,
         inbound_edge_id: str,
-        merged_payload: JsonValue,
+        current_delivery: PayloadDelivery | None,
+        edge_order: Mapping[str, int],
+        merge_payloads: Callable[[list[JsonValue]], JsonValue],
     ) -> TokenEngineSnapshot:
         dispatch = _matching_dispatch(
             snapshot,
@@ -187,57 +195,38 @@ class TokenRuntimeSupport:
             raise TokenRuntimeUnsupportedError(
                 f"deferred join {target_node_id!r} has no persisted delivery"
             )
-        if dispatch.token.fork_lineage:
-            raise TokenRuntimeUnsupportedError(
-                "overlapping deferred join continuation remains fork-owned"
+        ordered = [
+            (
+                delivery.inbound_edge_id,
+                delivery.delivery.model_dump(mode="json")["payload"],
             )
+            for delivery in deliveries
+        ]
+        if current_delivery is not None:
+            ordered.append((inbound_edge_id, current_delivery.model_dump(mode="json")["payload"]))
+        ordered.sort(key=lambda item: edge_order[item[0]])
+        merged_payload = merge_payloads([payload for _, payload in ordered])
         revision = snapshot.revision + 1
-        settled_current = _updated_token(
+        continuation = _updated_token(
             dispatch.token,
-            lifecycle_state=TokenLifecycleState.SETTLED,
-            scheduling_state=SchedulingState.SETTLED,
-            state_revision=revision,
-            settled_revision=revision,
-        )
-        tokens = _replace_token(snapshot.tokens, settled_current)
-        parent_ids = list(
-            dict.fromkeys(
-                (
-                    *(delivery.source_token_id for delivery in deliveries),
-                    dispatch.token.token_id,
-                )
-            )
-        )
-        continuation = TokenEnvelope(
-            token_id=_stable_id(
-                "tok",
-                snapshot.run_id,
-                f"deferred-join:{target_node_id}",
-                snapshot.next_token_ordinal,
-            ),
-            continuation_parent_token_ids=tuple(parent_ids),
             current_node_id=target_node_id,
             causal_inbound_edge_id=inbound_edge_id,
             payload=merged_payload,
-            lifecycle_state=TokenLifecycleState.ACTIVE,
+            retry_attempt=0,
             scheduling_state=SchedulingState.QUEUED,
-            cancellation_generation=dispatch.token.cancellation_generation,
             state_revision=revision,
         )
         return _next_snapshot(
             snapshot,
-            next_token_ordinal=snapshot.next_token_ordinal + 1,
             queue=(*snapshot.queue, continuation),
-            tokens=(*tokens, continuation),
+            tokens=_replace_token(snapshot.tokens, continuation),
             deferred_join_deliveries=tuple(
                 delivery
                 for delivery in snapshot.deferred_join_deliveries
                 if delivery.target_node_id != target_node_id
             ),
             in_flight_dispatches=tuple(
-                item
-                for item in snapshot.in_flight_dispatches
-                if item.dispatch_id != dispatch_id
+                item for item in snapshot.in_flight_dispatches if item.dispatch_id != dispatch_id
             ),
         )
 
@@ -344,8 +333,7 @@ class TokenRuntimeSupport:
                 join
                 for join in committed.joins
                 if join.target_node_id == edge.target_node_id
-                and join.lifecycle_state
-                in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
+                and join.lifecycle_state in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
             ),
             None,
         )
@@ -388,16 +376,12 @@ class TokenRuntimeSupport:
         else:
             run.metadata.pop("join_state", None)
         closed_join = next(
-            join
-            for join in closed.joins
-            if join.join_instance_id == ready.join_instance_id
+            join for join in closed.joins if join.join_instance_id == ready.join_instance_id
         )
         continuation_id = closed_join.continuation_token_id
         if continuation_id is None:
             raise OrchestratorError("closed join has no durable continuation token")
-        continuation = next(
-            token for token in closed.tokens if token.token_id == continuation_id
-        )
+        continuation = next(token for token in closed.tokens if token.token_id == continuation_id)
         reduced = continuation.model_dump(mode="json")["payload"]
         if isinstance(reduced, Mapping):
             self._trace_join_ready(
@@ -418,27 +402,53 @@ class TokenRuntimeSupport:
     ) -> dict[str, str]:
         fork_id = token.fork_lineage[-1].fork_id
         fork = next(item for item in snapshot.forks if item.fork_id == fork_id)
+        routes = self._cohort_routes_if_reachable(graph, snapshot, fork, target_node_id)
+        if routes is None:
+            raise TokenRuntimeUnsupportedError(
+                f"fork {fork_id!r} does not converge at join {target_node_id!r}"
+            )
+        return routes
+
+    def _cohort_routes_if_reachable(
+        self,
+        graph: Graph,
+        snapshot: TokenEngineSnapshot,
+        fork: Any,
+        target_node_id: str,
+    ) -> dict[str, str] | None:
+        target = target_node_id
         tokens = {item.token_id: item for item in snapshot.tokens}
         routes: dict[str, str] = {}
+        ambiguous: tuple[str, int] | None = None
         for child in fork.children:
             child_token = tokens[child.token_id]
-            inbound = (
-                [child_token.causal_inbound_edge_id]
-                if child_token.current_node_id == target_node_id
+            if (
+                child_token.current_node_id == target
                 and child_token.causal_inbound_edge_id is not None
-                else [self._continuation_inbound_edge(snapshot, child_token.token_id)]
-                if child_token.current_node_id == target_node_id
-                and child_token.continuation_parent_token_ids
-                else self._reachable_inbound_edges(
-                    graph, child_token.current_node_id, target_node_id
+            ):
+                inbound = [child_token.causal_inbound_edge_id]
+            elif (
+                child_token.current_node_id == target and child_token.continuation_parent_token_ids
+            ):
+                join = next(
+                    item
+                    for item in snapshot.joins
+                    if item.continuation_token_id == child_token.token_id
                 )
-            )
+                inbound = sorted({item.inbound_edge_id for item in join.obligations})
+            else:
+                inbound = self._reachable_inbound_edges(graph, child_token.current_node_id, target)
+            if not inbound:
+                return None
             if len(inbound) != 1:
-                raise TokenRuntimeUnsupportedError(
-                    f"fork child {child.token_id!r} has {len(inbound)} routes to join "
-                    f"{target_node_id!r}"
-                )
+                ambiguous = (child.token_id, len(inbound))
+                continue
             routes[child.token_id] = inbound[0]
+        if ambiguous is not None:
+            child_id, count = ambiguous
+            raise TokenRuntimeUnsupportedError(
+                f"fork child {child_id!r} has {count} routes to join {target!r}"
+            )
         return routes
 
     @staticmethod
