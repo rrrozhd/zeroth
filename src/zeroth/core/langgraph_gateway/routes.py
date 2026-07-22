@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, FastAPI, Request, WebSocket
 from pydantic import ValidationError
+from starlette.routing import WebSocketRoute
 
 from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.identity import AuthenticatedPrincipal
@@ -306,10 +307,12 @@ def register_gateway_routes(
             name="langgraph-protocol-events",
         )
     else:
-        app.add_websocket_route(  # type: ignore[attr-defined]
-            "/threads/{thread_id}/stream/events",
-            protocol_events,
-            name="langgraph-protocol-events",
+        app.router.routes.append(  # type: ignore[attr-defined]
+            WebSocketRoute(
+                "/threads/{thread_id}/stream/events",
+                protocol_events,
+                name="langgraph-protocol-events",
+            )
         )
 
     methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]

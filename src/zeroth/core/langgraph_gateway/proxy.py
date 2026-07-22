@@ -561,7 +561,11 @@ class GatewayProxy:
                 else GatewayEventStatus.UPSTREAM_ERROR
             )
         except asyncio.CancelledError:
-            status = GatewayEventStatus.CANCELLATION
+            # ASGI servers cancel a streaming response iterator when the peer
+            # socket disappears. Admission/connect cancellation is handled by
+            # ``handle_http`` before a body exists; cancellation here therefore
+            # represents a downstream disconnect.
+            status = GatewayEventStatus.CLIENT_DISCONNECT
             raise
         except GeneratorExit:
             status = GatewayEventStatus.CLIENT_DISCONNECT

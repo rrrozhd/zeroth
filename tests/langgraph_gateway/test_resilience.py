@@ -1,0 +1,249 @@
+from __future__ import annotations
+
+import asyncio
+import socket
+from collections.abc import AsyncIterator
+from contextlib import suppress
+from typing import Any
+
+import httpx
+import pytest
+import uvicorn
+from starlette.requests import Request
+
+from tests.langgraph_gateway.conformance.harness import create_gateway_app
+from zeroth.core.config.settings import LangGraphGatewaySettings
+from zeroth.core.langgraph_gateway.models import GatewayEventStatus
+from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
+from zeroth.core.secrets.provider import EnvSecretProvider
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _request(path: str = "/ok", receive=None) -> Request:
+    sent = False
+
+    async def default_receive() -> dict[str, Any]:
+        nonlocal sent
+        if sent:
+            return {"type": "http.disconnect"}
+        sent = True
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "headers": [],
+            "server": ("gateway", 80),
+            "client": ("test", 1),
+        },
+        receive or default_receive,
+    )
+
+
+def _settings(upstream_url: str) -> LangGraphGatewaySettings:
+    return LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url=upstream_url,
+        upstream_audience="resilience",
+        deployment_ref="resilience",
+        connect_timeout_seconds=0.1,
+        read_timeout_seconds=0.1,
+        write_timeout_seconds=0.1,
+        pool_timeout_seconds=0.1,
+    )
+
+
+class _RecordingSink:
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    async def emit(self, event: Any) -> None:
+        self.events.append(event)
+
+
+@pytest.mark.asyncio
+async def test_real_socket_disconnect_closes_upstream_and_emits_disconnected() -> None:
+    upstream_closed = asyncio.Event()
+
+    async def upstream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(
+                b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n"
+                b"transfer-encoding: chunked\r\n\r\n"
+            )
+            await writer.drain()
+            for index in range(10_000):
+                payload = f"data: {index}\n\n".encode()
+                writer.write(f"{len(payload):x}\r\n".encode() + payload + b"\r\n")
+                await writer.drain()
+                await asyncio.sleep(0.005)
+        except (ConnectionError, asyncio.IncompleteReadError):
+            pass
+        finally:
+            upstream_closed.set()
+            writer.close()
+            with suppress(ConnectionError):
+                await writer.wait_closed()
+
+    upstream_server = await asyncio.start_server(upstream, "127.0.0.1", 0)
+    upstream_port = upstream_server.sockets[0].getsockname()[1]
+    sink = _RecordingSink()
+    app, transport = create_gateway_app(f"http://127.0.0.1:{upstream_port}", event_sink=sink)
+    gateway_port = _free_port()
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=gateway_port,
+            log_level="error",
+            access_log=False,
+            date_header=False,
+            server_header=False,
+        )
+    )
+    server_task = asyncio.create_task(server.serve())
+    while not server.started:
+        await asyncio.sleep(0.01)
+
+    reader, writer = await asyncio.open_connection("127.0.0.1", gateway_port)
+    writer.write(b"GET /ok HTTP/1.1\r\nHost: gateway\r\nConnection: close\r\n\r\n")
+    await writer.drain()
+    assert b"200 OK" in await reader.readuntil(b"\r\n\r\n")
+    assert await reader.read(32)
+    writer.close()
+    await writer.wait_closed()
+
+    await asyncio.wait_for(upstream_closed.wait(), timeout=2)
+    for _ in range(100):
+        if sink.events:
+            break
+        await asyncio.sleep(0.01)
+    assert sink.events[-1].status == GatewayEventStatus.CLIENT_DISCONNECT
+    assert not transport._open_responses
+
+    server.should_exit = True
+    await asyncio.wait_for(server_task, timeout=5)
+    upstream_server.close()
+    await upstream_server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_connect_and_midstream_timeouts_leave_no_open_response() -> None:
+    async def connect_timeout(_: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("connect timed out")
+
+    settings = _settings("http://upstream")
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(connect_timeout),
+    )
+    with pytest.raises(httpx.ConnectTimeout):
+        await transport.forward(_request())
+    assert not transport._open_responses
+    await transport.aclose()
+
+    class TimeoutStream(httpx.AsyncByteStream):
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"already-delivered"
+            raise httpx.ReadTimeout("midstream timeout")
+
+        async def aclose(self) -> None:
+            self.close_calls += 1
+
+    stream = TimeoutStream()
+
+    async def midstream(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=stream)
+
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(midstream),
+    )
+    response = await transport.forward(_request())
+    iterator = response.body_iterator.__aiter__()
+    assert await anext(iterator) == b"already-delivered"
+    with pytest.raises(httpx.ReadTimeout):
+        await anext(iterator)
+    assert stream.close_calls == 1
+    assert not transport._open_responses
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_slow_response_and_upload_are_pull_bounded() -> None:
+    class PullStream(httpx.AsyncByteStream):
+        def __init__(self) -> None:
+            self.produced = 0
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            for _ in range(256):
+                self.produced += 1
+                yield b"x" * 1024
+
+    response_stream = PullStream()
+
+    async def response_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=response_stream)
+
+    transport = HTTPGatewayTransport(
+        _settings("http://upstream"),
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(response_handler),
+    )
+    response = await transport.forward(_request())
+    iterator = response.body_iterator.__aiter__()
+    assert await anext(iterator) == b"x" * 1024
+    assert response_stream.produced == 1
+    await iterator.aclose()
+    await transport.aclose()
+
+    produced = 0
+    consumed = 0
+    max_lead = 0
+
+    async def receive() -> dict[str, Any]:
+        nonlocal produced
+        if produced == 256:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        produced += 1
+        return {"type": "http.request", "body": b"y" * 1024, "more_body": True}
+
+    class SlowUploadTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            nonlocal consumed, max_lead
+            async for chunk in request.stream:
+                if not chunk:
+                    continue
+                consumed += 1
+                max_lead = max(max_lead, produced - consumed)
+                await asyncio.sleep(0)
+                assert len(chunk) <= 1024
+            return httpx.Response(204)
+
+    transport = HTTPGatewayTransport(
+        _settings("http://upstream"),
+        EnvSecretProvider(),
+        http_transport=SlowUploadTransport(),
+    )
+    response = await transport.forward(_request(receive=receive))
+    assert response.status_code == 204
+    assert max_lead <= 1
+    assert produced == consumed == 256
+    await response.body_iterator.aclose()
+    await transport.aclose()
