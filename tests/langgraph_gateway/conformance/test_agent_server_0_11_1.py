@@ -14,6 +14,8 @@ from typing import Any
 import httpx
 import pytest
 
+pytest.importorskip("langgraph", reason="requires the gateway-conformance dependency group")
+
 from .cases import CASES, CLAIMED_OPERATIONS, REQUIRED_OPERATION_GROUPS, ConformanceCase
 from .graph import graph
 

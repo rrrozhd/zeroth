@@ -6,6 +6,9 @@ from uuid import uuid4
 
 import httpx
 import pytest
+
+pytest.importorskip("langgraph", reason="requires the gateway-conformance dependency group")
+
 from langgraph.pregel.remote import RemoteGraph
 from langgraph_sdk import get_client
 
