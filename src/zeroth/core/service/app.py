@@ -386,16 +386,11 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         # Bypass authentication for:
         #  - /health probes (load balancers),
         #  - the /console static UI (browser navigation can't send the API key;
-        #    the UI's own /v1 and /api/studio fetches still carry it),
-        #  - CORS preflight (OPTIONS carries no API key); CORSMiddleware runs
-        #    outermost and answers these before they reach here.
+        #    the UI's own /v1 and /api/studio fetches still carry it).
+        # Valid configured CORS preflights are answered by the outermost
+        # CORSMiddleware before they reach this authentication boundary.
         path = request.url.path
-        if (
-            path in _PUBLIC_HEALTH_PATHS
-            or path == "/console"
-            or path.startswith("/console/")
-            or request.method == "OPTIONS"
-        ):
+        if path in _PUBLIC_HEALTH_PATHS or path == "/console" or path.startswith("/console/"):
             cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
             set_correlation_id(cid)
             response = await call_next(request)

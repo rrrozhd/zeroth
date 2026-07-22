@@ -450,6 +450,70 @@ def test_gateway_routes_are_absent_when_disabled() -> None:
     assert "langgraph-gateway" not in {getattr(route, "name", None) for route in app.router.routes}
 
 
+def test_plain_options_requires_authentication_before_gateway_proxy() -> None:
+    proxy_calls = 0
+
+    class Proxy:
+        async def handle_http(self, _request):
+            nonlocal proxy_calls
+            proxy_calls += 1
+            return JSONResponse({"proxied": True})
+
+    app = create_app(
+        SimpleNamespace(
+            authenticator=ServiceAuthenticator(ServiceAuthConfig()),
+            audit_repository=None,
+            regulus_client=None,
+            langgraph_gateway_proxy=Proxy(),
+            langgraph_gateway_websocket_handler=object(),
+            langgraph_gateway_transport=None,
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.options("/info")
+
+    assert response.status_code == 401
+    assert proxy_calls == 0
+
+
+def test_valid_cors_preflight_is_handled_before_authentication_and_gateway(
+    monkeypatch,
+) -> None:
+    proxy_calls = 0
+
+    class Proxy:
+        async def handle_http(self, _request):
+            nonlocal proxy_calls
+            proxy_calls += 1
+            return JSONResponse({"proxied": True})
+
+    monkeypatch.setenv("ZEROTH_CONSOLE_CORS_ORIGINS", "https://console.example")
+    app = create_app(
+        SimpleNamespace(
+            authenticator=ServiceAuthenticator(ServiceAuthConfig()),
+            audit_repository=None,
+            regulus_client=None,
+            langgraph_gateway_proxy=Proxy(),
+            langgraph_gateway_websocket_handler=object(),
+            langgraph_gateway_transport=None,
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.options(
+            "/info",
+            headers={
+                "Origin": "https://console.example",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://console.example"
+    assert proxy_calls == 0
+
+
 @pytest.mark.parametrize("path", ["/health-private", "/healthz", "/health/extra"])
 def test_only_exact_native_health_paths_bypass_authentication(path: str) -> None:
     proxy_calls = 0
