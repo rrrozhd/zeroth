@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "interactions": [
+    {
+      "name": "lookup_weather",
+      "arguments": {"city": "Raleigh"},
+      "result": {"condition": "clear", "temperature_c": 23}
+    },
+    {
+      "name": "lookup_policy",
+      "arguments": {"policy_id": "policy-7"},
+      "result": {"decision": "allow", "version": "sha256:fixture"}
+    }
+  ]
+}

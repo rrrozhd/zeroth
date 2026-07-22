@@ -154,14 +154,20 @@ dev = [
     "testcontainers[postgres]>=4.14",
     "websockets>=15,<16",
 ]
+gateway-conformance = [
+    "langgraph==1.2.9",
+    "langgraph-api==0.11.1",
+    "langgraph-sdk==0.4.2",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not live'"
+addopts = "-m 'not live and not langgraph_conformance'"
 markers = [
     "live: marks tests requiring live API keys (deselect with '-m not live')",
     "postgres: marks tests exercising PostgreSQL-specific coordination",
+    "langgraph_conformance: pinned Agent Server compatibility release gate",
 ]
 
 [tool.ruff]
