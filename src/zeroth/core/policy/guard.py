@@ -8,14 +8,17 @@ to policy rules.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from zeroth.core.policy.models import (
     Capability,
     EnforcementResult,
     PolicyDecision,
     PolicyDefinition,
+    RunAdmissionResult,
 )
 from zeroth.core.policy.registry import CapabilityRegistry, PolicyRegistry
 
@@ -25,6 +28,19 @@ if TYPE_CHECKING:
     # The guard uses graph/node/run as values, never their classes at runtime.
     from zeroth.core.graph import Graph, Node
     from zeroth.core.runs import Run
+
+
+class RunAdmissionRequest(Protocol):
+    """Structural contract consumed by run admission policy evaluation."""
+
+    tenant_id: str
+    principal_id: str
+    roles: tuple[str, ...]
+    deployment_ref: str
+    assistant_id: str | None
+    input_classification: str
+    input_size_bytes: int
+    policy_bindings: tuple[str, ...]
 
 
 class PolicyGuard:
@@ -118,6 +134,79 @@ class PolicyGuard:
             timeout_override_seconds=self._timeout_override(policies),
             sandbox_strictness_mode=self._strictness_mode(policies),
         )
+
+    def evaluate_run_admission(self, request: RunAdmissionRequest) -> RunAdmissionResult:
+        """Evaluate only the policies explicitly bound to a run request."""
+        policies: dict[str, PolicyDefinition] = {}
+        try:
+            for ref in request.policy_bindings:
+                policy = self.policy_registry.resolve(ref)
+                policies[policy.policy_id] = policy
+        except KeyError:
+            return RunAdmissionResult(
+                allowed=False,
+                policy_version=self._admission_policy_version(list(policies.values())),
+                reason="zeroth.policy_unavailable",
+            )
+
+        resolved = list(policies.values())
+        policy_version = self._admission_policy_version(resolved)
+        roles = set(request.roles)
+        for policy in resolved:
+            if policy.allowed_tenants and request.tenant_id not in policy.allowed_tenants:
+                return self._policy_denial(policy_version)
+            if policy.allowed_principals and request.principal_id not in policy.allowed_principals:
+                return self._policy_denial(policy_version)
+            if policy.required_roles and not set(policy.required_roles) <= roles:
+                return self._policy_denial(policy_version)
+            if policy.allowed_assistants and request.assistant_id not in policy.allowed_assistants:
+                return self._policy_denial(policy_version)
+            if (
+                policy.allowed_deployments
+                and request.deployment_ref not in policy.allowed_deployments
+            ):
+                return self._policy_denial(policy_version)
+            if (
+                policy.allowed_input_classifications
+                and request.input_classification not in policy.allowed_input_classifications
+            ):
+                return self._policy_denial(policy_version)
+            if (
+                policy.max_input_bytes is not None
+                and request.input_size_bytes > policy.max_input_bytes
+            ):
+                return self._policy_denial(policy_version)
+
+        return RunAdmissionResult(allowed=True, policy_version=policy_version)
+
+    @staticmethod
+    def _policy_denial(policy_version: str) -> RunAdmissionResult:
+        return RunAdmissionResult(
+            allowed=False,
+            policy_version=policy_version,
+            reason="zeroth.policy_denied",
+        )
+
+    @staticmethod
+    def _admission_policy_version(policies: list[PolicyDefinition]) -> str:
+        fields = (
+            "allowed_tenants",
+            "allowed_principals",
+            "required_roles",
+            "allowed_assistants",
+            "allowed_deployments",
+            "allowed_input_classifications",
+        )
+        projection = []
+        for policy in policies:
+            item: dict[str, object] = {"policy_id": policy.policy_id}
+            for field in fields:
+                item[field] = sorted(set(getattr(policy, field)))
+            item["max_input_bytes"] = policy.max_input_bytes
+            projection.append(item)
+        projection.sort(key=lambda item: str(item["policy_id"]))
+        canonical = json.dumps(projection, sort_keys=True, separators=(",", ":"))
+        return f"sha256:{hashlib.sha256(canonical.encode()).hexdigest()}"
 
     def _allowed_capabilities(
         self,

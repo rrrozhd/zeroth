@@ -57,6 +57,25 @@ class PolicyDefinition(BaseModel):
     approval_required_for_side_effects: bool = False
     timeout_override_seconds: float | None = None
     sandbox_strictness_mode: str | None = None
+    allowed_tenants: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    allowed_principals: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    required_roles: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    allowed_assistants: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    allowed_deployments: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    allowed_input_classifications: list[str] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
+    max_input_bytes: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
+
+
+class RunAdmissionResult(BaseModel):
+    """Policy-only result for admitting a run-creating request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    policy_version: str
+    reason: str | None = None
 
 
 class EnforcementResult(BaseModel):
