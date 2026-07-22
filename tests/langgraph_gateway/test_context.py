@@ -178,6 +178,57 @@ def test_noncanonical_base64url_pad_bits_are_rejected(
     assert exc_info.value.code == "zeroth.invalid_context"
 
 
+@pytest.mark.parametrize(
+    "limit",
+    [
+        {"max_header_bytes": 1},
+        {"max_payload_bytes": 1},
+        {"max_signature_bytes": 1},
+        {"max_token_chars": 1},
+    ],
+    ids=["header", "payload", "signature", "total"],
+)
+def test_encode_rejects_output_exceeding_configured_limits(
+    signer: EnvHmacSigner, limit: dict[str, int]
+) -> None:
+    codec = ReservedContextCodec(signer, clock=lambda: 120, **limit)
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        codec.encode(_claims())
+
+    assert exc_info.value.code == "zeroth.context_signing_unavailable"
+    assert str(exc_info.value) == "reserved context signing is unavailable"
+    assert "tenant-a" not in str(exc_info.value)
+    assert "gateway-k1" not in str(exc_info.value)
+
+
+def test_successfully_encoded_boundary_token_decodes_with_same_codec(
+    signer: EnvHmacSigner,
+) -> None:
+    baseline = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+    header, payload, signature = baseline.split(".")
+    codec = ReservedContextCodec(
+        signer,
+        clock=lambda: 120,
+        max_token_chars=len(baseline),
+        max_header_bytes=len(base64.urlsafe_b64decode(header + "=" * (-len(header) % 4))),
+        max_payload_bytes=len(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))),
+        max_signature_bytes=len(base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))),
+    )
+
+    token = codec.encode(_claims())
+
+    assert token == baseline
+    assert (
+        codec.decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+        == _claims()
+    )
+
+
 def test_decode_rejects_oversized_total_token(signer: EnvHmacSigner) -> None:
     token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
     codec = ReservedContextCodec(signer, clock=lambda: 120, max_token_chars=len(token) - 1)

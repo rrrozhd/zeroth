@@ -107,16 +107,20 @@ class ReservedContextCodec:
                 "typ": _CONTEXT_TYPE,
                 "v": _SCHEMA_VERSION,
             }
-            header_part = _encode_segment(_canonical_json(header))
-            payload_part = _encode_segment(
-                _canonical_json(claims.model_dump(mode="json", exclude_none=True))
+            header_part = _encode_bounded_segment(_canonical_json(header), self._max_header_bytes)
+            payload_part = _encode_bounded_segment(
+                _canonical_json(claims.model_dump(mode="json", exclude_none=True)),
+                self._max_payload_bytes,
             )
             signing_input = f"{header_part}.{payload_part}".encode("ascii")
             signature = self._signer.sign(signing_input)
             if type(signature) is not bytes or not signature:
                 raise ValueError("invalid signature")
-            signature_part = _encode_segment(signature)
-            return f"{header_part}.{payload_part}.{signature_part}"
+            signature_part = _encode_bounded_segment(signature, self._max_signature_bytes)
+            token = f"{header_part}.{payload_part}.{signature_part}"
+            if len(token) > self._max_token_chars:
+                raise ValueError("context token exceeds maximum size")
+            return token
         except Exception:
             raise GatewayContextError(
                 _SIGNING_UNAVAILABLE, "reserved context signing is unavailable"
@@ -297,6 +301,14 @@ def _clone_json_value(value: object) -> object:
 
 def _encode_segment(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _encode_bounded_segment(value: bytes, max_bytes: int) -> str:
+    if len(value) > max_bytes:
+        raise ValueError("context segment exceeds maximum size")
+    encoded = _encode_segment(value)
+    _validate_segment_encoding(encoded, max_bytes)
+    return encoded
 
 
 def _validate_segment_encoding(value: str, max_bytes: int) -> None:
