@@ -379,7 +379,15 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             if routes is not None:
                 inbound_edge_id = envelope.causal_inbound_edge_id or routes[envelope.token_id]
                 edge = next(item for item in graph.edges if item.edge_id == inbound_edge_id)
-                await self._route_join(graph, run, claim, edge, input_payload, delivered=True)
+                await self._route_join(
+                    graph,
+                    run,
+                    claim,
+                    edge,
+                    input_payload,
+                    delivered=True,
+                    precomputed_delivery=PayloadDelivery(payload=cast(JsonValue, input_payload)),
+                )
                 return None
         run.current_node_ids = [node.node_id]
         run.current_step = node.node_id

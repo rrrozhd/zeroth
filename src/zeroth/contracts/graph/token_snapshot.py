@@ -12,6 +12,7 @@ from zeroth.contracts.graph.tokens import (
     DeferredJoinDelivery,
     DispatchLifecycleState,
     ForkInstance,
+    ForkLifecycleState,
     ForkObligationOutcome,
     InFlightDispatch,
     IterationMemberState,
@@ -112,9 +113,7 @@ class TokenEngineSnapshot(BaseModel):
         fork_ids = tuple(item.fork_id for item in self.forks)
         join_ids = tuple(item.join_instance_id for item in self.joins)
         loop_ids = tuple(item.loop_instance_id for item in self.loops)
-        deferred_delivery_ids = tuple(
-            item.delivery_id for item in self.deferred_join_deliveries
-        )
+        deferred_delivery_ids = tuple(item.delivery_id for item in self.deferred_join_deliveries)
         dispatch_ids = tuple(item.dispatch_id for item in self.in_flight_dispatches)
         frame_ids = tuple(frame.iteration_frame_id for loop in self.loops for frame in loop.frames)
         obligation_ids = tuple(
@@ -153,15 +152,11 @@ class TokenEngineSnapshot(BaseModel):
             if any(token.scheduling_state is not SchedulingState.SETTLED for token in self.tokens):
                 raise ValueError("a CANCELLED snapshot may retain only settled tokens")
             if any(
-                obligation.outcome is None
-                for fork in self.forks
-                for obligation in fork.obligations
+                obligation.outcome is None for fork in self.forks for obligation in fork.obligations
             ):
                 raise ValueError("a CANCELLED snapshot cannot retain open fork obligations")
             if any(
-                obligation.outcome is None
-                for join in self.joins
-                for obligation in join.obligations
+                obligation.outcome is None for join in self.joins for obligation in join.obligations
             ):
                 raise ValueError("a CANCELLED snapshot cannot retain open join obligations")
             if any(
@@ -192,13 +187,11 @@ class TokenEngineSnapshot(BaseModel):
         }
 
         if any(
-            delivery.source_token_id not in tokens
-            for delivery in self.deferred_join_deliveries
+            delivery.source_token_id not in tokens for delivery in self.deferred_join_deliveries
         ):
             raise ValueError("deferred join delivery references a missing source token")
         if any(
-            delivery.created_revision > self.revision
-            for delivery in self.deferred_join_deliveries
+            delivery.created_revision > self.revision for delivery in self.deferred_join_deliveries
         ):
             raise ValueError("deferred join delivery cannot be newer than its snapshot")
 
@@ -285,19 +278,16 @@ class TokenEngineSnapshot(BaseModel):
                 }:
                     if source.scheduling_state is not SchedulingState.SETTLED:
                         raise ValueError("a settled join obligation source must be durably SETTLED")
-                elif (
-                    source.scheduling_state is SchedulingState.SETTLED
-                    and (
-                        (
-                            self.state is TokenEngineSnapshotState.CANCELLED
-                            and obligation.outcome is not None
-                        )
-                        or (
-                            obligation.outcome is JoinObligationOutcome.CANCELLED
-                            and (
-                                source.cancellation_acknowledged_generation is not None
-                                or join.failure_mode == "fail_fast"
-                            )
+                elif source.scheduling_state is SchedulingState.SETTLED and (
+                    (
+                        self.state is TokenEngineSnapshotState.CANCELLED
+                        and obligation.outcome is not None
+                    )
+                    or (
+                        obligation.outcome is JoinObligationOutcome.CANCELLED
+                        and (
+                            source.cancellation_acknowledged_generation is not None
+                            or join.failure_mode == "fail_fast"
                         )
                     )
                 ):
@@ -313,6 +303,25 @@ class TokenEngineSnapshot(BaseModel):
                     waiting_locations[source.token_id] = (
                         waiting_locations.get(source.token_id, 0) + 1
                     )
+                elif source.scheduling_state is SchedulingState.SETTLED and any(
+                    nested.parent_fork_id == join.fork_id
+                    and nested.parent_token_id == source.token_id
+                    and (
+                        nested.lifecycle_state is not ForkLifecycleState.CLOSED
+                        or any(
+                            inner_join.fork_id == nested.fork_id
+                            and inner_join.target_node_id == join.target_node_id
+                            and inner_join.lifecycle_state
+                            in {JoinLifecycleState.READY, JoinLifecycleState.REDUCING}
+                            for inner_join in self.joins
+                        )
+                    )
+                    for nested in self.forks
+                ):
+                    # A nested fork temporarily owns this unresolved outer
+                    # obligation. Its single reduced continuation replaces the
+                    # settled parent source when the inner cohort closes.
+                    pass
                 elif source.scheduling_state is SchedulingState.SETTLED:
                     raise ValueError(
                         "an unsettled join obligation source cannot already be settled"
@@ -649,9 +658,7 @@ class TokenEngineSnapshot(BaseModel):
         component_revisions.extend(item.updated_revision for item in self.joins)
         component_revisions.extend(item.updated_revision for item in self.loops)
         component_revisions.extend(item.updated_revision for item in self.in_flight_dispatches)
-        component_revisions.extend(
-            item.created_revision for item in self.deferred_join_deliveries
-        )
+        component_revisions.extend(item.created_revision for item in self.deferred_join_deliveries)
         if self.cancellation_fence is not None:
             component_revisions.append(self.cancellation_fence.state_revision)
         if any(revision > self.revision for revision in component_revisions):

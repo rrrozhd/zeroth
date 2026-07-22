@@ -18,6 +18,7 @@ from zeroth.contracts.graph.tokens import (
     IterationMemberState,
     JoinInstance,
     JoinLifecycleState,
+    JoinObligation,
     JoinObligationOutcome,
     SchedulingState,
     TokenEnvelope,
@@ -129,6 +130,62 @@ def _transfer_outer_fork(
     return _replace_fork(forks, replacement)
 
 
+def _transfer_outer_join(
+    joins: tuple[JoinInstance, ...],
+    inner_fork: ForkInstance,
+    inner_join: JoinInstance,
+    continuation: TokenEnvelope,
+    revision: int,
+) -> tuple[JoinInstance, ...]:
+    """Move an unresolved outer arrival slot onto one reduced inner outcome."""
+    if inner_fork.parent_fork_id is None:
+        return joins
+    delivered = [
+        item for item in inner_join.obligations if item.outcome is JoinObligationOutcome.DELIVERED
+    ]
+    representative = (delivered or list(inner_join.obligations))[0].inbound_edge_id
+    updated = joins
+    for outer in joins:
+        if (
+            outer.fork_id != inner_fork.parent_fork_id
+            or outer.target_node_id != inner_join.target_node_id
+            or outer.lifecycle_state is not JoinLifecycleState.OPEN
+        ):
+            continue
+        obligations: list[JoinObligation] = []
+        matched = False
+        for obligation in outer.obligations:
+            if obligation.source_token_id != inner_fork.parent_token_id:
+                obligations.append(obligation)
+                continue
+            if obligation.outcome is not None:
+                raise TokenJoinTransitionError(
+                    "nested join cannot replace an already-resolved outer obligation"
+                )
+            matched = True
+            obligations.append(
+                JoinObligation.model_validate(
+                    {
+                        **_model_data(obligation),
+                        "source_token_id": continuation.token_id,
+                        "inbound_edge_id": representative,
+                    }
+                )
+            )
+        if matched:
+            updated = _replace_join(
+                updated,
+                JoinInstance.model_validate(
+                    {
+                        **_model_data(outer),
+                        "obligations": tuple(obligations),
+                        "updated_revision": revision,
+                    }
+                ),
+            )
+    return updated
+
+
 def close_ready_join(
     snapshot: TokenEngineSnapshot,
     join_instance_id: str,
@@ -237,6 +294,13 @@ def close_ready_join(
         }
     )
     forks = _transfer_outer_fork(snapshot.forks, inner_fork, continuation, revision)
+    joins = _transfer_outer_join(
+        _replace_join(snapshot.joins, updated_join),
+        inner_fork,
+        updated_join,
+        continuation,
+        revision,
+    )
     loops = snapshot.loops
     outcomes_by_token = {item.source_token_id: item.outcome for item in join.obligations}
     for index, source in enumerate(sources):
@@ -267,7 +331,7 @@ def close_ready_join(
         queue=(*snapshot.queue, continuation),
         tokens=tokens,
         forks=forks,
-        joins=_replace_join(snapshot.joins, updated_join),
+        joins=joins,
         loops=loops,
     )
 

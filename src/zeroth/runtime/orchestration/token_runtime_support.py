@@ -286,17 +286,22 @@ class TokenRuntimeSupport:
         output_data: Mapping[str, Any],
         *,
         delivered: bool,
+        precomputed_delivery: PayloadDelivery | None = None,
     ) -> TokenEngineSnapshot:
         dispatch = claim.dispatch
         routes = self._cohort_routes(graph, claim.snapshot, dispatch.token, edge.target_node_id)
         if delivered:
-            payload = self.driver.edge_payload(
-                graph,
-                run,
-                edge.source_node_id,
-                edge.target_node_id,
-                output_data,
-                edge,
+            payload = (
+                precomputed_delivery.model_dump(mode="json")["payload"]
+                if precomputed_delivery is not None
+                else self.driver.edge_payload(
+                    graph,
+                    run,
+                    edge.source_node_id,
+                    edge.target_node_id,
+                    output_data,
+                    edge,
+                )
             )
             transition = partial(
                 deliver_to_join,
@@ -420,7 +425,7 @@ class TokenRuntimeSupport:
         target = target_node_id
         tokens = {item.token_id: item for item in snapshot.tokens}
         routes: dict[str, str] = {}
-        ambiguous: tuple[str, int] | None = None
+        edge_order = {edge.edge_id: index for index, edge in enumerate(graph.edges)}
         for child in fork.children:
             child_token = tokens[child.token_id]
             if (
@@ -436,22 +441,20 @@ class TokenRuntimeSupport:
                     for item in snapshot.joins
                     if item.continuation_token_id == child_token.token_id
                 )
-                edge_order = {edge.edge_id: index for index, edge in enumerate(graph.edges)}
-                candidates = {item.inbound_edge_id for item in join.obligations}
+                delivered = {
+                    item.inbound_edge_id
+                    for item in join.obligations
+                    if item.outcome is JoinObligationOutcome.DELIVERED
+                }
+                candidates = delivered or {item.inbound_edge_id for item in join.obligations}
                 inbound = [min(candidates, key=edge_order.__getitem__)]
             else:
                 inbound = self._reachable_inbound_edges(graph, child_token.current_node_id, target)
             if not inbound:
                 return None
             if len(inbound) != 1:
-                ambiguous = (child.token_id, len(inbound))
-                continue
+                inbound = [min(inbound, key=edge_order.__getitem__)]
             routes[child.token_id] = inbound[0]
-        if ambiguous is not None:
-            child_id, count = ambiguous
-            raise TokenRuntimeUnsupportedError(
-                f"fork child {child_id!r} has {count} routes to join {target!r}"
-            )
         return routes
 
     @staticmethod
