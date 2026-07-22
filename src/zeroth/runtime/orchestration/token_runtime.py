@@ -377,10 +377,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             )
             routes = self._cohort_routes_if_reachable(graph, claim.snapshot, fork, node.node_id)
             if routes is not None:
-                inbound_edge_id = (
-                    envelope.causal_inbound_edge_id
-                    or self._continuation_inbound_edge(claim.snapshot, envelope.token_id)
-                )
+                inbound_edge_id = envelope.causal_inbound_edge_id or routes[envelope.token_id]
                 edge = next(item for item in graph.edges if item.edge_id == inbound_edge_id)
                 await self._route_join(graph, run, claim, edge, input_payload, delivered=True)
                 return None

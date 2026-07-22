@@ -206,11 +206,12 @@ class TokenRuntimeSupport:
             ordered.append((inbound_edge_id, current_delivery.model_dump(mode="json")["payload"]))
         ordered.sort(key=lambda item: edge_order[item[0]])
         merged_payload = merge_payloads([payload for _, payload in ordered])
+        causal_inbound_edge_id = ordered[0][0]
         revision = snapshot.revision + 1
         continuation = _updated_token(
             dispatch.token,
             current_node_id=target_node_id,
-            causal_inbound_edge_id=inbound_edge_id,
+            causal_inbound_edge_id=causal_inbound_edge_id,
             payload=merged_payload,
             retry_attempt=0,
             scheduling_state=SchedulingState.QUEUED,
@@ -435,7 +436,9 @@ class TokenRuntimeSupport:
                     for item in snapshot.joins
                     if item.continuation_token_id == child_token.token_id
                 )
-                inbound = sorted({item.inbound_edge_id for item in join.obligations})
+                edge_order = {edge.edge_id: index for index, edge in enumerate(graph.edges)}
+                candidates = {item.inbound_edge_id for item in join.obligations}
+                inbound = [min(candidates, key=edge_order.__getitem__)]
             else:
                 inbound = self._reachable_inbound_edges(graph, child_token.current_node_id, target)
             if not inbound:

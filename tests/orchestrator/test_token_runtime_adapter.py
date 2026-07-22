@@ -320,6 +320,14 @@ async def test_default_on_nested_diamond_resolves_join_and_other_successor_once(
         )
         is deferred
     )
+    queued_target = next(
+        token
+        for snapshot in store.history
+        if not snapshot.deferred_join_deliveries
+        for token in snapshot.queue
+        if token.current_node_id == "T"
+    )
+    assert queued_target.causal_inbound_edge_id == "B-T"
 
 
 def test_stale_completion_cannot_append_deferred_join_delivery_after_cancellation() -> None:
@@ -398,6 +406,56 @@ async def test_default_on_nested_fanout_inner_join_preserves_outer_ownership(sql
     ]
     assert sum(entry.node_id == "J" for entry in run.execution_history) == 1
     assert sum(entry.node_id == "T" for entry in run.execution_history) == 1
+    assert store.snapshot is not None
+    assert store.snapshot.state is TokenEngineSnapshotState.COMPLETED
+
+
+async def test_nested_inner_and_outer_cohorts_reconverge_at_same_join(sqlite_db) -> None:
+    node_ids = ("A", "X", "Y", "B", "C", "J", "T")
+    nodes = {node_id: _node(node_id) for node_id in node_ids}
+    for node in nodes.values():
+        node.input_contract_ref = "contract://input"
+        node.output_contract_ref = "contract://output"
+    nodes["J"].join_config = JoinConfig(merge_strategy="merge")
+    graph = Graph(
+        graph_id="token-nested-shared-join",
+        name="token-nested-shared-join",
+        entry_step="A",
+        execution_settings=ExecutionSettings(),
+        nodes=list(nodes.values()),
+        edges=[
+            Edge(edge_id="A-X", source_node_id="A", target_node_id="X"),
+            Edge(edge_id="A-Y", source_node_id="A", target_node_id="Y"),
+            Edge(edge_id="X-B", source_node_id="X", target_node_id="B"),
+            Edge(edge_id="X-C", source_node_id="X", target_node_id="C"),
+            Edge(edge_id="B-J", source_node_id="B", target_node_id="J"),
+            Edge(edge_id="C-J", source_node_id="C", target_node_id="J"),
+            Edge(edge_id="Y-J", source_node_id="Y", target_node_id="J"),
+            Edge(edge_id="J-T", source_node_id="J", target_node_id="T"),
+        ],
+    )
+    report = await GraphValidator().validate(graph)
+    assert report.is_valid, report.issues
+    store = ReloadingMemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in node_ids},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert run.status is RunStatus.COMPLETED, run.error
+    assert [entry.node_id for entry in run.execution_history] == [
+        "A",
+        "X",
+        "B",
+        "C",
+        "Y",
+        "J",
+        "T",
+    ]
+    assert sum(entry.node_id == "J" for entry in run.execution_history) == 1
     assert store.snapshot is not None
     assert store.snapshot.state is TokenEngineSnapshotState.COMPLETED
 
