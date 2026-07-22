@@ -545,7 +545,10 @@ async def test_nested_shared_join_does_not_reapply_representative_edge_mapping(
     assert run.final_output == {"value": 22}
 
 
-async def test_nested_shared_join_all_suppressed_inner_settles_outer_slot(sqlite_db) -> None:
+@pytest.mark.parametrize("outer_x_first", [True, False], ids=("inner-first", "sibling-first"))
+async def test_nested_shared_join_all_suppressed_inner_settles_outer_slot(
+    sqlite_db, outer_x_first
+) -> None:
     node_ids = ("A", "X", "Y", "B", "C", "J", "T")
     nodes = {node_id: _node(node_id) for node_id in node_ids}
     for node in nodes.values():
@@ -559,8 +562,17 @@ async def test_nested_shared_join_all_suppressed_inner_settles_outer_slot(sqlite
         execution_settings=ExecutionSettings(),
         nodes=list(nodes.values()),
         edges=[
-            Edge(edge_id="A-Y", source_node_id="A", target_node_id="Y"),
-            Edge(edge_id="A-X", source_node_id="A", target_node_id="X"),
+            *(
+                [
+                    Edge(edge_id="A-X", source_node_id="A", target_node_id="X"),
+                    Edge(edge_id="A-Y", source_node_id="A", target_node_id="Y"),
+                ]
+                if outer_x_first
+                else [
+                    Edge(edge_id="A-Y", source_node_id="A", target_node_id="Y"),
+                    Edge(edge_id="A-X", source_node_id="A", target_node_id="X"),
+                ]
+            ),
             Edge(edge_id="X-B", source_node_id="X", target_node_id="B"),
             Edge(edge_id="X-C", source_node_id="X", target_node_id="C"),
             Edge(
@@ -591,12 +603,10 @@ async def test_nested_shared_join_all_suppressed_inner_settles_outer_slot(sqlite
     run = await orchestrator.run_graph(graph, {"value": 0})
 
     assert run.status is RunStatus.COMPLETED, run.error
+    expected_middle = ["X", "B", "C", "Y"] if outer_x_first else ["Y", "X", "B", "C"]
     assert [entry.node_id for entry in run.execution_history] == [
         "A",
-        "Y",
-        "X",
-        "B",
-        "C",
+        *expected_middle,
         "J",
         "T",
     ]

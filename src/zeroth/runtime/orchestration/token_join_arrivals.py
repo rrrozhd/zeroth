@@ -171,6 +171,12 @@ def _settle_arrival(
 
     revision = snapshot.revision + 1
     if join is None:
+        fork_outcomes = {item.child_token_id: item for item in fork.obligations}
+        inherited_outcomes = {
+            ForkObligationOutcome.SUPPRESSED: JoinObligationOutcome.SUPPRESSED,
+            ForkObligationOutcome.FAILED: JoinObligationOutcome.FAILED,
+            ForkObligationOutcome.CANCELLED: JoinObligationOutcome.CANCELLED,
+        }
         obligations = [
             JoinObligation(
                 obligation_id=_stable_id("jobl", snapshot.run_id, join_id, ordinal),
@@ -179,9 +185,25 @@ def _settle_arrival(
                 source_token_id=source_id,
                 inbound_edge_id=edge_id,
                 child_ordinal=ordinal,
+                outcome=inherited_outcomes.get(fork_outcomes[source_id].outcome),
+                settled_revision=(
+                    revision
+                    if fork_outcomes[source_id].outcome in inherited_outcomes
+                    else None
+                ),
             )
             for source_id, edge_id, ordinal in routes
         ]
+        if failure_mode == "fail_fast" and any(
+            item.outcome
+            in {
+                JoinObligationOutcome.FAILED,
+                JoinObligationOutcome.CANCELLED,
+            }
+            for item in obligations
+        ):
+            outcome = JoinObligationOutcome.CANCELLED
+            delivery = None
         created_revision = revision
     else:
         registered = tuple(
