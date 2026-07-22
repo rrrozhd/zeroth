@@ -121,7 +121,7 @@ class GatewayProxy:
         decision: AdmissionDecision | None = None
         input_sha256: str | None = None
         input_size_bytes: int | None = None
-        request_identifiers = _path_identifiers(request.url.path)
+        request_identifiers = _path_identifiers(rule, request.url.path)
 
         try:
             principal = self._principal_resolver(request)
@@ -234,7 +234,7 @@ class GatewayProxy:
                         roles=tuple(str(role) for role in principal.roles),
                         deployment_ref=self._required_setting("deployment_ref"),
                         assistant_id=_optional_identifier(target.get("assistant_id")),
-                        thread_id=_thread_id(request.url.path),
+                        thread_id=request_identifiers.get("thread_id"),
                         operation=operation,
                         input_payload=target.get("input"),
                         input_size_bytes=len(raw_body),
@@ -715,25 +715,24 @@ def _optional_identifier(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _thread_id(path: str) -> str | None:
-    parts = path.strip("/").split("/")
-    return parts[1] if len(parts) > 2 and parts[0] == "threads" else None
-
-
-def _path_identifiers(path: str) -> dict[str, str]:
-    """Extract only identifiers that are unambiguous in the claimed URL shape."""
-    parts = path.strip("/").split("/")
+def _path_identifiers(rule: EndpointRule | None, path: str) -> dict[str, str]:
+    """Extract identifiers only from declared placeholders in a matched rule."""
+    if rule is None:
+        return {}
+    template_parts = rule.path_template.strip("/").split("/")
+    path_parts = path.strip("/").split("/")
+    if len(template_parts) != len(path_parts):
+        return {}
     identifiers: dict[str, str] = {}
-    if len(parts) >= 2 and parts[0] == "threads" and parts[1]:
-        identifiers["thread_id"] = parts[1]
-    if (
-        len(parts) >= 4
-        and parts[0] == "threads"
-        and parts[2] == "runs"
-        and parts[3]
-        and parts[3] not in {"stream", "wait"}
-    ):
-        identifiers["run_id"] = parts[3]
+    identifier_placeholders = {
+        "{thread_id}": "thread_id",
+        "{assistant_id}": "assistant_id",
+        "{run_id}": "run_id",
+    }
+    for template_part, path_part in zip(template_parts, path_parts, strict=True):
+        key = identifier_placeholders.get(template_part)
+        if key is not None and path_part:
+            identifiers[key] = path_part
     return identifiers
 
 

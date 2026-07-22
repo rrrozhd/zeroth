@@ -1524,3 +1524,74 @@ async def test_unvalidated_or_incomplete_body_does_not_create_input_fingerprint(
     assert "incomplete" not in event.model_dump_json()
     assert "not-safely-known" not in event.model_dump_json()
     await transport.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "expected_identifiers"),
+    [
+        ("POST", "/threads/search", {}),
+        ("POST", "/threads", {}),
+        ("POST", "/assistants/search", {}),
+        ("GET", "/ok", {}),
+        ("POST", "/threads/thread-4/state/checkpoint", {"thread_id": "thread-4"}),
+        ("GET", "/assistants/assistant-3", {"assistant_id": "assistant-3"}),
+        (
+            "GET",
+            "/threads/thread-4/runs/run-5/join",
+            {"thread_id": "thread-4", "run_id": "run-5"},
+        ),
+    ],
+)
+async def test_terminal_audit_extracts_only_declared_path_template_identifiers(
+    method, path, expected_identifiers
+):
+    calls = 0
+    sink = RecordingEventSink()
+
+    async def upstream(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(204)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+        upstream_credential_ref="missing.credential",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+    )
+    request = authenticated_empty_request(path)
+    request.scope["method"] = method
+
+    response = await proxy.handle_http(request)
+
+    assert response.status_code == 503
+    assert json.loads(response.body)["code"] == "zeroth.upstream_credential_unavailable"
+    assert calls == 0
+    [event] = sink.events
+    actual = {
+        key: value
+        for key, value in {
+            "thread_id": event.correlation.thread_id,
+            "assistant_id": event.correlation.assistant_id,
+            "run_id": event.correlation.run_id,
+        }.items()
+        if value is not None
+    }
+    assert actual == expected_identifiers
+    await transport.aclose()
