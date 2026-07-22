@@ -12,7 +12,15 @@ import re
 from typing import Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    AnyHttpUrl,
+    BaseModel,
+    Field,
+    SecretStr,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -28,6 +36,7 @@ from zeroth.core.http.models import HttpClientSettings
 # single upgrade flows into pgvector, chroma, and bootstrap wiring.
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_EMBEDDING_DIMENSIONS = 1536
+_HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
 
 
 class DatabaseSettings(BaseModel):
@@ -296,8 +305,25 @@ class LangGraphGatewaySettings(BaseModel):
         """Require an absolute HTTP(S) upstream URL when one is supplied."""
         if value is None:
             return None
-        parsed = urlsplit(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if value != value.strip():
+            raise ValueError("upstream_url must be an absolute HTTP(S) URL")
+        try:
+            _HTTP_URL_ADAPTER.validate_python(value)
+            parsed = urlsplit(value)
+            # Accessing these properties validates bracketed hosts and ports.
+            hostname = parsed.hostname
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("upstream_url must be an absolute HTTP(S) URL") from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or (port is not None and not 0 <= port <= 65_535)
+        ):
             raise ValueError("upstream_url must be an absolute HTTP(S) URL")
         return value.rstrip("/")
 

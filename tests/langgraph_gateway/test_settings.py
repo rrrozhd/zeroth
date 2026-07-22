@@ -42,11 +42,41 @@ def test_gateway_enabled_rejects_blank_identity_values(field):
 
 @pytest.mark.parametrize(
     "url",
-    ["agent-server:8123", "/agent-server", "ftp://agent-server/openapi.json"],
+    [
+        "agent-server:8123",
+        "/agent-server",
+        "ftp://agent-server/openapi.json",
+        "http://:8123",
+        "http://exa mple.com",
+        "http://example.com:abc",
+        " http://example.com",
+        "http://example.com ",
+        "http://user:password@example.com",
+        "http://@example.com",
+        "http://example.com?region=us",
+        "http://example.com#fragment",
+        "http://example.com:70000",
+        "http://[::1",
+    ],
 )
 def test_upstream_url_must_be_absolute_http_or_https(url):
     with pytest.raises(ValidationError):
         LangGraphGatewaySettings(**(VALID_ENABLED | {"upstream_url": url}))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://agent-server",
+        "https://agent-server:8123/base/path",
+        "http://127.0.0.1:8123",
+        "http://[::1]:8123/base",
+    ],
+)
+def test_upstream_url_accepts_valid_http_authorities(url):
+    settings = LangGraphGatewaySettings(**(VALID_ENABLED | {"upstream_url": url}))
+
+    assert settings.upstream_url == url
 
 
 @pytest.mark.parametrize(
