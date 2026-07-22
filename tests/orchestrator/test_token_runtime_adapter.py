@@ -234,15 +234,16 @@ async def test_flag_on_diamond_closes_structured_join_once(sqlite_db) -> None:
 
 
 @pytest.mark.parametrize(
-    ("downstream_condition", "expected_final"),
+    ("upstream_condition", "downstream_condition", "expected_final"),
     [
-        (None, {"value": 4}),
-        (Condition(expression="payload.value < 0"), {"value": 3}),
+        (None, None, {"value": 4}),
+        (None, Condition(expression="payload.value < 0"), {"value": 3}),
+        (Condition(expression="payload.value < 0"), None, {"value": 4}),
     ],
-    ids=("both-delivered", "downstream-suppressed"),
+    ids=("both-delivered", "downstream-suppressed", "upstream-suppressed"),
 )
 async def test_default_on_nested_diamond_resolves_join_and_other_successor_once(
-    sqlite_db, downstream_condition, expected_final
+    sqlite_db, upstream_condition, downstream_condition, expected_final
 ) -> None:
     nodes = {node_id: _node(node_id) for node_id in ("A", "B", "C", "J", "T")}
     for node in nodes.values():
@@ -259,7 +260,12 @@ async def test_default_on_nested_diamond_resolves_join_and_other_successor_once(
         edges=[
             Edge(edge_id="A-B", source_node_id="A", target_node_id="B"),
             Edge(edge_id="A-C", source_node_id="A", target_node_id="C"),
-            Edge(edge_id="B-J", source_node_id="B", target_node_id="J"),
+            Edge(
+                edge_id="B-J",
+                source_node_id="B",
+                target_node_id="J",
+                condition=upstream_condition,
+            ),
             Edge(edge_id="B-T", source_node_id="B", target_node_id="T"),
             Edge(edge_id="C-J", source_node_id="C", target_node_id="J"),
             Edge(

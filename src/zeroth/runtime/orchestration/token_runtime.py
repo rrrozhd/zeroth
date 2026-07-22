@@ -682,13 +682,13 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             primary_join = next(
                 (
                     edge
-                    for edge in active_join
+                    for edge in join_edges
                     if all(
                         other is edge
                         or self._reachable_inbound_edges(
                             graph, edge.target_node_id, other.target_node_id
                         )
-                        for other in active_join
+                        for other in join_edges
                     )
                 ),
                 None,
@@ -743,7 +743,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     routed_claim,
                     primary_join,
                     output_data,
-                    delivered=True,
+                    delivered=primary_join in active,
                 )
                 transition = None
             elif len(join_edges) == 1 and mixed_active and suppressed_join:
