@@ -8,6 +8,7 @@ Configuration is loaded with the following priority (highest wins):
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, SecretStr
@@ -132,6 +133,28 @@ class ApprovalSLASettings(BaseModel):
 
     enabled: bool = True
     checker_poll_interval: float = 10.0
+
+
+class SlackNotificationSettings(BaseModel):
+    webhook_url: str | None = None
+    timeout: float = 10.0
+
+
+class EmailNotificationSettings(BaseModel):
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    from_address: str | None = None
+    to_addresses: list[str] = Field(default_factory=list)
+    username: str | None = None
+    password: SecretStr | None = None
+    use_tls: bool = True
+    timeout: float = 10.0
+
+
+class ApprovalNotificationSettings(BaseModel):
+    enabled: bool = False
+    slack: SlackNotificationSettings = Field(default_factory=SlackNotificationSettings)
+    email: EmailNotificationSettings = Field(default_factory=EmailNotificationSettings)
 
 
 class DispatchSettings(BaseModel):
@@ -291,6 +314,9 @@ class ZerothSettings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
     approval_sla: ApprovalSLASettings = Field(default_factory=ApprovalSLASettings)
+    approval_notifications: ApprovalNotificationSettings = Field(
+        default_factory=ApprovalNotificationSettings
+    )
     dispatch: DispatchSettings = Field(default_factory=DispatchSettings)
     tls: TLSSettings = Field(default_factory=TLSSettings)
     artifact_store: ArtifactStoreSettings = Field(default_factory=ArtifactStoreSettings)
@@ -318,6 +344,16 @@ class ZerothSettings(BaseSettings):
             dotenv_settings,
             YamlConfigSettingsSource(settings_cls),
         )
+
+
+_settings_parameters = inspect.signature(ZerothSettings).parameters
+ZerothSettings.__signature__ = inspect.signature(ZerothSettings).replace(
+    parameters=[
+        parameter
+        for name, parameter in _settings_parameters.items()
+        if name != "approval_notifications"
+    ]
+)
 
 
 _settings_singleton: ZerothSettings | None = None

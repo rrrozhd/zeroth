@@ -134,6 +134,20 @@ Approval SLA timeout and escalation configuration.
 | `ZEROTH_APPROVAL_SLA__ENABLED` | `bool` | `True` |  |  |
 | `ZEROTH_APPROVAL_SLA__CHECKER_POLL_INTERVAL` | `float` | `10.0` |  |  |
 
+## Approval Notifications
+
+Proactive Slack and SMTP approval notifications are opt-in and disabled by default.
+Messages contain approval identifiers and summaries, never approval payloads.
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__ENABLED` | `bool` | `False` |  | Enable configured transports. |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__SLACK__WEBHOOK_URL` | `str` |  | yes | Slack incoming webhook URL. |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__EMAIL__SMTP_HOST` | `str` |  |  | SMTP server hostname. |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__EMAIL__FROM_ADDRESS` | `str` |  |  | Sender address. |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__EMAIL__TO_ADDRESSES` | `list[str]` | `[]` |  | Reviewer recipients. |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__EMAIL__PASSWORD` | `str` |  | yes | SMTP password. |
+
 ## Dispatch
 
 Dispatch and horizontal scaling configuration.

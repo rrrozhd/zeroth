@@ -13,6 +13,7 @@ from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
+from zeroth.governance.approvals.notifications import build_approval_notifier
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.governance.guardrails.dead_letter import DeadLetterManager
@@ -152,6 +153,7 @@ async def bootstrap_service(
 
     # Phase 13: Regulus economics integration.
     settings = get_settings()
+    approval_service.notifier = build_approval_notifier(settings.approval_notifications)
     # OBS: enable OpenTelemetry tracing when configured (no-op when disabled).
     configure_tracing(settings.tracing)
     regulus_client: RegulusClient | None = None
