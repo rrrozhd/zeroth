@@ -42,6 +42,7 @@ from zeroth.service.api.authentication import (
     ServiceAuthConfig,
     ServiceAuthenticator,
 )
+from zeroth.service.api.authorization import RoleRegistry
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap.container import DeploymentBootstrapError, ServiceBootstrap
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
@@ -118,6 +119,7 @@ async def bootstrap_service(
         resolved_auth_config,
         bearer_verifier=bearer_token_verifier,
     )
+    role_registry = RoleRegistry.from_config(resolved_auth_config.custom_roles)
 
     # Phase 9: durable dispatch, guardrails, observability.
     resolved_guardrail_config = guardrail_config or GuardrailConfig()
@@ -472,7 +474,7 @@ async def bootstrap_service(
             poll_interval=settings.retention.worker_poll_interval,
         )
 
-    return ServiceBootstrap(
+    bootstrap = ServiceBootstrap(
         database=database,
         graph_repository=graph_repository,
         deployment_service=deployment_service,
@@ -519,6 +521,8 @@ async def bootstrap_service(
         retention_erasure_service=retention_erasure_service,
         retention_worker=retention_worker_obj,
     )
+    bootstrap.role_registry = role_registry
+    return bootstrap
 
 
 async def bootstrap_app(

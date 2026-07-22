@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -48,6 +48,7 @@ class ServiceBootstrap:
     orchestrator: RuntimeOrchestrator
     auth_config: ServiceAuthConfig
     authenticator: ServiceAuthenticator
+    role_registry: object = field(default_factory=lambda: _default_role_registry(), init=False)
     # Phase 9 additions (optional so existing tests don't break).
     worker: RunWorker | None = None
     lease_manager: LeaseManager | None = None
@@ -106,3 +107,9 @@ class ServiceBootstrap:
     retention_log_repository: object | None = None
     retention_erasure_service: object | None = None
     retention_worker: object | None = None
+
+
+def _default_role_registry() -> object:
+    from zeroth.service.api.authorization import RoleRegistry
+
+    return RoleRegistry()

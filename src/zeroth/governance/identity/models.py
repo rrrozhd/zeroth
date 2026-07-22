@@ -16,12 +16,27 @@ class AuthMethod(StrEnum):
 
 
 class ServiceRole(StrEnum):
-    """Service roles used by route authorization."""
+    """Built-in service roles used by route authorization.
+
+    Deployments may add custom role names through service configuration.
+    Principals therefore carry strings while this enum remains the stable
+    catalogue of built-in names.
+    """
 
     OPERATOR = "operator"
     REVIEWER = "reviewer"
     ADMIN = "admin"
     PLATFORM_ADMIN = "platform_admin"
+
+    @classmethod
+    def _missing_(cls, value: object) -> ServiceRole | None:
+        """Represent deployment-defined role names without widening public models."""
+        if not isinstance(value, str) or not value:
+            return None
+        member = str.__new__(cls, value)
+        member._name_ = f"CUSTOM_{value}"
+        member._value_ = value
+        return member
 
 
 class PrincipalScope(BaseModel):
