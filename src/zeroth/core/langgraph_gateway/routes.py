@@ -98,14 +98,18 @@ class WebSocketGatewayHandler:
         except GatewayContextError as exc:
             await websocket.close(code=_context_close_code(exc), reason=exc.code)
         except UpstreamCredentialUnavailableError:
+            if _websocket_was_accepted(websocket):
+                raise
             await websocket.close(
                 code=4503,
                 reason="zeroth.upstream_credential_unavailable",
             )
         except TimeoutError:
+            if _websocket_was_accepted(websocket):
+                raise
             await websocket.close(code=4504, reason="zeroth.upstream_timeout")
         except Exception as exc:
-            if _is_upstream_handshake_failure(exc):
+            if not _websocket_was_accepted(websocket) and _is_upstream_handshake_failure(exc):
                 await websocket.close(code=4502, reason="zeroth.upstream_unavailable")
                 return
             raise
@@ -335,3 +339,11 @@ def _is_upstream_handshake_failure(exc: Exception) -> bool:
     return isinstance(exc, (OSError, TimeoutError)) or exc.__class__.__module__.startswith(
         "websockets."
     )
+
+
+def _websocket_was_accepted(websocket: WebSocket) -> bool:
+    accepted = getattr(websocket, "accepted", None)
+    if isinstance(accepted, bool):
+        return accepted
+    application_state = getattr(websocket, "application_state", None)
+    return getattr(application_state, "name", None) == "CONNECTED"

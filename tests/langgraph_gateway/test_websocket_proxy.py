@@ -13,6 +13,7 @@ from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.econ.budget import BudgetCheckResult
 from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
 from zeroth.core.langgraph_gateway.context import ReservedContextCodec
+from zeroth.core.langgraph_gateway.headers import UpstreamCredentialUnavailableError
 from zeroth.core.langgraph_gateway.routes import (
     GatewayWebSocketEndpoint,
     WebSocketGatewayHandler,
@@ -37,6 +38,7 @@ class MemoryWebSocket:
         path: str = "/threads/thread-a/stream/events",
         query_string: bytes = b"cursor=7",
         slow_send: asyncio.Event | None = None,
+        send_error: Exception | None = None,
     ) -> None:
         self.scope: dict[str, Any] = {
             "type": "websocket",
@@ -53,11 +55,13 @@ class MemoryWebSocket:
         self._incoming: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._outgoing: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
         self._slow_send = slow_send
+        self._send_error = send_error
         self.accepted = False
         self.accepted_subprotocol: str | None = None
         self.accepted_headers: list[tuple[bytes, bytes]] = []
         self.closed: tuple[int, str] | None = None
         self.accepted_event = asyncio.Event()
+        self.receive_cancelled = asyncio.Event()
 
     @property
     def headers(self):
@@ -72,14 +76,22 @@ class MemoryWebSocket:
         self.accepted_event.set()
 
     async def receive(self) -> dict[str, Any]:
-        return await self._incoming.get()
+        try:
+            return await self._incoming.get()
+        except asyncio.CancelledError:
+            self.receive_cancelled.set()
+            raise
 
     async def send_text(self, data: str) -> None:
+        if self._send_error is not None:
+            raise self._send_error
         if self._slow_send is not None:
             await self._slow_send.wait()
         await self._outgoing.put(("text", data))
 
     async def send_bytes(self, data: bytes) -> None:
+        if self._send_error is not None:
+            raise self._send_error
         if self._slow_send is not None:
             await self._slow_send.wait()
         await self._outgoing.put(("bytes", data))
@@ -236,6 +248,84 @@ async def test_slow_consumer_uses_configurable_bounded_queue_without_reorder_or_
         await transport.aclose()
 
 
+def _bridge_pump_tasks() -> list[asyncio.Task[Any]]:
+    current = asyncio.current_task()
+    return [
+        task
+        for task in asyncio.all_tasks()
+        if task is not current
+        and "HTTPGatewayTransport._bridge_websocket.<locals>" in repr(task.get_coro())
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cancelling_forward_websocket_closes_both_sockets_and_all_pumps():
+    upstream_closed: asyncio.Future[tuple[int | None, str]] = asyncio.Future()
+
+    async def upstream(connection) -> None:
+        try:
+            await connection.recv()
+        except websockets.ConnectionClosed:
+            upstream_closed.set_result((connection.close_code, connection.close_reason or ""))
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(configured, EnvSecretProvider())
+        websocket = MemoryWebSocket()
+        task = asyncio.create_task(transport.forward_websocket(websocket, tenant_id="tenant-a"))
+        await websocket.accepted_event.wait()
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert websocket.closed == (1001, "gateway stream cancelled")
+        assert await asyncio.wait_for(upstream_closed, timeout=2) == (
+            1001,
+            "gateway stream cancelled",
+        )
+        assert websocket.receive_cancelled.is_set()
+        await asyncio.sleep(0)
+        assert _bridge_pump_tasks() == []
+        await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_downstream_pump_failure_cancels_siblings_and_closes_both_sockets():
+    upstream_closed: asyncio.Future[tuple[int | None, str]] = asyncio.Future()
+
+    async def upstream(connection) -> None:
+        await connection.send("trigger downstream failure")
+        try:
+            await connection.recv()
+        except websockets.ConnectionClosed:
+            upstream_closed.set_result((connection.close_code, connection.close_reason or ""))
+
+    async with websockets.serve(upstream, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        configured = settings(f"http://127.0.0.1:{port}")
+        transport = HTTPGatewayTransport(configured, EnvSecretProvider())
+        websocket = MemoryWebSocket(send_error=RuntimeError("downstream send failed"))
+
+        with pytest.raises(ExceptionGroup) as caught:
+            await transport.forward_websocket(websocket, tenant_id="tenant-a")
+
+        assert any(
+            isinstance(error, RuntimeError) and str(error) == "downstream send failed"
+            for error in caught.value.exceptions
+        )
+        assert websocket.closed == (1011, "gateway stream failed")
+        assert await asyncio.wait_for(upstream_closed, timeout=2) == (
+            1011,
+            "gateway stream failed",
+        )
+        assert websocket.receive_cancelled.is_set()
+        await asyncio.sleep(0)
+        assert _bridge_pump_tasks() == []
+        await transport.aclose()
+
+
 class AllowPolicy:
     def __init__(self) -> None:
         self.requests = []
@@ -357,9 +447,8 @@ class RecordingWebSocketHandler:
         assert websocket.state.correlation_id == "corr-fixed"
 
 
-@pytest.mark.asyncio
-async def test_route_authenticates_before_accept_and_sets_principal_and_correlation():
-    authenticator = ServiceAuthenticator(
+def _authenticator() -> ServiceAuthenticator:
+    return ServiceAuthenticator(
         ServiceAuthConfig(
             api_keys=[
                 StaticApiKeyCredential(
@@ -372,9 +461,13 @@ async def test_route_authenticates_before_accept_and_sets_principal_and_correlat
             ]
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_route_authenticates_before_accept_and_sets_principal_and_correlation():
     downstream = RecordingWebSocketHandler()
     endpoint = GatewayWebSocketEndpoint(
-        authenticator=authenticator,
+        authenticator=_authenticator(),
         handler=downstream,
         correlation_factory=lambda: "corr-fixed",
     )
@@ -385,6 +478,83 @@ async def test_route_authenticates_before_accept_and_sets_principal_and_correlat
     assert downstream.calls == 1
     assert websocket.accepted is False
     assert websocket.state.principal.subject == "real-user"
+
+
+class FailingHandshakeTransport:
+    def __init__(self, failure: Exception, *, accept_first: bool = False) -> None:
+        self.failure = failure
+        self.accept_first = accept_first
+        self.calls = 0
+
+    async def forward_websocket(self, websocket, **kwargs) -> None:
+        self.calls += 1
+        assert kwargs["tenant_id"] == "tenant-a"
+        assert websocket.state.principal.subject == "real-user"
+        if self.accept_first:
+            await websocket.accept()
+        raise self.failure
+
+
+def _endpoint_with_transport(transport) -> GatewayWebSocketEndpoint:
+    active, _, _, _ = handler("http://agent-server.invalid", transport=transport)
+    return GatewayWebSocketEndpoint(
+        authenticator=_authenticator(),
+        handler=active,
+        correlation_factory=lambda: "corr-fixed",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "expected_close"),
+    [
+        (
+            UpstreamCredentialUnavailableError(),
+            (4503, "zeroth.upstream_credential_unavailable"),
+        ),
+        (TimeoutError("client-key must not leak"), (4504, "zeroth.upstream_timeout")),
+        (
+            OSError("Authorization: Bearer client-key must not leak"),
+            (4502, "zeroth.upstream_unavailable"),
+        ),
+    ],
+)
+async def test_authenticated_gateway_handshake_failures_use_safe_stable_closes(
+    failure: Exception,
+    expected_close: tuple[int, str],
+):
+    transport = FailingHandshakeTransport(failure)
+    endpoint = _endpoint_with_transport(transport)
+    websocket = MemoryWebSocket(
+        headers=[
+            (b"x-api-key", b"client-key"),
+            (b"authorization", b"Bearer client-secret"),
+        ]
+    )
+
+    await endpoint(websocket)
+
+    assert transport.calls == 1
+    assert websocket.accepted is False
+    assert websocket.closed == expected_close
+    assert "client-key" not in websocket.closed[1]
+    assert "client-secret" not in websocket.closed[1]
+
+
+@pytest.mark.asyncio
+async def test_post_accept_stream_failure_is_not_mapped_as_a_handshake_failure():
+    transport = FailingHandshakeTransport(
+        OSError("runtime stream failure"),
+        accept_first=True,
+    )
+    endpoint = _endpoint_with_transport(transport)
+    websocket = MemoryWebSocket(headers=[(b"x-api-key", b"client-key")])
+
+    with pytest.raises(OSError, match="runtime stream failure"):
+        await endpoint(websocket)
+
+    assert websocket.accepted is True
+    assert websocket.closed is None
 
 
 @pytest.mark.asyncio

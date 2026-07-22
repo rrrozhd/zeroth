@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -187,7 +188,24 @@ class HTTPGatewayTransport:
                 subprotocol=upstream.subprotocol,
                 headers=response_headers,
             )
-            await self._bridge_websocket(websocket, upstream, transform)
+            try:
+                await self._bridge_websocket(websocket, upstream, transform)
+            except asyncio.CancelledError:
+                await _close_websocket_pair(
+                    websocket,
+                    upstream,
+                    code=1001,
+                    reason="gateway stream cancelled",
+                )
+                raise
+            except BaseException:
+                await _close_websocket_pair(
+                    websocket,
+                    upstream,
+                    code=1011,
+                    reason="gateway stream failed",
+                )
+                raise
 
     async def _bridge_websocket(
         self,
@@ -417,3 +435,17 @@ def _requested_subprotocols(headers: list[tuple[bytes, bytes]]) -> list[str]:
 
 def _sendable_close_code(code: int) -> bool:
     return 1000 <= code < 5000 and code not in {1004, 1005, 1006, 1015}
+
+
+async def _close_websocket_pair(
+    websocket: Any,
+    upstream: ClientConnection,
+    *,
+    code: int,
+    reason: str,
+) -> None:
+    """Best-effort structured cleanup without replacing the triggering failure."""
+    with suppress(Exception):
+        await websocket.close(code=code, reason=reason)
+    with suppress(Exception):
+        await upstream.close(code=code, reason=reason)
