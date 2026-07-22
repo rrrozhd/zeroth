@@ -4,7 +4,7 @@ Registers demo contracts, publishes a minimal single-agent graph, and
 creates a deployment for it — everything the stock service entrypoint
 needs so that a fresh install can serve a real run without writing any
 Python. The agent runner itself is constructed at serve time by
-``zeroth.core.agent_runtime.factory`` from the graph's own node data.
+``zeroth.runtime.agents.factory`` from the graph's own node data.
 
 Contract classes live in this module so their ``module:Class`` paths
 resolve inside the installed wheel.
@@ -17,14 +17,15 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from zeroth.core.contracts.registry import ContractRegistry, ContractVersionExistsError
-from zeroth.core.deployments import Deployment, DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph.models import AgentNode, AgentNodeData, DisplayMetadata, Graph
-from zeroth.core.graph.repository import GraphRepository
-from zeroth.core.graph.validation import GraphValidator
+from zeroth.contracts.graph.models import AgentNode, AgentNodeData, DisplayMetadata, Graph
+from zeroth.contracts.graph.repository import GraphRepository
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.contracts.registry.errors import ContractVersionExistsError
+from zeroth.runtime.graph_validation import GraphValidator
+from zeroth.service.deployments import Deployment, DeploymentService, SQLiteDeploymentRepository
 
 if TYPE_CHECKING:
-    from zeroth.core.storage.database import AsyncDatabase
+    from zeroth.platform.storage.database import AsyncDatabase
 
 DEMO_GRAPH_ID = "demo-hello"
 DEMO_INPUT_CONTRACT = "contract://demo-question"

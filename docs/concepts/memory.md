@@ -18,7 +18,7 @@ Memory connectors persist their data through the [storage](storage.md) layer —
 
 ## Key types
 
-All of these live under `zeroth.core.memory`:
+All of these live under `zeroth.integrations.memory`:
 
 - **`RunEphemeralMemoryConnector`** — in-process, per-run scratch memory that disappears when the run ends.
 - **`KeyValueMemoryConnector`** — shared key-value memory, typically Redis-backed.

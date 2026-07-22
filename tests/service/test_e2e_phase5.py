@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from fastapi.testclient import TestClient
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryScope
 from pydantic import BaseModel
 
 from tests.service.helpers import (
@@ -20,9 +20,9 @@ from tests.service.helpers import (
     service_app,
     wait_for,
 )
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner, RepositoryThreadStateStore
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.execution_units import (
+from zeroth.runtime.agents import AgentConfig, AgentRunner, RepositoryThreadStateStore
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.integrations.execution import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -32,7 +32,7 @@ from zeroth.core.execution_units import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -42,14 +42,14 @@ from zeroth.core.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
-from zeroth.core.memory import (
+from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.integrations.memory import (
     ConnectorManifest,
     InMemoryConnectorRegistry,
     KeyValueMemoryConnector,
     MemoryConnectorResolver,
 )
-from zeroth.core.policy import (
+from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,
@@ -159,9 +159,7 @@ def _wait_for_status(
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     try:
-        wait_for(
-            lambda: _run_status_payload(client, run_id, headers=headers)["status"] == status
-        )
+        wait_for(lambda: _run_status_payload(client, run_id, headers=headers)["status"] == status)
     except AssertionError:
         payload = _run_status_payload(client, run_id, headers=headers)
         raise AssertionError(

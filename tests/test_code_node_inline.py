@@ -13,13 +13,13 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from tests.test_studio_publish_deploy import _make_env, _register_contracts
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     ExecutableUnitRunner,
     build_inline_binding,
     build_inline_manifest,
     inline_source_digest,
 )
-from zeroth.core.graph.models import ExecutableUnitNodeData
+from zeroth.contracts.graph.models import ExecutableUnitNodeData
 
 TRANSFORM_SOURCE = """
 import json

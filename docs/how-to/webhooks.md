@@ -30,7 +30,7 @@ Emit events from your own code when you need to (the orchestrator does
 this automatically for run lifecycle events):
 
 ```python
-from zeroth.core.webhooks import WebhookEventType, WebhookService
+from zeroth.service.webhooks import WebhookEventType, WebhookService
 
 service = WebhookService(repository=webhook_repo)
 await service.emit_event(
@@ -84,6 +84,6 @@ assert hmac.compare_digest(sig, expected)
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.webhooks`](../reference/python-api/webhooks.md).
+See the [Python API reference for `zeroth.service.webhooks`](../reference/python-api/webhooks.md).
 
 Related guides: [concepts/webhooks](../concepts/webhooks.md) · [dispatch how-to](dispatch.md) · [secrets how-to](secrets.md).

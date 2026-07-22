@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.eval import (
+from zeroth.eval import (
     CaseResult,
     EvalDataset,
     EvalReport,

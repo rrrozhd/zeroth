@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime.provider import ProviderResponse
-from zeroth.core.eval import (
+from zeroth.runtime.agents.provider import ProviderResponse
+from zeroth.eval import (
     ContainsScorer,
     EvalCase,
     ExactMatchScorer,

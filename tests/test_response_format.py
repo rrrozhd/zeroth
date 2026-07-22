@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from zeroth.core.agent_runtime.response_format import build_response_format
+from zeroth.runtime.agents.response_format import build_response_format
 
 
 class _Nested(BaseModel):

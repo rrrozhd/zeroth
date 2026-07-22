@@ -4,12 +4,14 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import jwt
+import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import approval_resume_graph, deploy_service
-from zeroth.core.identity import ServiceRole
-from zeroth.core.service.auth import BearerTokenConfig, ServiceAuthConfig
+from zeroth.governance.identity import ServiceRole
+from zeroth.service.api.authentication import BearerTokenConfig, ServiceAuthConfig
+from zeroth.service.api.authentication import AuthenticationError, JWTBearerTokenVerifier
 from zeroth.core.service.bootstrap import bootstrap_app
 
 
@@ -153,3 +155,21 @@ async def test_runs_rejects_bearer_token_with_wrong_signature(sqlite_db) -> None
 
 def _token_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_verified_bearer_claim_can_deliver_platform_admin() -> None:
+    auth_config, private_key = _bearer_auth_fixture()
+    token = _encode_token(private_key, roles=[ServiceRole.PLATFORM_ADMIN.value])
+
+    principal = JWTBearerTokenVerifier(auth_config.bearer).verify(token)  # type: ignore[arg-type]
+
+    assert principal.roles == [ServiceRole.PLATFORM_ADMIN]
+
+
+def test_unverified_platform_admin_claim_is_rejected() -> None:
+    auth_config, _ = _bearer_auth_fixture()
+    untrusted_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = _encode_token(untrusted_key, roles=["platform_admin"])
+
+    with pytest.raises(AuthenticationError, match="invalid bearer token"):
+        JWTBearerTokenVerifier(auth_config.bearer).verify(token)  # type: ignore[arg-type]

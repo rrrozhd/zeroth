@@ -13,7 +13,7 @@ from tests.service.helpers import (
     deploy_service,
     operator_headers,
 )
-from zeroth.core.artifacts.store import FilesystemArtifactStore
+from zeroth.platform.artifacts.store import FilesystemArtifactStore
 from zeroth.core.service.bootstrap import bootstrap_app
 
 

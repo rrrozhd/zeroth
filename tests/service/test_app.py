@@ -6,15 +6,13 @@ from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
 from tests.service.helpers import default_service_auth_config, operator_headers
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import GraphRepository
-from zeroth.core.service.bootstrap import (
-    DeploymentBootstrapError,
-    bootstrap_app,
-    bootstrap_service,
-)
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.contracts.graph import GraphRepository
+from zeroth.service.bootstrap.container import DeploymentBootstrapError
+from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_service
 
 
 class AppInputContract(BaseModel):
@@ -98,10 +96,13 @@ async def test_bootstrap_service_rejects_mismatched_graph_snapshot(sqlite_db, mo
     original_graph = deployment.graph_id
     broken_graph = build_graph().model_copy(update={"graph_id": "graph-2", "version": 2})
 
-    def fake_deserialize_graph(_serialized_graph: str):
+    def fake_hydrate_deployed_graph(_deployment):
         return broken_graph
 
-    monkeypatch.setattr("zeroth.core.service.bootstrap.deserialize_graph", fake_deserialize_graph)
+    monkeypatch.setattr(
+        "zeroth.service.bootstrap.factory.hydrate_deployed_graph",
+        fake_hydrate_deployed_graph,
+    )
 
     with pytest.raises(DeploymentBootstrapError, match=original_graph):
         await bootstrap_service(sqlite_db, deployment_ref=deployment.deployment_ref)

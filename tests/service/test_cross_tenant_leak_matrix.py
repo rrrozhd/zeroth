@@ -20,20 +20,21 @@ from datetime import UTC, datetime
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryScope
 
 from tests.graph.test_models import build_graph
 from tests.service.helpers import approval_resume_graph, deploy_service
-from zeroth.core.audit import AuditQuery, AuditRepository, NodeAuditRecord
-from zeroth.core.deployments.repository import SQLiteDeploymentRepository
-from zeroth.core.graph.repository import GraphRepository
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.memory.config_repository import MemoryConnectorConfigRepository
-from zeroth.core.memory.connectors import KeyValueMemoryConnector
-from zeroth.core.memory.models import ConnectorManifest
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
-from zeroth.core.runs import Run, RunRepository
-from zeroth.core.service.studio_api import router as studio_router
+from zeroth.governance.audit import AuditQuery, AuditRepository, NodeAuditRecord
+from zeroth.service.deployments.repository import SQLiteDeploymentRepository
+from zeroth.contracts.graph.repository import GraphRepository
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
+from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
+from zeroth.integrations.memory.models import ConnectorManifest
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.runtime.runs import Run
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.service.api.studio_api import router as studio_router
 
 # ---------------------------------------------------------------------------
 # memory — SHARED scope, resolver singleton, one physical connector

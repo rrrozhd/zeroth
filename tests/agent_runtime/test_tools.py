@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.agent_runtime.tools import (
+from zeroth.runtime.agents.tools import (
     ToolAttachmentBridge,
     ToolAttachmentManifest,
     ToolAttachmentRegistry,

@@ -425,14 +425,41 @@
       },
       "AttestationVerificationResponse": {
         "additionalProperties": false,
-        "description": "Verification result for a supplied deployment attestation.",
+        "description": "Dual-check verification result for a deployment attestation.\n\n``verified`` stays the overall pass/fail. ``digest_verified`` is the digest\nrecompute axis; ``signature_verified`` is the keyed axis (three-state, null =\nunsigned-legacy). Neither masks the other.",
         "properties": {
+          "digest_verified": {
+            "default": false,
+            "title": "Digest Verified",
+            "type": "boolean"
+          },
           "mismatches": {
             "items": {
               "type": "string"
             },
             "title": "Mismatches",
             "type": "array"
+          },
+          "signature_verified": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature Verified"
+          },
+          "signing_key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signing Key Id"
           },
           "verified": {
             "title": "Verified",
@@ -502,7 +529,7 @@
       },
       "AuditVerificationResponse": {
         "additionalProperties": false,
-        "description": "Result of verifying the tamper-evident digest chain for a scope.",
+        "description": "Result of verifying the audit chain for a scope.\n\n``verified`` is the unkeyed digest-continuity axis. ``signature_verified`` is\nthe independent WS-D keyed axis, three-state: True (all signed records\nvalid), False (a signed record failed), null (unsigned-legacy \u2014 render\nneutral, never green or red).",
         "properties": {
           "error": {
             "anyOf": [
@@ -535,6 +562,33 @@
             "title": "Scope",
             "type": "string"
           },
+          "signature_verified": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature Verified"
+          },
+          "signing_key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signing Key Id"
+          },
+          "unsigned_record_count": {
+            "default": 0,
+            "title": "Unsigned Record Count",
+            "type": "integer"
+          },
           "verified": {
             "title": "Verified",
             "type": "boolean"
@@ -555,6 +609,83 @@
         ],
         "title": "AuthMethod",
         "type": "string"
+      },
+      "CandidateOutcome": {
+        "additionalProperties": false,
+        "description": "One model's measured result in a right-sizing experiment.",
+        "properties": {
+          "capability_ok": {
+            "default": true,
+            "title": "Capability Ok",
+            "type": "boolean"
+          },
+          "cases_errored": {
+            "default": 0,
+            "title": "Cases Errored",
+            "type": "integer"
+          },
+          "cases_evaluated": {
+            "default": 0,
+            "title": "Cases Evaluated",
+            "type": "integer"
+          },
+          "equivalence_rate": {
+            "default": 0.0,
+            "title": "Equivalence Rate",
+            "type": "number"
+          },
+          "error_rate": {
+            "default": 0.0,
+            "title": "Error Rate",
+            "type": "number"
+          },
+          "est_cost_per_1k_calls_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Est Cost Per 1K Calls Usd"
+          },
+          "is_incumbent": {
+            "default": false,
+            "title": "Is Incumbent",
+            "type": "boolean"
+          },
+          "meets_bar": {
+            "default": false,
+            "title": "Meets Bar",
+            "type": "boolean"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "savings_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Savings Pct"
+          }
+        },
+        "required": [
+          "model",
+          "provider"
+        ],
+        "title": "CandidateOutcome",
+        "type": "object"
       },
       "ConnectorCreateRequest": {
         "additionalProperties": false,
@@ -877,9 +1008,48 @@
         "additionalProperties": false,
         "description": "Stable attestation payload for a deployment snapshot.",
         "properties": {
+          "attestation_algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Algorithm"
+          },
           "attestation_digest": {
             "title": "Attestation Digest",
             "type": "string"
+          },
+          "attestation_payload_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Attestation Payload Version",
+            "type": "integer"
+          },
+          "attestation_signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Signature"
+          },
+          "attestation_signing_key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Signing Key Id"
           },
           "contract_snapshot_digest": {
             "title": "Contract Snapshot Digest",
@@ -896,6 +1066,11 @@
           "deployment_version": {
             "title": "Deployment Version",
             "type": "integer"
+          },
+          "engine_mode": {
+            "default": "legacy",
+            "title": "Engine Mode",
+            "type": "string"
           },
           "entry_input_contract_ref": {
             "anyOf": [
@@ -1001,6 +1176,15 @@
         ],
         "title": "DeploymentCostResponse",
         "type": "object"
+      },
+      "DeploymentEngineMode": {
+        "description": "Immutable execution engine selected when a deployment is published.",
+        "enum": [
+          "legacy",
+          "token"
+        ],
+        "title": "DeploymentEngineMode",
+        "type": "string"
       },
       "DeploymentEvidenceResponse": {
         "additionalProperties": false,
@@ -1140,6 +1324,11 @@
         "additionalProperties": false,
         "description": "Public metadata for one deployed version.",
         "properties": {
+          "attestation_payload_version": {
+            "minimum": 1.0,
+            "title": "Attestation Payload Version",
+            "type": "integer"
+          },
           "attestation_ref": {
             "anyOf": [
               {
@@ -1179,6 +1368,9 @@
           "deployment_version": {
             "title": "Deployment Version",
             "type": "integer"
+          },
+          "engine_mode": {
+            "$ref": "#/components/schemas/DeploymentEngineMode"
           },
           "entry_input_contract_ref": {
             "anyOf": [
@@ -1273,11 +1465,111 @@
           "graph_id",
           "graph_version",
           "graph_version_ref",
+          "engine_mode",
+          "attestation_payload_version",
           "status",
           "created_at",
           "updated_at"
         ],
         "title": "DeploymentVersionMetadataResponse",
+        "type": "object"
+      },
+      "ErasureRequestBody": {
+        "additionalProperties": false,
+        "description": "Request body for POST /retention/erasure-requests.\n\nExactly one of ``run_id`` (erase one run) or ``tenant_id`` (erase every\nnon-held run for the tenant) must be supplied.",
+        "properties": {
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "title": "ErasureRequestBody",
+        "type": "object"
+      },
+      "ErasureResponse": {
+        "additionalProperties": false,
+        "description": "Result of an erasure request (one or many runs).",
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ErasureRunResult"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ErasureResponse",
+        "type": "object"
+      },
+      "ErasureRunResult": {
+        "additionalProperties": false,
+        "description": "Per-run erasure counts.",
+        "properties": {
+          "artifacts_deleted": {
+            "default": 0,
+            "title": "Artifacts Deleted",
+            "type": "integer"
+          },
+          "audits_erased": {
+            "default": 0,
+            "title": "Audits Erased",
+            "type": "integer"
+          },
+          "checkpoints_deleted": {
+            "default": 0,
+            "title": "Checkpoints Deleted",
+            "type": "integer"
+          },
+          "econ_events_deleted": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Econ Events Deleted"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "run_redacted": {
+            "default": false,
+            "title": "Run Redacted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "ErasureRunResult",
         "type": "object"
       },
       "EvidenceSummaryResponse": {
@@ -1308,6 +1600,198 @@
         "title": "EvidenceSummaryResponse",
         "type": "object"
       },
+      "ExperimentReport": {
+        "additionalProperties": false,
+        "description": "Result of a measured right-sizing experiment for one node.",
+        "properties": {
+          "cases": {
+            "default": 0,
+            "title": "Cases",
+            "type": "integer"
+          },
+          "harvest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HarvestStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "incumbent": {
+            "title": "Incumbent",
+            "type": "string"
+          },
+          "incumbent_self_equivalence": {
+            "default": 0.0,
+            "title": "Incumbent Self Equivalence",
+            "type": "number"
+          },
+          "mean_input_tokens": {
+            "default": 0.0,
+            "title": "Mean Input Tokens",
+            "type": "number"
+          },
+          "mean_output_tokens": {
+            "default": 0.0,
+            "title": "Mean Output Tokens",
+            "type": "number"
+          },
+          "min_cases": {
+            "default": 5,
+            "title": "Min Cases",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "equivalence",
+            "title": "Mode",
+            "type": "string"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateOutcome"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "recommended_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Model"
+          },
+          "token_profile_measured": {
+            "default": false,
+            "title": "Token Profile Measured",
+            "type": "boolean"
+          },
+          "tolerance_pct": {
+            "default": 5.0,
+            "title": "Tolerance Pct",
+            "type": "number"
+          },
+          "verdict": {
+            "default": "none",
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incumbent"
+        ],
+        "title": "ExperimentReport",
+        "type": "object"
+      },
+      "ExperimentRequest": {
+        "additionalProperties": false,
+        "description": "Request body for POST /v1/econ/rightsizing/experiment (measured right-sizing).\n\nReplays this node's real audit-trail inputs through cheaper candidate models and scores\nequivalence to the incumbent. Runs real LLM calls, so the sample is capped small \u2014 the\nresult is a *flagged* lead below ``min_cases``, not a *confirmed* switch.",
+        "properties": {
+          "incumbent": {
+            "description": "Current model, e.g. openai/gpt-4o",
+            "minLength": 1,
+            "title": "Incumbent",
+            "type": "string"
+          },
+          "instruction": {
+            "description": "The agent's system instruction",
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "judge_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Model"
+          },
+          "max_candidates": {
+            "default": 2,
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Max Candidates",
+            "type": "integer"
+          },
+          "max_cases": {
+            "default": 5,
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Max Cases",
+            "type": "integer"
+          },
+          "min_cases": {
+            "default": 5,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Min Cases",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "equivalence",
+            "enum": [
+              "equivalence",
+              "correctness"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "needs_tools": {
+            "default": false,
+            "title": "Needs Tools",
+            "type": "boolean"
+          },
+          "needs_vision": {
+            "default": false,
+            "title": "Needs Vision",
+            "type": "boolean"
+          },
+          "node_id": {
+            "minLength": 1,
+            "title": "Node Id",
+            "type": "string"
+          },
+          "tolerance_pct": {
+            "default": 5.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Tolerance Pct",
+            "type": "number"
+          }
+        },
+        "required": [
+          "node_id",
+          "incumbent",
+          "instruction"
+        ],
+        "title": "ExperimentRequest",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1321,9 +1805,57 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HarvestStats": {
+        "additionalProperties": false,
+        "description": "What the audit-trail harvest yielded and dropped.",
+        "properties": {
+          "cases": {
+            "default": 0,
+            "title": "Cases",
+            "type": "integer"
+          },
+          "mean_input_tokens": {
+            "default": 1000.0,
+            "title": "Mean Input Tokens",
+            "type": "number"
+          },
+          "mean_output_tokens": {
+            "default": 300.0,
+            "title": "Mean Output Tokens",
+            "type": "number"
+          },
+          "skipped_empty_output": {
+            "default": 0,
+            "title": "Skipped Empty Output",
+            "type": "integer"
+          },
+          "skipped_not_success": {
+            "default": 0,
+            "title": "Skipped Not Success",
+            "type": "integer"
+          },
+          "skipped_other_model": {
+            "default": 0,
+            "title": "Skipped Other Model",
+            "type": "integer"
+          },
+          "skipped_used_tools": {
+            "default": 0,
+            "title": "Skipped Used Tools",
+            "type": "integer"
+          },
+          "token_profile_measured": {
+            "default": false,
+            "title": "Token Profile Measured",
+            "type": "boolean"
+          }
+        },
+        "title": "HarvestStats",
+        "type": "object"
+      },
       "HealthResponse": {
         "additionalProperties": false,
-        "description": "Response payload for the wrapper health endpoint.",
+        "description": "Response payload for the wrapper health endpoint.\n\nDefined here rather than in the app module deliberately: the schema-model\ndiscovery in tests/architecture/test_library_surface.py treats any app.py\nwhose parent directory is literally \"service\" as schema-bearing, which\nwould discover this model under the app module's destination path before\nthe canonical fixture can follow. The legacy zeroth.core.service.app path\nstill resolves the same class object.",
         "properties": {
           "deployment_ref": {
             "title": "Deployment Ref",
@@ -1361,6 +1893,94 @@
         ],
         "title": "HumanInteractionType",
         "type": "string"
+      },
+      "LegalHoldBody": {
+        "additionalProperties": false,
+        "description": "Request body for POST /retention/legal-holds.\n\n``run_id`` omitted places a tenant-wide hold (freezes every run).",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "title": "LegalHoldBody",
+        "type": "object"
+      },
+      "LegalHoldResponse": {
+        "additionalProperties": false,
+        "description": "A placed or listed legal hold.",
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "hold_id": {
+            "title": "Hold Id",
+            "type": "string"
+          },
+          "placed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placed By"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hold_id",
+          "tenant_id"
+        ],
+        "title": "LegalHoldResponse",
+        "type": "object"
       },
       "LivenessResponse": {
         "additionalProperties": false,
@@ -1461,6 +2081,72 @@
         "title": "MemoryAccessRecord",
         "type": "object"
       },
+      "ModelOption": {
+        "additionalProperties": false,
+        "description": "One cheaper, capability-compatible alternative to the incumbent model.",
+        "properties": {
+          "blended_per_mtok_usd": {
+            "title": "Blended Per Mtok Usd",
+            "type": "number"
+          },
+          "input_per_mtok_usd": {
+            "title": "Input Per Mtok Usd",
+            "type": "number"
+          },
+          "max_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Input Tokens"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output_per_mtok_usd": {
+            "title": "Output Per Mtok Usd",
+            "type": "number"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "same_provider": {
+            "default": false,
+            "title": "Same Provider",
+            "type": "boolean"
+          },
+          "savings_pct": {
+            "title": "Savings Pct",
+            "type": "number"
+          },
+          "supports_tools": {
+            "default": false,
+            "title": "Supports Tools",
+            "type": "boolean"
+          },
+          "supports_vision": {
+            "default": false,
+            "title": "Supports Vision",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "model",
+          "provider",
+          "input_per_mtok_usd",
+          "output_per_mtok_usd",
+          "blended_per_mtok_usd",
+          "savings_pct"
+        ],
+        "title": "ModelOption",
+        "type": "object"
+      },
       "NodeAuditRecord": {
         "additionalProperties": false,
         "description": "The main audit record for a single node execution.\n\nThis is the core audit object. It captures everything that happened\nwhen a node ran: inputs, outputs, tool calls, memory accesses,\napproval actions, validation results, timing, and any errors.",
@@ -1490,6 +2176,17 @@
           "audit_id": {
             "title": "Audit Id",
             "type": "string"
+          },
+          "chain_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chain Sequence"
           },
           "completed_at": {
             "anyOf": [
@@ -1537,6 +2234,39 @@
             "title": "Deployment Ref",
             "type": "string"
           },
+          "digest_version": {
+            "default": 1,
+            "title": "Digest Version",
+            "type": "integer"
+          },
+          "erased": {
+            "default": false,
+            "title": "Erased",
+            "type": "boolean"
+          },
+          "erased_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erased At"
+          },
+          "erasure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erasure Reason"
+          },
           "error": {
             "anyOf": [
               {
@@ -1583,6 +2313,20 @@
             "title": "Output Snapshot",
             "type": "object"
           },
+          "pii_commitments": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pii Commitments"
+          },
           "previous_record_digest": {
             "anyOf": [
               {
@@ -1605,9 +2349,42 @@
             ],
             "title": "Record Digest"
           },
+          "record_signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Signature"
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
+          },
+          "signing_algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signing Algorithm"
+          },
+          "signing_key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signing Key Id"
           },
           "started_at": {
             "format": "date-time",
@@ -1712,6 +2489,89 @@
         "title": "NodeAuditRecord",
         "type": "object"
       },
+      "NodeSpend": {
+        "additionalProperties": false,
+        "description": "Attributed spend and right-sizing potential for one node.",
+        "properties": {
+          "best_savings_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Savings Pct"
+          },
+          "cheaper_alternatives": {
+            "default": 0,
+            "title": "Cheaper Alternatives",
+            "type": "integer"
+          },
+          "experiment_ready": {
+            "default": false,
+            "title": "Experiment Ready",
+            "type": "boolean"
+          },
+          "incumbent_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incumbent Model"
+          },
+          "mean_cost_per_call_usd": {
+            "default": 0.0,
+            "title": "Mean Cost Per Call Usd",
+            "type": "number"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "projected_savings_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Savings Usd"
+          },
+          "runs": {
+            "default": 0,
+            "title": "Runs",
+            "type": "integer"
+          },
+          "tool_free_runs": {
+            "default": 0,
+            "title": "Tool Free Runs",
+            "type": "integer"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "uses_tools": {
+            "default": false,
+            "title": "Uses Tools",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "node_id"
+        ],
+        "title": "NodeSpend",
+        "type": "object"
+      },
       "NodeTypeResponse": {
         "description": "A node type available in the Studio palette.",
         "properties": {
@@ -1798,6 +2658,148 @@
         "title": "PublicContractSchemaResponse",
         "type": "object"
       },
+      "QualityEconomicsReport": {
+        "additionalProperties": false,
+        "description": "Cost per *quality* success over the labeled subset of the window.\n\nEvery headline travels with its coverage so the number can never be read alone.",
+        "properties": {
+          "cost_on_quality_failures_usd": {
+            "default": 0.0,
+            "title": "Cost On Quality Failures Usd",
+            "type": "number"
+          },
+          "cost_per_quality_success_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Quality Success Usd"
+          },
+          "coverage": {
+            "default": 0.0,
+            "title": "Coverage",
+            "type": "number"
+          },
+          "labeled_terminal_runs": {
+            "default": 0,
+            "title": "Labeled Terminal Runs",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "quality_success_rate_over_labeled": {
+            "default": 0.0,
+            "title": "Quality Success Rate Over Labeled",
+            "type": "number"
+          },
+          "quality_successes": {
+            "default": 0,
+            "title": "Quality Successes",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "state": {
+            "default": "not_configured",
+            "enum": [
+              "ok",
+              "not_configured",
+              "below_coverage_floor"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "terminal_runs": {
+            "default": 0,
+            "title": "Terminal Runs",
+            "type": "integer"
+          }
+        },
+        "title": "QualityEconomicsReport",
+        "type": "object"
+      },
+      "QualityVerdictRequest": {
+        "additionalProperties": false,
+        "description": "Request body for POST /econ/quality-verdict.",
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "expected_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Output"
+          },
+          "rubric_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Id"
+          },
+          "run_id": {
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "source": {
+            "description": "Who/what judged it, e.g. 'human:alice'",
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "good",
+              "bad",
+              "unknown"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "verdict",
+          "source"
+        ],
+        "title": "QualityVerdictRequest",
+        "type": "object"
+      },
       "ReadinessResponse": {
         "additionalProperties": false,
         "description": "Response payload for the readiness probe.",
@@ -1818,6 +2820,197 @@
           "status"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "RetentionPolicyBody": {
+        "additionalProperties": false,
+        "description": "Request body for PUT /retention/policy.",
+        "properties": {
+          "audit_ttl_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Ttl Seconds"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "run_ttl_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Ttl Seconds"
+          }
+        },
+        "title": "RetentionPolicyBody",
+        "type": "object"
+      },
+      "RetentionPolicyResponse": {
+        "additionalProperties": false,
+        "description": "A tenant's resolved retention policy.",
+        "properties": {
+          "audit_ttl_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Ttl Seconds"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "run_ttl_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Ttl Seconds"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id"
+        ],
+        "title": "RetentionPolicyResponse",
+        "type": "object"
+      },
+      "RightsizingRequest": {
+        "additionalProperties": false,
+        "description": "Request body for POST /v1/econ/rightsizing.\n\nTask-shape flags are *capability gates*, derived from how the node is wired: an agent\nwith tools attached needs ``needs_tools``; one handed images needs ``needs_vision``.",
+        "properties": {
+          "incumbent": {
+            "description": "Current model, e.g. openai/gpt-4o",
+            "minLength": 1,
+            "title": "Incumbent",
+            "type": "string"
+          },
+          "limit": {
+            "default": 6,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "min_savings_pct": {
+            "default": 20.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Min Savings Pct",
+            "type": "number"
+          },
+          "needs_tools": {
+            "default": false,
+            "title": "Needs Tools",
+            "type": "boolean"
+          },
+          "needs_vision": {
+            "default": false,
+            "title": "Needs Vision",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "incumbent"
+        ],
+        "title": "RightsizingRequest",
+        "type": "object"
+      },
+      "RightsizingResult": {
+        "additionalProperties": false,
+        "description": "Cheaper capability-compatible candidates for an incumbent model, or why there are none.\n\n``incumbent_known`` is ``False`` when litellm has no pricing for the incumbent (e.g. a\nmodel newer than the installed litellm) \u2014 the honest signal that this is a *pricing gap*,\nnot \"nothing is cheaper\". Never let an unknown incumbent read as \"no savings available\".",
+        "properties": {
+          "assumption": {
+            "default": "blended price assumes a 3:1 input:output token ratio",
+            "title": "Assumption",
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ModelOption"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "incumbent": {
+            "title": "Incumbent",
+            "type": "string"
+          },
+          "incumbent_blended_per_mtok_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incumbent Blended Per Mtok Usd"
+          },
+          "incumbent_known": {
+            "title": "Incumbent Known",
+            "type": "boolean"
+          },
+          "incumbent_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incumbent Provider"
+          },
+          "needs_tools": {
+            "default": false,
+            "title": "Needs Tools",
+            "type": "boolean"
+          },
+          "needs_vision": {
+            "default": false,
+            "title": "Needs Vision",
+            "type": "boolean"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incumbent",
+          "incumbent_known"
+        ],
+        "title": "RightsizingResult",
         "type": "object"
       },
       "RollbackDeploymentRequest": {
@@ -2074,6 +3267,81 @@
         "title": "RunPublicStatus",
         "type": "string"
       },
+      "RunQualityVerdict": {
+        "additionalProperties": false,
+        "description": "An externally-attached judgement of whether a run's output was good.",
+        "properties": {
+          "attached_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attached At"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "expected_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Output"
+          },
+          "rubric_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Id"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "good",
+              "bad",
+              "unknown"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "source"
+        ],
+        "title": "RunQualityVerdict",
+        "type": "object"
+      },
       "RunStatusResponse": {
         "additionalProperties": false,
         "description": "Public serialization of run state.",
@@ -2208,10 +3476,36 @@
         "enum": [
           "operator",
           "reviewer",
-          "admin"
+          "admin",
+          "platform_admin"
         ],
         "title": "ServiceRole",
         "type": "string"
+      },
+      "SpendReport": {
+        "additionalProperties": false,
+        "description": "Deployment-wide spend attribution, ranked by right-sizing opportunity.",
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeSpend"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          }
+        },
+        "title": "SpendReport",
+        "type": "object"
       },
       "StudioContractResponse": {
         "description": "A registered contract, for canvas contract-ref pickers.",
@@ -2464,6 +3758,62 @@
         "title": "TenantCostResponse",
         "type": "object"
       },
+      "TenantEconomics": {
+        "additionalProperties": false,
+        "description": "Unit economics for one tenant (customer) within a deployment.\n\nThe 'which customer is unprofitable' view: same shape as WorkflowEconomics, keyed\nby tenant_id instead of workflow_name.",
+        "properties": {
+          "cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Successful Run Usd"
+          },
+          "failed_runs": {
+            "default": 0,
+            "title": "Failed Runs",
+            "type": "integer"
+          },
+          "failure_tax_usd": {
+            "default": 0.0,
+            "title": "Failure Tax Usd",
+            "type": "number"
+          },
+          "runs": {
+            "default": 0,
+            "title": "Runs",
+            "type": "integer"
+          },
+          "success_rate": {
+            "default": 0.0,
+            "title": "Success Rate",
+            "type": "number"
+          },
+          "successful_runs": {
+            "default": 0,
+            "title": "Successful Runs",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "terminal_cost_usd": {
+            "default": 0.0,
+            "title": "Terminal Cost Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "tenant_id"
+        ],
+        "title": "TenantEconomics",
+        "type": "object"
+      },
       "TokenUsage": {
         "additionalProperties": false,
         "description": "Token consumption metrics from a single LLM provider call.\n\nTracks input (prompt) tokens, output (completion) tokens, total tokens,\nand the model that produced them. Used by ProviderResponse and\nNodeAuditRecord for cost attribution and budget enforcement.",
@@ -2538,6 +3888,130 @@
           "alias"
         ],
         "title": "ToolCallRecord",
+        "type": "object"
+      },
+      "UnitEconomicsReport": {
+        "additionalProperties": false,
+        "description": "Deployment-wide unit economics: what a successful outcome costs, and the failure tax.\n\nComputed over a bounded, most-recent window of top-level runs (``window_runs``); the\ndollar figures are for that window, not all time.",
+        "properties": {
+          "by_tenant": {
+            "items": {
+              "$ref": "#/components/schemas/TenantEconomics"
+            },
+            "title": "By Tenant",
+            "type": "array"
+          },
+          "by_workflow": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowEconomics"
+            },
+            "title": "By Workflow",
+            "type": "array"
+          },
+          "cost_on_failed_usd": {
+            "default": 0.0,
+            "title": "Cost On Failed Usd",
+            "type": "number"
+          },
+          "cost_on_in_flight_usd": {
+            "default": 0.0,
+            "title": "Cost On In Flight Usd",
+            "type": "number"
+          },
+          "cost_on_successful_usd": {
+            "default": 0.0,
+            "title": "Cost On Successful Usd",
+            "type": "number"
+          },
+          "cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Successful Run Usd"
+          },
+          "failed_runs": {
+            "default": 0,
+            "title": "Failed Runs",
+            "type": "integer"
+          },
+          "failure_tax_ratio": {
+            "default": 0.0,
+            "title": "Failure Tax Ratio",
+            "type": "number"
+          },
+          "failure_tax_usd": {
+            "default": 0.0,
+            "title": "Failure Tax Usd",
+            "type": "number"
+          },
+          "in_flight_runs": {
+            "default": 0,
+            "title": "In Flight Runs",
+            "type": "integer"
+          },
+          "mean_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Cost Per Successful Run Usd"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QualityEconomicsReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runs_with_cost": {
+            "default": 0,
+            "title": "Runs With Cost",
+            "type": "integer"
+          },
+          "success_rate": {
+            "default": 0.0,
+            "title": "Success Rate",
+            "type": "number"
+          },
+          "successful_runs": {
+            "default": 0,
+            "title": "Successful Runs",
+            "type": "integer"
+          },
+          "terminal_cost_usd": {
+            "default": 0.0,
+            "title": "Terminal Cost Usd",
+            "type": "number"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "window_runs": {
+            "default": 0,
+            "title": "Window Runs",
+            "type": "integer"
+          }
+        },
+        "title": "UnitEconomicsReport",
         "type": "object"
       },
       "UpdateWorkflowRequest": {
@@ -2645,6 +4119,192 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VerifyChainRequest": {
+        "additionalProperties": false,
+        "description": "Optional body for POST /runs/{run_id}/verify-chain.\n\nA client that recorded the chain head out-of-band can pin it: verification\nadditionally fails if the persisted head digest does not match.",
+        "properties": {
+          "expected_head_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Head Digest"
+          }
+        },
+        "title": "VerifyChainRequest",
+        "type": "object"
+      },
+      "WasteKind": {
+        "description": "The category of an economic-waste finding.",
+        "enum": [
+          "paid_for_failed_run",
+          "loop_reexecution",
+          "retry_overhead",
+          "cache_inefficiency"
+        ],
+        "title": "WasteKind",
+        "type": "string"
+      },
+      "WasteKindTotal": {
+        "additionalProperties": false,
+        "description": "Per-kind waste totals across the window.",
+        "properties": {
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/WasteKind"
+          },
+          "wasted_usd": {
+            "default": 0.0,
+            "title": "Wasted Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "WasteKindTotal",
+        "type": "object"
+      },
+      "WasteRollup": {
+        "additionalProperties": false,
+        "description": "Deployment-wide economic-waste rollup over a window of runs.",
+        "properties": {
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/WasteKindTotal"
+            },
+            "title": "By Kind",
+            "type": "array"
+          },
+          "confirmed_findings": {
+            "default": 0,
+            "title": "Confirmed Findings",
+            "type": "integer"
+          },
+          "findings": {
+            "default": 0,
+            "title": "Findings",
+            "type": "integer"
+          },
+          "flagged_findings": {
+            "default": 0,
+            "title": "Flagged Findings",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "runs_with_cost": {
+            "default": 0,
+            "title": "Runs With Cost",
+            "type": "integer"
+          },
+          "runs_with_waste": {
+            "default": 0,
+            "title": "Runs With Waste",
+            "type": "integer"
+          },
+          "top_findings": {
+            "items": {
+              "$ref": "#/components/schemas/WasteRollupFinding"
+            },
+            "title": "Top Findings",
+            "type": "array"
+          },
+          "total_confirmed_waste_usd": {
+            "default": 0.0,
+            "title": "Total Confirmed Waste Usd",
+            "type": "number"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_flagged_waste_usd": {
+            "default": 0.0,
+            "title": "Total Flagged Waste Usd",
+            "type": "number"
+          },
+          "waste_ratio": {
+            "default": 0.0,
+            "title": "Waste Ratio",
+            "type": "number"
+          },
+          "window_runs": {
+            "default": 0,
+            "title": "Window Runs",
+            "type": "integer"
+          }
+        },
+        "title": "WasteRollup",
+        "type": "object"
+      },
+      "WasteRollupFinding": {
+        "additionalProperties": false,
+        "description": "A waste finding tagged with the run it came from, so it stays actionable.",
+        "properties": {
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/WasteKind"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "severity": {
+            "default": "info",
+            "title": "Severity",
+            "type": "string"
+          },
+          "wasted_usd": {
+            "default": 0.0,
+            "title": "Wasted Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "run_id"
+        ],
+        "title": "WasteRollupFinding",
         "type": "object"
       },
       "WebhookDeadLetterListResponse": {
@@ -2888,6 +4548,62 @@
           "updated_at"
         ],
         "title": "WorkflowDetailResponse",
+        "type": "object"
+      },
+      "WorkflowEconomics": {
+        "additionalProperties": false,
+        "description": "Unit economics for one workflow within a deployment.",
+        "properties": {
+          "cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Successful Run Usd"
+          },
+          "failed_runs": {
+            "default": 0,
+            "title": "Failed Runs",
+            "type": "integer"
+          },
+          "failure_tax_usd": {
+            "default": 0.0,
+            "title": "Failure Tax Usd",
+            "type": "number"
+          },
+          "runs": {
+            "default": 0,
+            "title": "Runs",
+            "type": "integer"
+          },
+          "success_rate": {
+            "default": 0.0,
+            "title": "Success Rate",
+            "type": "number"
+          },
+          "successful_runs": {
+            "default": 0,
+            "title": "Successful Runs",
+            "type": "integer"
+          },
+          "terminal_cost_usd": {
+            "default": 0.0,
+            "title": "Terminal Cost Usd",
+            "type": "number"
+          },
+          "workflow_name": {
+            "title": "Workflow Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_name"
+        ],
+        "title": "WorkflowEconomics",
         "type": "object"
       },
       "WorkflowSummaryResponse": {
@@ -4129,6 +5845,7 @@
     },
     "/v1/deployments/{deployment_ref}/attestation": {
       "get": {
+        "description": "Return the persisted deployment attestation; requires ``Permission.DEPLOYMENT_READ``.",
         "operationId": "get_attestation_v1_deployments__deployment_ref__attestation_get",
         "parameters": [
           {
@@ -4169,9 +5886,52 @@
         ]
       }
     },
+    "/v1/deployments/{deployment_ref}/attestation/verify": {
+      "get": {
+        "description": "Server self-verifies its persisted attestation (digest + signature).",
+        "operationId": "get_attestation_verify_v1_deployments__deployment_ref__attestation_verify_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttestationVerificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Attestation Verify",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/deployments/{deployment_ref}/audit-verification": {
       "get": {
-        "description": "Verify digest-chain continuity across every run of a deployment.",
+        "description": "Verify digest continuity + signatures across every run of a deployment.",
         "operationId": "verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get",
         "parameters": [
           {
@@ -4214,6 +5974,7 @@
     },
     "/v1/deployments/{deployment_ref}/audits": {
       "get": {
+        "description": "List a deployment's audit records; requires ``Permission.AUDIT_READ``.",
         "operationId": "list_audits_v1_deployments__deployment_ref__audits_get",
         "parameters": [
           {
@@ -4363,6 +6124,7 @@
     },
     "/v1/deployments/{deployment_ref}/evidence": {
       "get": {
+        "description": "Return the evidence bundle for a deployment; requires ``Permission.AUDIT_READ``.",
         "operationId": "get_deployment_evidence_v1_deployments__deployment_ref__evidence_get",
         "parameters": [
           {
@@ -4626,6 +6388,7 @@
     },
     "/v1/deployments/{deployment_ref}/timeline": {
       "get": {
+        "description": "Return a deployment's ordered audit timeline; requires ``Permission.AUDIT_READ``.",
         "operationId": "get_deployment_timeline_v1_deployments__deployment_ref__timeline_get",
         "parameters": [
           {
@@ -4668,6 +6431,7 @@
     },
     "/v1/deployments/{deployment_ref}/verify-attestation": {
       "post": {
+        "description": "Verify a client-supplied attestation against the bound deployment.",
         "operationId": "post_verify_attestation_v1_deployments__deployment_ref__verify_attestation_post",
         "parameters": [
           {
@@ -4713,6 +6477,960 @@
           }
         },
         "summary": "Post Verify Attestation",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/action-suppression": {
+      "get": {
+        "operationId": "econ_dashboard_action_suppression_v1_econ_dashboard_action_suppression_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Action Suppression V1 Econ Dashboard Action Suppression Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Action Suppression",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/calibration-trend": {
+      "get": {
+        "operationId": "econ_dashboard_calibration_trend_v1_econ_dashboard_calibration_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Calibration Trend V1 Econ Dashboard Calibration Trend Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Calibration Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/capability-ranking": {
+      "get": {
+        "operationId": "econ_dashboard_capability_ranking_v1_econ_dashboard_capability_ranking_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Capability Ranking V1 Econ Dashboard Capability Ranking Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Capability Ranking",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/capital-destroyers": {
+      "get": {
+        "operationId": "econ_dashboard_capital_destroyers_v1_econ_dashboard_capital_destroyers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Capital Destroyers V1 Econ Dashboard Capital Destroyers Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Capital Destroyers",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/confidence-trend": {
+      "get": {
+        "operationId": "econ_dashboard_confidence_trend_v1_econ_dashboard_confidence_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Confidence Trend V1 Econ Dashboard Confidence Trend Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Confidence Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/data-quality-mix": {
+      "get": {
+        "operationId": "econ_dashboard_data_quality_mix_v1_econ_dashboard_data_quality_mix_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Data Quality Mix V1 Econ Dashboard Data Quality Mix Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Data Quality Mix",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/efficiency-trend": {
+      "get": {
+        "operationId": "econ_dashboard_efficiency_trend_v1_econ_dashboard_efficiency_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Efficiency Trend V1 Econ Dashboard Efficiency Trend Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Efficiency Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/kpis": {
+      "get": {
+        "operationId": "econ_dashboard_kpis_v1_econ_dashboard_kpis_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Kpis V1 Econ Dashboard Kpis Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Kpis",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/dashboard/top-creators": {
+      "get": {
+        "operationId": "econ_dashboard_top_creators_v1_econ_dashboard_top_creators_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Econ Dashboard Top Creators V1 Econ Dashboard Top Creators Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Econ Dashboard Top Creators",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/quality-verdict": {
+      "post": {
+        "description": "Attach an external good/bad verdict to a terminal run for quality-aware economics.\n\nThe runtime can't know whether an answer was *good*, so this is the honest way to\nfeed that signal in: a human reviewer or downstream check records a verdict, and\nunit economics then reports cost per good outcome over the labeled subset.\n\nAnnotation, not evidence \u2014 it merges under ``run.metadata['quality_verdict']`` and is\ndeliberately off the audit hash-chain. Admin-only (``METRICS_ADMIN``). 404 for an\nunknown or out-of-deployment run; 409 for a non-terminal run (no outcome to judge yet).",
+        "operationId": "attach_quality_verdict_v1_econ_quality_verdict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityVerdictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQualityVerdict"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attach Quality Verdict",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/costing/estimates/{capability_id}/latest": {
+      "get": {
+        "operationId": "regulus_costing_estimate_v1_econ_regulus_costing_estimates__capability_id__latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Costing Estimate",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/costing/profiles/{profile_id}": {
+      "get": {
+        "operationId": "regulus_costing_profile_v1_econ_regulus_costing_profiles__profile_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Costing Profile",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/action-suppression": {
+      "get": {
+        "operationId": "regulus_dashboard_action_suppression_v1_econ_regulus_dashboard_action_suppression_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Action Suppression",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/calibration-trend": {
+      "get": {
+        "operationId": "regulus_dashboard_calibration_trend_v1_econ_regulus_dashboard_calibration_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Calibration Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/capability-ranking": {
+      "get": {
+        "operationId": "regulus_dashboard_capability_ranking_v1_econ_regulus_dashboard_capability_ranking_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Capability Ranking",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/capital-destroyers": {
+      "get": {
+        "operationId": "regulus_dashboard_capital_destroyers_v1_econ_regulus_dashboard_capital_destroyers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Capital Destroyers",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/confidence-gate-status": {
+      "get": {
+        "operationId": "regulus_dashboard_confidence_gate_v1_econ_regulus_dashboard_confidence_gate_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Confidence Gate",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/confidence-trend": {
+      "get": {
+        "operationId": "regulus_dashboard_confidence_trend_v1_econ_regulus_dashboard_confidence_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Confidence Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/data-quality-mix": {
+      "get": {
+        "operationId": "regulus_dashboard_data_quality_v1_econ_regulus_dashboard_data_quality_mix_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Data Quality",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}": {
+      "get": {
+        "operationId": "regulus_dashboard_drift_timeline_v1_econ_regulus_dashboard_drift_timeline__capability_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Drift Timeline",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/efficiency-trend": {
+      "get": {
+        "operationId": "regulus_dashboard_efficiency_trend_v1_econ_regulus_dashboard_efficiency_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Efficiency Trend",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}": {
+      "get": {
+        "operationId": "regulus_dashboard_implementation_compare_v1_econ_regulus_dashboard_implementation_compare__capability_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Implementation Compare",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/kpis": {
+      "get": {
+        "operationId": "regulus_dashboard_kpis_v1_econ_regulus_dashboard_kpis_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Kpis",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/policy-timeline": {
+      "get": {
+        "operationId": "regulus_dashboard_policy_timeline_v1_econ_regulus_dashboard_policy_timeline_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Policy Timeline",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/dashboard/top-creators": {
+      "get": {
+        "operationId": "regulus_dashboard_top_creators_v1_econ_regulus_dashboard_top_creators_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Dashboard Top Creators",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/enforcement/actions": {
+      "get": {
+        "operationId": "regulus_enforcement_actions_v1_econ_regulus_enforcement_actions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Enforcement Actions",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/enforcement/actions/{action_id}/approve": {
+      "post": {
+        "operationId": "regulus_enforcement_approve_v1_econ_regulus_enforcement_actions__action_id__approve_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Enforcement Approve",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/enforcement/actions/{action_id}/reject": {
+      "post": {
+        "operationId": "regulus_enforcement_reject_v1_econ_regulus_enforcement_actions__action_id__reject_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Enforcement Reject",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/enforcement/policy-actions": {
+      "get": {
+        "operationId": "regulus_enforcement_policy_actions_v1_econ_regulus_enforcement_policy_actions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Enforcement Policy Actions",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/evaluations/{capability_id}/history": {
+      "get": {
+        "operationId": "regulus_evaluations_history_v1_econ_regulus_evaluations__capability_id__history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Evaluations History",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/evaluations/{capability_id}/latest": {
+      "get": {
+        "operationId": "regulus_evaluations_latest_v1_econ_regulus_evaluations__capability_id__latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Evaluations Latest",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/performance/capabilities": {
+      "get": {
+        "operationId": "regulus_performance_capabilities_v1_econ_regulus_performance_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Performance Capabilities",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/performance/summary": {
+      "get": {
+        "operationId": "regulus_performance_summary_v1_econ_regulus_performance_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Performance Summary",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/reconciliation/calibration-summary": {
+      "get": {
+        "operationId": "regulus_reconciliation_calibration_v1_econ_regulus_reconciliation_calibration_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Reconciliation Calibration",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/registry/capabilities": {
+      "get": {
+        "operationId": "regulus_registry_capabilities_v1_econ_regulus_registry_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Registry Capabilities",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/registry/capabilities/{capability_id}": {
+      "get": {
+        "operationId": "regulus_registry_capability_v1_econ_regulus_registry_capabilities__capability_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Registry Capability",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/regulus/registry/implementations/{implementation_id}": {
+      "get": {
+        "operationId": "regulus_registry_implementation_v1_econ_regulus_registry_implementations__implementation_id__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Regulus Registry Implementation",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/rightsizing": {
+      "post": {
+        "description": "Return cheaper, capability-compatible alternatives to ``body.incumbent``.\n\nCandidates to A/B test, not a verdict \u2014 the endpoint gates on capability and\nprice only. An unknown incumbent returns ``incumbent_known=False`` (a 200 with an\nexplanation), never an error.",
+        "operationId": "suggest_rightsizing_v1_econ_rightsizing_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RightsizingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RightsizingResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Rightsizing",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/rightsizing/experiment": {
+      "post": {
+        "description": "Replay this node's real inputs through cheaper models and measure equivalence.\n\nEvery branch returns a 200 with an explanatory ``note`` rather than an error: an\nunpriced incumbent, no cheaper candidates, no run history, or a missing provider key\nare all *results* of the measurement, not failures of the endpoint.",
+        "operationId": "run_rightsizing_experiment_v1_econ_rightsizing_experiment_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExperimentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Rightsizing Experiment",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/rightsizing/opportunities": {
+      "get": {
+        "description": "Rank this deployment's agent nodes by right-sizing opportunity (spend \u00d7 savings).\n\nRead-only aggregation over the audit trail \u2014 no LLM calls. Surfaces which nodes are\nworth a measured experiment. Returns an empty report (200) when no spend is on record.",
+        "operationId": "rightsizing_opportunities_v1_econ_rightsizing_opportunities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Rightsizing Opportunities",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/unit-economics": {
+      "get": {
+        "description": "Cost per successful outcome and the failure tax over the last ``window`` runs.\n\nRead-only aggregation over the run + audit trail \u2014 no LLM calls, no Regulus. Every\nstate is a 200: no runs, no attributed cost, or no successes yet are all *results*\ncarried in the report's ``note``, never errors. Returns 503 only when the\nrepositories themselves are unavailable.",
+        "operationId": "get_unit_economics_v1_econ_unit_economics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Window",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitEconomicsReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Unit Economics",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/waste": {
+      "get": {
+        "description": "Deployment-wide structural-waste rollup over the last ``window`` runs.\n\nRuns ``analyze_run`` per top-level run and sums confirmed (paid-for-failed) vs\nflagged (loops/retries) waste \u2014 which never share a dollar. Read-only, no LLM, no\nRegulus. Every data state is a 200 carried in ``note``; ``limit`` caps the returned\ntop findings. Returns 503 only when the repositories are unavailable.",
+        "operationId": "get_waste_v1_econ_waste_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Window",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WasteRollup"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Waste",
         "tags": [
           "v1"
         ]
@@ -4765,8 +7483,198 @@
         ]
       }
     },
+    "/v1/retention/erasure-requests": {
+      "post": {
+        "description": "Erase one run or every non-held run of the caller's tenant (409 on hold).",
+        "operationId": "request_erasure_v1_retention_erasure_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErasureRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErasureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Erasure",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/retention/legal-holds": {
+      "post": {
+        "description": "Place a run-scoped or tenant-wide legal hold for the caller's tenant.",
+        "operationId": "place_legal_hold_v1_retention_legal_holds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegalHoldBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegalHoldResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Place Legal Hold",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/retention/legal-holds/{hold_id}": {
+      "delete": {
+        "description": "Release a legal hold owned by the caller's tenant (404 otherwise).",
+        "operationId": "release_legal_hold_v1_retention_legal_holds__hold_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hold_id",
+            "required": true,
+            "schema": {
+              "title": "Hold Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegalHoldResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Release Legal Hold",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/retention/policy": {
+      "get": {
+        "description": "Return the caller tenant's resolved retention policy (admin-tier).",
+        "operationId": "get_retention_policy_v1_retention_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Retention Policy",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "description": "Create or replace the caller tenant's retention policy (admin-tier).",
+        "operationId": "put_retention_policy_v1_retention_policy_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionPolicyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Retention Policy",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/runs": {
       "post": {
+        "description": "Validate, guard-check, and queue a new run; requires ``Permission.RUN_CREATE``.",
         "operationId": "create_run_v1_runs_post",
         "requestBody": {
           "content": {
@@ -4808,6 +7716,7 @@
     },
     "/v1/runs/{run_id}": {
       "get": {
+        "description": "Return the public status of a run; requires ``Permission.RUN_READ``.",
         "operationId": "get_run_v1_runs__run_id__get",
         "parameters": [
           {
@@ -4850,7 +7759,7 @@
     },
     "/v1/runs/{run_id}/audit-verification": {
       "get": {
-        "description": "Verify the tamper-evident digest chain over a run's audit records.",
+        "description": "Verify the digest chain + signatures over a run's audit records.",
         "operationId": "verify_run_audit_chain_v1_runs__run_id__audit_verification_get",
         "parameters": [
           {
@@ -4893,6 +7802,7 @@
     },
     "/v1/runs/{run_id}/evidence": {
       "get": {
+        "description": "Return the evidence bundle for a run; requires ``Permission.AUDIT_READ``.",
         "operationId": "get_run_evidence_v1_runs__run_id__evidence_get",
         "parameters": [
           {
@@ -4935,6 +7845,7 @@
     },
     "/v1/runs/{run_id}/timeline": {
       "get": {
+        "description": "Return the ordered audit timeline for a run; requires ``Permission.AUDIT_READ``.",
         "operationId": "get_run_timeline_v1_runs__run_id__timeline_get",
         "parameters": [
           {
@@ -4970,6 +7881,66 @@
           }
         },
         "summary": "Get Run Timeline",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/verify-chain": {
+      "post": {
+        "description": "POST alias of the run audit-verification with an optional head pin.",
+        "operationId": "post_verify_run_chain_v1_runs__run_id__verify_chain_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/VerifyChainRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Verify Run Chain",
         "tags": [
           "v1"
         ]

@@ -138,7 +138,7 @@ destructive transaction.
 
 ## Econ-event coverage: in-scope vs deferred
 
-The economic control plane (`zeroth.econ_plane`) records `execution_events` and
+The economic control plane (`zeroth.econ.plane`) records `execution_events` and
 `outcome_events` on its **own** SQLAlchemy database, carrying tenant / cost /
 potentially-PII payloads.
 

@@ -96,6 +96,15 @@ Most agent frameworks prioritize getting something working quickly. Zeroth prior
 
 A **graph** is your application. It defines how agents, executable units, and approval steps connect and interact. Graphs can be cyclic, support branching conditions, and are executed asynchronously.
 
+The durable structured-token runtime is the default for newly authored graphs.
+It gives forks, joins, nested loops, cancellation, checkpointing, and replay an
+explicit persisted lifecycle. During the compatibility window, an existing
+graph can select the legacy sequential runtime by explicitly authoring
+`ExecutionSettings(sequential_join_enabled=False)`. The omission and explicit
+values are intentionally distinct: omitted or `True` selects structured-token
+execution; explicit `False` selects legacy and emits a deprecation warning.
+Published deployments keep their immutable engine-mode pin when hydrated.
+
 ### Node Types
 
 Zeroth keeps its primitives minimal. Every graph is composed from a small set of node types:

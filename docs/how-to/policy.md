@@ -7,9 +7,9 @@ This guide shows how to declare a `PolicyDefinition` that denies a specific [cap
 ## Minimal example
 
 ```python
-from zeroth.core.policy import PolicyGuard
-from zeroth.core.policy.models import Capability, PolicyDefinition
-from zeroth.core.policy.registry import CapabilityRegistry, PolicyRegistry
+from zeroth.governance.policy import PolicyGuard
+from zeroth.governance.policy.models import Capability, PolicyDefinition
+from zeroth.governance.policy.registry import CapabilityRegistry, PolicyRegistry
 
 # 1. Declare a policy that denies one capability.
 no_network_write = PolicyDefinition(
@@ -52,6 +52,6 @@ Bind the policy to the graph or node by adding its `policy_id` to `graph.policy_
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.policy`](../reference/python-api/policy.md).
+See the [Python API reference for `zeroth.governance.policy`](../reference/python-api/policy.md).
 
 Related: [Concept: policy](../concepts/policy.md), [Usage Guide: approvals](approvals.md), [Usage Guide: audit](audit.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

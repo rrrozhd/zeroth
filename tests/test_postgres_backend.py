@@ -16,7 +16,7 @@ class TestGraphRepositoryDualBackend:
 
     async def test_save_and_get_graph(self, dual_database):
         from tests.graph.test_models import build_graph
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.repository import GraphRepository
 
         repo = GraphRepository(dual_database)
         graph = build_graph()
@@ -29,8 +29,8 @@ class TestGraphRepositoryDualBackend:
 
     async def test_publish_graph(self, dual_database):
         from tests.graph.test_models import build_graph
-        from zeroth.core.graph.models import GraphStatus
-        from zeroth.core.graph.repository import GraphRepository
+        from zeroth.contracts.graph.models import GraphStatus
+        from zeroth.contracts.graph.repository import GraphRepository
 
         repo = GraphRepository(dual_database)
         graph = await repo.create(build_graph())
@@ -88,9 +88,9 @@ class TestRunRepositoryDualBackend:
 @requires_docker
 class TestDatabaseFactory:
     async def test_factory_creates_sqlite(self, tmp_path):
-        from zeroth.core.config.settings import ZerothSettings
-        from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
-        from zeroth.core.storage.factory import create_database
+        from zeroth.platform.config.settings import ZerothSettings
+        from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+        from zeroth.platform.storage.factory import create_database
 
         settings = ZerothSettings(
             database={"backend": "sqlite", "sqlite_path": str(tmp_path / "test.db")}
@@ -100,9 +100,9 @@ class TestDatabaseFactory:
         await db.close()
 
     async def test_factory_creates_postgres(self, postgres_container):
-        from zeroth.core.config.settings import ZerothSettings
-        from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
-        from zeroth.core.storage.factory import create_database
+        from zeroth.platform.config.settings import ZerothSettings
+        from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
+        from zeroth.platform.storage.factory import create_database
 
         url = postgres_container.get_connection_url()
         dsn = url.replace("postgresql+psycopg2://", "postgresql://")

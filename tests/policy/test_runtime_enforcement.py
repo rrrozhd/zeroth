@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentProviderError,
     AgentRunner,
@@ -13,8 +13,8 @@ from zeroth.core.agent_runtime import (
     ProviderResponse,
     ToolAttachmentManifest,
 )
-from zeroth.core.audit import AuditRepository
-from zeroth.core.execution_units import (
+from zeroth.governance.audit import AuditRepository
+from zeroth.integrations.execution import (
     CommandArtifactSource,
     ExecutableUnitBinding,
     ExecutableUnitRegistry,
@@ -27,7 +27,7 @@ from zeroth.core.execution_units import (
     SandboxStrictnessMode,
     WrappedCommandUnitManifest,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -36,10 +36,11 @@ from zeroth.core.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.identity import ActorIdentity, AuthMethod
+from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.policy import Capability, EnforcementResult, PolicyDecision
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.governance.policy import Capability, EnforcementResult, PolicyDecision
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 class NumberInput(BaseModel):
@@ -206,7 +207,7 @@ async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(s
         ],
         edges=[],
     )
-    from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+    from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
 
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
@@ -310,7 +311,7 @@ async def test_agent_runner_applies_timeout_override_and_blocks_side_effecting_t
         )
 
     monkeypatch.setattr(
-        "zeroth.core.agent_runtime.runner.run_provider_with_timeout",
+        "zeroth.runtime.agents.runner.run_provider_with_timeout",
         fake_run_provider_with_timeout,
     )
     runner = AgentRunner(

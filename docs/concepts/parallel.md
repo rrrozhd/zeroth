@@ -39,4 +39,4 @@ Policy, audit, and contract validation apply independently per branch.
 - **`ParallelExecutionError`** -- Raised for orchestration-level failures in the parallel executor.
 - **`ParallelStepLimitError`** -- Raised when the global step limit is exceeded across all branches.
 
-See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.core.parallel` for implementation.
+See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.runtime.parallel` for implementation.

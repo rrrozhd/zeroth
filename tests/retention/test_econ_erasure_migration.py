@@ -13,7 +13,7 @@ from tests.conftest import requires_docker
 def _econ_config(database_url: str) -> Config:
     root = Path(__file__).resolve().parents[2]
     config = Config()
-    config.set_main_option("script_location", str(root / "src/zeroth/econ_plane/_migrations"))
+    config.set_main_option("script_location", str(root / "src/zeroth/econ/plane/_migrations"))
     config.set_main_option("sqlalchemy.url", database_url)
     return config
 

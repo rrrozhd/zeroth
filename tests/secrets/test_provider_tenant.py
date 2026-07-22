@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.secrets import (
+from zeroth.platform.secrets import (
     EnvSecretProvider,
     SecretResolutionError,
     normalize_secret_name,

@@ -4,12 +4,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from zeroth.core.templates.errors import (
+from zeroth.contracts.templates.errors import (
     TemplateRenderError,
     TemplateSyntaxValidationError,
 )
-from zeroth.core.templates.models import PromptTemplate, TemplateRenderResult
-from zeroth.core.templates.renderer import TemplateRenderer
+from zeroth.contracts.templates.models import PromptTemplate, TemplateRenderResult
+from zeroth.contracts.templates.renderer import TemplateRenderer
 
 
 def _make_template(

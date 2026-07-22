@@ -8,13 +8,13 @@ import pytest
 
 from tests.retention.conftest import make_audit_record
 
-from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
-from zeroth.core.audit.verifier import (
+from zeroth.governance.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
+from zeroth.governance.audit.verifier import (
     _compute_pii_commitments,
     _compute_record_digest,
     compute_chained_record,
 )
-from zeroth.core.signing import EnvHmacSigner
+from zeroth.platform.signing import EnvHmacSigner
 
 
 async def test_crypto_erase_preserves_chain_verification(sqlite_db) -> None:
@@ -88,7 +88,7 @@ async def test_legacy_v1_record_cannot_be_erased(sqlite_db) -> None:
     )
     assert legacy.digest_version == 1
     chained = compute_chained_record(legacy, None, None)
-    from zeroth.core.storage.json import to_json_value
+    from zeroth.platform.storage.json import to_json_value
 
     async with sqlite_db.transaction() as connection:
         await connection.execute(
@@ -138,7 +138,7 @@ async def test_v2_uncommitted_structured_payload_cannot_be_erased(sqlite_db) -> 
     )
     prepared = original.model_copy(update={"pii_commitments": _compute_pii_commitments(original)})
     chained = compute_chained_record(prepared, None, None)
-    from zeroth.core.storage.json import to_json_value
+    from zeroth.platform.storage.json import to_json_value
 
     async with sqlite_db.transaction() as connection:
         await connection.execute(

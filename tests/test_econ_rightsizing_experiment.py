@@ -11,17 +11,17 @@ import json
 
 import pytest
 
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.audit.models import NodeAuditRecord, TokenUsage
-from zeroth.core.econ.rightsizing import ModelOption
-from zeroth.core.econ.rightsizing_experiment import (
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
+from zeroth.econ.analytics.rightsizing import ModelOption
+from zeroth.econ.analytics.rightsizing_experiment import (
     EquivalenceScorer,
     build_experiment_dataset,
     build_labeled_dataset,
     run_experiment,
 )
-from zeroth.core.eval.models import EvalCase
-from zeroth.core.eval.scorers import JudgeVerdict
+from zeroth.eval.models import EvalCase
+from zeroth.eval.scorers import JudgeVerdict
 
 
 def _option(model: str, provider: str, in_price: float, out_price: float, **kw) -> ModelOption:
@@ -47,7 +47,7 @@ def _audit(
     tokens: tuple[int, int] | None = (1000, 200),
     run_id: str = "r1",
 ) -> NodeAuditRecord:
-    from zeroth.core.audit.models import ToolCallRecord
+    from zeroth.governance.audit.models import ToolCallRecord
 
     return NodeAuditRecord(
         audit_id=f"a-{node_id}-{run_id}-{json.dumps(inp, sort_keys=True)}",

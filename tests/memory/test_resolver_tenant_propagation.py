@@ -9,12 +9,12 @@ and the SAME registered raw connector must not see each other's memory.
 from __future__ import annotations
 
 import pytest
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryScope
 
-from zeroth.core.memory.connectors import KeyValueMemoryConnector
-from zeroth.core.memory.models import ConnectorManifest
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
-from zeroth.core.memory.tenant_scoped import TenantScopeError
+from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
+from zeroth.integrations.memory.models import ConnectorManifest
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.integrations.memory.tenant_scoped import TenantScopeError
 
 
 def _resolver() -> tuple[MemoryConnectorResolver, KeyValueMemoryConnector]:

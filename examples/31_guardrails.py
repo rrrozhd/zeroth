@@ -34,15 +34,15 @@ from examples._common import (
     print_run_summary,
 )
 from examples._contracts import Answer, Question
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.guardrails import GuardrailConfig
-from zeroth.core.runs import RunStatus
+from zeroth.governance.guardrails import GuardrailConfig
+from zeroth.runtime.runs import RunStatus
 
 
 def build_graph() -> Graph:

@@ -10,14 +10,14 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from tests.test_studio_publish_deploy import _make_env, _register_contracts
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
     EntrypointNode,
     Graph,
 )
-from zeroth.core.graph.validation import GraphValidator
+from zeroth.runtime.graph_validation import GraphValidator
 
 _REF = "wf@1"
 

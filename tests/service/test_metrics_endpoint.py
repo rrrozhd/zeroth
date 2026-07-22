@@ -12,7 +12,7 @@ from tests.service.helpers import (
     operator_headers,
     scoped_auth_config,
 )
-from zeroth.core.identity import ServiceRole
+from zeroth.governance.identity import ServiceRole
 from zeroth.core.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "metrics-test"

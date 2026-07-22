@@ -6,13 +6,13 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from tests.service.helpers import agent_graph, deploy_service, operator_headers
-from zeroth.core.execution_units.models import (
+from zeroth.integrations.execution.models import (
     InputMode,
     NativeUnitManifest,
     OutputMode,
     PythonModuleArtifactSource,
 )
-from zeroth.core.execution_units.runner import ExecutableUnitBinding
+from zeroth.integrations.execution.runner import ExecutableUnitBinding
 from zeroth.core.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "manifests-test"

@@ -7,7 +7,7 @@ This guide shows how to query the [audit](../concepts/audit.md) trail for a give
 ## Minimal example
 
 ```python
-from zeroth.core.audit import AuditQuery, AuditRepository
+from zeroth.governance.audit import AuditQuery, AuditRepository
 
 # 1. In-process: query by run_id using the repository directly.
 audit_repo = AuditRepository(database)
@@ -53,7 +53,7 @@ for entry in timeline.json()["entries"]:
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.audit`](../reference/python-api/audit.md).
+See the [Python API reference for `zeroth.governance.audit`](../reference/python-api/audit.md).
 
 - HTTP API: `GET /runs/{run_id}/timeline`, `GET /deployments/{ref}/audits?run_id=...`
 - Related: [Concept: audit](../concepts/audit.md), [Usage Guide: policy](policy.md), [Usage Guide: approvals](approvals.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

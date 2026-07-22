@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from zeroth.core.governed.app.spec import GovernedFlowSpec, GovernedStepSpec
-from zeroth.core.governed.tools.python_tool import tool
+from zeroth.contracts.governed.app.spec import GovernedFlowSpec, GovernedStepSpec
+from zeroth.runtime.agents.tooling.python_tool import tool
 from pydantic import BaseModel, Field
 
-from zeroth.core.contracts import ContractReference, ContractRegistry
-from zeroth.core.contracts.errors import ContractNotFoundError
+from zeroth.contracts.registry import ContractReference, ContractRegistry
+from zeroth.contracts.registry.errors import ContractNotFoundError
 
 
 class Address(BaseModel):

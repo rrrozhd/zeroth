@@ -13,16 +13,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime.models import (
+from zeroth.runtime.agents.models import (
     AgentConfig,
     AgentRunResult,
     InMemoryThreadStateStore,
 )
-from zeroth.core.agent_runtime.provider import (
+from zeroth.runtime.agents.provider import (
     DeterministicProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.agent_runtime.runner import AgentRunner
+from zeroth.runtime.agents.runner import AgentRunner
 
 
 class SimpleInput(BaseModel):
@@ -320,7 +320,7 @@ async def test_compaction_in_tool_call_resolution() -> None:
     async def tool_executor(binding: Any, args: Any) -> dict[str, str]:
         return {"result": "search result"}
 
-    from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
+    from zeroth.runtime.agents.tools import ToolAttachmentManifest
 
     tool_manifest = ToolAttachmentManifest(
         alias="search",

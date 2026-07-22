@@ -17,12 +17,12 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.audit import AuditRepository
-from zeroth.core.context_window.models import ContextWindowSettings
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import (
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.governance.audit import AuditRepository
+from zeroth.runtime.context.models import ContextWindowSettings
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -31,13 +31,14 @@ from zeroth.core.graph import (
     SubgraphNode,
 )
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.parallel.errors import FanOutValidationError
-from zeroth.core.parallel.models import ParallelConfig
-from zeroth.core.runs import RunRepository, RunStatus
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.templates.models import TemplateReference
-from zeroth.core.templates.registry import TemplateRegistry
-from zeroth.core.templates.renderer import TemplateRenderer
+from zeroth.runtime.parallel.errors import FanOutValidationError
+from zeroth.runtime.parallel.models import ParallelConfig
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.contracts.templates.models import TemplateReference
+from zeroth.contracts.templates.registry import TemplateRegistry
+from zeroth.contracts.templates.renderer import TemplateRenderer
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +162,7 @@ def _make_orchestrator(
 @pytest.mark.asyncio
 async def test_parallel_branches_with_artifact_store(sqlite_db, tmp_path) -> None:
     """Parallel fan-out with artifact_store set completes without error."""
-    from zeroth.core.artifacts.store import FilesystemArtifactStore
+    from zeroth.platform.artifacts.store import FilesystemArtifactStore
 
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
@@ -375,7 +376,7 @@ async def test_template_resolution_in_subgraph(sqlite_db) -> None:
     """SubgraphNode with template_ref on child graph's agent resolves template."""
     from unittest.mock import MagicMock
 
-    from zeroth.core.graph.serialization import serialize_graph
+    from zeroth.contracts.graph.serialization import serialize_graph
     from zeroth.core.runs.models import Run
 
     registry = TemplateRegistry()

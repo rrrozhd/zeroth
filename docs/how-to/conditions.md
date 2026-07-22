@@ -9,7 +9,7 @@ This guide shows how to attach a condition to a graph edge so the [orchestrator]
 ```python
 import asyncio
 
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -17,7 +17,7 @@ from zeroth.core.graph import (
     Graph,
     GraphRepository,
 )
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 async def main() -> None:
@@ -83,4 +83,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.conditions`](../reference/python-api/conditions.md).
+See the [Python API reference for `zeroth.contracts.conditions`](../reference/python-api/conditions.md).

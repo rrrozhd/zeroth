@@ -1,13 +1,5 @@
-"""Error types used by the graph package.
+"""Legacy import path for :mod:`zeroth.contracts.graph.errors`."""
 
-These errors are raised when something goes wrong with graph lifecycle
-operations like publishing, archiving, or updating a graph.
-"""
+from zeroth.contracts.graph.errors import GraphLifecycleError
 
-
-class GraphLifecycleError(ValueError):
-    """Raised when you try to move a graph to a status it cannot go to.
-
-    For example, you cannot publish a graph that is already archived,
-    or revert a published graph back to draft.
-    """
+__all__ = ["GraphLifecycleError"]

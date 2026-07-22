@@ -299,6 +299,9 @@ export function NodeInspector({
           onChange={(e) => onLabelChange(e.target.value)}
           className={inputCls}
         />
+        {readOnly && (
+          <span className="mt-1 block text-xs font-normal text-muted">clone to edit</span>
+        )}
       </label>
 
       {fields.map((f) => {

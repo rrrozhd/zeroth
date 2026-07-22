@@ -41,4 +41,4 @@ The `ResilientHttpClient` wraps `httpx.AsyncClient` with four resilience layers:
 - **`HttpRateLimitError`** -- Raised when the token bucket rejects a request due to rate limiting.
 - **`HttpClientError`** -- Base error for all HTTP client operations.
 
-See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.core.http` for implementation.
+See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.integrations.http` for implementation.

@@ -1,0 +1,2917 @@
+{
+  "alembic_revisions": [
+    {
+      "down_revision": null,
+      "revision": "001"
+    },
+    {
+      "down_revision": "001",
+      "revision": "002"
+    },
+    {
+      "down_revision": "002",
+      "revision": "003"
+    },
+    {
+      "down_revision": "003",
+      "revision": "004"
+    },
+    {
+      "down_revision": "004",
+      "revision": "005"
+    },
+    {
+      "down_revision": "005",
+      "revision": "006"
+    },
+    {
+      "down_revision": "006",
+      "revision": "007"
+    },
+    {
+      "down_revision": "007",
+      "revision": "008"
+    },
+    {
+      "down_revision": "008",
+      "revision": "009"
+    },
+    {
+      "down_revision": "009",
+      "revision": "010"
+    },
+    {
+      "down_revision": "010",
+      "revision": "011"
+    },
+    {
+      "down_revision": "011",
+      "revision": "012"
+    },
+    {
+      "down_revision": "012",
+      "revision": "013"
+    },
+    {
+      "down_revision": "013",
+      "revision": "014"
+    },
+    {
+      "down_revision": "014",
+      "revision": "015"
+    }
+  ],
+  "tables": {
+    "alembic_version": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "version_num",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "VARCHAR(32)"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE alembic_version ( version_num VARCHAR(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num) )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "version_num"
+          ],
+          "name": "sqlite_autoindex_alembic_version_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "approvals": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "approval_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "thread_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "node_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_version_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "record_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "sla_deadline",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 13,
+          "default": null,
+          "hidden": 0,
+          "name": "escalation_action",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 14,
+          "default": null,
+          "hidden": 0,
+          "name": "escalated_from_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE approvals ( approval_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT, node_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, record_json TEXT NOT NULL , sla_deadline TEXT, escalation_action TEXT, escalated_from_id TEXT)",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "deployment_ref",
+            "created_at",
+            "approval_id"
+          ],
+          "name": "idx_approvals_deployment_ref",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "run_id",
+            "created_at",
+            "approval_id"
+          ],
+          "name": "idx_approvals_run_id",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "thread_id",
+            "created_at",
+            "approval_id"
+          ],
+          "name": "idx_approvals_thread_id",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "approval_id"
+          ],
+          "name": "sqlite_autoindex_approvals_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "audit_chain_heads": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "head_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": "1",
+          "hidden": 0,
+          "name": "next_sequence",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE audit_chain_heads ( run_id TEXT PRIMARY KEY, head_digest TEXT, next_sequence INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "run_id"
+          ],
+          "name": "sqlite_autoindex_audit_chain_heads_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "contract_versions": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "contract_name",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "version",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "model_path",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "schema_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "metadata_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": "CURRENT_TIMESTAMP",
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE contract_versions ( contract_name TEXT NOT NULL, version INTEGER NOT NULL, model_path TEXT NOT NULL, schema_json TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(contract_name, version) )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "contract_name",
+            "version"
+          ],
+          "name": "idx_contract_versions_name_version",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "contract_name",
+            "version"
+          ],
+          "name": "sqlite_autoindex_contract_versions_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "deployment_versions": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "version",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_version",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_version_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "serialized_graph",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "entry_input_contract_ref",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "entry_input_contract_version",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "entry_output_contract_ref",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "entry_output_contract_version",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_settings_snapshot",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_snapshot_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 13,
+          "default": null,
+          "hidden": 0,
+          "name": "contract_snapshot_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 14,
+          "default": null,
+          "hidden": 0,
+          "name": "settings_snapshot_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 15,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 16,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 17,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 18,
+          "default": null,
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 19,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 20,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 21,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_signature",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 22,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_signing_key_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 23,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_algorithm",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 24,
+          "default": "'legacy'",
+          "hidden": 0,
+          "name": "engine_mode",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "VARCHAR"
+        },
+        {
+          "cid": 25,
+          "default": "'1'",
+          "hidden": 0,
+          "name": "attestation_payload_version",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE deployment_versions ( deployment_id TEXT PRIMARY KEY, deployment_ref TEXT NOT NULL, version INTEGER NOT NULL, graph_id TEXT NOT NULL, graph_version INTEGER NOT NULL, graph_version_ref TEXT NOT NULL, serialized_graph TEXT NOT NULL, entry_input_contract_ref TEXT, entry_input_contract_version INTEGER, entry_output_contract_ref TEXT, entry_output_contract_version INTEGER, deployment_settings_snapshot TEXT NOT NULL, graph_snapshot_digest TEXT, contract_snapshot_digest TEXT, settings_snapshot_digest TEXT, attestation_digest TEXT, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, attestation_signature TEXT, attestation_signing_key_id TEXT, attestation_algorithm TEXT, engine_mode VARCHAR DEFAULT 'legacy' NOT NULL, attestation_payload_version INTEGER DEFAULT '1' NOT NULL, UNIQUE(deployment_ref, version) )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "graph_id",
+            "graph_version",
+            "created_at",
+            "deployment_id"
+          ],
+          "name": "idx_deployment_versions_graph",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "deployment_ref",
+            "version"
+          ],
+          "name": "idx_deployment_versions_ref_version",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "deployment_id"
+          ],
+          "name": "sqlite_autoindex_deployment_versions_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        },
+        {
+          "columns": [
+            "deployment_ref",
+            "version"
+          ],
+          "name": "sqlite_autoindex_deployment_versions_2",
+          "origin": "u",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "graph_versions": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "version",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "schema_version",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "payload",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE graph_versions ( graph_id TEXT NOT NULL, version INTEGER NOT NULL, status TEXT NOT NULL, schema_version INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', workspace_id TEXT, PRIMARY KEY(graph_id, version) )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "graph_id",
+            "version"
+          ],
+          "name": "idx_graph_versions_graph_id_version",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "status"
+          ],
+          "name": "idx_graph_versions_status",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "graph_id",
+            "version"
+          ],
+          "name": "idx_graph_versions_tenant",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id"
+          ],
+          "name": "idx_graph_versions_tenant_workspace",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "graph_id",
+            "version"
+          ],
+          "name": "sqlite_autoindex_graph_versions_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "legal_holds": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "hold_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "reason",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": "1",
+          "hidden": 0,
+          "name": "active",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "placed_by",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "released_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE legal_holds ( hold_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, run_id TEXT, reason TEXT, active INTEGER NOT NULL DEFAULT 1, placed_by TEXT, created_at TEXT NOT NULL, released_at TEXT )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "active",
+            "run_id"
+          ],
+          "name": "idx_legal_holds_active",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "hold_id"
+          ],
+          "name": "sqlite_autoindex_legal_holds_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "memory_connector_configs": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "ref",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "backend_type",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "params",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE memory_connector_configs ( ref TEXT PRIMARY KEY, backend_type TEXT NOT NULL, params TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL , tenant_id TEXT NOT NULL DEFAULT 'default')",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "ref"
+          ],
+          "name": "sqlite_autoindex_memory_connector_configs_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "node_audits": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "audit_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "thread_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "node_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_version_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "record_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "cost_usd",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "FLOAT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "cost_event_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "chain_sequence",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE node_audits ( audit_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT, node_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, created_at TEXT NOT NULL, record_json TEXT NOT NULL , cost_usd FLOAT, cost_event_id TEXT, chain_sequence INTEGER)",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "deployment_ref",
+            "created_at",
+            "audit_id"
+          ],
+          "name": "idx_node_audits_deployment_ref",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "graph_version_ref",
+            "created_at",
+            "audit_id"
+          ],
+          "name": "idx_node_audits_graph_version_ref",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "node_id",
+            "created_at",
+            "audit_id"
+          ],
+          "name": "idx_node_audits_node_id",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "run_id",
+            "created_at",
+            "audit_id"
+          ],
+          "name": "idx_node_audits_run_id",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "created_at"
+          ],
+          "name": "idx_node_audits_tenant_created",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "thread_id",
+            "created_at",
+            "audit_id"
+          ],
+          "name": "idx_node_audits_thread_id",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "audit_id"
+          ],
+          "name": "sqlite_autoindex_node_audits_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        },
+        {
+          "columns": [
+            "run_id",
+            "chain_sequence"
+          ],
+          "name": "uq_node_audits_run_chain_sequence",
+          "origin": "c",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "quota_counters": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "counter_key",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": "0",
+          "hidden": 0,
+          "name": "value",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "window_start",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": "86400",
+          "hidden": 0,
+          "name": "window_seconds",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE quota_counters ( counter_key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL, window_seconds INTEGER NOT NULL DEFAULT 86400 )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "counter_key"
+          ],
+          "name": "sqlite_autoindex_quota_counters_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "rate_limit_buckets": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "bucket_key",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "token_count",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "REAL"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "last_refill_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": "10.0",
+          "hidden": 0,
+          "name": "capacity",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "REAL"
+        },
+        {
+          "cid": 4,
+          "default": "1.0",
+          "hidden": 0,
+          "name": "refill_rate",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "REAL"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE rate_limit_buckets ( bucket_key TEXT PRIMARY KEY, token_count REAL NOT NULL, last_refill_at TEXT NOT NULL, capacity REAL NOT NULL DEFAULT 10.0, refill_rate REAL NOT NULL DEFAULT 1.0 )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "bucket_key"
+          ],
+          "name": "sqlite_autoindex_rate_limit_buckets_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "retention_audit_log": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "log_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "action",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "reason",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "detail",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE retention_audit_log ( log_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, run_id TEXT, action TEXT NOT NULL, reason TEXT, detail TEXT, created_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "run_id",
+            "created_at"
+          ],
+          "name": "idx_retention_audit_log_run",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "created_at"
+          ],
+          "name": "idx_retention_audit_log_tenant",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "log_id"
+          ],
+          "name": "sqlite_autoindex_retention_audit_log_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "retention_cleanup_operations": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "authorization_log_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "operation_id",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "deleted_count",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "error",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": "0",
+          "hidden": 0,
+          "name": "revision",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE retention_cleanup_operations ( authorization_log_id TEXT NOT NULL REFERENCES retention_cleanup_state(authorization_log_id) ON DELETE CASCADE, operation_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'skipped')), deleted_count INTEGER, error TEXT, revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0), updated_at TEXT NOT NULL, PRIMARY KEY (authorization_log_id, operation_id) )",
+      "foreign_keys": [
+        {
+          "from": "authorization_log_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "CASCADE",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "retention_cleanup_state",
+          "to": "authorization_log_id"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "authorization_log_id",
+            "operation_id"
+          ],
+          "name": "sqlite_autoindex_retention_cleanup_operations_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "retention_cleanup_state": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "authorization_log_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "reason",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": "0",
+          "hidden": 0,
+          "name": "generation",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 5,
+          "default": "0",
+          "hidden": 0,
+          "name": "revision",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "active_claim_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "active_claim_log_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "lease_expires_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "terminal_status",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "terminal_log_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE retention_cleanup_state ( authorization_log_id TEXT PRIMARY KEY REFERENCES retention_audit_log(log_id) ON DELETE CASCADE, tenant_id TEXT NOT NULL, run_id TEXT NOT NULL, reason TEXT NOT NULL CHECK (reason IN ('ttl', 'rte', 'manual')), generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0), revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0), active_claim_id TEXT, active_claim_log_id TEXT, lease_expires_at TEXT, terminal_status TEXT CHECK (terminal_status IN ('completed', 'failed')), terminal_log_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, CHECK ( (active_claim_id IS NULL AND active_claim_log_id IS NULL AND lease_expires_at IS NULL) OR (active_claim_id IS NOT NULL AND active_claim_log_id IS NOT NULL AND lease_expires_at IS NOT NULL) ), CHECK ( (terminal_status IS NULL AND terminal_log_id IS NULL) OR (terminal_status IS NOT NULL AND terminal_log_id IS NOT NULL) ) )",
+      "foreign_keys": [
+        {
+          "from": "authorization_log_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "CASCADE",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "retention_audit_log",
+          "to": "log_id"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "run_id"
+          ],
+          "name": "idx_retention_cleanup_state_tenant_run",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "authorization_log_id"
+          ],
+          "name": "sqlite_autoindex_retention_cleanup_state_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "retention_coordination": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE retention_coordination ( tenant_id TEXT PRIMARY KEY, updated_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id"
+          ],
+          "name": "sqlite_autoindex_retention_coordination_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "retention_policies": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "audit_ttl_seconds",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "run_ttl_seconds",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 3,
+          "default": "1",
+          "hidden": 0,
+          "name": "enabled",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE retention_policies ( tenant_id TEXT PRIMARY KEY, audit_ttl_seconds INTEGER, run_ttl_seconds INTEGER, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id"
+          ],
+          "name": "sqlite_autoindex_retention_policies_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "run_checkpoints": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "checkpoint_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "thread_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "checkpoint_order",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "state_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE run_checkpoints ( checkpoint_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT NOT NULL, checkpoint_order INTEGER NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "checkpoint_id"
+          ],
+          "name": "sqlite_autoindex_run_checkpoints_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "runs": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "checkpoint_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "parent_checkpoint_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "epoch",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "workflow_name",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "current_step",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "completed_steps",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "artifacts",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "channels",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "pending_approval",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "pending_interrupt_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "started_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 13,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 14,
+          "default": null,
+          "hidden": 0,
+          "name": "error",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 15,
+          "default": null,
+          "hidden": 0,
+          "name": "metadata",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 16,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_version_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 17,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 18,
+          "default": null,
+          "hidden": 0,
+          "name": "thread_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 19,
+          "default": null,
+          "hidden": 0,
+          "name": "current_node_ids",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 20,
+          "default": "'[]'",
+          "hidden": 0,
+          "name": "pending_node_ids",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 21,
+          "default": "'[]'",
+          "hidden": 0,
+          "name": "execution_history",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 22,
+          "default": "'{}'",
+          "hidden": 0,
+          "name": "node_visit_counts",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 23,
+          "default": "'[]'",
+          "hidden": 0,
+          "name": "condition_results",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 24,
+          "default": "'[]'",
+          "hidden": 0,
+          "name": "audit_refs",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 25,
+          "default": null,
+          "hidden": 0,
+          "name": "final_output",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 26,
+          "default": null,
+          "hidden": 0,
+          "name": "failure_state",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 27,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 28,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 29,
+          "default": null,
+          "hidden": 0,
+          "name": "submitted_by",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 30,
+          "default": null,
+          "hidden": 0,
+          "name": "lease_worker_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 31,
+          "default": null,
+          "hidden": 0,
+          "name": "lease_acquired_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 32,
+          "default": null,
+          "hidden": 0,
+          "name": "lease_expires_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 33,
+          "default": "0",
+          "hidden": 0,
+          "name": "failure_count",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 34,
+          "default": null,
+          "hidden": 0,
+          "name": "recovery_checkpoint_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 35,
+          "default": "'0'",
+          "hidden": 0,
+          "name": "token_snapshot_write_disabled",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE runs ( run_id TEXT PRIMARY KEY, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT , token_snapshot_write_disabled INTEGER DEFAULT '0' NOT NULL)",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "deployment_ref",
+            "status",
+            "lease_expires_at"
+          ],
+          "name": "idx_runs_dispatch",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
+            "deployment_ref",
+            "thread_id",
+            "run_id"
+          ],
+          "name": "idx_runs_scope",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "deployment_ref",
+            "status",
+            "started_at"
+          ],
+          "name": "ix_runs_pending_claim",
+          "origin": "c",
+          "partial": true,
+          "unique": false
+        },
+        {
+          "columns": [
+            "run_id"
+          ],
+          "name": "sqlite_autoindex_runs_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "schema_versions": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "scope",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "version",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "name",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": "CURRENT_TIMESTAMP",
+          "hidden": 0,
+          "name": "applied_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE schema_versions ( scope TEXT PRIMARY KEY, version INTEGER NOT NULL, name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "scope"
+          ],
+          "name": "sqlite_autoindex_schema_versions_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "threads": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "thread_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "graph_version_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "participating_agent_refs",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "state_snapshot_refs",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "checkpoint_refs",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "memory_bindings",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "run_ids",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "active_run_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "last_run_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 13,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 14,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE threads ( thread_id TEXT PRIMARY KEY, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, status TEXT NOT NULL, participating_agent_refs TEXT NOT NULL, state_snapshot_refs TEXT NOT NULL, checkpoint_refs TEXT NOT NULL, memory_bindings TEXT NOT NULL, run_ids TEXT NOT NULL, active_run_id TEXT, last_run_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT DEFAULT 'default', workspace_id TEXT )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
+            "deployment_ref",
+            "thread_id"
+          ],
+          "name": "idx_threads_scope",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "thread_id"
+          ],
+          "name": "sqlite_autoindex_threads_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "token_engine_snapshots": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "revision",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "schema_version",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "next_token_ordinal",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "snapshot_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE token_engine_snapshots ( run_id TEXT PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE, revision INTEGER NOT NULL CHECK (revision >= 0), schema_version INTEGER NOT NULL CHECK (schema_version >= 1), next_token_ordinal INTEGER NOT NULL CHECK (next_token_ordinal >= 0), snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "foreign_keys": [
+        {
+          "from": "run_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "CASCADE",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "runs",
+          "to": "run_id"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "run_id"
+          ],
+          "name": "sqlite_autoindex_token_engine_snapshots_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "webhook_dead_letters": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "dead_letter_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "delivery_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "subscription_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "event_type",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "event_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "payload_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "attempt_count",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "last_error",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "last_status_code",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "dead_lettered_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE webhook_dead_letters ( dead_letter_id TEXT PRIMARY KEY, delivery_id TEXT NOT NULL, subscription_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL, attempt_count INTEGER NOT NULL, last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL, dead_lettered_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "subscription_id",
+            "dead_lettered_at"
+          ],
+          "name": "idx_webhook_dl_subscription",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "dead_letter_id"
+          ],
+          "name": "sqlite_autoindex_webhook_dead_letters_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "webhook_deliveries": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "delivery_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "subscription_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "event_type",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "event_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "payload_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": "'pending'",
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": "0",
+          "hidden": 0,
+          "name": "attempt_count",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 7,
+          "default": "5",
+          "hidden": 0,
+          "name": "max_attempts",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "next_attempt_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "last_error",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "last_status_code",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE webhook_deliveries ( delivery_id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, next_attempt_at TEXT NOT NULL, last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (subscription_id) REFERENCES webhook_subscriptions(subscription_id) )",
+      "foreign_keys": [
+        {
+          "from": "subscription_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "NO ACTION",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "webhook_subscriptions",
+          "to": "subscription_id"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "status",
+            "next_attempt_at"
+          ],
+          "name": "idx_webhook_del_pending",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "delivery_id"
+          ],
+          "name": "sqlite_autoindex_webhook_deliveries_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "webhook_subscriptions": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "subscription_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "target_url",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "secret",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "event_types",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": "1",
+          "hidden": 0,
+          "name": "active",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE webhook_subscriptions ( subscription_id TEXT PRIMARY KEY, deployment_ref TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', target_url TEXT NOT NULL, secret TEXT NOT NULL, event_types TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "deployment_ref",
+            "active"
+          ],
+          "name": "idx_webhook_subs_deployment",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "subscription_id"
+          ],
+          "name": "sqlite_autoindex_webhook_subscriptions_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 ## What it is
 
-The `zeroth.core.dispatch` subsystem is Zeroth's **durable run dispatcher**:
+The `zeroth.platform.dispatch` subsystem (with the run worker in `zeroth.runtime.orchestration.run_worker`) is Zeroth's **durable run dispatcher**:
 a long-lived worker that claims PENDING runs from storage, drives them
 through the orchestrator to completion, and releases its lease — with an
 optional Redis/arq wakeup channel for low-latency scheduling. It is the

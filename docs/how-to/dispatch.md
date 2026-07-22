@@ -25,8 +25,9 @@ works — it just polls instead of being poked.
 ## Minimal example
 
 ```python
-from zeroth.core.dispatch import LeaseManager, RunWorker
-from zeroth.core.dispatch import create_arq_pool, enqueue_wakeup  # [dispatch] extra
+from zeroth.platform.dispatch import LeaseManager
+from zeroth.platform.dispatch import create_arq_pool, enqueue_wakeup  # [dispatch] extra
+from zeroth.runtime.orchestration.run_worker import RunWorker
 
 # LeaseManager and RunWorker are normally constructed inside bootstrap_service.
 worker = RunWorker(
@@ -78,6 +79,6 @@ if arq_pool is not None:
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.dispatch`](../reference/python-api/dispatch.md).
+See the [Python API reference for `zeroth.platform.dispatch`](../reference/python-api/dispatch.md).
 
 Related guides: [concepts/dispatch](../concepts/dispatch.md) · [service how-to](service.md) · [webhooks how-to](webhooks.md).

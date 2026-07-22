@@ -45,14 +45,7 @@ import uvicorn
 
 from examples._common import DEMO_API_KEY, demo_auth_config, require_env
 from examples._contracts import Answer, Question
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    LiteLLMProviderAdapter,
-)
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -60,9 +53,17 @@ from zeroth.core.graph import (
     Graph,
     GraphRepository,
 )
-from zeroth.core.service.app import create_app
-from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
-from zeroth.core.storage import AsyncSQLiteDatabase
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.platform.storage import AsyncSQLiteDatabase
+from zeroth.runtime.agents import (
+    AgentConfig,
+    AgentRunner,
+    LiteLLMProviderAdapter,
+)
+from zeroth.service.app import create_app
+from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 DEPLOYMENT_REF = "examples-api"
 DB_PATH = Path("examples_serve.sqlite")

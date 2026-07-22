@@ -11,14 +11,14 @@ from zeroth.core.examples.quickstart import (
     build_demo_graph,
     build_demo_graph_with_policy,
 )
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     Edge,
     ExecutableUnitNode,
     Graph,
     HumanApprovalNode,
 )
-from zeroth.core.policy.models import Capability
+from zeroth.governance.policy.models import Capability
 
 
 def test_build_demo_graph_returns_graph_instance() -> None:

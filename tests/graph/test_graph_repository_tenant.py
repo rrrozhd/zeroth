@@ -14,7 +14,7 @@ import pytest
 
 from tests.conftest import requires_docker
 from tests.graph.test_models import build_graph
-from zeroth.core.graph.repository import GraphRepository
+from zeroth.contracts.graph.repository import GraphRepository
 
 
 def _graph(graph_id: str, tenant_id: str | None = None):

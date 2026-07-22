@@ -6,11 +6,14 @@ import asyncio
 
 import pytest
 
-from zeroth.core.dispatch.lease import LeaseManager
-from zeroth.core.dispatch.worker import RunWorker
-from zeroth.core.runs import RunRepository, RunStatus
-from zeroth.core.runs.models import Run
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
+from zeroth.platform.dispatch.lease import LeaseManager
+from zeroth.runtime.orchestration.token_scheduler import initialize_token_snapshot
+from zeroth.runtime.orchestration.run_worker import RunWorker
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.runs import Run
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 DEPLOYMENT = "worker-test-deployment"
 
@@ -99,6 +102,41 @@ async def _worker_tick(worker: RunWorker) -> None:
         )
         worker._track(task)
         await task
+
+
+async def test_renewal_task_failure_does_not_leak_semaphore(sqlite_db) -> None:
+    # B4: if the lease-renewal task finishes by RAISING a non-CancelledError
+    # (e.g. its renew_lease DB transaction hit "database is locked"), the finally
+    # block must still release the lease and the concurrency slot. Before the fix
+    # the re-raised exception escaped the finally, permanently leaking the slot.
+    run_repo = RunRepository(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _FakeOrchestrator(run_repo)
+    graph = _FakeGraph()
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=graph,
+        lease_manager=lease_manager,
+        max_concurrency=1,
+    )
+
+    async def _raising_renewal(run_id: str) -> None:
+        raise RuntimeError("database is locked")
+
+    worker._renewal_loop = _raising_renewal  # renewal dies by raising, not cancel
+
+    run = await _make_run(run_repo)
+    # Must complete WITHOUT the RuntimeError escaping _execute_leased_run.
+    await worker._execute_leased_run(run.run_id, is_recovery=False)
+
+    # The one concurrency slot was released (not leaked).
+    assert worker._semaphore._value == 1
+    final = await run_repo.get(run.run_id)
+    assert final is not None
+    assert final.status is RunStatus.COMPLETED
 
 
 async def test_worker_drives_pending_run_to_completed(sqlite_db) -> None:
@@ -354,6 +392,71 @@ async def test_graceful_shutdown_waits_for_active_tasks(
     final = await run_repo.get(run.run_id)
     assert final is not None
     assert final.status is RunStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_graceful_shutdown_stops_token_snapshot_before_releasing_run(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    run_repo = RunRepository(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _BlockingOrchestrator(run_repo)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=lease_manager,
+        shutdown_timeout=0.01,
+    )
+    run = await _make_run(run_repo)
+    snapshot = initialize_token_snapshot(run_id=run.run_id, root_node_id="start", payload={})
+    await run_repo.compare_and_swap_token_snapshot(
+        run.run_id, expected_revision=None, snapshot=snapshot
+    )
+
+    await worker.start()
+    poll_task = asyncio.create_task(worker.poll_loop())
+    await asyncio.wait_for(orchestrator.started.wait(), timeout=1)
+    await worker.graceful_shutdown()
+    poll_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await poll_task
+
+    stopped = await run_repo.get_token_snapshot(run.run_id)
+    final = await run_repo.get(run.run_id)
+    assert stopped is not None
+    assert stopped.state is TokenEngineSnapshotState.STOPPED
+    assert final is not None and final.status is RunStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_recovery_resumes_stopped_token_snapshot_before_driving(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    run_repo = RunRepository(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _FakeOrchestrator(run_repo)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=lease_manager,
+    )
+    run = await _make_run(run_repo)
+    snapshot = initialize_token_snapshot(run_id=run.run_id, root_node_id="start", payload={})
+    await run_repo.compare_and_swap_token_snapshot(
+        run.run_id,
+        expected_revision=None,
+        snapshot=snapshot.model_copy(update={"state": TokenEngineSnapshotState.STOPPED}),
+    )
+
+    await worker._execute_leased_run(run.run_id, is_recovery=False)
+
+    resumed = await run_repo.get_token_snapshot(run.run_id)
+    assert resumed is not None
+    assert resumed.state is TokenEngineSnapshotState.RUNNING
 
 
 # ---------------------------------------------------------------------------

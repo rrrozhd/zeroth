@@ -1,28 +1,28 @@
-"""Agent evaluation harness: datasets, scorers, runner, and CI gate (EVAL).
+"""Legacy import path for the evaluation library.
 
-Measures agent/graph output *quality* against reference cases — distinct from
-``agent_runtime.OutputValidator``, which validates output *shape*. Decoupled from
-any specific executor: evaluate anything via a ``target`` callable that maps a case
-input to an output.
+The evaluation harness lives in :mod:`zeroth.eval`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.eval.models import (
+from zeroth.eval import (
     CaseResult,
+    ContainsScorer,
     EvalCase,
     EvalDataset,
     EvalReport,
-    Score,
-)
-from zeroth.core.eval.runner import EvalTarget, EvalThresholdError, gate, run_eval
-from zeroth.core.eval.scorers import (
-    ContainsScorer,
+    EvalTarget,
+    EvalThresholdError,
     ExactMatchScorer,
     JudgeVerdict,
     LLMJudgeScorer,
     PredicateScorer,
     RegexScorer,
     SchemaScorer,
+    Score,
     Scorer,
+    gate,
+    run_eval,
 )
 
 __all__ = [

@@ -6,26 +6,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.deployments.models import Deployment
-from zeroth.core.graph.models import (
+from zeroth.service.deployments.models import Deployment
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
+    ExecutionSettings,
     Graph,
     SubgraphNode,
 )
-from zeroth.core.graph.serialization import serialize_graph
+from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.core.orchestrator.runtime import OrchestratorError, RuntimeOrchestrator
-from zeroth.core.runs.models import Run, RunStatus
-from zeroth.core.subgraph.errors import (
+from zeroth.runtime.runs import Run
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
     SubgraphExecutionError,
     SubgraphResolutionError,
 )
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +52,7 @@ def _make_child_graph(
         graph_id=graph_id,
         name="child-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[node],
         edges=[],
         entry_step=entry_step,
@@ -70,6 +73,7 @@ def _make_parent_graph_with_subgraph(
         graph_id="parent-g",
         name="parent-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[subgraph_node],
         edges=[],
         entry_step=entry_step,
@@ -102,6 +106,7 @@ def _make_parent_graph_with_subgraph_and_successor(
         graph_id="parent-g",
         name="parent-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[subgraph_node, agent_node],
         edges=[edge],
         entry_step="s1",
@@ -153,7 +158,7 @@ def _make_orchestrator(
     subgraph_executor: SubgraphExecutor | None = None,
 ) -> RuntimeOrchestrator:
     """Create a RuntimeOrchestrator with mocked dependencies."""
-    from zeroth.core.execution_units import ExecutableUnitRunner
+    from zeroth.integrations.execution import ExecutableUnitRunner
 
     return RuntimeOrchestrator(
         run_repository=run_repository or _make_run_repository(),
@@ -172,7 +177,7 @@ class TestOrchestratorSubgraphField:
     """RuntimeOrchestrator has subgraph_executor field (optional, None default)."""
 
     def test_subgraph_executor_defaults_to_none(self) -> None:
-        from zeroth.core.execution_units import ExecutableUnitRunner
+        from zeroth.integrations.execution import ExecutableUnitRunner
 
         orch = RuntimeOrchestrator(
             run_repository=AsyncMock(),
@@ -195,6 +200,8 @@ class TestOrchestratorSubgraphField:
 
 class TestDriveSubgraphNode:
     """_drive() encountering SubgraphNode calls subgraph_executor.execute()."""
+
+    pytestmark = pytest.mark.legacy_engine
 
     @pytest.mark.asyncio
     async def test_drive_calls_subgraph_executor_execute(self) -> None:
@@ -296,6 +303,8 @@ class TestDriveSubgraphNode:
 
 class TestDriveSubgraphErrors:
     """_drive() handles SubgraphDepthLimitError, SubgraphResolutionError by failing run."""
+
+    pytestmark = pytest.mark.legacy_engine
 
     @pytest.mark.asyncio
     async def test_depth_limit_error_fails_run(self) -> None:

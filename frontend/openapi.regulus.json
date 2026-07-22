@@ -1,0 +1,5284 @@
+{
+  "components": {
+    "schemas": {
+      "APIMessage": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "APIMessage",
+        "type": "object"
+      },
+      "BudgetStatusOut": {
+        "properties": {
+          "budget_cap_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Cap Usd"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "window": {
+            "default": "month_to_date",
+            "title": "Window",
+            "type": "string"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "total_cost_usd"
+        ],
+        "title": "BudgetStatusOut",
+        "type": "object"
+      },
+      "CalibrationSummary": {
+        "properties": {
+          "bias": {
+            "title": "Bias",
+            "type": "number"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "interval_coverage": {
+            "title": "Interval Coverage",
+            "type": "number"
+          },
+          "mae": {
+            "title": "Mae",
+            "type": "number"
+          },
+          "mape": {
+            "title": "Mape",
+            "type": "number"
+          },
+          "rmse": {
+            "title": "Rmse",
+            "type": "number"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capability_id",
+          "mape",
+          "mae",
+          "rmse",
+          "interval_coverage",
+          "bias",
+          "sample_size"
+        ],
+        "title": "CalibrationSummary",
+        "type": "object"
+      },
+      "CapabilityCreate": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "REVENUE",
+                  "COST",
+                  "RISK",
+                  "PRODUCTIVITY",
+                  "Revenue",
+                  "CostReduction",
+                  "RiskMitigation",
+                  "Productivity"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "criticality": {
+            "default": "MED",
+            "enum": [
+              "LOW",
+              "MED",
+              "HIGH"
+            ],
+            "title": "Criticality",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_protected": {
+            "default": false,
+            "title": "Is Protected",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "REVENUE",
+                  "COST",
+                  "RISK",
+                  "PRODUCTIVITY",
+                  "Revenue",
+                  "CostReduction",
+                  "RiskMitigation",
+                  "Productivity"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "valuation_config": {
+            "$ref": "#/components/schemas/ValuationConfig"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CapabilityCreate",
+        "type": "object"
+      },
+      "CapabilityDetail": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "criticality": {
+            "title": "Criticality",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "implementations": {
+            "items": {
+              "$ref": "#/components/schemas/ImplementationOut"
+            },
+            "title": "Implementations",
+            "type": "array"
+          },
+          "is_protected": {
+            "title": "Is Protected",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "valuation_config": {
+            "$ref": "#/components/schemas/ValuationConfig"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "type",
+          "description",
+          "criticality",
+          "is_protected",
+          "valuation_config",
+          "created_at"
+        ],
+        "title": "CapabilityDetail",
+        "type": "object"
+      },
+      "CapabilityOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "criticality": {
+            "title": "Criticality",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_protected": {
+            "title": "Is Protected",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "valuation_config": {
+            "$ref": "#/components/schemas/ValuationConfig"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "type",
+          "description",
+          "criticality",
+          "is_protected",
+          "valuation_config",
+          "created_at"
+        ],
+        "title": "CapabilityOut",
+        "type": "object"
+      },
+      "CapabilityPerformance": {
+        "properties": {
+          "aer": {
+            "title": "Aer",
+            "type": "number"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "confidence_breakdown": {
+            "additionalProperties": true,
+            "title": "Confidence Breakdown",
+            "type": "object"
+          },
+          "confidence_gate_passed": {
+            "title": "Confidence Gate Passed",
+            "type": "boolean"
+          },
+          "implementation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation Id"
+          },
+          "operational_drag": {
+            "title": "Operational Drag",
+            "type": "number"
+          },
+          "risk_adjusted_return": {
+            "title": "Risk Adjusted Return",
+            "type": "number"
+          },
+          "rule_output": {
+            "title": "Rule Output",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "aer",
+          "risk_adjusted_return",
+          "operational_drag",
+          "confidence_gate_passed",
+          "rule_output",
+          "captured_at"
+        ],
+        "title": "CapabilityPerformance",
+        "type": "object"
+      },
+      "CapabilityRankingRow": {
+        "properties": {
+          "aer": {
+            "title": "Aer",
+            "type": "number"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "capability_type": {
+            "title": "Capability Type",
+            "type": "string"
+          },
+          "is_protected": {
+            "title": "Is Protected",
+            "type": "boolean"
+          },
+          "net_margin_usd": {
+            "title": "Net Margin Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "capability_id",
+          "capability_type",
+          "net_margin_usd",
+          "aer",
+          "is_protected"
+        ],
+        "title": "CapabilityRankingRow",
+        "type": "object"
+      },
+      "CapabilityValueRow": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "net_margin_usd": {
+            "title": "Net Margin Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "capability_id",
+          "net_margin_usd",
+          "confidence"
+        ],
+        "title": "CapabilityValueRow",
+        "type": "object"
+      },
+      "ConfidenceGateConfig": {
+        "properties": {
+          "max_relative_width": {
+            "default": 0.3,
+            "title": "Max Relative Width",
+            "type": "number"
+          },
+          "min_confidence_level": {
+            "default": 0.95,
+            "title": "Min Confidence Level",
+            "type": "number"
+          }
+        },
+        "title": "ConfidenceGateConfig",
+        "type": "object"
+      },
+      "ConfidenceGateStatus": {
+        "properties": {
+          "blocked": {
+            "title": "Blocked",
+            "type": "integer"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "passed",
+          "blocked"
+        ],
+        "title": "ConfidenceGateStatus",
+        "type": "object"
+      },
+      "ConnectorConfigOut": {
+        "properties": {
+          "config_json": {
+            "additionalProperties": true,
+            "title": "Config Json",
+            "type": "object"
+          },
+          "connector_type": {
+            "enum": [
+              "langfuse",
+              "prometheus",
+              "otel_metrics",
+              "posthog",
+              "kafka",
+              "segment",
+              "snowplow",
+              "clickhouse",
+              "bigquery",
+              "snowflake",
+              "launchdarkly",
+              "envoy"
+            ],
+            "title": "Connector Type",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "connector_type",
+          "enabled",
+          "config_json",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ConnectorConfigOut",
+        "type": "object"
+      },
+      "ConnectorConfigRequest": {
+        "properties": {
+          "config_json": {
+            "additionalProperties": true,
+            "title": "Config Json",
+            "type": "object"
+          }
+        },
+        "title": "ConnectorConfigRequest",
+        "type": "object"
+      },
+      "ConnectorOutboxOut": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_key": {
+            "title": "Event Key",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "next_attempt_at": {
+            "format": "date-time",
+            "title": "Next Attempt At",
+            "type": "string"
+          },
+          "payload_json": {
+            "additionalProperties": true,
+            "title": "Payload Json",
+            "type": "object"
+          },
+          "processed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processed At"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "SENT",
+              "FAILED",
+              "DEAD_LETTER"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "event_type",
+          "event_key",
+          "payload_json",
+          "status",
+          "attempts",
+          "next_attempt_at",
+          "last_error",
+          "created_at",
+          "processed_at"
+        ],
+        "title": "ConnectorOutboxOut",
+        "type": "object"
+      },
+      "ConnectorStatusOut": {
+        "properties": {
+          "connector_type": {
+            "enum": [
+              "langfuse",
+              "prometheus",
+              "otel_metrics",
+              "posthog",
+              "kafka",
+              "segment",
+              "snowplow",
+              "clickhouse",
+              "bigquery",
+              "snowflake",
+              "launchdarkly",
+              "envoy"
+            ],
+            "title": "Connector Type",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_type",
+          "enabled",
+          "healthy",
+          "message"
+        ],
+        "title": "ConnectorStatusOut",
+        "type": "object"
+      },
+      "CostEstimateOut": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "cost_interval_high_usd": {
+            "title": "Cost Interval High Usd",
+            "type": "number"
+          },
+          "cost_interval_low_usd": {
+            "title": "Cost Interval Low Usd",
+            "type": "number"
+          },
+          "data_quality": {
+            "title": "Data Quality",
+            "type": "string"
+          },
+          "estimation_method": {
+            "title": "Estimation Method",
+            "type": "string"
+          },
+          "implementation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation Id"
+          },
+          "infra_cost_estimate_usd": {
+            "title": "Infra Cost Estimate Usd",
+            "type": "number"
+          },
+          "llm_cost_estimate_usd": {
+            "title": "Llm Cost Estimate Usd",
+            "type": "number"
+          },
+          "method_version": {
+            "title": "Method Version",
+            "type": "string"
+          },
+          "overhead_cost_estimate_usd": {
+            "title": "Overhead Cost Estimate Usd",
+            "type": "number"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "tool_cost_estimate_usd": {
+            "title": "Tool Cost Estimate Usd",
+            "type": "number"
+          },
+          "total_cost_estimate_usd": {
+            "title": "Total Cost Estimate Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "capability_id",
+          "implementation_id",
+          "period_start",
+          "period_end",
+          "llm_cost_estimate_usd",
+          "tool_cost_estimate_usd",
+          "infra_cost_estimate_usd",
+          "overhead_cost_estimate_usd",
+          "total_cost_estimate_usd",
+          "cost_interval_low_usd",
+          "cost_interval_high_usd",
+          "estimation_method",
+          "data_quality",
+          "method_version"
+        ],
+        "title": "CostEstimateOut",
+        "type": "object"
+      },
+      "CostProfileCreate": {
+        "properties": {
+          "avg_input_tokens": {
+            "title": "Avg Input Tokens",
+            "type": "number"
+          },
+          "avg_output_tokens": {
+            "title": "Avg Output Tokens",
+            "type": "number"
+          },
+          "avg_tool_calls_per_request_json": {
+            "additionalProperties": true,
+            "title": "Avg Tool Calls Per Request Json",
+            "type": "object"
+          },
+          "cache_hit_rate": {
+            "default": 0.0,
+            "title": "Cache Hit Rate",
+            "type": "number"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "infra_monthly_spend_usd": {
+            "default": 0.0,
+            "title": "Infra Monthly Spend Usd",
+            "type": "number"
+          },
+          "model_mix_json": {
+            "additionalProperties": true,
+            "title": "Model Mix Json",
+            "type": "object"
+          },
+          "provider_rate_overrides_json": {
+            "additionalProperties": true,
+            "title": "Provider Rate Overrides Json",
+            "type": "object"
+          },
+          "requests_per_period": {
+            "title": "Requests Per Period",
+            "type": "integer"
+          },
+          "retry_rate": {
+            "default": 0.0,
+            "title": "Retry Rate",
+            "type": "number"
+          },
+          "tool_unit_price_overrides_json": {
+            "additionalProperties": true,
+            "title": "Tool Unit Price Overrides Json",
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability_id",
+          "requests_per_period",
+          "avg_input_tokens",
+          "avg_output_tokens"
+        ],
+        "title": "CostProfileCreate",
+        "type": "object"
+      },
+      "CostProfileOut": {
+        "properties": {
+          "avg_input_tokens": {
+            "title": "Avg Input Tokens",
+            "type": "number"
+          },
+          "avg_output_tokens": {
+            "title": "Avg Output Tokens",
+            "type": "number"
+          },
+          "avg_tool_calls_per_request_json": {
+            "additionalProperties": true,
+            "title": "Avg Tool Calls Per Request Json",
+            "type": "object"
+          },
+          "cache_hit_rate": {
+            "default": 0.0,
+            "title": "Cache Hit Rate",
+            "type": "number"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "infra_monthly_spend_usd": {
+            "default": 0.0,
+            "title": "Infra Monthly Spend Usd",
+            "type": "number"
+          },
+          "model_mix_json": {
+            "additionalProperties": true,
+            "title": "Model Mix Json",
+            "type": "object"
+          },
+          "provider_rate_overrides_json": {
+            "additionalProperties": true,
+            "title": "Provider Rate Overrides Json",
+            "type": "object"
+          },
+          "requests_per_period": {
+            "title": "Requests Per Period",
+            "type": "integer"
+          },
+          "retry_rate": {
+            "default": 0.0,
+            "title": "Retry Rate",
+            "type": "number"
+          },
+          "tool_unit_price_overrides_json": {
+            "additionalProperties": true,
+            "title": "Tool Unit Price Overrides Json",
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability_id",
+          "requests_per_period",
+          "avg_input_tokens",
+          "avg_output_tokens",
+          "id"
+        ],
+        "title": "CostProfileOut",
+        "type": "object"
+      },
+      "DataQualityMix": {
+        "properties": {
+          "inferred": {
+            "title": "Inferred",
+            "type": "integer"
+          },
+          "measured": {
+            "title": "Measured",
+            "type": "integer"
+          },
+          "mixed": {
+            "title": "Mixed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "measured",
+          "inferred",
+          "mixed"
+        ],
+        "title": "DataQualityMix",
+        "type": "object"
+      },
+      "DecisionRequest": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "DecisionRequest",
+        "type": "object"
+      },
+      "DeploymentCreate": {
+        "properties": {
+          "active_impl_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Active Impl Ids",
+            "type": "array"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "routing_mode": {
+            "default": "STATIC",
+            "enum": [
+              "STATIC",
+              "AB",
+              "SHADOW"
+            ],
+            "title": "Routing Mode",
+            "type": "string"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "weights_json": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Weights Json",
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability_id"
+        ],
+        "title": "DeploymentCreate",
+        "type": "object"
+      },
+      "DeploymentOut": {
+        "properties": {
+          "active_impl_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Active Impl Ids",
+            "type": "array"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "routing_mode": {
+            "title": "Routing Mode",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "weights_json": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Weights Json",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "capability_id",
+          "active_impl_ids",
+          "weights_json",
+          "routing_mode",
+          "updated_at"
+        ],
+        "title": "DeploymentOut",
+        "type": "object"
+      },
+      "EnforcementActionCreate": {
+        "properties": {
+          "action_type": {
+            "enum": [
+              "AdjustTrafficWeights",
+              "ApplyBudgetCap",
+              "TriggerInvestigation",
+              "EscalateAlert"
+            ],
+            "title": "Action Type",
+            "type": "string"
+          },
+          "after_config": {
+            "additionalProperties": true,
+            "title": "After Config",
+            "type": "object"
+          },
+          "before_config": {
+            "additionalProperties": true,
+            "title": "Before Config",
+            "type": "object"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "action_type",
+          "reason"
+        ],
+        "title": "EnforcementActionCreate",
+        "type": "object"
+      },
+      "EnforcementActionOut": {
+        "properties": {
+          "action_type": {
+            "enum": [
+              "AdjustTrafficWeights",
+              "ApplyBudgetCap",
+              "TriggerInvestigation",
+              "EscalateAlert"
+            ],
+            "title": "Action Type",
+            "type": "string"
+          },
+          "after_config": {
+            "additionalProperties": true,
+            "title": "After Config",
+            "type": "object"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approver_sub": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver Sub"
+          },
+          "before_config": {
+            "additionalProperties": true,
+            "title": "Before Config",
+            "type": "object"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "capability_id",
+          "action_type",
+          "status",
+          "reason",
+          "before_config",
+          "after_config",
+          "approver_sub",
+          "approved_at",
+          "created_at"
+        ],
+        "title": "EnforcementActionOut",
+        "type": "object"
+      },
+      "EvaluationRunRequest": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "confidence_level": {
+            "default": 0.95,
+            "title": "Confidence Level",
+            "type": "number"
+          },
+          "implementation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation Id"
+          },
+          "mode": {
+            "enum": [
+              "AB_TEST",
+              "SHADOW",
+              "PROXY_MODEL"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "mode",
+          "period_start",
+          "period_end"
+        ],
+        "title": "EvaluationRunRequest",
+        "type": "object"
+      },
+      "ExecutionEventCreate": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "compute_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "0",
+            "title": "Compute Cost Usd"
+          },
+          "compute_time_ms": {
+            "default": 0,
+            "title": "Compute Time Ms",
+            "type": "integer"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "implementation_id": {
+            "title": "Implementation Id",
+            "type": "string"
+          },
+          "join_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Join Key"
+          },
+          "latency_ms": {
+            "default": 0,
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "model_version": {
+            "title": "Model Version",
+            "type": "string"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "token_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "0",
+            "title": "Token Cost Usd"
+          },
+          "tool_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "0",
+            "title": "Tool Cost Usd"
+          }
+        },
+        "required": [
+          "execution_id",
+          "timestamp",
+          "capability_id",
+          "implementation_id",
+          "model_version"
+        ],
+        "title": "ExecutionEventCreate",
+        "type": "object"
+      },
+      "ExperimentCreate": {
+        "properties": {
+          "assignment_key": {
+            "default": "request_id",
+            "enum": [
+              "request_id",
+              "user_id"
+            ],
+            "title": "Assignment Key",
+            "type": "string"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "constraints_json": {
+            "additionalProperties": true,
+            "title": "Constraints Json",
+            "type": "object"
+          },
+          "end_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End At"
+          },
+          "impl_a_id": {
+            "title": "Impl A Id",
+            "type": "string"
+          },
+          "impl_b_id": {
+            "title": "Impl B Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "AB",
+              "SHADOW"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "status": {
+            "default": "ACTIVE",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "COMPLETED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_pct": {
+            "default": 50.0,
+            "title": "Target Pct",
+            "type": "number"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "capability_id",
+          "mode",
+          "impl_a_id",
+          "impl_b_id",
+          "start_at"
+        ],
+        "title": "ExperimentCreate",
+        "type": "object"
+      },
+      "ExperimentOut": {
+        "properties": {
+          "assignment_key": {
+            "title": "Assignment Key",
+            "type": "string"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "constraints_json": {
+            "additionalProperties": true,
+            "title": "Constraints Json",
+            "type": "object"
+          },
+          "end_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "impl_a_id": {
+            "title": "Impl A Id",
+            "type": "string"
+          },
+          "impl_b_id": {
+            "title": "Impl B Id",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_pct": {
+            "title": "Target Pct",
+            "type": "number"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "capability_id",
+          "mode",
+          "impl_a_id",
+          "impl_b_id",
+          "start_at",
+          "end_at",
+          "target_pct",
+          "assignment_key",
+          "status",
+          "constraints_json"
+        ],
+        "title": "ExperimentOut",
+        "type": "object"
+      },
+      "GroundTruthCostIn": {
+        "properties": {
+          "amount_usd": {
+            "title": "Amount Usd",
+            "type": "number"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "component": {
+            "title": "Component",
+            "type": "string"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period_start",
+          "period_end",
+          "capability_id",
+          "component",
+          "amount_usd"
+        ],
+        "title": "GroundTruthCostIn",
+        "type": "object"
+      },
+      "GroundTruthImportRequest": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/GroundTruthCostIn"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "GroundTruthImportRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImplementationCompareRow": {
+        "properties": {
+          "arm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "confidence_breakdown": {
+            "additionalProperties": true,
+            "title": "Confidence Breakdown",
+            "type": "object"
+          },
+          "confidence_high_usd": {
+            "title": "Confidence High Usd",
+            "type": "number"
+          },
+          "confidence_low_usd": {
+            "title": "Confidence Low Usd",
+            "type": "number"
+          },
+          "implementation_id": {
+            "title": "Implementation Id",
+            "type": "string"
+          },
+          "net_margin_usd": {
+            "title": "Net Margin Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "capability_id",
+          "implementation_id",
+          "net_margin_usd",
+          "confidence_low_usd",
+          "confidence_high_usd"
+        ],
+        "title": "ImplementationCompareRow",
+        "type": "object"
+      },
+      "ImplementationCreate": {
+        "properties": {
+          "capability_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Id"
+          },
+          "config_json": {
+            "additionalProperties": true,
+            "title": "Config Json",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model_name": {
+            "default": "",
+            "title": "Model Name",
+            "type": "string"
+          },
+          "model_version": {
+            "default": "",
+            "title": "Model Version",
+            "type": "string"
+          },
+          "model_version_hash": {
+            "default": "",
+            "title": "Model Version Hash",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pipeline_version_hash": {
+            "default": "",
+            "title": "Pipeline Version Hash",
+            "type": "string"
+          },
+          "prompt_version_hash": {
+            "default": "",
+            "title": "Prompt Version Hash",
+            "type": "string"
+          },
+          "provider": {
+            "default": "custom",
+            "enum": [
+              "openai",
+              "anthropic",
+              "custom"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "status": {
+            "default": "ACTIVE",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "DEPRECATED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ImplementationCreate",
+        "type": "object"
+      },
+      "ImplementationOut": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "config_json": {
+            "additionalProperties": true,
+            "title": "Config Json",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model_name": {
+            "title": "Model Name",
+            "type": "string"
+          },
+          "model_version": {
+            "title": "Model Version",
+            "type": "string"
+          },
+          "model_version_hash": {
+            "title": "Model Version Hash",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pipeline_version_hash": {
+            "title": "Pipeline Version Hash",
+            "type": "string"
+          },
+          "prompt_version_hash": {
+            "title": "Prompt Version Hash",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "capability_id",
+          "name",
+          "provider",
+          "model_name",
+          "model_version_hash",
+          "prompt_version_hash",
+          "pipeline_version_hash",
+          "config_json",
+          "status",
+          "model_version",
+          "created_at"
+        ],
+        "title": "ImplementationOut",
+        "type": "object"
+      },
+      "IngestResult": {
+        "properties": {
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "execution_id"
+        ],
+        "title": "IngestResult",
+        "type": "object"
+      },
+      "KPIResponse": {
+        "properties": {
+          "efficiency_index": {
+            "title": "Efficiency Index",
+            "type": "number"
+          },
+          "net_ai_margin_usd": {
+            "title": "Net Ai Margin Usd",
+            "type": "number"
+          },
+          "portfolio_confidence_score": {
+            "title": "Portfolio Confidence Score",
+            "type": "number"
+          },
+          "total_ai_spend_usd": {
+            "title": "Total Ai Spend Usd",
+            "type": "number"
+          },
+          "total_ai_value_usd": {
+            "title": "Total Ai Value Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "total_ai_spend_usd",
+          "total_ai_value_usd",
+          "net_ai_margin_usd",
+          "portfolio_confidence_score",
+          "efficiency_index"
+        ],
+        "title": "KPIResponse",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "sub": {
+            "title": "Sub",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sub",
+          "email",
+          "roles"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "OutcomeBatchIngestRequest": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/OutcomeEventCreate"
+            },
+            "title": "Events",
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "title": "OutcomeBatchIngestRequest",
+        "type": "object"
+      },
+      "OutcomeEventCreate": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "implementation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation Id"
+          },
+          "join_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Join Key"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "outcome_payload_json": {
+            "additionalProperties": true,
+            "title": "Outcome Payload Json",
+            "type": "object"
+          },
+          "outcome_timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Timestamp"
+          },
+          "outcome_type": {
+            "enum": [
+              "conversion",
+              "fraud_flag",
+              "approval",
+              "custom",
+              "reopen_rate"
+            ],
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "outcome_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Value"
+          },
+          "provenance": {
+            "default": "MEASURED",
+            "enum": [
+              "MEASURED",
+              "INFERRED",
+              "MIXED"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "capability_id",
+          "outcome_type"
+        ],
+        "title": "OutcomeEventCreate",
+        "type": "object"
+      },
+      "OutcomeQueryResponse": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "implementation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation Id"
+          },
+          "join_key": {
+            "title": "Join Key",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "outcome_payload_json": {
+            "additionalProperties": true,
+            "title": "Outcome Payload Json",
+            "type": "object"
+          },
+          "outcome_type": {
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "provenance": {
+            "title": "Provenance",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "join_key",
+          "capability_id",
+          "implementation_id",
+          "outcome_type",
+          "outcome_payload_json",
+          "occurred_at",
+          "provenance"
+        ],
+        "title": "OutcomeQueryResponse",
+        "type": "object"
+      },
+      "PerformanceSummary": {
+        "properties": {
+          "avg_aer": {
+            "title": "Avg Aer",
+            "type": "number"
+          },
+          "avg_operational_drag": {
+            "title": "Avg Operational Drag",
+            "type": "number"
+          },
+          "avg_risk_adjusted_return": {
+            "title": "Avg Risk Adjusted Return",
+            "type": "number"
+          },
+          "capabilities": {
+            "title": "Capabilities",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capabilities",
+          "avg_aer",
+          "avg_risk_adjusted_return",
+          "avg_operational_drag"
+        ],
+        "title": "PerformanceSummary",
+        "type": "object"
+      },
+      "PolicyActionOut": {
+        "properties": {
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "confidence_state_json": {
+            "additionalProperties": true,
+            "title": "Confidence State Json",
+            "type": "object"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "metrics_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics Snapshot Id"
+          },
+          "payload_json": {
+            "additionalProperties": true,
+            "title": "Payload Json",
+            "type": "object"
+          },
+          "proposed_at": {
+            "format": "date-time",
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "proposed_by": {
+            "title": "Proposed By",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PROPOSED",
+              "APPROVED",
+              "REJECTED",
+              "APPLIED",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "capability_id",
+          "proposed_at",
+          "proposed_by",
+          "action_type",
+          "payload_json",
+          "metrics_snapshot_id",
+          "confidence_state_json",
+          "status",
+          "approved_by",
+          "approved_at",
+          "applied_at",
+          "failure_reason"
+        ],
+        "title": "PolicyActionOut",
+        "type": "object"
+      },
+      "PolicyTimelineRow": {
+        "properties": {
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "proposed_at": {
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "capability_id",
+          "action_type",
+          "status",
+          "proposed_at"
+        ],
+        "title": "PolicyTimelineRow",
+        "type": "object"
+      },
+      "PricingCatalogCreate": {
+        "properties": {
+          "cpu_hour_usd": {
+            "default": 0.0,
+            "title": "Cpu Hour Usd",
+            "type": "number"
+          },
+          "effective_from": {
+            "format": "date-time",
+            "title": "Effective From",
+            "type": "string"
+          },
+          "effective_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective To"
+          },
+          "energy_kwh_usd": {
+            "default": 0.0,
+            "title": "Energy Kwh Usd",
+            "type": "number"
+          },
+          "gpu_hour_usd": {
+            "default": 0.0,
+            "title": "Gpu Hour Usd",
+            "type": "number"
+          },
+          "input_per_million_usd": {
+            "default": 0.0,
+            "title": "Input Per Million Usd",
+            "type": "number"
+          },
+          "memory_gb_hour_usd": {
+            "default": 0.0,
+            "title": "Memory Gb Hour Usd",
+            "type": "number"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output_per_million_usd": {
+            "default": 0.0,
+            "title": "Output Per Million Usd",
+            "type": "number"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "region": {
+            "default": "global",
+            "title": "Region",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "effective_from"
+        ],
+        "title": "PricingCatalogCreate",
+        "type": "object"
+      },
+      "RetryOutboxResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "SENT",
+              "FAILED",
+              "DEAD_LETTER"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "RetryOutboxResponse",
+        "type": "object"
+      },
+      "TenantBudgetUpsert": {
+        "properties": {
+          "budget_cap_usd": {
+            "minimum": 0.0,
+            "title": "Budget Cap Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "budget_cap_usd"
+        ],
+        "title": "TenantBudgetUpsert",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "TrendPoint": {
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "string"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "TrendPoint",
+        "type": "object"
+      },
+      "UserClaims": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "exp": {
+            "title": "Exp",
+            "type": "integer"
+          },
+          "iss": {
+            "title": "Iss",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "sub": {
+            "title": "Sub",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sub",
+          "email",
+          "roles",
+          "exp",
+          "iss"
+        ],
+        "title": "UserClaims",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "ValuationConfig": {
+        "properties": {
+          "baseline_source": {
+            "default": "historical",
+            "enum": [
+              "control_arm",
+              "historical",
+              "external"
+            ],
+            "title": "Baseline Source",
+            "type": "string"
+          },
+          "confidence_gate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidenceGateConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_profile_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Profile Id"
+          },
+          "proxy_formula_id": {
+            "default": "default_proxy",
+            "title": "Proxy Formula Id",
+            "type": "string"
+          },
+          "proxy_parameters": {
+            "additionalProperties": true,
+            "title": "Proxy Parameters",
+            "type": "object"
+          },
+          "valuation_method": {
+            "default": "PROXY",
+            "enum": [
+              "PROXY",
+              "AB",
+              "SHADOW",
+              "HYBRID"
+            ],
+            "title": "Valuation Method",
+            "type": "string"
+          }
+        },
+        "title": "ValuationConfig",
+        "type": "object"
+      },
+      "ValueEstimateOut": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "confidence_breakdown": {
+            "additionalProperties": true,
+            "title": "Confidence Breakdown",
+            "type": "object"
+          },
+          "confidence_gate_passed": {
+            "title": "Confidence Gate Passed",
+            "type": "boolean"
+          },
+          "confidence_level": {
+            "title": "Confidence Level",
+            "type": "number"
+          },
+          "cost_data_quality": {
+            "title": "Cost Data Quality",
+            "type": "string"
+          },
+          "credible_interval_high_usd": {
+            "title": "Credible Interval High Usd",
+            "type": "number"
+          },
+          "credible_interval_low_usd": {
+            "title": "Credible Interval Low Usd",
+            "type": "number"
+          },
+          "drift_score": {
+            "title": "Drift Score",
+            "type": "number"
+          },
+          "drift_state": {
+            "enum": [
+              "stable",
+              "warning",
+              "critical"
+            ],
+            "title": "Drift State",
+            "type": "string"
+          },
+          "estimated_cost_usd": {
+            "title": "Estimated Cost Usd",
+            "type": "number"
+          },
+          "estimated_value_usd": {
+            "title": "Estimated Value Usd",
+            "type": "number"
+          },
+          "estimation_method_version": {
+            "title": "Estimation Method Version",
+            "type": "string"
+          },
+          "implementation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation Id"
+          },
+          "interval_method": {
+            "title": "Interval Method",
+            "type": "string"
+          },
+          "method_metadata": {
+            "additionalProperties": true,
+            "title": "Method Metadata",
+            "type": "object"
+          },
+          "net_margin_usd": {
+            "title": "Net Margin Usd",
+            "type": "number"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "relative_interval_width": {
+            "title": "Relative Interval Width",
+            "type": "number"
+          },
+          "value_data_quality": {
+            "title": "Value Data Quality",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "period_start",
+          "period_end",
+          "estimated_value_usd",
+          "estimated_cost_usd",
+          "net_margin_usd",
+          "credible_interval_low_usd",
+          "credible_interval_high_usd",
+          "confidence_level",
+          "relative_interval_width",
+          "confidence_gate_passed",
+          "estimation_method_version",
+          "cost_data_quality",
+          "value_data_quality",
+          "drift_score",
+          "drift_state",
+          "interval_method"
+        ],
+        "title": "ValueEstimateOut",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "AI Economic Control Plane",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Metrics"
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "operationId": "me_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserClaims"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/token": {
+      "post": {
+        "operationId": "token_v1_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/budget/status": {
+      "get": {
+        "operationId": "budget_status_v1_budget_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Budget Status",
+        "tags": [
+          "enforcement",
+          "policy"
+        ]
+      }
+    },
+    "/v1/budget/tenants/{tenant_id}": {
+      "put": {
+        "operationId": "set_tenant_budget_v1_budget_tenants__tenant_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantBudgetUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Tenant Budget",
+        "tags": [
+          "enforcement",
+          "policy"
+        ]
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "get_capabilities_v1_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityOut"
+                  },
+                  "title": "Response Get Capabilities V1 Capabilities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Capabilities",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      },
+      "post": {
+        "operationId": "post_capability_v1_capabilities_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Capability",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/capabilities/{capability_id}": {
+      "get": {
+        "operationId": "get_capability_detail_v1_capabilities__capability_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Capability Detail",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/capabilities/{capability_id}/implementations": {
+      "post": {
+        "operationId": "post_implementation_v1_capabilities__capability_id__implementations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImplementationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImplementationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Implementation",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/connectors": {
+      "get": {
+        "operationId": "get_connectors_v1_connectors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorStatusOut"
+                  },
+                  "title": "Response Get Connectors V1 Connectors Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Connectors",
+        "tags": [
+          "connectors",
+          "metrics"
+        ]
+      }
+    },
+    "/v1/connectors/outbox": {
+      "get": {
+        "operationId": "get_outbox_v1_connectors_outbox_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorOutboxOut"
+                  },
+                  "title": "Response Get Outbox V1 Connectors Outbox Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Outbox",
+        "tags": [
+          "connectors",
+          "metrics"
+        ]
+      }
+    },
+    "/v1/connectors/outbox/{outbox_id}/retry": {
+      "post": {
+        "operationId": "retry_outbox_v1_connectors_outbox__outbox_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "outbox_id",
+            "required": true,
+            "schema": {
+              "title": "Outbox Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryOutboxResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Outbox",
+        "tags": [
+          "connectors",
+          "metrics"
+        ]
+      }
+    },
+    "/v1/connectors/{connector_type}/configure": {
+      "post": {
+        "operationId": "configure_v1_connectors__connector_type__configure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_type",
+            "required": true,
+            "schema": {
+              "title": "Connector Type",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Configure",
+        "tags": [
+          "connectors",
+          "metrics"
+        ]
+      }
+    },
+    "/v1/connectors/{connector_type}/disable": {
+      "post": {
+        "operationId": "disable_v1_connectors__connector_type__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_type",
+            "required": true,
+            "schema": {
+              "title": "Connector Type",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable",
+        "tags": [
+          "connectors",
+          "metrics"
+        ]
+      }
+    },
+    "/v1/connectors/{connector_type}/enable": {
+      "post": {
+        "operationId": "enable_v1_connectors__connector_type__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_type",
+            "required": true,
+            "schema": {
+              "title": "Connector Type",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enable",
+        "tags": [
+          "connectors",
+          "metrics"
+        ]
+      }
+    },
+    "/v1/costing/estimates/{capability_id}/latest": {
+      "get": {
+        "operationId": "get_latest_estimate_v1_costing_estimates__capability_id__latest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostEstimateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Latest Estimate",
+        "tags": [
+          "costing"
+        ]
+      }
+    },
+    "/v1/costing/pricing-catalog": {
+      "post": {
+        "operationId": "post_pricing_v1_costing_pricing_catalog_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PricingCatalogCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Post Pricing V1 Costing Pricing Catalog Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Pricing",
+        "tags": [
+          "costing"
+        ]
+      }
+    },
+    "/v1/costing/profiles": {
+      "post": {
+        "operationId": "post_profile_v1_costing_profiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostProfileCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Profile",
+        "tags": [
+          "costing"
+        ]
+      }
+    },
+    "/v1/costing/profiles/{profile_id}": {
+      "get": {
+        "operationId": "get_profile_v1_costing_profiles__profile_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Profile",
+        "tags": [
+          "costing"
+        ]
+      }
+    },
+    "/v1/dashboard/action-suppression": {
+      "get": {
+        "operationId": "get_action_suppression_v1_dashboard_action_suppression_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrendPoint"
+                  },
+                  "title": "Response Get Action Suppression V1 Dashboard Action Suppression Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Action Suppression",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/calibration-trend": {
+      "get": {
+        "operationId": "get_calibration_trend_v1_dashboard_calibration_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrendPoint"
+                  },
+                  "title": "Response Get Calibration Trend V1 Dashboard Calibration Trend Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Calibration Trend",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/capability-ranking": {
+      "get": {
+        "operationId": "get_capability_ranking_v1_dashboard_capability_ranking_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityRankingRow"
+                  },
+                  "title": "Response Get Capability Ranking V1 Dashboard Capability Ranking Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Capability Ranking",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/capital-destroyers": {
+      "get": {
+        "operationId": "get_destroyers_v1_dashboard_capital_destroyers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityValueRow"
+                  },
+                  "title": "Response Get Destroyers V1 Dashboard Capital Destroyers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Destroyers",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/confidence-gate-status": {
+      "get": {
+        "operationId": "get_conf_gate_status_v1_dashboard_confidence_gate_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfidenceGateStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Conf Gate Status",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/confidence-trend": {
+      "get": {
+        "operationId": "get_conf_trend_v1_dashboard_confidence_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrendPoint"
+                  },
+                  "title": "Response Get Conf Trend V1 Dashboard Confidence Trend Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Conf Trend",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/data-quality-mix": {
+      "get": {
+        "operationId": "get_data_quality_mix_v1_dashboard_data_quality_mix_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataQualityMix"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Data Quality Mix",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/drift-timeline/{capability_id}": {
+      "get": {
+        "operationId": "get_drift_timeline_v1_dashboard_drift_timeline__capability_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrendPoint"
+                  },
+                  "title": "Response Get Drift Timeline V1 Dashboard Drift Timeline  Capability Id  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Drift Timeline",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/efficiency-trend": {
+      "get": {
+        "operationId": "get_eff_trend_v1_dashboard_efficiency_trend_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrendPoint"
+                  },
+                  "title": "Response Get Eff Trend V1 Dashboard Efficiency Trend Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Eff Trend",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/estimated-vs-ground-truth": {
+      "get": {
+        "operationId": "get_estimated_vs_ground_truth_v1_dashboard_estimated_vs_ground_truth_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Get Estimated Vs Ground Truth V1 Dashboard Estimated Vs Ground Truth Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Estimated Vs Ground Truth",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/implementation-compare/{capability_id}": {
+      "get": {
+        "operationId": "get_implementation_compare_v1_dashboard_implementation_compare__capability_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ImplementationCompareRow"
+                  },
+                  "title": "Response Get Implementation Compare V1 Dashboard Implementation Compare  Capability Id  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Implementation Compare",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/kpis": {
+      "get": {
+        "operationId": "get_kpis_v1_dashboard_kpis_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KPIResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Kpis",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/policy-timeline": {
+      "get": {
+        "operationId": "get_policy_timeline_v1_dashboard_policy_timeline_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PolicyTimelineRow"
+                  },
+                  "title": "Response Get Policy Timeline V1 Dashboard Policy Timeline Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Policy Timeline",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/dashboard/top-creators": {
+      "get": {
+        "operationId": "get_top_creators_v1_dashboard_top_creators_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityValueRow"
+                  },
+                  "title": "Response Get Top Creators V1 Dashboard Top Creators Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Top Creators",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/v1/enforcement/actions": {
+      "get": {
+        "operationId": "list_all_v1_enforcement_actions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EnforcementActionOut"
+                  },
+                  "title": "Response List All V1 Enforcement Actions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List All",
+        "tags": [
+          "enforcement",
+          "policy"
+        ]
+      },
+      "post": {
+        "operationId": "create_v1_enforcement_actions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnforcementActionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnforcementActionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create",
+        "tags": [
+          "enforcement",
+          "policy"
+        ]
+      }
+    },
+    "/v1/enforcement/actions/{action_id}/approve": {
+      "post": {
+        "operationId": "approve_v1_enforcement_actions__action_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "action_id",
+            "required": true,
+            "schema": {
+              "title": "Action Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnforcementActionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve",
+        "tags": [
+          "enforcement",
+          "policy"
+        ]
+      }
+    },
+    "/v1/enforcement/actions/{action_id}/reject": {
+      "post": {
+        "operationId": "reject_v1_enforcement_actions__action_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "action_id",
+            "required": true,
+            "schema": {
+              "title": "Action Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnforcementActionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject",
+        "tags": [
+          "enforcement",
+          "policy"
+        ]
+      }
+    },
+    "/v1/enforcement/policy-actions": {
+      "get": {
+        "operationId": "list_policies_v1_enforcement_policy_actions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PolicyActionOut"
+                  },
+                  "title": "Response List Policies V1 Enforcement Policy Actions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Policies",
+        "tags": [
+          "enforcement",
+          "policy"
+        ]
+      }
+    },
+    "/v1/evaluations/run": {
+      "post": {
+        "operationId": "run_v1_evaluations_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValueEstimateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run",
+        "tags": [
+          "counterfactual"
+        ]
+      }
+    },
+    "/v1/evaluations/run/async": {
+      "post": {
+        "operationId": "run_async_v1_evaluations_run_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIMessage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Async",
+        "tags": [
+          "counterfactual"
+        ]
+      }
+    },
+    "/v1/evaluations/{capability_id}/history": {
+      "get": {
+        "operationId": "history_v1_evaluations__capability_id__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ValueEstimateOut"
+                  },
+                  "title": "Response History V1 Evaluations  Capability Id  History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "History",
+        "tags": [
+          "counterfactual"
+        ]
+      }
+    },
+    "/v1/evaluations/{capability_id}/latest": {
+      "get": {
+        "operationId": "latest_v1_evaluations__capability_id__latest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValueEstimateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Latest",
+        "tags": [
+          "counterfactual"
+        ]
+      }
+    },
+    "/v1/instrumentation/executions": {
+      "post": {
+        "operationId": "post_execution_v1_instrumentation_executions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionEventCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Execution",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/instrumentation/outcomes": {
+      "post": {
+        "operationId": "post_outcome_v1_instrumentation_outcomes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutcomeEventCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Outcome",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/metrics": {
+      "get": {
+        "operationId": "metrics_v1_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Metrics",
+        "tags": [
+          "connectors",
+          "metrics"
+        ]
+      }
+    },
+    "/v1/outcomes/ingest": {
+      "post": {
+        "operationId": "ingest_outcome_batch_v1_outcomes_ingest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutcomeBatchIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IngestResult"
+                  },
+                  "title": "Response Ingest Outcome Batch V1 Outcomes Ingest Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ingest Outcome Batch",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/outcomes/query": {
+      "get": {
+        "operationId": "get_outcomes_v1_outcomes_query_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "capability_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Capability Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "implementation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Implementation Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OutcomeQueryResponse"
+                  },
+                  "title": "Response Get Outcomes V1 Outcomes Query Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Outcomes",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/performance/capabilities": {
+      "get": {
+        "operationId": "capabilities_v1_performance_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityPerformance"
+                  },
+                  "title": "Response Capabilities V1 Performance Capabilities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Capabilities",
+        "tags": [
+          "performance"
+        ]
+      }
+    },
+    "/v1/performance/summary": {
+      "get": {
+        "operationId": "summary_v1_performance_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Summary",
+        "tags": [
+          "performance"
+        ]
+      }
+    },
+    "/v1/reconciliation/calibration-summary": {
+      "get": {
+        "operationId": "calibration_summary_v1_reconciliation_calibration_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CalibrationSummary"
+                  },
+                  "title": "Response Calibration Summary V1 Reconciliation Calibration Summary Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Calibration Summary",
+        "tags": [
+          "reconciliation"
+        ]
+      }
+    },
+    "/v1/reconciliation/ground-truth-import": {
+      "post": {
+        "operationId": "import_ground_truth_v1_reconciliation_ground_truth_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroundTruthImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Import Ground Truth V1 Reconciliation Ground Truth Import Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Ground Truth",
+        "tags": [
+          "reconciliation"
+        ]
+      }
+    },
+    "/v1/registry/capabilities": {
+      "get": {
+        "operationId": "get_registry_capabilities_v1_registry_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityOut"
+                  },
+                  "title": "Response Get Registry Capabilities V1 Registry Capabilities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Registry Capabilities",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      },
+      "post": {
+        "operationId": "post_registry_capability_v1_registry_capabilities_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Registry Capability",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/registry/capabilities/{capability_id}": {
+      "get": {
+        "operationId": "get_registry_capability_v1_registry_capabilities__capability_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Registry Capability",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/registry/deployments": {
+      "post": {
+        "operationId": "post_registry_deployment_v1_registry_deployments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeploymentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Registry Deployment",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/registry/deployments/{capability_id}": {
+      "get": {
+        "operationId": "get_registry_deployment_v1_registry_deployments__capability_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Registry Deployment",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/registry/experiments": {
+      "post": {
+        "operationId": "post_registry_experiment_v1_registry_experiments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExperimentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Registry Experiment",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/registry/experiments/{capability_id}": {
+      "get": {
+        "operationId": "get_registry_experiments_v1_registry_experiments__capability_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExperimentOut"
+                  },
+                  "title": "Response Get Registry Experiments V1 Registry Experiments  Capability Id  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Registry Experiments",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/registry/implementations": {
+      "post": {
+        "operationId": "post_registry_implementation_v1_registry_implementations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImplementationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImplementationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Registry Implementation",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    },
+    "/v1/registry/implementations/{implementation_id}": {
+      "get": {
+        "operationId": "get_registry_implementation_v1_registry_implementations__implementation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "implementation_id",
+            "required": true,
+            "schema": {
+              "title": "Implementation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImplementationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Registry Implementation",
+        "tags": [
+          "capabilities",
+          "registry"
+        ]
+      }
+    }
+  }
+}

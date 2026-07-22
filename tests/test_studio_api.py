@@ -9,11 +9,11 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.core.graph.repository import GraphRepository
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.service.studio_api import router as studio_router
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.contracts.graph.repository import GraphRepository
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.service.api.studio_api import router as studio_router
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 def _make_app(
@@ -466,7 +466,7 @@ class TestCloneAndDraftGuard:
 
 def _branching_graph(metadata: dict | None = None):
     """A 3-node branching graph (entry a -> b, c) for layout tests."""
-    from zeroth.core.graph.models import (
+    from zeroth.contracts.graph.models import (
         AgentNode,
         AgentNodeData,
         Edge,

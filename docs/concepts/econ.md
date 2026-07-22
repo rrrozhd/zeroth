@@ -2,7 +2,7 @@
 
 ## What it is
 
-The `zeroth.core.econ` subsystem — called **economics** in the docs and
+The `zeroth.econ.analytics` subsystem — called **economics** in the docs and
 `econ` in the source tree — is how Zeroth tracks the monetary cost of every
 LLM call, enforces per-tenant budgets, and forwards the resulting cost
 events to an external observability companion called **Regulus**.

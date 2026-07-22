@@ -5,12 +5,12 @@ from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
 from tests.service.helpers import admin_headers, default_service_auth_config
-from zeroth.core.contracts import ContractReference, ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import GraphRepository
-from zeroth.core.runs import RunFailureState
+from zeroth.contracts.registry import ContractReference, ContractRegistry
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.contracts.graph import GraphRepository
+from zeroth.runtime.runs import RunFailureState
 from zeroth.core.service.bootstrap import bootstrap_app
-from zeroth.core.service.contracts_api import (
+from zeroth.service.api.contracts_api import (
     DeploymentResultErrorStateSchemaResponse,
     DeploymentVersionMetadataResponse,
     PublicContractSchemaResponse,
@@ -171,6 +171,8 @@ async def test_deployment_metadata_endpoint_returns_version_snapshot(sqlite_db) 
     assert parsed.graph_id == deployment.graph_id
     assert parsed.graph_version == deployment.graph_version
     assert parsed.graph_version_ref == deployment.graph_version_ref
+    assert parsed.engine_mode == deployment.engine_mode
+    assert parsed.attestation_payload_version == 2
     assert parsed.entry_input_contract_ref == "contract://input"
     assert parsed.entry_input_contract_version == 1
     assert parsed.entry_output_contract_ref == "contract://output"

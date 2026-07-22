@@ -2,7 +2,7 @@
 
 ## What it is
 
-The **agent runtime** (`zeroth.core.agent_runtime`) is the layer that turns an `AgentNode` configuration into an actual LLM call: prompt assembly, provider invocation, tool attachment, output validation, retries, and thread state. It is what the [orchestrator](orchestrator.md) dispatches to when it hits an agent step.
+The **agent runtime** (`zeroth.runtime.agents`) is the layer that turns an `AgentNode` configuration into an actual LLM call: prompt assembly, provider invocation, tool attachment, output validation, retries, and thread state. It is what the [orchestrator](orchestrator.md) dispatches to when it hits an agent step.
 
 ## Why it exists
 

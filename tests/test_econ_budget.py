@@ -13,11 +13,11 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime.errors import BudgetExceededError
-from zeroth.core.agent_runtime.models import AgentConfig
-from zeroth.core.agent_runtime.provider import DeterministicProviderAdapter, ProviderResponse
-from zeroth.core.agent_runtime.runner import AgentRunner
-from zeroth.core.econ.budget import BudgetEnforcer
+from zeroth.runtime.agents.errors import BudgetExceededError
+from zeroth.runtime.agents.models import AgentConfig
+from zeroth.runtime.agents.provider import DeterministicProviderAdapter, ProviderResponse
+from zeroth.runtime.agents.runner import AgentRunner
+from zeroth.econ.analytics.budget import BudgetEnforcer
 
 
 class _Input(BaseModel):
@@ -136,7 +136,7 @@ async def test_check_budget_fail_open_is_logged(caplog):
         timeout=5.0,
         _transport=error_handler,
     )
-    with caplog.at_level(logging.WARNING, logger="zeroth.core.econ.budget"):
+    with caplog.at_level(logging.WARNING, logger="zeroth.econ.analytics.budget"):
         allowed, _, _ = await enforcer.check_budget("tenant-42")
     assert allowed is True
     assert any(
@@ -197,7 +197,7 @@ async def test_budget_fail_closed_denies_on_backend_error(caplog):
         fail_closed=True,
         _transport=error_handler,
     )
-    with caplog.at_level(logging.WARNING, logger="zeroth.core.econ.budget"):
+    with caplog.at_level(logging.WARNING, logger="zeroth.econ.analytics.budget"):
         allowed, spend, cap = await closed.check_budget("tenant-closed")
     assert allowed is False
     assert spend == 0.0

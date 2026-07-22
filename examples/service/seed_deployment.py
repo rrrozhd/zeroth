@@ -23,10 +23,7 @@ import sys
 from pathlib import Path
 
 from examples._contracts import Answer, Question
-from zeroth.core.config.settings import get_settings
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -34,8 +31,11 @@ from zeroth.core.graph import (
     Graph,
     GraphRepository,
 )
-from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage.factory import create_database
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.platform.config.settings import get_settings
+from zeroth.platform.storage.factory import create_database
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 DEPLOYMENT_REF = "examples-api"
 

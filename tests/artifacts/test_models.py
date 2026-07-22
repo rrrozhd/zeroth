@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.artifacts import (
+from zeroth.platform.artifacts import (
     ArtifactNotFoundError,
     ArtifactReference,
     ArtifactStore,
@@ -20,13 +20,13 @@ from zeroth.core.artifacts import (
     RedisArtifactStore,
     generate_artifact_key,
 )
-from zeroth.core.artifacts.errors import (
+from zeroth.platform.artifacts.errors import (
     ArtifactNotFoundError as DirectNotFoundError,
     ArtifactStorageError as DirectStorageError,
     ArtifactStoreError as DirectStoreError,
     ArtifactTTLError as DirectTTLError,
 )
-from zeroth.core.artifacts.models import (
+from zeroth.platform.artifacts.models import (
     ArtifactReference as DirectReference,
     ArtifactStoreSettings as DirectSettings,
     generate_artifact_key as direct_generate_key,
@@ -188,8 +188,8 @@ class TestPublicExports:
     """Tests that all public symbols are exported from __init__.py."""
 
     def test_all_symbols_exported(self) -> None:
-        """All required public symbols are accessible from zeroth.core.artifacts."""
-        import zeroth.core.artifacts as artifacts
+        """All required public symbols are accessible from zeroth.platform.artifacts."""
+        import zeroth.platform.artifacts as artifacts
 
         expected = [
             "ArtifactStore",
@@ -208,7 +208,7 @@ class TestPublicExports:
 
     def test_all_list_matches(self) -> None:
         """__all__ contains all expected symbols."""
-        import zeroth.core.artifacts as artifacts
+        import zeroth.platform.artifacts as artifacts
 
         expected = {
             "ArtifactStore",
@@ -230,14 +230,14 @@ class TestSettingsIntegration:
 
     def test_zeroth_settings_has_artifact_store(self) -> None:
         """ZerothSettings includes artifact_store field."""
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
 
         fields = ZerothSettings.model_fields
         assert "artifact_store" in fields
 
     def test_default_artifact_store_settings(self) -> None:
         """ZerothSettings default artifact_store is an ArtifactStoreSettings instance."""
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
 
         settings = ZerothSettings()
         assert isinstance(settings.artifact_store, ArtifactStoreSettings)

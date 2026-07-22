@@ -1,12 +1,17 @@
-"""Webhook delivery system for Zeroth platform.
+"""Legacy import path for the webhook service domain.
 
-Provides webhook subscription management, delivery lifecycle tracking,
-HMAC-SHA256 payload signing, and dead-letter handling.
+Webhooks live in :mod:`zeroth.service.webhooks`; this package republishes
+the same objects for compatibility. Import from the canonical location
+instead (see docs/backend-import-migration.md).
+
+The optional-dependency guards mirror the canonical package:
+``delivery`` needs ``httpx``, so ``WebhookDeliveryWorker`` and
+``WebhookService`` stay optional exports.
 """
 
 import contextlib
 
-from zeroth.core.webhooks.models import (
+from zeroth.service.webhooks.models import (
     DeliveryStatus,
     EscalationAction,
     WebhookDeadLetter,
@@ -15,14 +20,14 @@ from zeroth.core.webhooks.models import (
     WebhookEventType,
     WebhookSubscription,
 )
-from zeroth.core.webhooks.repository import WebhookRepository
-from zeroth.core.webhooks.signing import sign_payload
+from zeroth.service.webhooks.repository import WebhookRepository
+from zeroth.service.webhooks.signing import sign_payload
 
 with contextlib.suppress(ImportError):
-    from zeroth.core.webhooks.delivery import WebhookDeliveryWorker  # noqa: F401
+    from zeroth.service.webhooks.delivery import WebhookDeliveryWorker  # noqa: F401
 
 with contextlib.suppress(ImportError):
-    from zeroth.core.webhooks.service import WebhookService  # noqa: F401
+    from zeroth.service.webhooks.service import WebhookService  # noqa: F401
 
 __all__ = [
     "DeliveryStatus",

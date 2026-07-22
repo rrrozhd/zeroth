@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.webhooks.models import (
+from zeroth.service.webhooks.models import (
     DeliveryStatus,
     WebhookDelivery,
     WebhookEventPayload,
     WebhookEventType,
     WebhookSubscription,
 )
-from zeroth.core.webhooks.repository import WebhookRepository
-from zeroth.core.webhooks.service import WebhookService
+from zeroth.service.webhooks.repository import WebhookRepository
+from zeroth.service.webhooks.service import WebhookService
 
 
 @pytest.fixture

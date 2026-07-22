@@ -7,7 +7,7 @@ from decimal import Decimal
 
 def test_regulus_settings_defaults():
     """RegulusSettings has correct defaults: enabled=True (G1), base_url, budget_cache_ttl=30."""
-    from zeroth.core.econ.models import RegulusSettings
+    from zeroth.platform.config.models import RegulusSettings
 
     s = RegulusSettings()
     # G1: the bundled control plane is ON by default so per-tenant caps enforce
@@ -20,7 +20,7 @@ def test_regulus_settings_defaults():
 
 def test_regulus_settings_accessible_via_zeroth_settings():
     """RegulusSettings is accessible via ZerothSettings().regulus."""
-    from zeroth.core.config.settings import ZerothSettings
+    from zeroth.platform.config.settings import ZerothSettings
 
     settings = ZerothSettings()
     assert hasattr(settings, "regulus")
@@ -31,7 +31,7 @@ def test_regulus_settings_accessible_via_zeroth_settings():
 
 def test_cost_estimator_known_model():
     """CostEstimator.estimate() returns a Decimal for a known model."""
-    from zeroth.core.econ.cost import CostEstimator
+    from zeroth.econ.analytics.cost import CostEstimator
 
     estimator = CostEstimator()
     cost = estimator.estimate("openai/gpt-4o", input_tokens=100, output_tokens=50)
@@ -41,7 +41,7 @@ def test_cost_estimator_known_model():
 
 def test_cost_estimator_unknown_model():
     """CostEstimator.estimate() returns Decimal('0') for an unknown model without raising."""
-    from zeroth.core.econ.cost import CostEstimator
+    from zeroth.econ.analytics.cost import CostEstimator
 
     estimator = CostEstimator()
     cost = estimator.estimate("unknown/nonexistent-model-xyz", input_tokens=100, output_tokens=50)
@@ -53,9 +53,9 @@ def test_regulus_client_delegates_to_instrumentation_client():
     """RegulusClient.track_execution() delegates to InstrumentationClient.track_execution()."""
     from unittest.mock import MagicMock
 
-    from zeroth.core.econ.instrumentation import ExecutionEvent
+    from zeroth.econ.instrumentation import ExecutionEvent
 
-    from zeroth.core.econ.client import RegulusClient
+    from zeroth.econ.analytics.client import RegulusClient
 
     mock_inner = MagicMock()
     client = RegulusClient.__new__(RegulusClient)
@@ -68,7 +68,7 @@ def test_regulus_client_delegates_to_instrumentation_client():
 
 def test_provider_response_accepts_cost_fields():
     """ProviderResponse accepts cost_usd and cost_event_id as optional fields."""
-    from zeroth.core.agent_runtime.provider import ProviderResponse
+    from zeroth.runtime.agents.provider import ProviderResponse
 
     resp = ProviderResponse(cost_usd=0.5, cost_event_id="evt-123")
     assert resp.cost_usd == 0.5
@@ -82,7 +82,7 @@ def test_provider_response_accepts_cost_fields():
 
 def test_node_audit_record_accepts_cost_fields():
     """NodeAuditRecord accepts cost_usd and cost_event_id as optional fields."""
-    from zeroth.core.audit.models import NodeAuditRecord
+    from zeroth.governance.audit.models import NodeAuditRecord
 
     record = NodeAuditRecord(
         audit_id="a1",

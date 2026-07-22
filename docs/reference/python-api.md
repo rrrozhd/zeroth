@@ -5,32 +5,32 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 ## Subsystems
 
 ### Execution core
-- [Graph](python-api/graph.md) — `zeroth.core.graph`
+- [Graph](python-api/graph.md) — `zeroth.contracts.graph`
 - [Orchestrator](python-api/orchestrator.md) — `zeroth.core.orchestrator`
-- [Agents](python-api/agents.md) — `zeroth.core.agent_runtime`
-- [Execution units](python-api/execution-units.md) — `zeroth.core.execution_units`
-- [Conditions](python-api/conditions.md) — `zeroth.core.conditions`
+- [Agents](python-api/agents.md) — `zeroth.runtime.agents`
+- [Execution units](python-api/execution-units.md) — `zeroth.integrations.execution`
+- [Conditions](python-api/conditions.md) — `zeroth.contracts.conditions`
 
 ### Data & state
-- [Mappings](python-api/mappings.md) — `zeroth.core.mappings`
-- [Memory](python-api/memory.md) — `zeroth.core.memory`
-- [Storage](python-api/storage.md) — `zeroth.core.storage`
-- [Contracts](python-api/contracts.md) — `zeroth.core.contracts`
+- [Mappings](python-api/mappings.md) — `zeroth.contracts.mappings`
+- [Memory](python-api/memory.md) — `zeroth.integrations.memory`
+- [Storage](python-api/storage.md) — `zeroth.platform.storage`
+- [Contracts](python-api/contracts.md) — `zeroth.contracts.registry`
 - [Runs](python-api/runs.md) — `zeroth.core.runs`
 
 ### Governance
-- [Policy](python-api/policy.md) — `zeroth.core.policy`
-- [Approvals](python-api/approvals.md) — `zeroth.core.approvals`
-- [Audit](python-api/audit.md) — `zeroth.core.audit`
-- [Guardrails](python-api/guardrails.md) — `zeroth.core.guardrails`
-- [Identity](python-api/identity.md) — `zeroth.core.identity`
+- [Policy](python-api/policy.md) — `zeroth.governance.policy`
+- [Approvals](python-api/approvals.md) — `zeroth.governance.approvals`
+- [Audit](python-api/audit.md) — `zeroth.governance.audit`
+- [Guardrails](python-api/guardrails.md) — `zeroth.governance.guardrails`
+- [Identity](python-api/identity.md) — `zeroth.governance.identity`
 
 ### Platform
-- [Secrets](python-api/secrets.md) — `zeroth.core.secrets`
-- [Dispatch](python-api/dispatch.md) — `zeroth.core.dispatch`
-- [Economics](python-api/econ.md) — `zeroth.core.econ`
+- [Secrets](python-api/secrets.md) — `zeroth.platform.secrets`
+- [Dispatch](python-api/dispatch.md) — `zeroth.platform.dispatch`
+- [Economics](python-api/econ.md) — `zeroth.econ.analytics`
 - [Service](python-api/service.md) — `zeroth.core.service`
-- [Webhooks](python-api/webhooks.md) — `zeroth.core.webhooks`
+- [Webhooks](python-api/webhooks.md) — `zeroth.service.webhooks`
 
 ## How this is generated
 

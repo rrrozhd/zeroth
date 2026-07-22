@@ -15,8 +15,8 @@ internal invariant test over vendored code, not an external-version pin.
 
 from __future__ import annotations
 
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.governed.memory.scoped import ScopedMemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory.governed.scoped import ScopedMemoryConnector
 
 
 def test_shared_resolves_to_untenanted_literal():

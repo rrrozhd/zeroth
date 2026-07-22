@@ -31,8 +31,8 @@ os.environ.setdefault(
     tempfile.mkdtemp(prefix="zeroth-artifacts-test-"),
 )
 
-from zeroth.core.service.bootstrap import run_migrations  # noqa: E402
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
+from zeroth.service.bootstrap.migrations import run_migrations  # noqa: E402
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ def postgres_container():
 @pytest.fixture
 async def postgres_database(postgres_container):
     """Async Postgres database for tests."""
-    from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
+    from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
     url = postgres_container.get_connection_url()
     sa_url = url.replace("psycopg2", "psycopg")
@@ -121,7 +121,7 @@ async def dual_database(request, tmp_path, postgres_container):
         yield db
         await db.close()
     else:
-        from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
+        from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
         url = postgres_container.get_connection_url()
         sa_url = url.replace("psycopg2", "psycopg")
@@ -172,7 +172,7 @@ def _otel_exporter():
 @pytest.fixture
 def otel_spans(_otel_exporter):
     """Enable tracing for one test and yield the cleared in-memory span exporter."""
-    from zeroth.core.observability import tracing
+    from zeroth.platform.observability import tracing
 
     _otel_exporter.clear()
     tracing._TRACING_ENABLED = True

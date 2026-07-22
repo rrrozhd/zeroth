@@ -1,31 +1,31 @@
-"""Storage primitives shared by Zeroth subsystems.
+"""Legacy import path for the platform storage package.
 
-This package provides the database and caching backends that other parts
-of Zeroth use: SQLite for local persistence, Redis for distributed runtime
-state, and JSON helpers for serialization.
+The storage primitives live in :mod:`zeroth.platform.storage`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 
-Postgres support (``AsyncPostgresDatabase``) is gated behind the ``[memory-pg]``
-extra and imported lazily so that a base ``pip install zeroth-core`` does not
-require ``psycopg`` / ``psycopg-pool`` at import time.
+``AsyncPostgresDatabase`` stays lazy (requires the ``[memory-pg]`` extra), and
+the governed-runtime store factory stays lazy because it now lives in the
+integrations layer (:mod:`zeroth.integrations.persistence.governed_redis`);
+resolving it eagerly would put runtime and governance code on the import path
+of everything that touches storage.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.core.storage.coordination import ensure_and_lock_row
-from zeroth.core.storage.database import AsyncConnection, AsyncDatabase
-from zeroth.core.storage.factory import create_database
-from zeroth.core.storage.redis import (
-    GovernAIRedisRuntimeStores,
+from zeroth.platform.storage import (
+    AsyncConnection,
+    AsyncDatabase,
+    AsyncSQLiteDatabase,
+    EncryptedField,
+    Migration,
     RedisConfig,
     RedisDeploymentMode,
-    build_governai_redis_runtime,
+    SQLiteDatabase,
+    create_database,
     docker_container_running,
+    ensure_and_lock_row,
 )
-from zeroth.core.storage.sqlite import EncryptedField, Migration, SQLiteDatabase
-
-if TYPE_CHECKING:
-    from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
 
 __all__ = [
     "AsyncConnection",
@@ -46,9 +46,13 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    """Lazily import Postgres-backed symbols (require [memory-pg] extra)."""
+    """Lazily republish the Postgres database and the governed store factory."""
     if name == "AsyncPostgresDatabase":
-        from zeroth.core.storage.async_postgres import AsyncPostgresDatabase
+        from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
         return AsyncPostgresDatabase
+    if name in {"GovernAIRedisRuntimeStores", "build_governai_redis_runtime"}:
+        from zeroth.core.storage import redis
+
+        return getattr(redis, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

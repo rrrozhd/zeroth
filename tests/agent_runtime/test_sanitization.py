@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zeroth.core.agent_runtime.sanitization import (
+from zeroth.runtime.agents.sanitization import (
     HeuristicInjectionScreener,
     ToolOutputSanitizer,
     wrap_untrusted,

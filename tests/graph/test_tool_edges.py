@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     AgentToolBinding,
@@ -15,9 +15,9 @@ from zeroth.core.graph.models import (
     Graph,
     ToolArgument,
 )
-from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
-from zeroth.core.graph.validation import GraphValidator
-from zeroth.core.graph.validation_errors import ValidationCode
+from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.runtime.graph_validation import GraphValidator
+from zeroth.contracts.graph.validation_errors import ValidationCode
 
 
 def _agent_node(node_id: str = "agent", **agent_kwargs) -> AgentNode:
@@ -185,7 +185,7 @@ class TestValidation:
         assert ValidationCode.INVALID_TOOL_BINDING in await self._codes(graph)
 
     async def test_tool_edge_with_condition_is_an_error(self) -> None:
-        from zeroth.core.graph.models import Condition
+        from zeroth.contracts.graph.models import Condition
 
         agent = _agent_node(tool_bindings=[_binding()])
         edge = Edge(

@@ -15,23 +15,24 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.errors import AgentOutputValidationError
-from zeroth.core.agent_runtime.models import RetryPolicy
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.agent_runtime.resilience import CachingProviderAdapter
-from zeroth.core.audit import AuditRepository
-from zeroth.core.audit.models import NodeAuditRecord, TokenUsage
-from zeroth.core.econ import (
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.errors import AgentOutputValidationError
+from zeroth.runtime.agents.models import RetryPolicy
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.agents.resilience import CachingProviderAdapter
+from zeroth.governance.audit import AuditRepository
+from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
+from zeroth.econ.analytics import (
     EconThresholdError,
     WasteKind,
     analyze_run,
     waste_gate,
 )
-from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import AgentNode, AgentNodeData, Condition, Edge, ExecutionSettings, Graph
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
+from zeroth.contracts.graph import AgentNode, AgentNodeData, Condition, Edge, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 def _audit(
@@ -507,7 +508,7 @@ async def test_instrumented_cache_hit_costs_zero_through_orchestrator(sqlite_db)
     """
     from unittest.mock import MagicMock
 
-    from zeroth.core.econ.cost import CostEstimator
+    from zeroth.econ.analytics.cost import CostEstimator
 
     cached = CachingProviderAdapter(
         CallableProviderAdapter(

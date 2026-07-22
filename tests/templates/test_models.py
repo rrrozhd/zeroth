@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.templates.models import (
+from zeroth.contracts.templates.models import (
     PromptTemplate,
     TemplateReference,
     TemplateRenderResult,

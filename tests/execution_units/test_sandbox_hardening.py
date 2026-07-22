@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from zeroth.core.execution_units.constraints import ResourceConstraints, build_docker_resource_flags
-from zeroth.core.execution_units.sandbox import (
+from zeroth.integrations.execution.constraints import ResourceConstraints, build_docker_resource_flags
+from zeroth.integrations.execution.sandbox import (
     DockerSandboxConfig,
     SandboxBackendMode,
     SandboxBackendUnavailableError,
@@ -141,8 +141,37 @@ def test_policy_violation_is_raised_when_required_isolation_cannot_be_met() -> N
         )
 
 
+def test_strict_refuses_local_backend_even_without_constraints() -> None:
+    # S2: STRICT + LOCAL must refuse UNCONDITIONALLY. A bare inline unit reaches
+    # the sandbox with resource_constraints=None; gating the refusal on
+    # constraints made strict mode a silent no-op that ran authored code as an
+    # unisolated host subprocess.
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.LOCAL,
+            strictness_mode=SandboxStrictnessMode.STRICT,
+        )
+    )
+
+    with pytest.raises(SandboxPolicyViolationError, match="local backend"):
+        manager.run(["echo", "UNISOLATED"])  # no resource_constraints
+
+
+def test_standard_local_without_constraints_still_runs() -> None:
+    # Guard the boundary: STANDARD (not STRICT) + LOCAL with no hard-isolation
+    # constraints is still permitted, so the S2 fix doesn't over-restrict.
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.LOCAL,
+            strictness_mode=SandboxStrictnessMode.STANDARD,
+        )
+    )
+    result = manager.run(["echo", "ok"])
+    assert result.backend == "local"
+
+
 def test_docker_hardening_flags_applied_by_default() -> None:
-    from zeroth.core.execution_units.sandbox import DockerSandboxConfig, _docker_hardening_flags
+    from zeroth.integrations.execution.sandbox import DockerSandboxConfig, _docker_hardening_flags
 
     flags = _docker_hardening_flags(DockerSandboxConfig())
     assert "--read-only" in flags
@@ -153,7 +182,7 @@ def test_docker_hardening_flags_applied_by_default() -> None:
 
 
 def test_docker_hardening_flags_disabled_and_user_override() -> None:
-    from zeroth.core.execution_units.sandbox import DockerSandboxConfig, _docker_hardening_flags
+    from zeroth.integrations.execution.sandbox import DockerSandboxConfig, _docker_hardening_flags
 
     assert _docker_hardening_flags(DockerSandboxConfig(hardened=False)) == []
     flags = _docker_hardening_flags(

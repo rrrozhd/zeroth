@@ -35,4 +35,4 @@ The artifact store is configured via `ArtifactStoreSettings` and constructed dur
 - **`ArtifactStorageError`** -- Raised on backend I/O failures (disk full, Redis unavailable).
 - **`ArtifactTTLError`** -- Raised when TTL validation fails.
 
-See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.core.artifacts` for implementation.
+See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.platform.artifacts` for implementation.

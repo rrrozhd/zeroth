@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime.models import ModelParams
-from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter, ProviderRequest
+from zeroth.runtime.agents.models import ModelParams
+from zeroth.runtime.agents.provider import LiteLLMProviderAdapter, ProviderRequest
 
 
 @pytest.fixture

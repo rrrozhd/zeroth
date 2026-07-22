@@ -1,5 +1,5 @@
 # Example zeroth.yaml — the config file picked up by
-# ``zeroth.core.config.settings.get_settings`` on service startup.
+# ``zeroth.platform.config.settings.get_settings`` on service startup.
 #
 # Environment variables with the ``ZEROTH_`` prefix override these
 # values (e.g. ``ZEROTH_DATABASE__BACKEND=postgres``). In production

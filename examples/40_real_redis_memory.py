@@ -57,20 +57,20 @@ import sys
 
 from examples._common import print_run_summary, require_env, running_service
 from examples._contracts import Answer, Question
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    LiteLLMProviderAdapter,
-)
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.memory.redis_thread import RedisThreadMemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory.redis_thread import RedisThreadMemoryConnector
+from zeroth.runtime.agents import (
+    AgentConfig,
+    AgentRunner,
+    LiteLLMProviderAdapter,
+)
 
 KEY_PREFIX = "zeroth:example:chat"
 HISTORY_KEY = "messages"

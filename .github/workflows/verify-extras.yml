@@ -65,7 +65,7 @@ jobs:
               python -c "import zeroth.core.memory.elastic_connector; print('memory-es OK')"
               ;;
             dispatch)
-              python -c "import zeroth.core.dispatch.worker; print('dispatch OK')"
+              python -c "import arq, redis, zeroth.platform.dispatch.arq_wakeup; print('dispatch OK')"
               ;;
             sandbox)
               # [sandbox] extra is intentionally empty (sandbox_sidecar shells
@@ -74,7 +74,7 @@ jobs:
               python -c "import zeroth.core.sandbox_sidecar; print('sandbox OK')"
               ;;
             all)
-              python -c "import zeroth.core.memory.pgvector_connector, zeroth.core.memory.chroma_connector, zeroth.core.dispatch.worker, zeroth.core.sandbox_sidecar; print('all OK')"
+              python -c "import arq, redis, zeroth.platform.dispatch.arq_wakeup, zeroth.core.memory.pgvector_connector, zeroth.core.memory.chroma_connector, zeroth.core.sandbox_sidecar; print('all OK')"
               ;;
             *)
               echo "::error::Unknown matrix entry: ${{ matrix.extra }}"

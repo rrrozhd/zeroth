@@ -12,11 +12,11 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import DeterministicProviderAdapter, ProviderResponse
-from zeroth.core.agent_runtime.factory import build_agent_runners
-from zeroth.core.audit import AuditRepository
-from zeroth.core.contracts.registry import ContractRegistry
-from zeroth.core.execution_units import (
+from zeroth.runtime.agents import DeterministicProviderAdapter, ProviderResponse
+from zeroth.runtime.agents.factory import build_agent_runners
+from zeroth.governance.audit import AuditRepository
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.integrations.execution import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -26,7 +26,7 @@ from zeroth.core.execution_units import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNodeData,
     AgentToolBinding,
     Edge,
@@ -34,9 +34,10 @@ from zeroth.core.graph import (
     Graph,
     ToolArgument,
 )
-from zeroth.core.graph.models import AgentNode, ExecutableUnitNode
+from zeroth.contracts.graph.models import AgentNode, ExecutableUnitNode
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 class NumberInput(BaseModel):

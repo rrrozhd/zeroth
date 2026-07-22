@@ -29,20 +29,20 @@ import os
 from typing import Any
 
 import pytest
-from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.models import ModelParams
-from zeroth.core.agent_runtime.provider import (
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.models import ModelParams
+from zeroth.runtime.agents.provider import (
     CallableProviderAdapter,
     LiteLLMProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
-from zeroth.core.audit import AuditRepository
-from zeroth.core.deployments.models import Deployment
-from zeroth.core.execution_units import (
+from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.governance.audit import AuditRepository
+from zeroth.service.deployments.models import Deployment
+from zeroth.integrations.execution import (
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
     ExecutionMode,
@@ -51,7 +51,7 @@ from zeroth.core.execution_units import (
     OutputMode,
     PythonModuleArtifactSource,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -65,17 +65,18 @@ from zeroth.core.graph import (
     RetrievalNode,
     RetrievalNodeData,
 )
-from zeroth.core.graph.models import SubgraphNode
-from zeroth.core.graph.serialization import serialize_graph
-from zeroth.core.identity import ActorIdentity, AuthMethod
-from zeroth.core.memory.models import ConnectorManifest
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.contracts.graph.models import SubgraphNode
+from zeroth.contracts.graph.serialization import serialize_graph
+from zeroth.governance.identity import ActorIdentity, AuthMethod
+from zeroth.integrations.memory.models import ConnectorManifest
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.parallel.models import ParallelConfig
-from zeroth.core.runs import RunRepository, RunStatus
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.parallel.models import ParallelConfig
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 pytestmark = pytest.mark.live
 

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.templates.errors import (
+from zeroth.contracts.templates.errors import (
     TemplateNotFoundError,
     TemplateSyntaxValidationError,
     TemplateVersionExistsError,
 )
-from zeroth.core.templates.registry import TemplateRegistry
+from zeroth.contracts.templates.registry import TemplateRegistry
 
 
 class TestRegistryRegister:

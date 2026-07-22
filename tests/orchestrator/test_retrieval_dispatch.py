@@ -10,16 +10,17 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
-from zeroth.core.audit import AuditRepository
-from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import ExecutionSettings, Graph, RetrievalNode, RetrievalNodeData
-from zeroth.core.memory.models import ConnectorManifest
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.governance.audit import AuditRepository
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
+from zeroth.contracts.graph import ExecutionSettings, Graph, RetrievalNode, RetrievalNodeData
+from zeroth.integrations.memory.models import ConnectorManifest
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.orchestrator.runtime import NodeDispatcherError
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 class _RecordingConnector:

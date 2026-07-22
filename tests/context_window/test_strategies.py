@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.context_window.errors import CompactionError
-from zeroth.core.context_window.models import (
+from zeroth.runtime.context.errors import CompactionError
+from zeroth.runtime.context.models import (
     CompactionResult,
     ContextWindowSettings,
 )
-from zeroth.core.context_window.strategies import (
+from zeroth.runtime.context.strategies import (
     CompactionStrategy,
     LLMSummarizationStrategy,
     ObservationMaskingStrategy,
@@ -100,7 +100,7 @@ class TestTruncationStrategy:
         ]
         settings = _settings(preserve=2)
         strategy = TruncationStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 100
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -124,7 +124,7 @@ class TestTruncationStrategy:
         ]
         settings = _settings(preserve=2, archive=True)
         strategy = TruncationStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 50
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -139,7 +139,7 @@ class TestTruncationStrategy:
         messages = [_sys(), _user("hi"), _assistant("hello")]
         settings = _settings(preserve=4)
         strategy = TruncationStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 30
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -152,7 +152,7 @@ class TestTruncationStrategy:
         messages = [_sys(), _user("a"), _assistant("b")]
         settings = _settings(preserve=2)
         strategy = TruncationStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 20
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -166,7 +166,7 @@ class TestTruncationStrategy:
         original_copy = list(messages)
         settings = _settings(preserve=2)
         strategy = TruncationStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 40
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -194,7 +194,7 @@ class TestObservationMaskingStrategy:
         ]
         settings = _settings(preserve=2)
         strategy = ObservationMaskingStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.side_effect = [
                 50,  # tokens_before (full list)
                 12,  # per-message token count for the tool message
@@ -219,7 +219,7 @@ class TestObservationMaskingStrategy:
         ]
         settings = _settings(preserve=2)
         strategy = ObservationMaskingStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.side_effect = [40, 8, 25]
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -239,7 +239,7 @@ class TestObservationMaskingStrategy:
         ]
         settings = _settings(preserve=2)
         strategy = ObservationMaskingStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.side_effect = [50, 30]
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -258,7 +258,7 @@ class TestObservationMaskingStrategy:
         ]
         settings = _settings(preserve=2, archive=True)
         strategy = ObservationMaskingStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.side_effect = [40, 10, 20]
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -278,7 +278,7 @@ class TestObservationMaskingStrategy:
         original_copy = list(messages)
         settings = _settings(preserve=2)
         strategy = ObservationMaskingStrategy()
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.side_effect = [40, 8, 25]
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -313,7 +313,7 @@ class TestLLMSummarizationStrategy:
         ]
         settings = _settings(preserve=2)
         strategy = LLMSummarizationStrategy(provider=mock_provider)
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 50
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -341,7 +341,7 @@ class TestLLMSummarizationStrategy:
         ]
         settings = _settings(preserve=2)
         strategy = LLMSummarizationStrategy(provider=mock_provider)
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 50
             with pytest.raises(CompactionError, match="summarization failed"):
                 await strategy.compact(messages, settings=settings, model_name="gpt-4o")
@@ -363,7 +363,7 @@ class TestLLMSummarizationStrategy:
         ]
         settings = _settings(preserve=2, archive=True)
         strategy = LLMSummarizationStrategy(provider=mock_provider)
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 30
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 
@@ -388,7 +388,7 @@ class TestLLMSummarizationStrategy:
         original_copy = list(messages)
         settings = _settings(preserve=2)
         strategy = LLMSummarizationStrategy(provider=mock_provider)
-        with patch("zeroth.core.context_window.strategies.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.strategies.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 30
             result = await strategy.compact(messages, settings=settings, model_name="gpt-4o")
 

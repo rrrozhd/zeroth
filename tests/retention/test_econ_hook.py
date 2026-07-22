@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from tests.retention.conftest import make_audit_record
 
-from zeroth.core.runs import Run
-from zeroth.core.retention import RetentionErasureService, SqlAlchemyEconEventEraser
-from zeroth.core.retention.econ_eraser import EconEventEraser
+from zeroth.runtime.runs import Run
+from zeroth.governance.retention import RetentionErasureService, SqlAlchemyEconEventEraser
+from zeroth.governance.retention.econ_eraser import EconEventEraser
 
 
 class _RecordingEconEraser:
@@ -75,7 +75,7 @@ async def test_sqlalchemy_econ_eraser_noop_on_empty_keys() -> None:
 
 
 async def test_sqlalchemy_econ_eraser_predicates_tenant_and_join_key(monkeypatch) -> None:
-    from zeroth.econ_plane import database as econ_database
+    from zeroth.econ.plane import database as econ_database
 
     statements = []
 
@@ -114,7 +114,7 @@ async def test_sqlalchemy_econ_eraser_predicates_tenant_and_join_key(monkeypatch
 
 
 async def test_sqlalchemy_econ_eraser_replays_durable_receipt(monkeypatch) -> None:
-    from zeroth.econ_plane import database as econ_database
+    from zeroth.econ.plane import database as econ_database
 
     receipts = {}
     execute_calls = 0

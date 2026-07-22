@@ -47,7 +47,7 @@ def main() -> int:
     # secrets, or any runtime wiring.
     from types import SimpleNamespace
 
-    from zeroth.core.service.app import create_app
+    from zeroth.service.app import create_app
 
     stub_bootstrap = SimpleNamespace(
         deployment=None,

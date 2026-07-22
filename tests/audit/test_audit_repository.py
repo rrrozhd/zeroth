@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from zeroth.core.audit import (
+import zeroth.governance.audit.models as audit_models
+from zeroth.governance.audit import (
     AuditContinuityVerifier,
     AuditQuery,
     AuditRedactionConfig,
@@ -16,7 +17,19 @@ from zeroth.core.audit import (
     PayloadSanitizer,
     ToolCallRecord,
 )
-from zeroth.core.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.governance.identity import ActorIdentity, AuthMethod, ServiceRole
+from zeroth.platform.primitives import utc_now
+
+
+def test_audit_models_consume_platform_clock_per_instance() -> None:
+    assert audit_models.ApprovalActionRecord.model_fields["occurred_at"].default_factory is utc_now
+    assert audit_models.NodeAuditRecord.model_fields["started_at"].default_factory is utc_now
+
+    first = audit_models.ApprovalActionRecord(approval_id="approval-1", action="requested")
+    second = audit_models.ApprovalActionRecord(approval_id="approval-2", action="requested")
+
+    assert first.occurred_at.tzinfo is UTC
+    assert first.occurred_at is not second.occurred_at
 
 
 def _record(

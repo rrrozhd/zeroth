@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.execution_units.constraints import ResourceConstraints
-from zeroth.core.execution_units.sandbox import (
+from zeroth.integrations.execution.constraints import ResourceConstraints
+from zeroth.integrations.execution.sandbox import (
     SandboxBackendMode,
     SandboxConfig,
     SandboxManager,

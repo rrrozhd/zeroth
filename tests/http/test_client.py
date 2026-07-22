@@ -1,4 +1,4 @@
-"""Tests for zeroth.core.http.client — ResilientHttpClient and settings wiring."""
+"""Tests for zeroth.integrations.http.client — ResilientHttpClient and settings wiring."""
 
 from __future__ import annotations
 
@@ -9,14 +9,15 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from zeroth.core.http.client import ResilientHttpClient
-from zeroth.core.http.errors import (
+from zeroth.integrations.http.client import ResilientHttpClient
+from zeroth.integrations.http.errors import (
     CircuitOpenError,
     HttpClientError,
     HttpRateLimitError,
     HttpRetryExhaustedError,
 )
-from zeroth.core.http.models import AuthType, EndpointConfig, HttpClientSettings
+from zeroth.integrations.http.models import AuthType, EndpointConfig
+from zeroth.platform.config.models import HttpClientSettings
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +256,7 @@ class TestCapabilityGating:
 
     @pytest.mark.asyncio
     async def test_missing_capability_raises(self) -> None:
-        from zeroth.core.policy.models import Capability
+        from zeroth.governance.policy.models import Capability
 
         settings = HttpClientSettings()
         client = ResilientHttpClient(settings)
@@ -271,7 +272,7 @@ class TestCapabilityGating:
 
     @pytest.mark.asyncio
     async def test_sufficient_capabilities_pass(self) -> None:
-        from zeroth.core.policy.models import Capability
+        from zeroth.governance.policy.models import Capability
 
         settings = HttpClientSettings()
         client = ResilientHttpClient(settings)
@@ -444,7 +445,7 @@ class TestSettingsIntegration:
     """HttpClientSettings wired into ZerothSettings."""
 
     def test_http_client_on_zeroth_settings(self) -> None:
-        from zeroth.core.config.settings import ZerothSettings
+        from zeroth.platform.config.settings import ZerothSettings
 
         s = ZerothSettings()
         assert isinstance(s.http_client, HttpClientSettings)

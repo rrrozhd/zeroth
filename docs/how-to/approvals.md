@@ -9,7 +9,7 @@ This guide shows how to attach a human-approval gate to a graph node and resolve
 ```python
 # Slice from examples/20_approval_gate.py — approval gate, resolved in-process.
 from zeroth.core.examples.quickstart import build_demo_graph
-from zeroth.core.graph import GraphRepository
+from zeroth.contracts.graph import GraphRepository
 
 # 1. Author a graph that contains a HumanApprovalNode.
 graph = await graph_repository.create(build_demo_graph(include_approval=True))
@@ -60,7 +60,7 @@ That is the full pattern: **enqueue** (the orchestrator creates the pending reco
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.approvals`](../reference/python-api/approvals.md).
+See the [Python API reference for `zeroth.governance.approvals`](../reference/python-api/approvals.md).
 
 - Example source: `examples/20_approval_gate.py` (full runnable version).
 - Related: [Concept: approvals](../concepts/approvals.md), [Usage Guide: policy](policy.md), [Usage Guide: audit](audit.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

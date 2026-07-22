@@ -1,18 +1,44 @@
 from __future__ import annotations
 
+import warnings
+from datetime import UTC
+
 import pytest
 from pydantic import BaseModel
 
 from tests.graph.test_models import build_graph
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import (
+import zeroth.service.deployments.models as deployment_models
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.service.deployments import (
     DeploymentError,
+    DeploymentEngineMode,
     DeploymentService,
     DeploymentStatus,
     SQLiteDeploymentRepository,
 )
-from zeroth.core.graph import GraphRepository
-from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.contracts.graph import ExecutionSettings, GraphRepository
+from zeroth.contracts.graph.warnings import LegacyEngineDeprecationWarning
+from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.platform.primitives import utc_now
+
+
+def test_deployment_models_consume_platform_clock_per_instance() -> None:
+    assert deployment_models.Deployment.model_fields["created_at"].default_factory is utc_now
+    assert deployment_models.Deployment.model_fields["updated_at"].default_factory is utc_now
+
+    values = {
+        "deployment_id": "deployment-1",
+        "deployment_ref": "deployment-ref",
+        "graph_id": "graph-1",
+        "graph_version": 1,
+        "graph_version_ref": "graph-1@1",
+        "serialized_graph": "{}",
+    }
+    first = deployment_models.Deployment(**values)
+    second = deployment_models.Deployment(**values)
+
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
 
 
 class DeploymentInputContract(BaseModel):
@@ -71,6 +97,45 @@ async def test_deploy_published_graph_succeeds(sqlite_db) -> None:
     assert deployed.status is DeploymentStatus.ACTIVE
     assert await service.get("graph-1-service", 1) == deployed
     assert await service.list("graph-1-service") == [deployed]
+
+
+@pytest.mark.parametrize(
+    ("authored_value", "expected_mode"),
+    [
+        (None, DeploymentEngineMode.TOKEN),
+        (False, DeploymentEngineMode.LEGACY),
+        (True, DeploymentEngineMode.TOKEN),
+    ],
+)
+async def test_deploy_pins_effective_engine_mode(
+    sqlite_db,
+    authored_value: bool | None,
+    expected_mode: DeploymentEngineMode,
+) -> None:
+    service = await _build_service(sqlite_db)
+    settings = (
+        ExecutionSettings()
+        if authored_value is None
+        else ExecutionSettings.model_construct(sequential_join_enabled=authored_value)
+    )
+    graph = build_graph().model_copy(update={"execution_settings": settings})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", LegacyEngineDeprecationWarning)
+        stored = await service.graph_repository.create(graph)
+        await service.graph_repository.publish(stored.graph_id, stored.version)
+
+    if authored_value is False:
+        with pytest.warns(LegacyEngineDeprecationWarning) as captured:
+            deployed = await service.deploy("engine-service", stored.graph_id, stored.version)
+        assert "deployment_publication" in {
+            warning.message.stage for warning in captured
+        }
+    else:
+        deployed = await service.deploy("engine-service", stored.graph_id, stored.version)
+
+    assert deployed.engine_mode is expected_mode
+    assert deployed.attestation_payload_version == 2
+    assert (await service.get("engine-service")).engine_mode is expected_mode
 
 
 async def test_deploy_stamps_owner_from_graph_not_deployment_settings(sqlite_db) -> None:

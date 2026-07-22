@@ -29,7 +29,7 @@ Reviewers fetch records through the `AuditRepository.list(AuditQuery(...))` API 
 - **`PayloadSanitizer` / `AuditRedactionConfig`** — redaction of secret keys and omit-paths before write.
 - **`AuditContinuityVerifier` / `AuditContinuityReport`** — chain-digest verification for tamper detection.
 - **`ToolCallRecord` / `MemoryAccessRecord` / `ApprovalActionRecord`** — nested sub-records that live inside `NodeAuditRecord`.
-- **`build_summary` / `collect_policy_events`** — helpers in `zeroth.core.audit.evidence` that flatten a timeline into compliance-ready views.
+- **`build_summary` / `collect_policy_events`** — helpers in `zeroth.governance.audit.evidence` that flatten a timeline into compliance-ready views.
 
 ## See also
 

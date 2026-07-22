@@ -9,10 +9,10 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
-from zeroth.core.governed.memory.connector import MemoryConnector
-from zeroth.core.governed.memory.models import MemoryEntry, MemoryScope
+from zeroth.integrations.memory.governed.connector import MemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
-from zeroth.core.memory.elastic_connector import ElasticsearchMemoryConnector
+from zeroth.integrations.memory.elastic_connector import ElasticsearchMemoryConnector
 
 # ---------------------------------------------------------------------------
 # Fixtures

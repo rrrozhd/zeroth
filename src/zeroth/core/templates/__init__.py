@@ -1,30 +1,25 @@
-"""Prompt template management for the Zeroth platform.
+"""Legacy import path for the template contracts package.
 
-Provides versioned template registry, Pydantic models, and error hierarchy
-for managing and rendering prompt templates.
+Prompt templates live in :mod:`zeroth.contracts.templates`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from __future__ import annotations
-
-from zeroth.core.templates.errors import (
+from zeroth.contracts.templates import (
+    DEFAULT_SECRET_PATTERNS,
+    PromptTemplate,
     TemplateError,
     TemplateNotFoundError,
+    TemplateReference,
+    TemplateRegistry,
+    TemplateRenderer,
     TemplateRenderError,
+    TemplateRenderResult,
     TemplateSyntaxValidationError,
     TemplateVersionExistsError,
-)
-from zeroth.core.templates.models import (
-    PromptTemplate,
-    TemplateReference,
-    TemplateRenderResult,
-)
-from zeroth.core.templates.redaction import (
-    DEFAULT_SECRET_PATTERNS,
     identify_secret_variables,
     redact_rendered_prompt,
 )
-from zeroth.core.templates.registry import TemplateRegistry
-from zeroth.core.templates.renderer import TemplateRenderer
 
 __all__ = [
     "DEFAULT_SECRET_PATTERNS",

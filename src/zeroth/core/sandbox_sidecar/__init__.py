@@ -1,9 +1,10 @@
-"""Zeroth sandbox sidecar service package.
+"""Legacy import path for the sandbox integrations package.
 
-The sidecar holds the Docker socket and exposes a REST API for sandboxed
-execution. The main API container communicates with it over HTTP.
+The sandbox sidecar service lives in :mod:`zeroth.integrations.sandbox`;
+this package republishes the same objects for compatibility. Import from
+the canonical location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.sandbox_sidecar.app import app
+from zeroth.integrations.sandbox.app import app
 
 __all__ = ["app"]

@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.mappings.errors import MappingExecutionError
-from zeroth.core.mappings.models import (
+from zeroth.contracts.mappings.errors import MappingExecutionError
+from zeroth.contracts.mappings.models import (
     EdgeMapping,
     MappingOperation,
     TransformMappingOperation,
@@ -109,11 +109,11 @@ class TestPublicApiExports:
     """TransformMappingOperation and MappingExecutionError are exported from the package."""
 
     def test_transform_mapping_operation_importable(self) -> None:
-        from zeroth.core.mappings import TransformMappingOperation as Imported
+        from zeroth.contracts.mappings import TransformMappingOperation as Imported
 
         assert Imported is TransformMappingOperation
 
     def test_mapping_execution_error_importable(self) -> None:
-        from zeroth.core.mappings import MappingExecutionError as Imported
+        from zeroth.contracts.mappings import MappingExecutionError as Imported
 
         assert Imported is MappingExecutionError

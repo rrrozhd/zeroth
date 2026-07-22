@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.context_window.models import (
+from zeroth.runtime.context.models import (
     CompactionResult,
     CompactionState,
     ContextWindowSettings,
 )
-from zeroth.core.context_window.errors import (
+from zeroth.runtime.context.errors import (
     CompactionError,
     ContextWindowError,
     TokenCountError,

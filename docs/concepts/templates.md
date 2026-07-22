@@ -37,4 +37,4 @@ The `redact_rendered_prompt()` function scans rendered output for values matchin
 
 The template registry is configured via `bootstrap_service()`. If no registry is configured, REST endpoints return 503.
 
-See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.core.templates` for implementation.
+See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.contracts.templates` for implementation.

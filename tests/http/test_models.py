@@ -1,11 +1,11 @@
-"""Tests for zeroth.core.http.models — settings, config, call records, URL redaction."""
+"""Tests for zeroth.integrations.http.models — settings, config, call records, URL redaction."""
 
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.http.models import (
+from zeroth.integrations.http.models import (
     AuthType,
     EndpointConfig,
     HttpCallRecord,

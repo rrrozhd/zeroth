@@ -1,11 +1,13 @@
-"""Vendored from governai 0.2.3 (see zeroth/core/governed/PROVENANCE.md).
+"""Legacy import path for the governed runtime stores.
 
-Re-exports the two durable Redis stores at package level so that
-``from zeroth.core.governed.runtime import RedisRunStore, RedisInterruptStore``
-resolves the way zeroth's ``storage.redis`` wiring expects.
+The interrupt and run stores now live in :mod:`zeroth.runtime.orchestration`;
+this package republishes the two durable Redis stores at package level so
+that ``from zeroth.core.governed.runtime import RedisRunStore,
+RedisInterruptStore`` resolves the way zeroth's ``storage.redis`` wiring
+expects (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.governed.runtime.interrupts import RedisInterruptStore
-from zeroth.core.governed.runtime.run_store import RedisRunStore
+from zeroth.runtime.orchestration.interrupts import RedisInterruptStore
+from zeroth.runtime.orchestration.run_store import RedisRunStore
 
 __all__ = ["RedisInterruptStore", "RedisRunStore"]

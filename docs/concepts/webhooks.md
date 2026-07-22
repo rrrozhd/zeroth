@@ -2,7 +2,7 @@
 
 ## What it is
 
-The `zeroth.core.webhooks` subsystem is Zeroth's **outbound webhook
+The `zeroth.service.webhooks` subsystem is Zeroth's **outbound webhook
 delivery system**: tenants subscribe to event types (run lifecycle,
 approvals, cost thresholds), Zeroth emits events as runs progress, and
 a delivery worker POSTs HMAC-signed payloads to subscriber URLs with

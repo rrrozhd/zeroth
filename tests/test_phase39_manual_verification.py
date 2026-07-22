@@ -17,11 +17,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from zeroth.core.deployments.repository import SQLiteDeploymentRepository
-from zeroth.core.deployments.service import DeploymentService
-from zeroth.core.contracts.registry import ContractRegistry
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph.models import (
+from zeroth.service.deployments.repository import SQLiteDeploymentRepository
+from zeroth.service.deployments.service import DeploymentService
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -32,15 +32,15 @@ from zeroth.core.graph.models import (
     SubgraphNode,
     SubgraphNodeData,
 )
-from zeroth.core.graph.repository import GraphRepository
+from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.agent_runtime.models import AgentRunResult, PromptAssembly
-from zeroth.core.runs.models import RunStatus
-from zeroth.core.runs.repository import RunRepository
-from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.agents.models import AgentRunResult, PromptAssembly
+from zeroth.runtime.runs import RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 
 # ---------------------------------------------------------------------------

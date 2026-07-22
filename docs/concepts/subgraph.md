@@ -11,7 +11,7 @@ A `SubgraphNodeData` in a parent graph references a child graph by name (and opt
 ## Key Components
 
 - **`SubgraphNodeData`** -- Pydantic model defining a subgraph node with `graph_ref`, `version`, `thread_participation`, and `max_depth` settings.
-- **`SubgraphResolver`** -- Resolves graph references via `DeploymentService`, namespaces node IDs with `subgraph:{ref}:{depth}:` prefix, and merges parent governance. Import from `zeroth.core.subgraph.resolver` to avoid circular imports.
+- **`SubgraphResolver`** -- Resolves graph references via `DeploymentService`, namespaces node IDs with `subgraph:{ref}:{depth}:` prefix, and merges parent governance. Import from `zeroth.runtime.subgraphs.resolver` to avoid circular imports.
 - **`SubgraphExecutor`** -- Creates child Run with `parent_run_id`, drives execution, and returns output to parent. Lazy-imported to avoid circular dependencies with graph models.
 
 ## Thread Participation
@@ -39,4 +39,4 @@ If a `HumanApprovalNode` inside a subgraph pauses execution, the parent run tran
 
 SubgraphNode cannot be used inside parallel fan-out branches (see [Parallel Execution](parallel.md#known-limitations)).
 
-See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.core.subgraph` for implementation.
+See the [API Reference](../reference/http-api.md) for endpoint details and the source code under `zeroth.runtime.subgraphs` for implementation.

@@ -1,37 +1,9 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+"""Legacy import path for :mod:`zeroth.econ.plane.config`."""
+
+from __future__ import annotations
+
+import zeroth.econ.plane.config as _config
 
 
-class Settings(BaseSettings):
-    app_name: str = "AI Economic Control Plane"
-    jwt_secret: str = "change-me"
-    jwt_algorithm: str = "HS256"
-    database_url: str = "sqlite+pysqlite:///./econ_plane.db"
-    stat_cost_engine: bool = False
-    stat_value_engine: bool = False
-    confidence_gating_strict: bool = True
-    confidence_gate_level: float = 0.95
-    confidence_gate_rel_width: float = 0.30
-    default_tenant_id: str = "tenant_default"
-    outcome_pipeline_v2: bool = True
-    experiment_routing: bool = True
-    shadow_eval: bool = True
-    policy_action_log_v2: bool = True
-    protected_capability_guard_strict: bool = True
-    strict_join_key_enforcement: bool = True
-    request_log_enabled: bool = False
-    request_log_level: str = "DEBUG"
-    request_log_sample_rate: float = 0.10
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    connectors_enabled: bool = False
-    connector_worker_batch_size: int = 100
-    connector_max_attempts: int = 8
-    connector_backoff_base_s: int = 2
-    prometheus_enabled: bool = True
-    otel_metrics_enabled: bool = False
-    otel_metrics_otlp_endpoint: str = ""
-
-    model_config = SettingsConfigDict(env_prefix="ECP_", case_sensitive=False)
-
-
-settings = Settings()
+def __getattr__(name: str) -> object:
+    return getattr(_config, name)

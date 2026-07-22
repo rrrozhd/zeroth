@@ -7,15 +7,60 @@ from datetime import UTC, datetime
 
 import pytest
 
-from zeroth.core.audit import AuditRepository, NodeAuditRecord
-from zeroth.core.retention import (
+from zeroth.contracts.graph import (
+    CancellationFence,
+    SchedulingState,
+    TokenEngineSnapshot,
+    TokenEngineSnapshotState,
+    TokenEnvelope,
+    TokenLifecycleState,
+)
+from zeroth.governance.audit import AuditRepository, NodeAuditRecord
+from zeroth.governance.retention import (
     LegalHoldRepository,
     RetentionAuditLogRepository,
     RetentionErasureService,
     RetentionPolicyRepository,
 )
-from zeroth.core.runs import Run, RunRepository
-from zeroth.core.signing import EnvHmacSigner
+from zeroth.contracts.governed.models.approval import ApprovalRequest
+from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.signing import EnvHmacSigner
+
+
+async def seed_token_snapshot(env, run_id: str, *, artifact_key: str, ssn: str) -> None:
+    """Persist representative PII and an artifact ref in token-engine state."""
+    token = TokenEnvelope(
+        token_id=f"{run_id}-token",
+        current_node_id="node-a",
+        payload={
+            "ssn": ssn,
+            "artifact": {
+                "store": "filesystem",
+                "key": artifact_key,
+                "content_type": "application/octet-stream",
+                "size": 3,
+            },
+        },
+        lifecycle_state=TokenLifecycleState.ACTIVE,
+        scheduling_state=SchedulingState.QUEUED,
+        state_revision=0,
+    )
+    snapshot = TokenEngineSnapshot(
+        run_id=run_id,
+        revision=0,
+        state=TokenEngineSnapshotState.RUNNING,
+        next_token_ordinal=1,
+        queue=(token,),
+        tokens=(token,),
+        cancellation_fence=CancellationFence(generation=0, state_revision=0),
+    )
+    env.artifact_store.blobs[artifact_key] = b"pii"
+    await env.run_repo.compare_and_swap_token_snapshot(
+        run_id,
+        expected_revision=None,
+        snapshot=snapshot,
+    )
 
 
 class FakeArtifactStore:
@@ -147,6 +192,30 @@ class RetentionEnv:
             error="run-error-" + ssn,
             artifacts={"blob": ssn},
             metadata={"pii": ssn},
+            # failure_state holds the failure message/details; erasure must clear
+            # it too (else `error` re-derives from it on read — audit F1 re-audit).
+            failure_state=RunFailureState(reason="failed", message="err-" + ssn),
+            # pending_approval carries the requester's free-form reason + metadata
+            # for an outstanding gate; erasure must clear it (audit F1 re-audit^2).
+            pending_approval=ApprovalRequest(
+                request_id="req-" + run_id,
+                run_id=run_id,
+                workflow_name="wf",
+                step_name="gate",
+                executor_name="exec",
+                reason="approve for " + ssn,
+                metadata={"requester_note": ssn},
+            ),
+            # Per-node input/output snapshots persist in runs.execution_history;
+            # seed PII here so erasure coverage catches residue (audit F1).
+            execution_history=[
+                RunHistoryEntry(
+                    node_id="n0",
+                    status="completed",
+                    input_snapshot={"prompt": ssn},
+                    output_snapshot={"response": ssn},
+                )
+            ],
         )
         await self.run_repo.put(run)
         if artifact_key is not None:
@@ -172,15 +241,14 @@ class RetentionEnv:
         self.run_ids.append(run_id)
 
 
-@pytest.fixture
-async def env(sqlite_db) -> RetentionEnv:
-    """A fully wired RetentionEnv over the migrated test database."""
+def _build_env(database) -> RetentionEnv:
+    """Wire a full RetentionEnv over a given (possibly encrypted) database."""
     signer = EnvHmacSigner(key_id="k1", keys={"k1": b"retention-secret"})
-    audit_repo = AuditRepository(sqlite_db, signer=signer)
-    run_repo = RunRepository(sqlite_db)
-    policy_repo = RetentionPolicyRepository(sqlite_db)
-    hold_repo = LegalHoldRepository(sqlite_db)
-    log_repo = RetentionAuditLogRepository(sqlite_db)
+    audit_repo = AuditRepository(database, signer=signer)
+    run_repo = RunRepository(database)
+    policy_repo = RetentionPolicyRepository(database)
+    hold_repo = LegalHoldRepository(database)
+    log_repo = RetentionAuditLogRepository(database)
     artifact_store = FakeArtifactStore()
     service = RetentionErasureService(
         audit_repository=audit_repo,
@@ -192,7 +260,7 @@ async def env(sqlite_db) -> RetentionEnv:
         econ_eraser=None,
     )
     return RetentionEnv(
-        database=sqlite_db,
+        database=database,
         signer=signer,
         audit_repo=audit_repo,
         run_repo=run_repo,
@@ -202,3 +270,26 @@ async def env(sqlite_db) -> RetentionEnv:
         artifact_store=artifact_store,
         service=service,
     )
+
+
+@pytest.fixture
+async def env(sqlite_db) -> RetentionEnv:
+    """A fully wired RetentionEnv over the migrated test database."""
+    return _build_env(sqlite_db)
+
+
+@pytest.fixture
+async def encrypted_env(tmp_path):
+    """A RetentionEnv over an at-rest-encrypted DB (encryption_key set), so
+    erasure exercises the decrypt-before-parse path (audit F1 part b)."""
+    from zeroth.core.service.bootstrap import run_migrations
+    from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+    from zeroth.platform.storage.sqlite import EncryptedField
+
+    db_path = str(tmp_path / "encrypted.db")
+    run_migrations(f"sqlite:///{db_path}")
+    database = AsyncSQLiteDatabase(path=db_path, encryption_key=EncryptedField.generate_key())
+    try:
+        yield _build_env(database)
+    finally:
+        await database.close()

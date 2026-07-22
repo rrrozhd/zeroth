@@ -7,8 +7,8 @@ from types import SimpleNamespace
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.service.rightsizing_api import register_rightsizing_routes
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.service.api.rightsizing_api import register_rightsizing_routes
 
 
 def _make_app(*, roles: list[ServiceRole] | None = None, bootstrap: object | None = None) -> FastAPI:
@@ -167,7 +167,7 @@ def test_opportunities_empty_when_no_spend() -> None:
 
 
 def test_opportunities_ranks_spending_nodes() -> None:
-    from zeroth.core.audit.models import NodeAuditRecord, TokenUsage
+    from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
 
     def _rec(node_id: str, cost: float) -> NodeAuditRecord:
         return NodeAuditRecord(

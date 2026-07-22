@@ -1,6 +1,6 @@
 # Contracts
 
-::: zeroth.core.contracts
+::: zeroth.contracts.registry
     options:
       show_root_heading: true
       members_order: source

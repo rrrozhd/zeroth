@@ -1,6 +1,11 @@
-"""Shared identity models used across service, runs, approvals, and audit."""
+"""Legacy import path for the governance identity package.
 
-from zeroth.core.identity.models import (
+The identity models live in :mod:`zeroth.governance.identity`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
+"""
+
+from zeroth.governance.identity import (
     ActorIdentity,
     AuthenticatedPrincipal,
     AuthMethod,

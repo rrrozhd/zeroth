@@ -13,7 +13,7 @@ This example does **not** spin up a real MCP server — that would pull
 a non-hermetic dependency into the examples suite. Instead it
 validates the config shape, checks whether the ``mcp`` package is
 installed, and prints a pointer to the real wiring code in
-:mod:`zeroth.core.agent_runtime.mcp`. Replace the config command with
+:mod:`zeroth.runtime.agents.mcp`. Replace the config command with
 a real ``npx @modelcontextprotocol/server-filesystem /tmp`` (or
 similar) to exercise the full discovery flow against a real server.
 
@@ -34,7 +34,7 @@ import importlib.util
 import sys
 
 from examples._contracts import Answer, Question
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,

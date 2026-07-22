@@ -7,7 +7,7 @@ Mappings describe how data flows along a graph edge. Instead of hand-writing ada
 ## Minimal example
 
 ```python
-from zeroth.core.mappings import (
+from zeroth.contracts.mappings import (
     EdgeMapping,
     MappingExecutor,
     PassthroughMappingOperation,
@@ -56,4 +56,4 @@ In a real graph you attach the `EdgeMapping` to the edge definition; the orchest
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.mappings`](../reference/python-api/mappings.md).
+See the [Python API reference for `zeroth.contracts.mappings`](../reference/python-api/mappings.md).

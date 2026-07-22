@@ -5,13 +5,13 @@ cycle. See Phase 30 docs for context.
 
 These helpers give the Getting Started tutorial and the Governance
 Walkthrough a single, tested function that returns a minimal but valid
-:class:`~zeroth.core.graph.models.Graph`, so the example scripts on the
+:class:`~zeroth.contracts.graph.models.Graph`, so the example scripts on the
 docs site can stay around ten lines instead of eighty.
 """
 
 from __future__ import annotations
 
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -22,7 +22,7 @@ from zeroth.core.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.policy.models import Capability
+from zeroth.governance.policy.models import Capability
 
 _DEMO_GRAPH_ID = "demo-quickstart"
 _DEMO_GRAPH_VERSION_REF = f"{_DEMO_GRAPH_ID}@1"
@@ -57,7 +57,7 @@ def build_demo_graph(
 
     Returns:
         A fully-validated :class:`Graph` ready to register with a
-        :class:`~zeroth.core.graph.repository.GraphRepository`.
+        :class:`~zeroth.contracts.graph.repository.GraphRepository`.
 
     Note:
         This helper is **not** a stable public API. It exists solely to keep
@@ -126,7 +126,7 @@ def build_demo_graph_with_policy(denied_capabilities: list[Capability]) -> Graph
 
     The policy id ``"block-demo-caps"`` is a *reference* only. The example
     script is responsible for registering a
-    :class:`~zeroth.core.policy.models.PolicyDefinition` with that id that
+    :class:`~zeroth.governance.policy.models.PolicyDefinition` with that id that
     denies ``denied_capabilities`` — this helper does **not** persist a
     policy. Plan 30-04 (Governance Walkthrough) uses this hook to
     demonstrate the policy-block scenario.

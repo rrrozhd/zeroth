@@ -11,13 +11,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.artifacts.errors import (
+from zeroth.platform.artifacts.errors import (
     ArtifactNotFoundError,
     ArtifactStorageError,
     ArtifactTTLError,
 )
-from zeroth.core.artifacts.models import ArtifactReference
-from zeroth.core.artifacts.store import (
+from zeroth.platform.artifacts.models import ArtifactReference
+from zeroth.platform.artifacts.store import (
     ArtifactStore,
     FilesystemArtifactStore,
     RedisArtifactStore,

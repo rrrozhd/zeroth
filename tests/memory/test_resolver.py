@@ -7,12 +7,12 @@ then ScopedMemoryConnector, and returns correct ResolvedMemoryBinding shape.
 from __future__ import annotations
 
 import pytest
-from zeroth.core.governed.audit.emitter import AuditEmitter
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.governance.audit.emitter import AuditEmitter
+from zeroth.integrations.memory.governed.models import MemoryScope
 
-from zeroth.core.memory.connectors import KeyValueMemoryConnector, RunEphemeralMemoryConnector
-from zeroth.core.memory.models import ConnectorManifest, ResolvedMemoryBinding
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.integrations.memory.connectors import KeyValueMemoryConnector, RunEphemeralMemoryConnector
+from zeroth.integrations.memory.models import ConnectorManifest, ResolvedMemoryBinding
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 
 
 class FakeAuditEmitter(AuditEmitter):

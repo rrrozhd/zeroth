@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.storage import Migration, SQLiteDatabase
+from zeroth.platform.storage import Migration, SQLiteDatabase
 
 
 def test_apply_migrations_updates_schema_version(sqlite_db: SQLiteDatabase) -> None:

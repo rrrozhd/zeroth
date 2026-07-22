@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentProviderError,
     AgentRunner,

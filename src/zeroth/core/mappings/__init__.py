@@ -1,22 +1,23 @@
-"""Edge mapping schema, validation, and execution.
+"""Legacy import path for the mappings contracts package.
 
-This package provides tools to define how data flows between nodes in a graph.
-You can describe what fields to copy, rename, set to fixed values, or give
-defaults, then validate and run those mappings against real data.
+Edge mappings live in :mod:`zeroth.contracts.mappings`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.mappings.errors import MappingExecutionError
-from zeroth.core.mappings.executor import MappingExecutor
-from zeroth.core.mappings.models import (
+from zeroth.contracts.mappings import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,
+    MappingExecutionError,
+    MappingExecutor,
     MappingOperation,
+    MappingValidationError,
+    MappingValidator,
     PassthroughMappingOperation,
     RenameMappingOperation,
     TransformMappingOperation,
 )
-from zeroth.core.mappings.validator import MappingValidationError, MappingValidator
 
 __all__ = [
     "ConstantMappingOperation",

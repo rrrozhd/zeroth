@@ -2,20 +2,20 @@
 
 ## Overview
 
-This guide shows how to configure the Zeroth service's authentication layer and how authenticated principals flow through the rest of the runtime. The data shapes come from `zeroth.core.identity`; the verification and HTTP plumbing come from `zeroth.core.service.auth`.
+This guide shows how to configure the Zeroth service's authentication layer and how authenticated principals flow through the rest of the runtime. The data shapes come from `zeroth.governance.identity`; the verification and HTTP plumbing come from `zeroth.core.service.auth`.
 
 See [Concept: identity](../concepts/identity.md) for the model and [Concept: service](../concepts/service.md) for how routes enforce roles.
 
 ## Minimal example
 
 ```python
-from zeroth.core.identity import ServiceRole
-from zeroth.core.service.auth import (
+from zeroth.governance.identity import ServiceRole
+from zeroth.service.api.authentication import (
     BearerTokenConfig,
     ServiceAuthConfig,
     StaticApiKeyCredential,
 )
-from zeroth.core.service.bootstrap import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_service
 
 # 1. Configure one static API key and (optionally) a JWT bearer verifier.
 auth_config = ServiceAuthConfig(
@@ -67,6 +67,6 @@ Once the service is bootstrapped, every request must send either `X-API-Key: dem
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.identity`](../reference/python-api/identity.md). The related `zeroth.core.service.auth` module is documented under the [Service reference page](../reference/python-api/service.md).
+See the [Python API reference for `zeroth.governance.identity`](../reference/python-api/identity.md). The related `zeroth.core.service.auth` module is documented under the [Service reference page](../reference/python-api/service.md).
 
 Related: [Concept: identity](../concepts/identity.md), [Concept: service](../concepts/service.md), [Usage Guide: approvals](approvals.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

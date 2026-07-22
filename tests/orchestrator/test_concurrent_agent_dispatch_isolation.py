@@ -9,22 +9,22 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryScope
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.provider import (
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import (
     CallableProviderAdapter,
     ProviderRequest,
     ProviderResponse,
 )
-from zeroth.core.agent_runtime.tools import ToolAttachmentManifest
-from zeroth.core.audit.models import TokenUsage
-from zeroth.core.context_window import ContextWindowSettings
-from zeroth.core.econ.adapter import InstrumentedProviderAdapter
-from zeroth.core.execution_units import ExecutableUnitRunResult
-from zeroth.core.graph import (
+from zeroth.runtime.agents.tools import ToolAttachmentManifest
+from zeroth.governance.audit.models import TokenUsage
+from zeroth.runtime.context import ContextWindowSettings
+from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
+from zeroth.integrations.execution import ExecutableUnitRunResult
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     AgentToolBinding,
@@ -33,12 +33,13 @@ from zeroth.core.graph import (
     Graph,
     ToolArgument,
 )
-from zeroth.core.memory.connectors import KeyValueMemoryConnector
-from zeroth.core.memory.models import ConnectorManifest
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
+from zeroth.integrations.memory.models import ConnectorManifest
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.runs import Run, RunRepository
-from zeroth.core.templates import TemplateReference, TemplateRegistry, TemplateRenderer
+from zeroth.runtime.runs import Run
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.contracts.templates import TemplateReference, TemplateRegistry, TemplateRenderer
 
 
 class _Input(BaseModel):

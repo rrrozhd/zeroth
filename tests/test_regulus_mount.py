@@ -26,31 +26,31 @@ from datetime import UTC, datetime
 
 import pytest
 
-# zeroth.econ_plane binds its SQLAlchemy engine to ECP_DATABASE_URL at import time,
-# so set it to a throwaway SQLite file BEFORE zeroth.econ_plane is first imported.
+# zeroth.econ.plane binds its SQLAlchemy engine to ECP_DATABASE_URL at import time,
+# so set it to a throwaway SQLite file BEFORE zeroth.econ.plane is first imported.
 _DB_FD, _DB_PATH = tempfile.mkstemp(suffix="_econ_mount.db")
 os.close(_DB_FD)
 os.environ["ECP_DATABASE_URL"] = f"sqlite+pysqlite:///{_DB_PATH}"
 
-pytest.importorskip("zeroth.econ_plane", reason="requires the 'regulus' extra")
+pytest.importorskip("zeroth.econ.plane", reason="requires the 'regulus' extra")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from zeroth.core.agent_runtime.errors import BudgetExceededError  # noqa: E402
-from zeroth.core.agent_runtime.models import AgentConfig  # noqa: E402
-from zeroth.core.agent_runtime.provider import (  # noqa: E402
+from zeroth.runtime.agents.errors import BudgetExceededError  # noqa: E402
+from zeroth.runtime.agents.models import AgentConfig  # noqa: E402
+from zeroth.runtime.agents.provider import (  # noqa: E402
     DeterministicProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.agent_runtime.runner import AgentRunner  # noqa: E402
-from zeroth.core.econ.budget import BudgetEnforcer  # noqa: E402
-from zeroth.core.econ.service_auth import (  # noqa: E402
+from zeroth.runtime.agents.runner import AgentRunner  # noqa: E402
+from zeroth.econ.analytics.budget import BudgetEnforcer  # noqa: E402
+from zeroth.econ.analytics.service_auth import (  # noqa: E402
     make_self_auth_headers_provider,
     mint_econ_service_token,
 )
-from zeroth.core.identity import ServiceRole  # noqa: E402
-from zeroth.core.service.app import create_app  # noqa: E402
-from zeroth.core.service.auth import (  # noqa: E402
+from zeroth.governance.identity import ServiceRole  # noqa: E402
+from zeroth.service.app import create_app  # noqa: E402
+from zeroth.service.api.authentication import (  # noqa: E402
     ServiceAuthConfig,
     ServiceAuthenticator,
     StaticApiKeyCredential,
@@ -179,8 +179,8 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
         assert ingest.json()["status"] == "inserted"
 
     # Persistence proof: the row is actually in econ_plane's database.
-    from zeroth.econ_plane.database import SessionLocal
-    from zeroth.econ_plane.instrumentation.models import ExecutionEvent
+    from zeroth.econ.plane.database import SessionLocal
+    from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 
     with SessionLocal() as db:
         row = db.query(ExecutionEvent).filter_by(execution_id=exec_id).one_or_none()
@@ -189,7 +189,7 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
 
 def test_minted_service_token_is_admin_and_decodable() -> None:
     """The minted econ token is valid and carries the Admin role."""
-    from zeroth.econ_plane.auth.service import decode_token
+    from zeroth.econ.plane.auth.service import decode_token
 
     token = mint_econ_service_token()
     assert token is not None
@@ -367,7 +367,7 @@ async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
     not the external localhost:8000 default). A $0.01 cap for "acme" plus $0.02
     of ingested spend makes the enforcer deny.
     """
-    from zeroth.econ_plane.main import app as econ_plane_app
+    from zeroth.econ.plane.main import app as econ_plane_app
 
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
@@ -397,7 +397,7 @@ async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
 async def test_cross_tenant_cap_isolation() -> None:
     """A cap seeded for tenant A only denies A after over-spend while tenant B
     (no cap) stays unlimited — caps do not leak across tenants."""
-    from zeroth.econ_plane.main import app as econ_plane_app
+    from zeroth.econ.plane.main import app as econ_plane_app
 
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
@@ -450,8 +450,8 @@ async def test_real_bootstrap_builds_enforcer_by_default(sqlite_db) -> None:
     """G1 default flip: the REAL bootstrap wires a budget enforcer with NO env
     flags and NO monkeypatch of ``enabled`` — proving the bundled control plane is
     on out of the box, not just when a test forces it on."""
-    from zeroth.core.config.settings import get_settings
-    from zeroth.core.econ.models import RegulusSettings
+    from zeroth.platform.config.settings import get_settings
+    from zeroth.platform.config.models import RegulusSettings
 
     from tests.service.helpers import agent_graph, deploy_service
 
@@ -484,9 +484,9 @@ async def test_cap_trips_by_default_no_env_flags(monkeypatch) -> None:
     """
     from pydantic import BaseModel
 
-    from zeroth.core.econ.models import RegulusSettings
-    from zeroth.econ_plane.config import settings as ecp_settings
-    from zeroth.econ_plane.main import app as econ_plane_app
+    from zeroth.platform.config.models import RegulusSettings
+    from zeroth.econ.plane.config import settings as ecp_settings
+    from zeroth.econ.plane.main import app as econ_plane_app
 
     # Simulate a pristine fresh deploy: placeholder secret, no escape flag set.
     monkeypatch.delenv("ECP_ALLOW_INSECURE_JWT_SECRET", raising=False)
@@ -546,3 +546,40 @@ async def test_cap_trips_by_default_no_env_flags(monkeypatch) -> None:
         await runner.run({"query": "hi"}, enforcement_context={"tenant_id": tenant})
     assert exc_info.value.cap == 0.01
     assert exc_info.value.spend >= 0.02
+
+
+def test_costing_writes_require_econ_role() -> None:
+    """Audit F7: the costing router must carry the econ RBAC gate every sibling
+    router has. Passing only Zeroth's X-API-Key (through the mount gate) but no
+    econ Bearer now yields 403 at the costing route; before the fix the router
+    had no auth dependency at all, so the pricing catalog was writable by any
+    caller that reached it. The Admin self-auth token is accepted."""
+    app = create_app(_GatedBootstrap())
+    pricing = {
+        "provider": "openai",
+        "model": "gpt-x",
+        "region": "us",
+        "effective_from": datetime.now(UTC).isoformat(),
+        "input_per_million_usd": 1.0,
+        "output_per_million_usd": 2.0,
+        "gpu_hour_usd": 0.0,
+        "cpu_hour_usd": 0.0,
+        "memory_gb_hour_usd": 0.0,
+        "energy_kwh_usd": 0.0,
+    }
+    with TestClient(app) as client:
+        # Passes the Zeroth gate (X-API-Key) but carries no econ Bearer -> 403.
+        unauthorized = client.post(
+            "/regulus/v1/costing/pricing-catalog",
+            headers={"X-API-Key": _ZEROTH_KEY},
+            json=pricing,
+        )
+        assert unauthorized.status_code in (401, 403)
+
+        # Full self-auth (X-API-Key + Admin Bearer) reaches the handler.
+        authorized = client.post(
+            "/regulus/v1/costing/pricing-catalog",
+            headers=app.state.regulus_self_auth_headers(),
+            json=pricing,
+        )
+        assert authorized.status_code not in (401, 403)

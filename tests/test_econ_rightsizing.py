@@ -10,7 +10,7 @@ from __future__ import annotations
 import litellm
 import pytest
 
-from zeroth.core.econ.rightsizing import ModelOption, RightsizingResult, recommend
+from zeroth.econ.analytics.rightsizing import ModelOption, RightsizingResult, recommend
 
 # --- A tiny synthetic model DB for deterministic gate/ranking tests. ------------
 # Prices are per-token; kept obviously fake so nobody mistakes them for real ones.

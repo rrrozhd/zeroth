@@ -1,26 +1,21 @@
-"""Artifact storage for large payload externalization.
+"""Legacy import path for the platform artifacts package.
 
-This package provides a pluggable artifact store that lets nodes externalize
-large binary payloads (files, images, serialized data) to a backend store
-and receive lightweight ArtifactReference pointers instead. Supports Redis
-and filesystem backends with TTL management and prefix-based bulk cleanup.
+Artifact storage lives in :mod:`zeroth.platform.artifacts`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.artifacts.errors import (
+from zeroth.platform.artifacts import (
     ArtifactNotFoundError,
-    ArtifactStorageError,
-    ArtifactStoreError,
-    ArtifactTTLError,
-)
-from zeroth.core.artifacts.models import (
     ArtifactReference,
-    ArtifactStoreSettings,
-    generate_artifact_key,
-)
-from zeroth.core.artifacts.store import (
+    ArtifactStorageError,
     ArtifactStore,
+    ArtifactStoreError,
+    ArtifactStoreSettings,
+    ArtifactTTLError,
     FilesystemArtifactStore,
     RedisArtifactStore,
+    generate_artifact_key,
 )
 
 __all__ = [
