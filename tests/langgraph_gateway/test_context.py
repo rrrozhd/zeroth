@@ -303,6 +303,100 @@ def test_invalid_signature_is_rejected_before_payload_decode(
     assert exc_info.value.code == "zeroth.invalid_context"
 
 
+class _TruthyVerificationResult:
+    def __bool__(self) -> bool:
+        return True
+
+
+class _StaticVerificationSigner:
+    def __init__(self, result: object) -> None:
+        self.result = result
+
+    def key_id(self) -> str:
+        return "gateway-k1"
+
+    def algorithm(self) -> str:
+        return "HS256"
+
+    def sign(self, message: bytes) -> bytes:
+        return b"unused"
+
+    def verify(self, message: bytes, signature: bytes, key_id: str) -> object:
+        return self.result
+
+
+@pytest.mark.parametrize(
+    "result",
+    [object(), b"truthy", 1, _TruthyVerificationResult()],
+    ids=["object", "bytes", "integer", "custom-truthy"],
+)
+def test_decode_requires_verifier_to_return_exact_true(
+    signer: EnvHmacSigner, result: object
+) -> None:
+    token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        ReservedContextCodec(_StaticVerificationSigner(result), clock=lambda: 120).decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    assert exc_info.value.code == "zeroth.invalid_context"
+    assert str(exc_info.value) == "reserved context is invalid"
+
+
+class _SensitiveRaisingVerifier(_StaticVerificationSigner):
+    def __init__(self) -> None:
+        super().__init__(False)
+
+    def verify(self, message: bytes, signature: bytes, key_id: str) -> bool:
+        raise GatewayContextError("attacker.custom_code", "sensitive verifier detail")
+
+
+def _raise_clock_error() -> int:
+    raise GatewayContextError("attacker.clock_code", "sensitive clock detail")
+
+
+def _assert_safe_invalid_context(error: GatewayContextError) -> None:
+    assert error.code == "zeroth.invalid_context"
+    assert str(error) == "reserved context is invalid"
+    rendered = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    assert "attacker" not in rendered
+    assert "sensitive" not in rendered
+    assert error.__cause__ is None
+
+
+def test_decode_sanitizes_gateway_context_error_from_verifier(
+    signer: EnvHmacSigner,
+) -> None:
+    token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        ReservedContextCodec(_SensitiveRaisingVerifier(), clock=lambda: 120).decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    _assert_safe_invalid_context(exc_info.value)
+
+
+def test_decode_sanitizes_gateway_context_error_from_clock(
+    signer: EnvHmacSigner,
+) -> None:
+    token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        ReservedContextCodec(signer, clock=_raise_clock_error).decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    _assert_safe_invalid_context(exc_info.value)
+
+
 @pytest.mark.parametrize(
     ("header_update", "claims_update", "audience", "deployment_ref"),
     [

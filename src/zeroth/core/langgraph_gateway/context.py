@@ -162,12 +162,19 @@ class ReservedContextCodec:
                 raise ValueError("invalid header")
 
             signing_input = f"{header_part}.{payload_part}".encode("ascii")
-            if not self._signer.verify(signing_input, signature, header["kid"]):
+            try:
+                verification_result = self._signer.verify(signing_input, signature, header["kid"])
+            except Exception:
+                raise ValueError("signature verification failed") from None
+            if verification_result is not True:
                 raise ValueError("invalid signature")
 
             payload = _decode_json_object(payload_part, self._max_payload_bytes)
             claims = ReservedContextClaims.model_validate(payload)
-            now = self._clock()
+            try:
+                now = self._clock()
+            except Exception:
+                raise ValueError("clock unavailable") from None
             if type(now) is not int and (type(now) is not float or not math.isfinite(now)):
                 raise ValueError("invalid clock value")
             if claims.audience != audience or claims.deployment_ref != deployment_ref:
