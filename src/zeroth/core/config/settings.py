@@ -8,9 +8,11 @@ Configuration is loaded with the following priority (highest wins):
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+import re
+from typing import Any, ClassVar, Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -265,6 +267,70 @@ class PolicySettings(BaseModel):
     local_network_strict: bool = True
 
 
+class LangGraphGatewaySettings(BaseModel):
+    """Configuration for the optional Agent Server-compatible gateway."""
+
+    enabled: bool = False
+    upstream_url: str | None = None
+    upstream_audience: str | None = None
+    deployment_ref: str | None = None
+    upstream_credential_ref: str | None = None
+    upstream_credential_header: str = "Authorization"
+    upstream_credential_scheme: str = "Bearer"
+    connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    read_timeout_seconds: float = Field(default=60.0, gt=0)
+    write_timeout_seconds: float = Field(default=60.0, gt=0)
+    pool_timeout_seconds: float = Field(default=5.0, gt=0)
+    context_ttl_seconds: int = Field(default=300, gt=0)
+    max_governed_body_bytes: int = Field(default=1_048_576, gt=0)
+    unknown_endpoint_mode: Literal["deny", "pass_ungoverned"] = "deny"
+    policy_bindings: tuple[str, ...] = ()
+    supported_langgraph_versions: tuple[str, ...] = ("1.2.9",)
+    supported_agent_server_versions: tuple[str, ...] = ("0.11.1",)
+    heartbeat_interval_seconds: int = Field(default=30, gt=0)
+    stale_threshold_seconds: int = Field(default=90, gt=0)
+
+    @field_validator("upstream_url")
+    @classmethod
+    def validate_upstream_url(cls, value: str | None) -> str | None:
+        """Require an absolute HTTP(S) upstream URL when one is supplied."""
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("upstream_url must be an absolute HTTP(S) URL")
+        return value.rstrip("/")
+
+    @field_validator("upstream_credential_header", "upstream_credential_scheme")
+    @classmethod
+    def validate_http_token(cls, value: str) -> str:
+        """Reject credential header components that are not HTTP tokens."""
+        if not re.fullmatch(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", value):
+            raise ValueError("credential header and scheme must be valid HTTP tokens")
+        return value
+
+    @field_validator("upstream_audience", "deployment_ref")
+    @classmethod
+    def normalize_required_identity(cls, value: str | None) -> str | None:
+        """Treat whitespace-only upstream identity values as missing."""
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_enabled_configuration(self) -> LangGraphGatewaySettings:
+        """Validate gateway identity and heartbeat timing relationships."""
+        if self.enabled:
+            missing = [
+                name
+                for name in ("upstream_url", "upstream_audience", "deployment_ref")
+                if not getattr(self, name)
+            ]
+            if missing:
+                raise ValueError(f"enabled gateway requires: {', '.join(missing)}")
+        if self.stale_threshold_seconds <= 2 * self.heartbeat_interval_seconds:
+            raise ValueError("stale_threshold_seconds must exceed two heartbeat intervals")
+        return self
+
+
 class ZerothSettings(BaseSettings):
     """Top-level settings for the Zeroth platform.
 
@@ -301,6 +367,7 @@ class ZerothSettings(BaseSettings):
     provenance: ProvenanceSigningSettings = Field(default_factory=ProvenanceSigningSettings)
     policy: PolicySettings = Field(default_factory=PolicySettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
+    langgraph_gateway: LangGraphGatewaySettings = Field(default_factory=LangGraphGatewaySettings)
 
     @classmethod
     def settings_customise_sources(
