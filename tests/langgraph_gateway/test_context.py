@@ -362,6 +362,23 @@ class _SensitiveRaisingAlgorithm(_StaticVerificationSigner):
         raise GatewayContextError("attacker.algorithm_code", "sensitive algorithm detail")
 
 
+class _AlgorithmResultSigner(_StaticVerificationSigner):
+    def __init__(self, algorithm_result: object) -> None:
+        super().__init__(True)
+        self.algorithm_result = algorithm_result
+
+    def algorithm(self) -> object:
+        return self.algorithm_result
+
+
+class _HostileAlgorithmComparison:
+    def __eq__(self, other: object) -> bool:
+        raise GatewayContextError("attacker.algorithm_eq", "sensitive equality detail")
+
+    def __ne__(self, other: object) -> bool:
+        raise GatewayContextError("attacker.algorithm_ne", "sensitive inequality detail")
+
+
 def _raise_clock_error() -> int:
     raise GatewayContextError("attacker.clock_code", "sensitive clock detail")
 
@@ -397,6 +414,26 @@ def test_decode_sanitizes_gateway_context_error_from_algorithm(
 
     with pytest.raises(GatewayContextError) as exc_info:
         ReservedContextCodec(_SensitiveRaisingAlgorithm(), clock=lambda: 120).decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    _assert_safe_invalid_context(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "algorithm_result",
+    ["", b"HS256", object(), _HostileAlgorithmComparison()],
+    ids=["empty", "bytes", "object", "hostile-comparison"],
+)
+def test_decode_rejects_untrusted_algorithm_results_without_comparison_leaks(
+    signer: EnvHmacSigner, algorithm_result: object
+) -> None:
+    token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        ReservedContextCodec(_AlgorithmResultSigner(algorithm_result), clock=lambda: 120).decode(
             token,
             audience="agent-server:fixture",
             deployment_ref="external-agent",

@@ -152,6 +152,8 @@ class ReservedContextCodec:
 
             try:
                 expected_algorithm = self._signer.algorithm()
+                if type(expected_algorithm) is not str or not expected_algorithm:
+                    raise ValueError("invalid signing algorithm")
             except Exception:
                 raise ValueError("signing algorithm unavailable") from None
             if (
