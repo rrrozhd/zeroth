@@ -354,6 +354,14 @@ class _SensitiveRaisingVerifier(_StaticVerificationSigner):
         raise GatewayContextError("attacker.custom_code", "sensitive verifier detail")
 
 
+class _SensitiveRaisingAlgorithm(_StaticVerificationSigner):
+    def __init__(self) -> None:
+        super().__init__(True)
+
+    def algorithm(self) -> str:
+        raise GatewayContextError("attacker.algorithm_code", "sensitive algorithm detail")
+
+
 def _raise_clock_error() -> int:
     raise GatewayContextError("attacker.clock_code", "sensitive clock detail")
 
@@ -374,6 +382,21 @@ def test_decode_sanitizes_gateway_context_error_from_verifier(
 
     with pytest.raises(GatewayContextError) as exc_info:
         ReservedContextCodec(_SensitiveRaisingVerifier(), clock=lambda: 120).decode(
+            token,
+            audience="agent-server:fixture",
+            deployment_ref="external-agent",
+        )
+
+    _assert_safe_invalid_context(exc_info.value)
+
+
+def test_decode_sanitizes_gateway_context_error_from_algorithm(
+    signer: EnvHmacSigner,
+) -> None:
+    token = ReservedContextCodec(signer, clock=lambda: 120).encode(_claims())
+
+    with pytest.raises(GatewayContextError) as exc_info:
+        ReservedContextCodec(_SensitiveRaisingAlgorithm(), clock=lambda: 120).decode(
             token,
             audience="agent-server:fixture",
             deployment_ref="external-agent",

@@ -150,9 +150,13 @@ class ReservedContextCodec:
             if not signature:
                 raise ValueError("empty signature")
 
+            try:
+                expected_algorithm = self._signer.algorithm()
+            except Exception:
+                raise ValueError("signing algorithm unavailable") from None
             if (
                 set(header) != {"alg", "kid", "typ", "v"}
-                or header["alg"] != self._signer.algorithm()
+                or header["alg"] != expected_algorithm
                 or not isinstance(header["kid"], str)
                 or not header["kid"]
                 or header["typ"] != _CONTEXT_TYPE
