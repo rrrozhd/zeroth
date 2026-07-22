@@ -292,6 +292,15 @@ class TokenEngineSnapshot(BaseModel):
                     )
                 ):
                     pass
+                elif source.scheduling_state is SchedulingState.SETTLED and obligation.outcome in {
+                    JoinObligationOutcome.SUPPRESSED,
+                    JoinObligationOutcome.FAILED,
+                    JoinObligationOutcome.CANCELLED,
+                }:
+                    # A nested scope may resolve its outer slot without emitting
+                    # a continuation token. The settled owner remains the durable
+                    # source of that non-delivery outcome.
+                    pass
                 elif obligation.outcome is not None or (
                     obligation.outcome is None
                     and source.scheduling_state is SchedulingState.JOIN_WAITING

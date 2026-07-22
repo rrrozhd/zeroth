@@ -545,6 +545,132 @@ async def test_nested_shared_join_does_not_reapply_representative_edge_mapping(
     assert run.final_output == {"value": 22}
 
 
+async def test_nested_shared_join_all_suppressed_inner_settles_outer_slot(sqlite_db) -> None:
+    node_ids = ("A", "X", "Y", "B", "C", "J", "T")
+    nodes = {node_id: _node(node_id) for node_id in node_ids}
+    for node in nodes.values():
+        node.input_contract_ref = "contract://input"
+        node.output_contract_ref = "contract://output"
+    nodes["J"].join_config = JoinConfig(merge_strategy="merge")
+    graph = Graph(
+        graph_id="token-nested-shared-join-suppressed",
+        name="token-nested-shared-join-suppressed",
+        entry_step="A",
+        execution_settings=ExecutionSettings(),
+        nodes=list(nodes.values()),
+        edges=[
+            Edge(edge_id="A-Y", source_node_id="A", target_node_id="Y"),
+            Edge(edge_id="A-X", source_node_id="A", target_node_id="X"),
+            Edge(edge_id="X-B", source_node_id="X", target_node_id="B"),
+            Edge(edge_id="X-C", source_node_id="X", target_node_id="C"),
+            Edge(
+                edge_id="B-J",
+                source_node_id="B",
+                target_node_id="J",
+                condition=Condition(expression="payload.value < 0"),
+            ),
+            Edge(
+                edge_id="C-J",
+                source_node_id="C",
+                target_node_id="J",
+                condition=Condition(expression="payload.value < 0"),
+            ),
+            Edge(edge_id="Y-J", source_node_id="Y", target_node_id="J"),
+            Edge(edge_id="J-T", source_node_id="J", target_node_id="T"),
+        ],
+    )
+    report = await GraphValidator().validate(graph)
+    assert report.is_valid, report.issues
+    store = ReloadingMemoryTokenStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in node_ids},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    run = await orchestrator.run_graph(graph, {"value": 0})
+
+    assert run.status is RunStatus.COMPLETED, run.error
+    assert [entry.node_id for entry in run.execution_history] == [
+        "A",
+        "Y",
+        "X",
+        "B",
+        "C",
+        "J",
+        "T",
+    ]
+    assert run.final_output == {"value": 4}
+
+
+async def test_cancellation_settles_delegated_outer_join_obligation(sqlite_db) -> None:
+    class _Captured(BaseException):
+        pass
+
+    class _CancellingStore(ReloadingMemoryTokenStore):
+        captured = False
+
+        async def compare_and_swap_token_snapshot(self, run_id, *, expected_revision, snapshot):
+            delegated = len(snapshot.forks) == 2 and any(
+                obligation.outcome is None
+                and next(
+                    token
+                    for token in snapshot.tokens
+                    if token.token_id == obligation.source_token_id
+                ).scheduling_state.value
+                == "settled"
+                for join in snapshot.joins
+                for obligation in join.obligations
+            )
+            if not self.captured and delegated:
+                actual = None if self.snapshot is None else self.snapshot.revision
+                assert actual == expected_revision
+                cancelled = request_cancellation(snapshot)
+                self.snapshot = TokenEngineSnapshot.model_validate_json(cancelled.model_dump_json())
+                self.history.append(self.snapshot)
+                self.captured = True
+                raise _Captured
+            return await super().compare_and_swap_token_snapshot(
+                run_id, expected_revision=expected_revision, snapshot=snapshot
+            )
+
+    nodes = {node_id: _node(node_id) for node_id in ("A", "X", "Y", "B", "C", "J")}
+    for node in nodes.values():
+        node.input_contract_ref = "contract://input"
+        node.output_contract_ref = "contract://output"
+    nodes["J"].join_config = JoinConfig(merge_strategy="merge")
+    graph = Graph(
+        graph_id="token-nested-shared-join-cancel",
+        name="token-nested-shared-join-cancel",
+        entry_step="A",
+        execution_settings=ExecutionSettings(),
+        nodes=list(nodes.values()),
+        edges=[
+            Edge(edge_id="A-Y", source_node_id="A", target_node_id="Y"),
+            Edge(edge_id="A-X", source_node_id="A", target_node_id="X"),
+            Edge(edge_id="X-B", source_node_id="X", target_node_id="B"),
+            Edge(edge_id="X-C", source_node_id="X", target_node_id="C"),
+            Edge(edge_id="B-J", source_node_id="B", target_node_id="J"),
+            Edge(edge_id="C-J", source_node_id="C", target_node_id="J"),
+            Edge(edge_id="Y-J", source_node_id="Y", target_node_id="J"),
+        ],
+    )
+    store = _CancellingStore()
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository(sqlite_db),
+        agent_runners={node_id: _runner() for node_id in nodes},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+    ).use_token_snapshot_store(store)
+
+    with pytest.raises(_Captured):
+        await orchestrator.run_graph(graph, {"value": 0})
+
+    assert store.captured
+    assert store.snapshot is not None
+    assert store.snapshot.state is TokenEngineSnapshotState.CANCELLED
+    assert all(join.lifecycle_state.value != "open" for join in store.snapshot.joins)
+
+
 async def test_graceful_stop_drains_persisted_overlapping_join_frontier(sqlite_db) -> None:
     nodes = {node_id: _node(node_id) for node_id in ("A", "B", "C", "J", "T")}
     for node in nodes.values():

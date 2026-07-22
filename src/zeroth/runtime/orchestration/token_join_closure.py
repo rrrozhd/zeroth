@@ -253,7 +253,13 @@ def close_ready_join(
         state_revision=revision,
     )
     tokens = snapshot.tokens
+    outcomes_by_source = {item.source_token_id: item.outcome for item in join.obligations}
     for source in sources:
+        if (
+            source.scheduling_state is SchedulingState.SETTLED
+            and outcomes_by_source[source.token_id] is not JoinObligationOutcome.DELIVERED
+        ):
+            continue
         if source.scheduling_state is not SchedulingState.JOIN_WAITING:
             raise TokenJoinTransitionError("READY join source is not durably JOIN_WAITING")
         tokens = _replace_token(

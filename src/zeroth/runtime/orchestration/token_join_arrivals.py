@@ -350,6 +350,11 @@ def _settle_arrival(
                     settled_revision=revision,
                 ),
             )
+    joins = (
+        (*snapshot.joins, updated_join)
+        if join is None
+        else _replace_join(snapshot.joins, updated_join)
+    )
     if lifecycle is JoinLifecycleState.CLOSED:
         for source_id in consumed_ids:
             source = next(item for item in tokens if item.token_id == source_id)
@@ -427,6 +432,69 @@ def _settle_arrival(
                 revision=revision,
             )
             forks = _replace_fork(propagated, updated_fork)
+            join_outcome = {
+                ForkObligationOutcome.FAILED: JoinObligationOutcome.FAILED,
+                ForkObligationOutcome.CANCELLED: JoinObligationOutcome.CANCELLED,
+                ForkObligationOutcome.SUPPRESSED: JoinObligationOutcome.SUPPRESSED,
+            }[aggregate]
+            for outer in tuple(joins):
+                if (
+                    outer.fork_id != updated_fork.parent_fork_id
+                    or outer.target_node_id != updated_join.target_node_id
+                    or outer.lifecycle_state is not JoinLifecycleState.OPEN
+                ):
+                    continue
+                outer_obligations: list[JoinObligation] = []
+                matched_parent = False
+                for outer_obligation in outer.obligations:
+                    if outer_obligation.source_token_id != updated_fork.parent_token_id:
+                        outer_obligations.append(outer_obligation)
+                        continue
+                    if outer_obligation.outcome is not None:
+                        raise TokenJoinTransitionError(
+                            "nested non-delivery cannot replace a resolved outer obligation"
+                        )
+                    matched_parent = True
+                    outer_obligations.append(
+                        JoinObligation.model_validate(
+                            {
+                                **_model_data(outer_obligation),
+                                "outcome": join_outcome,
+                                "delivery": None,
+                                "settled_revision": revision,
+                            }
+                        )
+                    )
+                if not matched_parent:
+                    continue
+                outer_all_settled = all(item.outcome is not None for item in outer_obligations)
+                outer_any_delivered = any(
+                    item.outcome is JoinObligationOutcome.DELIVERED for item in outer_obligations
+                )
+                outer_lifecycle = (
+                    JoinLifecycleState.READY
+                    if outer_all_settled and outer_any_delivered
+                    else JoinLifecycleState.CLOSED
+                    if outer_all_settled
+                    else JoinLifecycleState.OPEN
+                )
+                replacement = JoinInstance.model_validate(
+                    {
+                        **_model_data(outer),
+                        "obligations": tuple(outer_obligations),
+                        "lifecycle_state": outer_lifecycle,
+                        "consumed_parent_token_ids": (
+                            tuple(item.source_token_id for item in outer_obligations)
+                            if outer_lifecycle is JoinLifecycleState.CLOSED
+                            else ()
+                        ),
+                        "updated_revision": revision,
+                        "closed_revision": (
+                            revision if outer_lifecycle is JoinLifecycleState.CLOSED else None
+                        ),
+                    }
+                )
+                joins = _replace_join(joins, replacement)
     return _next_snapshot(
         snapshot,
         queue=tuple(
@@ -436,11 +504,7 @@ def _settle_arrival(
         ),
         tokens=tokens,
         forks=forks,
-        joins=(
-            (*snapshot.joins, updated_join)
-            if join is None
-            else _replace_join(snapshot.joins, updated_join)
-        ),
+        joins=joins,
         in_flight_dispatches=in_flight,
         loops=loops,
     )

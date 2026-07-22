@@ -475,28 +475,32 @@ def _terminal_cancelled(
         else token
         for token in snapshot.tokens
     )
+    propagated_token_ids = set(settling_token_ids)
+    forks = _cancel_forks(
+        snapshot.forks,
+        propagated_token_ids,
+        revision=revision,
+        best_effort=best_effort,
+    )
+    joins = _cancel_joins(
+        snapshot.joins,
+        propagated_token_ids,
+        revision=revision,
+    )
+    loops = _cancel_loops(
+        snapshot.loops,
+        propagated_token_ids,
+        revision=revision,
+        best_effort=best_effort,
+    )
     return _next(
         snapshot,
         state=TokenEngineSnapshotState.CANCELLED,
         queue=(),
         tokens=tokens,
-        forks=_cancel_forks(
-            snapshot.forks,
-            set(settling_token_ids),
-            revision=revision,
-            best_effort=best_effort,
-        ),
-        joins=_cancel_joins(
-            snapshot.joins,
-            set(settling_token_ids),
-            revision=revision,
-        ),
-        loops=_cancel_loops(
-            snapshot.loops,
-            set(settling_token_ids),
-            revision=revision,
-            best_effort=best_effort,
-        ),
+        forks=forks,
+        joins=joins,
+        loops=loops,
         deferred_join_deliveries=(),
         in_flight_dispatches=(),
         cancellation_fence=CancellationFence(
