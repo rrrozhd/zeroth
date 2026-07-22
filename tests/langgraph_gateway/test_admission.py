@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -351,6 +352,22 @@ class AsyncPolicyGuard:
         return RunAdmissionResult(allowed=True, policy_version="sha256:unexpected")
 
 
+class ScheduledTaskPolicyGuard:
+    def __init__(self, tasks: list[asyncio.Task[object]], side_effect: asyncio.Event) -> None:
+        self.tasks = tasks
+        self.side_effect = side_effect
+
+    def evaluate_run_admission(self, request: AdmissionRequest) -> object:
+        async def run_side_effect() -> object:
+            await asyncio.sleep(0)
+            self.side_effect.set()
+            return RunAdmissionResult(allowed=True, policy_version="sha256:unexpected")
+
+        task = asyncio.create_task(run_side_effect())
+        self.tasks.append(task)
+        return task
+
+
 class ReturningBudget:
     def __init__(self, result: object) -> None:
         self.result = result
@@ -493,3 +510,32 @@ async def test_admission_invalid_dependency_results_fail_safely(
     assert decision.allowed is False
     assert decision.reason == expected_reason
     assert "raw-payload" not in repr(decision)
+
+
+@pytest.mark.asyncio
+async def test_admission_cancels_rejected_scheduled_dependency_task() -> None:
+    tasks: list[asyncio.Task[object]] = []
+    side_effect = asyncio.Event()
+    loop_errors: list[dict[str, object]] = []
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda loop, context: loop_errors.append(context))
+    try:
+        decision = await admit(
+            _request(),
+            classifier=RecordingClassifier([]),
+            policy_guard=ScheduledTaskPolicyGuard(tasks, side_effect),
+            budget_checker=RecordingBudget(
+                [], BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=1.0)
+            ),
+        )
+        await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(previous_handler)
+
+    assert decision.allowed is False
+    assert decision.reason == "zeroth.policy_unavailable"
+    assert len(tasks) == 1
+    assert tasks[0].cancelled()
+    assert side_effect.is_set() is False
+    assert loop_errors == []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from contextlib import suppress
 from typing import Protocol
 
 from zeroth.core.econ.budget import BudgetCheckResult
@@ -38,9 +39,24 @@ class UnclassifiedInputClassifier:
         return "unclassified"
 
 
+def _consume_future_state(future: object) -> None:
+    """Retrieve a rejected Future-like object's terminal exception."""
+    exception = getattr(future, "exception", None)
+    if not callable(exception):
+        return
+    with suppress(BaseException):  # CancelledError inherits BaseException on supported Python.
+        exception()
+
+
 def _reject_awaitable(value: object) -> object:
-    """Reject nested/wrong async results and close coroutine objects safely."""
+    """Reject and dispose of unexpected coroutine/Future-like results safely."""
     if inspect.isawaitable(value):
+        cancel = getattr(value, "cancel", None)
+        add_done_callback = getattr(value, "add_done_callback", None)
+        if callable(cancel):
+            cancel()
+            if callable(add_done_callback):
+                add_done_callback(_consume_future_state)
         close = getattr(value, "close", None)
         if callable(close):
             close()
