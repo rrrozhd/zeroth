@@ -53,6 +53,10 @@ dependencies = [
 zeroth-core = "zeroth.core.cli:main"
 
 [project.optional-dependencies]
+langgraph-gateway = [
+    "httpx[http2]>=0.27",
+    "websockets>=15,<16",
+]
 memory-pg = [
     "psycopg[binary]>=3.3",
     "psycopg-pool>=3.2",
@@ -139,6 +143,7 @@ zeroth-console = { path = "packaging/console" }
 
 [dependency-groups]
 dev = [
+    "h2>=4,<5",
     "interrogate>=1.7",
     "opentelemetry-sdk>=1.27",
     "libcst>=1.4",
@@ -146,6 +151,7 @@ dev = [
     "pytest-asyncio>=0.25",
     "ruff>=0.11",
     "testcontainers[postgres]>=4.14",
+    "websockets>=15,<16",
 ]
 
 [tool.pytest.ini_options]
