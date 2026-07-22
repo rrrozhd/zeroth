@@ -41,6 +41,9 @@ class TeeObserver:
         )
         self._max_observation_bytes = max_observation_bytes
         self._buffer = bytearray()
+        self._observed_for_extraction = 0
+        self._sse_data_lines: list[bytes] = []
+        self._sse_skip_lf = False
         self._identifiers: dict[str, str] = {}
         self._hash = hashlib.sha256()
         self._size = 0
@@ -79,12 +82,13 @@ class TeeObserver:
         self._size += len(chunk)
         if self._mode == "opaque" or self._disabled:
             return chunk
-        if len(self._buffer) + len(chunk) > self._max_observation_bytes:
+        if self._observed_for_extraction + len(chunk) > self._max_observation_bytes:
             self._disable()
             return chunk
+        self._observed_for_extraction += len(chunk)
         self._buffer.extend(chunk)
         if self._mode == "sse":
-            self._consume_sse_frames()
+            self._consume_sse_lines()
         return chunk
 
     def finish(self) -> None:
@@ -95,29 +99,54 @@ class TeeObserver:
             self._parse_json(bytes(self._buffer))
         self._buffer.clear()
 
-    def _consume_sse_frames(self) -> None:
+    def _consume_sse_lines(self) -> None:
         while True:
-            delimiter = self._buffer.find(b"\n\n")
-            delimiter_size = 2
-            crlf_delimiter = self._buffer.find(b"\r\n\r\n")
-            if crlf_delimiter != -1 and (delimiter == -1 or crlf_delimiter < delimiter):
-                delimiter = crlf_delimiter
-                delimiter_size = 4
-            if delimiter == -1:
-                return
-            frame = bytes(self._buffer[:delimiter])
-            del self._buffer[: delimiter + delimiter_size]
-            data_lines = []
-            for line in frame.replace(b"\r\n", b"\n").split(b"\n"):
-                if line.startswith(b"data:"):
-                    value = line[5:]
-                    if value.startswith(b" "):
-                        value = value[1:]
-                    data_lines.append(value)
-            if data_lines and b"\n".join(data_lines) != b"[DONE]":
-                self._parse_json(b"\n".join(data_lines))
-                if self._disabled:
+            if self._sse_skip_lf:
+                if not self._buffer:
                     return
+                if self._buffer[0] == 0x0A:
+                    del self._buffer[0]
+                self._sse_skip_lf = False
+            if not self._buffer:
+                return
+
+            delimiter = next(
+                (index for index, value in enumerate(self._buffer) if value in (0x0A, 0x0D)),
+                None,
+            )
+            if delimiter is None:
+                return
+
+            line = bytes(self._buffer[:delimiter])
+            terminator = self._buffer[delimiter]
+            del self._buffer[: delimiter + 1]
+            if terminator == 0x0D:
+                if self._buffer and self._buffer[0] == 0x0A:
+                    del self._buffer[0]
+                elif not self._buffer:
+                    self._sse_skip_lf = True
+            self._consume_sse_line(line)
+            if self._disabled:
+                return
+
+    def _consume_sse_line(self, line: bytes) -> None:
+        if not line:
+            self._dispatch_sse_event()
+            return
+        if not line.startswith(b"data:"):
+            return
+        value = line[5:]
+        if value.startswith(b" "):
+            value = value[1:]
+        self._sse_data_lines.append(value)
+
+    def _dispatch_sse_event(self) -> None:
+        if not self._sse_data_lines:
+            return
+        raw = b"\n".join(self._sse_data_lines)
+        self._sse_data_lines.clear()
+        if raw != b"[DONE]":
+            self._parse_json(raw)
 
     def _parse_json(self, raw: bytes) -> None:
         try:
@@ -148,6 +177,7 @@ class TeeObserver:
     def _disable(self) -> None:
         self._disabled = True
         self._buffer.clear()
+        self._sse_data_lines.clear()
         self._identifiers.clear()
 
 

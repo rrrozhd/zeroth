@@ -55,6 +55,62 @@ def test_sse_observer_extracts_only_complete_json_data_frames_across_hostile_chu
     }
 
 
+def test_sse_observation_budget_is_cumulative_across_complete_frames():
+    observer = TeeObserver("text/event-stream", max_observation_bytes=64)
+    chunks = [f'data: {{"sequence":{index}}}\n\n'.encode() for index in range(8)]
+    chunks.append(b'data: {"run_id":"must-not-parse"}\n\n')
+
+    for chunk in chunks:
+        assert observer.observe(chunk) == chunk
+    observer.finish()
+
+    full_stream = b"".join(chunks)
+    assert observer.extraction_disabled is True
+    assert observer.identifiers == {}
+    assert observer.output_size_bytes == len(full_stream)
+    assert observer.output_sha256 == hashlib.sha256(full_stream).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("chunks", "expected"),
+    [
+        (
+            [b'data: {"run_id":"run-cr"}\r\r'],
+            {"run_id": "run-cr"},
+        ),
+        (
+            [
+                b'data: {"run_id":"run-mixed",\r',
+                b'\ndata: "thread_id":"thread-mixed"}\n',
+                b"\n",
+            ],
+            {"run_id": "run-mixed", "thread_id": "thread-mixed"},
+        ),
+        (
+            [b'data: {"assistant_id":', b'"assistant-split"}\r', b"\n\r"],
+            {"assistant_id": "assistant-split"},
+        ),
+    ],
+)
+def test_sse_parser_supports_cr_lf_crlf_and_mixed_split_boundaries(chunks, expected):
+    observer = TeeObserver("text/event-stream", max_observation_bytes=1024)
+
+    for chunk in chunks:
+        observer.observe(chunk)
+    observer.finish()
+
+    assert observer.identifiers == expected
+
+
+def test_sse_parser_ignores_incomplete_event_without_blank_line():
+    observer = TeeObserver("text/event-stream", max_observation_bytes=1024)
+
+    observer.observe(b'data: {"run_id":"incomplete"}\r\n')
+    observer.finish()
+
+    assert observer.identifiers == {}
+
+
 @pytest.mark.parametrize(
     ("content_type", "body"),
     [

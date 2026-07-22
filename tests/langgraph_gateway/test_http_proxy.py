@@ -1014,6 +1014,19 @@ class RecordingEventSink:
             raise RuntimeError("audit backend unavailable")
 
 
+class NeverReturningEventSink:
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def emit(self, event):
+        self.started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            self.cancelled.set()
+
+
 @pytest.mark.asyncio
 async def test_unknown_pass_ungoverned_is_marked_and_audited_without_body_rewrite():
     received = {}
@@ -1103,6 +1116,137 @@ async def test_event_sink_failure_is_counted_and_does_not_change_or_reorder_resp
     assert chunks == [b"one-", b"two"]
     assert proxy.sink_failure_count == 1
     assert sink.events[-1].status.value == "success"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_never_returning_event_sink_cannot_hang_successful_response_exhaustion():
+    sink = NeverReturningEventSink()
+
+    async def upstream(request):
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"one-"
+                yield b"two"
+
+        return httpx.Response(200, stream=Body(), headers={"content-type": "text/plain"})
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+        event_sink_timeout_seconds=0.01,
+    )
+
+    response = await proxy.handle_http(authenticated_empty_request("/ok"))
+    chunks = await asyncio.wait_for(
+        anext_chunk_list(response.body_iterator),
+        timeout=0.2,
+    )
+
+    assert chunks == [b"one-", b"two"]
+    assert proxy.sink_failure_count == 1
+    assert sink.cancelled.is_set()
+    await transport.aclose()
+
+
+async def anext_chunk_list(iterator):
+    return [chunk async for chunk in iterator]
+
+
+@pytest.mark.asyncio
+async def test_never_returning_event_sink_cannot_hang_gateway_denial():
+    sink = NeverReturningEventSink()
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(lambda request: httpx.Response(204)),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=DenyPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+        event_sink_timeout_seconds=0.01,
+    )
+
+    response = await asyncio.wait_for(
+        proxy.handle_http(governed_request(b'{"input":{}}')),
+        timeout=0.2,
+    )
+
+    assert response.status_code == 403
+    assert proxy.sink_failure_count == 1
+    assert sink.cancelled.is_set()
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_outer_cancellation_during_event_sink_is_preserved_without_background_task():
+    sink = NeverReturningEventSink()
+
+    async def upstream(request):
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"complete"
+
+        return httpx.Response(200, stream=Body(), headers={"content-type": "text/plain"})
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+        event_sink_timeout_seconds=10,
+    )
+    response = await proxy.handle_http(authenticated_empty_request("/ok"))
+    exhaustion = asyncio.create_task(anext_chunk_list(response.body_iterator))
+    await sink.started.wait()
+
+    exhaustion.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await exhaustion
+
+    assert sink.cancelled.is_set()
+    assert proxy.sink_failure_count == 0
     await transport.aclose()
 
 

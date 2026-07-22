@@ -93,7 +93,14 @@ class GatewayProxy:
         event_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         correlation_factory: Callable[[], str] = lambda: uuid4().hex,
         max_observation_bytes: int = 65_536,
+        event_sink_timeout_seconds: int | float = 0.1,
     ) -> None:
+        if (
+            isinstance(event_sink_timeout_seconds, bool)
+            or not isinstance(event_sink_timeout_seconds, (int, float))
+            or event_sink_timeout_seconds <= 0
+        ):
+            raise ValueError("event_sink_timeout_seconds must be positive")
         self._settings = settings
         self._transport = transport
         self._context_codec = context_codec
@@ -108,6 +115,7 @@ class GatewayProxy:
         self._event_clock = event_clock
         self._correlation_factory = correlation_factory
         self._max_observation_bytes = max_observation_bytes
+        self._event_sink_timeout_seconds = float(event_sink_timeout_seconds)
         self.sink_failure_count = 0
 
     async def handle_http(self, request: Request) -> Response:
@@ -648,7 +656,14 @@ class GatewayProxy:
             upstream_status_code=upstream_status_code,
         )
         try:
-            await self._event_sink.emit(event)
+            async with asyncio.timeout(self._event_sink_timeout_seconds):
+                await self._event_sink.emit(event)
+        except TimeoutError:
+            self.sink_failure_count += 1
+            logger.warning(
+                "LangGraph gateway event sink timed out",
+                extra={"correlation_id": correlation_id},
+            )
         except Exception:  # noqa: BLE001 - audit is deliberately best effort.
             self.sink_failure_count += 1
             logger.exception(
