@@ -48,6 +48,17 @@ The integration exposes three cumulative capability levels:
 
 The gateway publishes the active level per deployment. The console, audit records, health endpoint, CLI output, and documentation use these exact levels. A missing or unhealthy adapter causes the reported level to fall back; it never silently claims `enforced`.
 
+Capability claims are authoritative per run and conservative per deployment:
+
+- `govern_graph` emits a signed run-start attestation identifying the graph version and installed callback hooks.
+- Governed tool surfaces register a manifest containing the graph/deployment version, adapter version, wrapped tool names and fingerprints, and `partial` or `complete` coverage.
+- `create_agent` middleware may declare `complete` coverage for the exact tool inventory passed to that agent. `govern_tools` defaults to `partial`; declaring it complete requires an explicit expected-tool inventory whose fingerprints match at startup.
+- `enforced` means the current run presented a valid, fresh attestation for a complete tool inventory. A partial inventory is reported as `observed` with a separate list of enforced tools; it is never promoted to deployment-wide enforcement.
+- Adapter instances heartbeat every 30 seconds by default. A run attestation is fresh for that run, while the deployment dashboard is labeled "last known" and downgrades after 90 seconds without a heartbeat. Both intervals are configurable, but the stale threshold must exceed two heartbeat intervals.
+- If no run-start attestation arrives, the run is reported as `admission` even when the deployment was previously healthy.
+
+The gateway does not attempt to prove that arbitrary Python contains no hidden tool calls. Only an exact, adapter-registered inventory can produce `enforced`.
+
 Gateway-only mode can observe and forward existing LangGraph interrupts. An arbitrary interrupt remains application-owned because its resume payload may have custom semantics. Full Zeroth approval creation and automatic resume are guaranteed only for the structured interrupt schema emitted by the enhanced adapter, or for an explicitly configured custom mapping.
 
 ## Architecture
@@ -117,11 +128,12 @@ LangGraph remains the execution runtime for L1.
 6. The Agent Server executes the existing graph. In gateway-only mode, no internal hooks are assumed.
 7. In observed/enforced mode, callback events create causally linked spans using callback `run_id` and `parent_run_id`, correlated to the gateway request by the signed context.
 8. Before a governed tool executes, the adapter sends its normalized action descriptor and signed context to the gateway decision endpoint. Raw sensitive values follow capture/redaction policy.
-9. `allow` executes the tool. `deny` raises a typed `PolicyViolation` before the tool body. `require_approval` invokes LangGraph `interrupt()` before the tool body.
-10. The structured interrupt reaches the gateway through the unchanged Agent Server response or stream. The gateway creates or finds the idempotent Zeroth approval record.
-11. A reviewer approves, edits where policy permits, or rejects through Zeroth's existing approval surface.
-12. The gateway resumes the same upstream thread with `Command(resume=...)`. The adapter validates the resolution and revalidates policy before executing an approved action.
-13. Callback and policy events finalize the trace and project relevant governance facts into Zeroth's existing audit/provenance storage.
+9. `allow` executes the tool. `deny` raises a typed `PolicyViolation` before the tool body. For `require_approval`, the idempotent decision response contains an approval ID and action key, and the gateway creates an approval in `awaiting_checkpoint` state.
+10. The adapter immediately invokes LangGraph `interrupt()` with that approval ID before the tool body. Repeating the decision request after node restart returns the same approval ID.
+11. The gateway confirms that the upstream run reached the matching interrupt through the active response/stream or a detached-run reconciler, then marks the approval `ready`. A reviewer may decide earlier, but automatic resume waits for `ready`.
+12. A reviewer approves, edits where policy permits, or rejects through Zeroth's existing approval surface.
+13. The gateway resumes the same upstream thread with `Command(resume=...)`. The adapter validates the resolution and revalidates policy before executing an approved action.
+14. Callback and policy events finalize the trace and project relevant governance facts into Zeroth's existing audit/provenance storage.
 
 ## Principal and trust context
 
@@ -156,9 +168,13 @@ Audit delivery uses a bounded local queue with durable retry where available. Au
 
 LangGraph restarts an interrupted node from its beginning when execution resumes. The adapter therefore performs no non-idempotent side effect before `interrupt()`.
 
-The adapter's interrupt payload is versioned and JSON-serializable. It includes the integration schema version, tool name, redacted/captured arguments as allowed, tool-call identity when available, policy decision reference, correlation context, allowed review actions, and a human-readable reason. It does not need to create an external approval record before interrupting.
+The adapter's interrupt payload is versioned and JSON-serializable. It includes the integration schema version, tool name, redacted/captured arguments as allowed, tool-call identity when available, policy decision reference, correlation context, allowed review actions, and a human-readable reason. The adapter does not create approval storage directly; the idempotent gateway decision call creates the `awaiting_checkpoint` record before the adapter interrupts.
 
-The gateway creates the approval after observing the interrupt and keys it by the upstream interrupt/task identity plus deployment and thread. Duplicate stream delivery or polling therefore resolves to one record.
+The decision request has an idempotency key built from deployment, thread, graph task/checkpoint identity, tool-call ID when available, and a canonical action hash. The gateway creates the approval intent as part of that idempotent decision. If the adapter cannot obtain a stable task/tool identity, approval-required execution fails closed with an integration error rather than risk duplicate approvals or side effects.
+
+The approval begins in `awaiting_checkpoint`. Observing the matching structured interrupt moves it to `ready`. For streaming and wait requests, the proxy observes it inline. For background runs or disconnected clients, a bounded reconciler uses the configured upstream service credential to inspect the known run/thread until the interrupt is confirmed, the run terminates, or the reconciliation deadline expires. Reconciliation state is durable across gateway restart. A customer webhook remains untouched; Zeroth does not replace it. Duplicate response, stream, webhook, or polling delivery resolves to the same approval record.
+
+An approval may be reviewed while awaiting checkpoint confirmation, but the gateway never resumes upstream until it is `ready`. If the run terminates first, the approval becomes `orphaned` and cannot execute. Stateless runs cannot safely support tool approvals because they lack a persistent thread cursor; `require_approval` therefore fails closed with `zeroth.approval_requires_thread` while allow/deny and audit continue to work.
 
 On resume, the value returned by `interrupt()` is validated against the requested approval and allowed action set. Policy is revalidated immediately before tool execution. Approval does not override a newer deny. Edited tool arguments are revalidated and re-evaluated.
 
@@ -179,6 +195,23 @@ Upstream success and error responses pass through without being rewritten. Zerot
 SSE and other streamed responses preserve chunk order and framing. Observability parses a tee of the stream incrementally. Parser or audit failures do not terminate a healthy upstream stream. A client disconnect cancels the upstream request when supported.
 
 The gateway supports an explicit compatibility matrix rather than claiming all Agent Server releases. Version detection and health output report tested and detected versions. Unsupported protocol behavior fails clearly rather than being approximated.
+
+### Initial compatibility baseline and endpoint inventory
+
+The first implementation plan targets the stable releases verified on the design date: LangGraph `1.2.9` and `langgraph-api`/Agent Server `0.11.1`. The release gate must also test the newest stable patch available when implementation starts; expanding to older minors is separate compatibility work.
+
+The L1 governance-aware endpoint inventory is deliberately bounded:
+
+- threaded run creation in background, stream, and wait forms under `/threads/{thread_id}/runs*`;
+- stateless run stream and wait forms under `/runs*`, with the no-approval limitation above;
+- run join, join-stream, cancellation, and thread state needed for transparency and reconciliation;
+- protocol v2 thread commands that create runs or respond to input, including `run.start` and `input.respond`, plus their event streams;
+- assistant and thread create/read/search operations required by the official Python SDK and `RemoteGraph` fixtures;
+- health/server-information endpoints used for upstream capability detection.
+
+Every run-creating or input-resuming operation in that inventory passes admission or approval validation. Other Agent Server endpoints may be deny-by-default or explicitly configured as ungoverned pass-through, but are not claimed as L1-compatible until added to the conformance inventory. Crons, A2A, MCP, Store, and arbitrary custom routes are outside the initial compatibility claim. Creating a cron through the proxy does not imply admission is re-evaluated for each server-triggered execution.
+
+Managed deployments that do not expose an exact package version are fingerprinted from server information and OpenAPI shape. An unknown fingerprint is reported as unsupported until it passes the same conformance suite; it is never labeled compatible solely because requests appear to work.
 
 ## Differential harness
 
@@ -206,7 +239,7 @@ The harness reports semantic divergence separately from expected governance addi
 
 ### Protocol conformance
 
-Exercise assistants, threads, stateful and stateless runs, wait and stream forms, cancellation, state access, interrupts, resume, authentication, errors, and webhooks where supported.
+Exercise every operation in the initial endpoint inventory: assistants, threads, stateful and stateless runs, background/wait/stream forms, join, cancellation, state access, protocol v2 commands, interrupts, resume, authentication, and errors. Verify that unsupported endpoint groups are denied or visibly marked ungoverned according to configuration.
 
 ### Adapter compatibility
 
@@ -244,6 +277,8 @@ L1 is releasable only when all of the following are true:
 10. The console, health API, CLI, and docs show `admission`, `observed`, or `enforced` accurately.
 11. The capability matrix prominently states that gateway-only mode cannot enforce internal tool calls.
 12. A deployment guide covers both managed LangSmith upstreams and self-hosted Agent Server upstreams.
+13. Background and disconnected runs surface adapter-created approvals through durable reconciliation without depending on the originating client.
+14. Per-run attestations and tool manifests prevent partial or stale adapter coverage from being labeled `enforced`.
 
 ## Delivery order
 
