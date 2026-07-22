@@ -3552,6 +3552,7 @@ all = [
     { name = "dramatiq" },
     { name = "elasticsearch", extra = ["async"] },
     { name = "email-validator" },
+    { name = "httpx", extra = ["http2"] },
     { name = "numpy" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
@@ -3560,6 +3561,7 @@ all = [
     { name = "psycopg-pool" },
     { name = "python-jose", extra = ["cryptography"] },
     { name = "redis" },
+    { name = "websockets" },
 ]
 console = [
     { name = "zeroth-console" },
@@ -3656,6 +3658,7 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'langgraph-gateway'", specifier = ">=15,<16" },
     { name = "zeroth-console", marker = "extra == 'console'", directory = "packaging/console" },
     { name = "zeroth-core", extras = ["dispatch"], marker = "extra == 'all'" },
+    { name = "zeroth-core", extras = ["langgraph-gateway"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["memory-chroma"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["memory-es"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["memory-pg"], marker = "extra == 'all'" },

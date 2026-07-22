@@ -119,3 +119,85 @@ async def test_empty_configured_credential_is_unavailable(value):
             settings=LangGraphGatewaySettings(upstream_credential_ref="agent.api-key"),
             secret_provider=RecordingSecretProvider(value),
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "header_name",
+    ["Host", "Connection", "Content-Length", "Transfer-Encoding", "Keep-Alive"],
+)
+async def test_credential_header_cannot_control_routing_or_framing(header_name):
+    settings = LangGraphGatewaySettings(
+        upstream_credential_ref="agent.api-key",
+        upstream_credential_header=header_name,
+    )
+
+    with pytest.raises(UpstreamCredentialUnavailableError) as caught:
+        await prepare_upstream_request_headers(
+            [],
+            upstream_url=httpx.URL("http://agent-server:8123"),
+            settings=settings,
+            secret_provider=RecordingSecretProvider("secret"),
+        )
+
+    assert caught.value.code == "zeroth.upstream_credential_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_credential_header_cannot_be_named_by_client_connection_tokens():
+    settings = LangGraphGatewaySettings(
+        upstream_credential_ref="agent.api-key",
+        upstream_credential_header="X-Upstream-Credential",
+    )
+
+    with pytest.raises(UpstreamCredentialUnavailableError):
+        await prepare_upstream_request_headers(
+            [(b"Connection", b"X-Upstream-Credential")],
+            upstream_url=httpx.URL("http://agent-server:8123"),
+            settings=settings,
+            secret_provider=RecordingSecretProvider("secret"),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "secret",
+    ["secret\r\nX-Injected: yes", "secret\x00value", "secret\tvalue", "café"],
+)
+async def test_credential_value_must_be_a_safe_http_field_value(secret):
+    settings = LangGraphGatewaySettings(upstream_credential_ref="agent.api-key")
+
+    with pytest.raises(UpstreamCredentialUnavailableError) as caught:
+        await prepare_upstream_request_headers(
+            [],
+            upstream_url=httpx.URL("http://agent-server:8123"),
+            settings=settings,
+            secret_provider=RecordingSecretProvider(secret),
+        )
+
+    assert caught.value.code == "zeroth.upstream_credential_unavailable"
+    assert secret not in str(caught.value)
+    assert secret not in repr(caught.value)
+    assert caught.value.__cause__ is None
+
+
+@pytest.mark.asyncio
+async def test_malformed_credential_header_name_has_safe_stable_failure():
+    settings = LangGraphGatewaySettings.model_construct(
+        upstream_credential_ref="agent.api-key",
+        upstream_credential_header="X-Credential\r\nX-Injected",
+        upstream_credential_scheme="Bearer",
+        deployment_ref=None,
+    )
+
+    with pytest.raises(UpstreamCredentialUnavailableError) as caught:
+        await prepare_upstream_request_headers(
+            [],
+            upstream_url=httpx.URL("http://agent-server:8123"),
+            settings=settings,
+            secret_provider=RecordingSecretProvider("secret"),
+        )
+
+    assert caught.value.code == "zeroth.upstream_credential_unavailable"
+    assert "X-Injected" not in str(caught.value)
+    assert "X-Injected" not in repr(caught.value)

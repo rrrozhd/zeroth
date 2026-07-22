@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 import httpx
 from starlette.requests import Request
 from starlette.responses import StreamingResponse
+from starlette.types import Receive, Scope, Send
 
 from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.langgraph_gateway.headers import (
@@ -14,6 +16,26 @@ from zeroth.core.langgraph_gateway.headers import (
     strip_hop_by_hop_headers,
 )
 from zeroth.core.secrets.provider import SecretProvider
+
+
+class _UpstreamStreamingResponse(StreamingResponse):
+    """Streaming response whose ASGI lifecycle owns upstream cleanup."""
+
+    def __init__(
+        self,
+        content: AsyncIterator[bytes],
+        *,
+        status_code: int,
+        close_upstream: Callable[[], Awaitable[None]],
+    ) -> None:
+        super().__init__(content, status_code=status_code)
+        self._close_upstream = close_upstream
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await self._close_upstream()
 
 
 class HTTPGatewayTransport:
@@ -31,6 +53,8 @@ class HTTPGatewayTransport:
         self._settings = settings
         self._secret_provider = secret_provider
         self._upstream_url = httpx.URL(settings.upstream_url)
+        self._open_responses: set[httpx.Response] = set()
+        self._closing_responses: dict[httpx.Response, asyncio.Task[None]] = {}
         self._client = httpx.AsyncClient(
             http2=True,
             follow_redirects=False,
@@ -47,6 +71,7 @@ class HTTPGatewayTransport:
             ),
             transport=http_transport,
         )
+        self._client.headers.clear()
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -56,7 +81,7 @@ class HTTPGatewayTransport:
     def _request_url(self, request: Request) -> httpx.URL:
         incoming_path = request.scope.get("raw_path")
         if incoming_path is None:
-            incoming_path = request.url.path.encode("ascii")
+            incoming_path = httpx.URL(path=request.url.path).raw_path
         base_path = self._upstream_url.raw_path.rstrip(b"/")
         raw_path = base_path + b"/" + incoming_path.lstrip(b"/")
         query = request.scope.get("query_string", b"")
@@ -85,9 +110,11 @@ class HTTPGatewayTransport:
             content=request.stream(),
         )
         upstream_response = await self._client.send(upstream_request, stream=True)
-        downstream_response = StreamingResponse(
+        self._open_responses.add(upstream_response)
+        downstream_response = _UpstreamStreamingResponse(
             self._response_body(upstream_response),
             status_code=upstream_response.status_code,
+            close_upstream=lambda: self._close_upstream_response(upstream_response),
         )
         downstream_response.raw_headers = strip_hop_by_hop_headers(upstream_response.headers.raw)
         return downstream_response
@@ -97,10 +124,39 @@ class HTTPGatewayTransport:
             async for chunk in response.aiter_raw():
                 yield chunk
         finally:
-            await response.aclose()
+            await self._close_upstream_response(response)
+
+    async def _close_upstream_response(self, response: httpx.Response) -> None:
+        close_task = self._closing_responses.get(response)
+        if close_task is None:
+            if response.is_closed:
+                self._open_responses.discard(response)
+                return
+            close_task = asyncio.create_task(response.aclose())
+            self._closing_responses[response] = close_task
+
+            def finished(task: asyncio.Task[None]) -> None:
+                self._closing_responses.pop(response, None)
+                self._open_responses.discard(response)
+                if not task.cancelled():
+                    task.exception()
+
+            close_task.add_done_callback(finished)
+
+        current_task = asyncio.current_task()
+        if current_task is not None and current_task.cancelling():
+            return
+        try:
+            await asyncio.shield(close_task)
+        except asyncio.CancelledError:
+            raise
 
     async def aclose(self) -> None:
         """Close the gateway's owned connection pool."""
+        if self._open_responses:
+            await asyncio.gather(
+                *(self._close_upstream_response(response) for response in self._open_responses)
+            )
         await self._client.aclose()
 
     async def __aenter__(self) -> HTTPGatewayTransport:

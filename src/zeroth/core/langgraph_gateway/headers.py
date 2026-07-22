@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 import httpx
@@ -25,6 +26,8 @@ _HOP_BY_HOP_HEADERS = frozenset(
     }
 )
 _CLIENT_CREDENTIAL_HEADERS = frozenset({b"authorization", b"x-api-key"})
+_CREDENTIAL_HEADER_PROHIBITED = _HOP_BY_HOP_HEADERS | {b"host", b"content-length"}
+_HTTP_TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 
 class UpstreamCredentialUnavailableError(RuntimeError):
@@ -52,6 +55,32 @@ def strip_hop_by_hop_headers(headers: Iterable[RawHeader]) -> list[RawHeader]:
     return [(name, value) for name, value in raw_headers if name.lower() not in blocked]
 
 
+def _credential_header_name(name: str, headers: list[RawHeader]) -> bytes:
+    try:
+        encoded = name.encode("ascii")
+    except UnicodeEncodeError:
+        raise UpstreamCredentialUnavailableError from None
+    if (
+        _HTTP_TOKEN.fullmatch(encoded) is None
+        or encoded.lower() in _CREDENTIAL_HEADER_PROHIBITED
+        or encoded.lower() in _connection_tokens(headers)
+    ):
+        raise UpstreamCredentialUnavailableError
+    return encoded
+
+
+def _credential_header_value(scheme: str, credential: str | None) -> bytes:
+    if credential is None or not credential.strip():
+        raise UpstreamCredentialUnavailableError
+    try:
+        encoded = credential.encode("ascii")
+    except UnicodeEncodeError:
+        raise UpstreamCredentialUnavailableError from None
+    if credential != credential.strip() or any(byte < 0x20 or byte == 0x7F for byte in encoded):
+        raise UpstreamCredentialUnavailableError
+    return scheme.encode("ascii") + b" " + encoded
+
+
 async def prepare_upstream_request_headers(
     headers: Iterable[RawHeader],
     *,
@@ -61,11 +90,12 @@ async def prepare_upstream_request_headers(
     tenant_id: str | None = None,
 ) -> list[RawHeader]:
     """Sanitize client headers, rebuild ``Host``, and add upstream credentials."""
-    credential_name = settings.upstream_credential_header.encode("ascii")
+    raw_headers = list(headers)
+    credential_name = _credential_header_name(settings.upstream_credential_header, raw_headers)
     blocked = _CLIENT_CREDENTIAL_HEADERS | {b"host", credential_name.lower()}
     forwarded = [
         (name, value)
-        for name, value in strip_hop_by_hop_headers(headers)
+        for name, value in strip_hop_by_hop_headers(raw_headers)
         if name.lower() not in blocked
     ]
     forwarded.append((b"host", upstream_url.netloc))
@@ -80,9 +110,6 @@ async def prepare_upstream_request_headers(
         tenant_id=tenant_id,
         deployment_ref=settings.deployment_ref,
     )
-    if credential is None or not credential.strip():
-        raise UpstreamCredentialUnavailableError
-
-    value = f"{settings.upstream_credential_scheme} {credential}".encode("latin-1")
+    value = _credential_header_value(settings.upstream_credential_scheme, credential)
     forwarded.append((credential_name, value))
     return forwarded

@@ -95,6 +95,7 @@ console = [
     "zeroth-console",
 ]
 all = [
+    "zeroth-core[langgraph-gateway]",
     "zeroth-core[memory-pg]",
     "zeroth-core[memory-chroma]",
     "zeroth-core[memory-es]",
