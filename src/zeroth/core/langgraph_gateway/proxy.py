@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import time
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
@@ -73,6 +74,13 @@ class PrincipalResolver(Protocol):
     def __call__(self, request: Request) -> AuthenticatedPrincipal: ...
 
 
+class _TerminalEmissionState:
+    __slots__ = ("attempted",)
+
+    def __init__(self) -> None:
+        self.attempted = False
+
+
 class GatewayProxy:
     """Apply exact admission and context mutation before streaming upstream."""
 
@@ -98,9 +106,10 @@ class GatewayProxy:
         if (
             isinstance(event_sink_timeout_seconds, bool)
             or not isinstance(event_sink_timeout_seconds, (int, float))
+            or not math.isfinite(event_sink_timeout_seconds)
             or event_sink_timeout_seconds <= 0
         ):
-            raise ValueError("event_sink_timeout_seconds must be positive")
+            raise ValueError("event_sink_timeout_seconds must be a finite positive number")
         self._settings = settings
         self._transport = transport
         self._context_codec = context_codec
@@ -122,6 +131,7 @@ class GatewayProxy:
         """Return an upstream response or a stable, gateway-owned error."""
         correlation_id = self._correlation_id(request)
         started_at = self._event_clock()
+        terminal_state = _TerminalEmissionState()
         rule = self._route_classifier(request.method, request.url.path)
         principal: AuthenticatedPrincipal | None = None
         disposition = rule.disposition if rule is not None else RouteDisposition.UNSUPPORTED
@@ -145,6 +155,7 @@ class GatewayProxy:
                         disposition=RouteDisposition.UNSUPPORTED,
                         started_at=started_at,
                         identifiers=request_identifiers,
+                        terminal_state=terminal_state,
                     )
                 compatibility_error = self._compatibility_error(correlation_id)
                 if compatibility_error is not None:
@@ -157,6 +168,7 @@ class GatewayProxy:
                         status=GatewayEventStatus.GATEWAY_DENIAL,
                         started_at=started_at,
                         identifiers=request_identifiers,
+                        terminal_state=terminal_state,
                     )
                     return self._error_response(error, status_code)
                 logger.warning(
@@ -171,6 +183,7 @@ class GatewayProxy:
                     disposition=RouteDisposition.UNSUPPORTED,
                     started_at=started_at,
                     request_identifiers=request_identifiers,
+                    terminal_state=terminal_state,
                     governance_header=(_GOVERNANCE_MODE_HEADER, "ungoverned"),
                 )
 
@@ -185,6 +198,7 @@ class GatewayProxy:
                     status=GatewayEventStatus.GATEWAY_DENIAL,
                     started_at=started_at,
                     identifiers=request_identifiers,
+                    terminal_state=terminal_state,
                 )
                 return self._error_response(error, status_code)
 
@@ -216,6 +230,7 @@ class GatewayProxy:
                             identifiers=request_identifiers,
                             input_sha256=input_sha256,
                             input_size_bytes=input_size_bytes,
+                            terminal_state=terminal_state,
                         )
                 if disposition == RouteDisposition.GOVERNED:
                     target = (
@@ -279,6 +294,7 @@ class GatewayProxy:
                             identifiers=request_identifiers,
                             input_sha256=input_sha256,
                             input_size_bytes=input_size_bytes,
+                            terminal_state=terminal_state,
                         )
                     if self._context_codec is None:
                         raise GatewayContextError(
@@ -323,6 +339,7 @@ class GatewayProxy:
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
                 request_identifiers=request_identifiers,
+                terminal_state=terminal_state,
                 governance_header=governance_header,
             )
         except asyncio.CancelledError:
@@ -338,6 +355,7 @@ class GatewayProxy:
                     identifiers=request_identifiers,
                     input_sha256=input_sha256,
                     input_size_bytes=input_size_bytes,
+                    terminal_state=terminal_state,
                 )
             raise
         except GatewayContextError as exc:
@@ -362,6 +380,7 @@ class GatewayProxy:
                 identifiers=request_identifiers,
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
+                terminal_state=terminal_state,
             )
         except UpstreamCredentialUnavailableError:
             return await self._caught_error(
@@ -378,6 +397,7 @@ class GatewayProxy:
                 identifiers=request_identifiers,
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
+                terminal_state=terminal_state,
             )
         except (httpx.TimeoutException, TimeoutError):
             return await self._caught_error(
@@ -394,6 +414,7 @@ class GatewayProxy:
                 identifiers=request_identifiers,
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
+                terminal_state=terminal_state,
             )
         except httpx.HTTPError:
             return await self._caught_error(
@@ -410,6 +431,7 @@ class GatewayProxy:
                 identifiers=request_identifiers,
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
+                terminal_state=terminal_state,
             )
         except RuntimeError:
             return await self._caught_error(
@@ -426,6 +448,7 @@ class GatewayProxy:
                 identifiers=request_identifiers,
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
+                terminal_state=terminal_state,
             )
 
     async def _read_governed_json(self, request: Request) -> tuple[bytes, dict[str, Any]]:
@@ -482,6 +505,7 @@ class GatewayProxy:
         input_sha256: str | None = None,
         input_size_bytes: int | None = None,
         request_identifiers: dict[str, str] | None = None,
+        terminal_state: _TerminalEmissionState,
         governance_header: tuple[str, str] | None = None,
     ) -> StreamingResponse:
         response = await self._transport.forward(request, tenant_id=principal.tenant_id)
@@ -505,6 +529,7 @@ class GatewayProxy:
             input_sha256=input_sha256,
             input_size_bytes=input_size_bytes,
             request_identifiers=request_identifiers,
+            terminal_state=terminal_state,
             upstream_status_code=response.status_code,
         )
         return response
@@ -523,6 +548,7 @@ class GatewayProxy:
         input_sha256: str | None,
         input_size_bytes: int | None,
         request_identifiers: dict[str, str] | None,
+        terminal_state: _TerminalEmissionState,
         upstream_status_code: int,
     ) -> AsyncIterator[bytes]:
         status: GatewayEventStatus | None = None
@@ -561,6 +587,7 @@ class GatewayProxy:
                 output_sha256=observer.output_sha256,
                 output_size_bytes=observer.output_size_bytes,
                 upstream_status_code=upstream_status_code,
+                terminal_state=terminal_state,
             )
 
     async def _denial_response(
@@ -584,6 +611,7 @@ class GatewayProxy:
         identifiers: dict[str, str] | None = None,
         input_sha256: str | None = None,
         input_size_bytes: int | None = None,
+        terminal_state: _TerminalEmissionState,
     ) -> JSONResponse:
         if principal is not None:
             await self._emit_terminal(
@@ -597,6 +625,7 @@ class GatewayProxy:
                 identifiers=identifiers,
                 input_sha256=input_sha256,
                 input_size_bytes=input_size_bytes,
+                terminal_state=terminal_state,
             )
         return self._error_response(
             GatewayError(
@@ -624,9 +653,11 @@ class GatewayProxy:
         output_sha256: str | None = None,
         output_size_bytes: int | None = None,
         upstream_status_code: int | None = None,
+        terminal_state: _TerminalEmissionState,
     ) -> None:
-        if self._event_sink is None:
+        if self._event_sink is None or terminal_state.attempted:
             return
+        terminal_state.attempted = True
         identifiers = identifiers or {}
         event = GatewayEvent(
             correlation=GatewayCorrelation(

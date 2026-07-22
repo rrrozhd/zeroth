@@ -1027,6 +1027,53 @@ class NeverReturningEventSink:
             self.cancelled.set()
 
 
+class AppendThenBlockEventSink:
+    def __init__(self):
+        self.events = []
+        self.appended = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def emit(self, event):
+        self.events.append(event)
+        self.appended.set()
+        try:
+            await asyncio.Future()
+        finally:
+            self.cancelled.set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "timeout",
+    [float("nan"), float("inf"), float("-inf"), 0, -0.1, True],
+)
+async def test_event_sink_timeout_must_be_finite_and_positive(timeout):
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(lambda request: httpx.Response(204)),
+    )
+
+    with pytest.raises(ValueError, match="finite positive number"):
+        GatewayProxy(
+            settings=settings,
+            transport=transport,
+            context_codec=None,
+            policy_guard=AllowPolicy(),
+            budget_checker=AllowBudget(),
+            compatibility=supported_compatibility(),
+            event_sink_timeout_seconds=timeout,
+        )
+
+    await transport.aclose()
+
+
 @pytest.mark.asyncio
 async def test_unknown_pass_ungoverned_is_marked_and_audited_without_body_rewrite():
     received = {}
@@ -1201,6 +1248,42 @@ async def test_never_returning_event_sink_cannot_hang_gateway_denial():
 
     assert response.status_code == 403
     assert proxy.sink_failure_count == 1
+    assert sink.cancelled.is_set()
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_denial_sink_attempt_does_not_emit_second_status():
+    sink = AppendThenBlockEventSink()
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(lambda request: httpx.Response(204)),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=DenyPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+        event_sink_timeout_seconds=0.05,
+    )
+    task = asyncio.create_task(proxy.handle_http(governed_request(b'{"input":{}}')))
+    await sink.appended.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=0.2)
+
+    assert [event.status.value for event in sink.events] == ["gateway_denial"]
     assert sink.cancelled.is_set()
     await transport.aclose()
 
