@@ -1,8 +1,10 @@
 # LangGraph Deployment Governance — L1 Design
 
-**Status:** Approved design, pending implementation planning  
-**Date:** 2026-07-22  
-**Product priority:** Highest-conversion portability wedge  
+**Status:** Approved design, pending implementation planning
+
+**Date:** 2026-07-22
+
+**Product priority:** Highest-conversion portability wedge
 
 ## Summary
 
