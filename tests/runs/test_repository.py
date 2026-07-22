@@ -1,17 +1,27 @@
 from __future__ import annotations
 
-import pytest
-from zeroth.core.governed import RunStatus
+from datetime import UTC, datetime
 
-from zeroth.core.runs.models import (
-    Run,
-    RunFailureState,
-    RunHistoryEntry,
-    Thread,
-    ThreadMemoryBinding,
-    ThreadStatus,
-)
-from zeroth.core.runs.repository import RunRepository, ThreadRepository
+import pytest
+import zeroth.integrations.persistence.runs.thread_repository as thread_repository_module
+from zeroth.contracts.governed import RunStatus
+
+from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, Thread, ThreadMemoryBinding
+from zeroth.runtime.runs import ThreadStatus
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+
+
+async def test_thread_repository_consumes_platform_clock(runs_db, monkeypatch) -> None:
+    fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(thread_repository_module, "utc_now", lambda: fixed)
+    repository = ThreadRepository(runs_db)
+    thread = await repository.create(
+        Thread(graph_version_ref="graph:v1", deployment_ref="deployment:v1")
+    )
+
+    updated = await repository.attach_run(thread.thread_id, "run-1")
+
+    assert updated.updated_at == fixed
 
 
 async def test_run_repository_crud_round_trip(runs_db) -> None:

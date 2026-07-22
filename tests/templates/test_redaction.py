@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.templates.redaction import (
+from zeroth.contracts.templates.redaction import (
     DEFAULT_SECRET_PATTERNS,
     identify_secret_variables,
     redact_rendered_prompt,

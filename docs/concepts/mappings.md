@@ -20,7 +20,7 @@ The executor reads the upstream node's output, applies each operation in order, 
 
 ## Key types
 
-All of these live under `zeroth.core.mappings`:
+All of these live under `zeroth.contracts.mappings`:
 
 - **`EdgeMapping`** — the full mapping attached to one edge: a list of operations plus the edge identity.
 - **`MappingOperation`** — a discriminated union of all operation types. Pick one per field you want to produce.

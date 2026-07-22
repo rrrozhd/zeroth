@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from zeroth.core.context_window.errors import TokenCountError
-from zeroth.core.context_window.models import (
+from zeroth.runtime.context.errors import TokenCountError
+from zeroth.runtime.context.models import (
     CompactionResult,
     CompactionState,
     ContextWindowSettings,
 )
-from zeroth.core.context_window.tracker import ContextWindowTracker
+from zeroth.runtime.context.tracker import ContextWindowTracker
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ class TestCountTokens:
         settings = ContextWindowSettings()
         tracker = ContextWindowTracker(settings=settings, strategy=_FakeStrategy())
         msgs = [{"role": "user", "content": "hello world"}]
-        with patch("zeroth.core.context_window.tracker.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.tracker.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 42
             result = tracker.count_tokens(msgs, "gpt-4o")
         assert result == 42
@@ -74,10 +74,46 @@ class TestCountTokens:
         settings = ContextWindowSettings()
         tracker = ContextWindowTracker(settings=settings, strategy=_FakeStrategy())
         msgs = [{"role": "user", "content": "hello"}]
-        with patch("zeroth.core.context_window.tracker.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.tracker.litellm") as mock_litellm:
             mock_litellm.token_counter.side_effect = RuntimeError("litellm broke")
             with pytest.raises(TokenCountError, match="token counting failed"):
                 tracker.count_tokens(msgs, "gpt-4o")
+
+    def test_counts_raw_tool_call_messages_without_raising(self) -> None:
+        # B3: assistant messages carrying tool_calls in the {name,args,id} form
+        # (what the agent runner emits) previously made the real
+        # litellm.token_counter raise "must contain a function key", hard-failing
+        # every tool-using node at maybe_compact's unconditional count_tokens.
+        settings = ContextWindowSettings()
+        tracker = ContextWindowTracker(settings=settings, strategy=_FakeStrategy())
+        msgs = [
+            {"role": "user", "content": "search for cats"},
+            {
+                "role": "assistant",
+                "tool_calls": [{"name": "search", "args": {"q": "cats"}, "id": "call_1"}],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "found 3"},
+        ]
+        # Real litellm (no mock): must not raise.
+        assert tracker.count_tokens(msgs, "gpt-4o") > 0
+
+    def test_normalize_reshapes_tool_calls_to_openai_form(self) -> None:
+        normalized = ContextWindowTracker._normalize_messages(
+            [{"role": "assistant", "tool_calls": [{"name": "search", "args": {"q": "x"}, "id": "c1"}]}]
+        )
+        assert normalized[0]["role"] == "assistant"
+        assert normalized[0]["tool_calls"][0] == {
+            "id": "c1",
+            "type": "function",
+            "function": {"name": "search", "arguments": '{"q": "x"}'},
+        }
+
+    def test_normalize_leaves_openai_tool_calls_untouched(self) -> None:
+        openai_tc = {"id": "c1", "type": "function", "function": {"name": "f", "arguments": "{}"}}
+        normalized = ContextWindowTracker._normalize_messages(
+            [{"role": "assistant", "tool_calls": [openai_tc]}]
+        )
+        assert normalized[0]["tool_calls"][0] == openai_tc
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +160,7 @@ class TestMaybeCompact:
         settings = ContextWindowSettings(max_context_tokens=10000, summary_trigger_ratio=0.8)
         tracker = ContextWindowTracker(settings=settings, strategy=_FakeStrategy())
         msgs = _make_messages(3)
-        with patch("zeroth.core.context_window.tracker.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.tracker.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 100  # well below threshold
             result_msgs, result_info = await tracker.maybe_compact(msgs, "gpt-4o")
         assert result_msgs == msgs
@@ -136,7 +172,7 @@ class TestMaybeCompact:
         strategy = _FakeStrategy()
         tracker = ContextWindowTracker(settings=settings, strategy=strategy)
         msgs = _make_messages(5)
-        with patch("zeroth.core.context_window.tracker.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.tracker.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 900  # above threshold
             result_msgs, result_info = await tracker.maybe_compact(msgs, "gpt-4o")
         assert result_info is not None
@@ -149,7 +185,7 @@ class TestMaybeCompact:
         settings = ContextWindowSettings(max_context_tokens=1000, summary_trigger_ratio=0.8)
         tracker = ContextWindowTracker(settings=settings, strategy=_FakeStrategy())
         msgs = _make_messages(5)
-        with patch("zeroth.core.context_window.tracker.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.tracker.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 900
             await tracker.maybe_compact(msgs, "gpt-4o")
         # _FakeStrategy returns tokens_after=200
@@ -179,7 +215,7 @@ class TestState:
         settings = ContextWindowSettings(max_context_tokens=1000, summary_trigger_ratio=0.8)
         tracker = ContextWindowTracker(settings=settings, strategy=_FakeStrategy())
         msgs = _make_messages(5)
-        with patch("zeroth.core.context_window.tracker.litellm") as mock_litellm:
+        with patch("zeroth.runtime.context.tracker.litellm") as mock_litellm:
             mock_litellm.token_counter.return_value = 900
             await tracker.maybe_compact(msgs, "gpt-4o")
         state = tracker.state

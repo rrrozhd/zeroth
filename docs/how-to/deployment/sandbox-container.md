@@ -19,7 +19,7 @@ tools you can skip this page.
 ## Settings
 
 Configure the sandbox via `DockerSandboxSettings` (see
-`zeroth.core.config.settings`):
+`zeroth.platform.config.settings`):
 
 | Setting | Env var | Default | Meaning |
 |---|---|---|---|
@@ -28,7 +28,7 @@ Configure the sandbox via `DockerSandboxSettings` (see
 | `docker_binary` | `ZEROTH_SANDBOX__DOCKER_BINARY` | `docker` | CLI to invoke (e.g. `podman`) |
 
 Set `backend=docker` (or `sidecar` if you prefer the HTTP sidecar app at
-`zeroth.core.sandbox_sidecar`) and make sure the named container is
+`zeroth.integrations.sandbox`) and make sure the named container is
 running and reachable from the `zeroth-core` process.
 
 ## Minimal recipe
@@ -63,7 +63,7 @@ docker run -d \
 
 `zeroth-core` will exec into this container for each unit and apply
 per-execution resource flags (`build_docker_resource_flags` in
-`zeroth.core.execution_units.constraints`) on top of your baseline.
+`zeroth.integrations.execution.constraints`) on top of your baseline.
 
 ## Production notes
 
@@ -83,6 +83,6 @@ per-execution resource flags (`build_docker_resource_flags` in
 
 The runtime calls `docker inspect -f '{{.State.Running}}'` to decide if
 the sidecar is healthy (`docker_container_running` in
-`zeroth.core.storage.redis` and equivalent checks in the sandbox
+`zeroth.platform.storage.redis` and equivalent checks in the sandbox
 module). Your orchestrator's own health probes are independent — use
 both.

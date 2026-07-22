@@ -15,8 +15,7 @@ This top-level namespace re-exports only the three names zeroth imported as
 
 from __future__ import annotations
 
-from zeroth.core.governed.models.common import RunStatus
-from zeroth.core.governed.models.run_state import RunState
+from zeroth.contracts.governed import RunState, RunStatus
 from zeroth.core.governed.tools.base import Tool
 
 __all__ = ["RunState", "RunStatus", "Tool"]

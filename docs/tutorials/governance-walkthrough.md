@@ -144,10 +144,10 @@ For deeper reading, see the subsystem concept pages under
 [Concepts](../concepts/index.md). The source of truth for each
 subsystem is:
 
-- **Approvals** — `zeroth.core.approvals.service.ApprovalService`
+- **Approvals** — `zeroth.governance.approvals.service.ApprovalService`
   and `zeroth.core.service.approval_api`.
-- **Audit** — `zeroth.core.audit.models.NodeAuditRecord` and
+- **Audit** — `zeroth.governance.audit.models.NodeAuditRecord` and
   `zeroth.core.service.audit_api`.
-- **Policy** — `zeroth.core.policy.models.PolicyDefinition`,
-  `zeroth.core.policy.guard.PolicyGuard`, and
-  `zeroth.core.policy.registry`.
+- **Policy** — `zeroth.governance.policy.models.PolicyDefinition`,
+  `zeroth.governance.policy.guard.PolicyGuard`, and
+  `zeroth.governance.policy.registry`.

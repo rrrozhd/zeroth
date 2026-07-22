@@ -2,14 +2,14 @@
 
 ## Overview
 
-This guide shows how to configure and run an agent using `zeroth.core.agent_runtime` — the layer described in the [agents concept page](../concepts/agents.md). Agents are the LLM-powered nodes in a graph; the runtime handles prompt assembly, provider invocation, tool binding, output validation, retries, and thread state. You normally create an `AgentRunner` per deployment and hand it to the orchestrator, which calls `runner.run()` each time an `AgentNode` is visited.
+This guide shows how to configure and run an agent using `zeroth.runtime.agents` — the layer described in the [agents concept page](../concepts/agents.md). Agents are the LLM-powered nodes in a graph; the runtime handles prompt assembly, provider invocation, tool binding, output validation, retries, and thread state. You normally create an `AgentRunner` per deployment and hand it to the orchestrator, which calls `runner.run()` each time an `AgentNode` is visited.
 
 ## Minimal example
 
 ```python
 import asyncio
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     LiteLLMProviderAdapter,
@@ -58,4 +58,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.agent_runtime`](../reference/python-api/agents.md).
+See the [Python API reference for `zeroth.runtime.agents`](../reference/python-api/agents.md).

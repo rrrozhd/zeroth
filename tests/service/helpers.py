@@ -9,9 +9,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import (
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -22,10 +22,11 @@ from zeroth.core.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.identity import ServiceRole
-from zeroth.core.runs import Run
-from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.core.service.bootstrap import bootstrap_app, bootstrap_service
+from zeroth.governance.identity import ServiceRole
+from zeroth.runtime.runs import Run
+from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
+from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_service
 
 
 class RunInputPayload(BaseModel):
@@ -45,7 +46,7 @@ TEST_API_KEYS = {
 
 
 def default_service_auth_config():
-    from zeroth.core.identity import ServiceRole
+    from zeroth.governance.identity import ServiceRole
     from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
 
     return ServiceAuthConfig(

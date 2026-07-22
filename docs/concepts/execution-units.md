@@ -2,7 +2,7 @@
 
 ## What it is
 
-An **execution unit** is a packaged, governed piece of runnable code — Python module, wrapped shell command, or project archive — that a graph node can invoke as a deterministic step. The `zeroth.core.execution_units` subsystem provides the manifests, validators, sandbox, and runner that make it safe to call arbitrary code from inside a workflow.
+An **execution unit** is a packaged, governed piece of runnable code — Python module, wrapped shell command, or project archive — that a graph node can invoke as a deterministic step. The `zeroth.integrations.execution` subsystem provides the manifests, validators, sandbox, and runner that make it safe to call arbitrary code from inside a workflow.
 
 ## Why it exists
 

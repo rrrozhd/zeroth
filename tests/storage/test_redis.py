@@ -3,11 +3,8 @@ from __future__ import annotations
 import pytest
 from pydantic import SecretStr
 
-from zeroth.core.storage import (
-    RedisConfig,
-    RedisDeploymentMode,
-    build_governai_redis_runtime,
-)
+from zeroth.integrations.persistence.governed_redis import build_governai_redis_runtime
+from zeroth.platform.storage import RedisConfig, RedisDeploymentMode
 
 
 def test_local_redis_config_builds_default_url() -> None:

@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.audit import AuditRepository
-from zeroth.core.execution_units import (
+from zeroth.governance.audit import AuditRepository
+from zeroth.integrations.execution import (
     AdmissionController,
     CommandArtifactSource,
     ExecutableUnitBinding,
@@ -20,9 +20,10 @@ from zeroth.core.execution_units import (
     WrappedCommandUnitManifest,
     compute_manifest_digest,
 )
-from zeroth.core.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
+from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 class DemoInput(BaseModel):

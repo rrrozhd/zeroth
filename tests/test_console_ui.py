@@ -15,12 +15,8 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from zeroth.core.service.auth import AuthenticationError
-from zeroth.core.service.console_ui import (
-    console_cors_origins,
-    find_console_dir,
-    mount_console,
-)
+from zeroth.service.api.authentication import AuthenticationError
+from zeroth.service.api.console_ui import console_cors_origins, find_console_dir, mount_console
 
 API_KEY = "secret"
 
@@ -77,7 +73,7 @@ def test_find_console_dir_falls_back_to_installed_package(
     import sys
     from types import SimpleNamespace
 
-    import zeroth.core.service.console_ui as console_ui
+    import zeroth.service.api.console_ui as console_ui
 
     monkeypatch.delenv("ZEROTH_CONSOLE_DIR", raising=False)
     # Point the module's repo-root detection at an empty tree so the
@@ -114,7 +110,7 @@ def test_mount_console_false_without_build(monkeypatch, tmp_path: Path) -> None:
 def app(monkeypatch, console_dir: Path):
     monkeypatch.setenv("ZEROTH_CONSOLE_DIR", str(console_dir))
     monkeypatch.setenv("ZEROTH_CONSOLE_CORS_ORIGINS", "http://localhost:3000")
-    from zeroth.core.service.app import create_app
+    from zeroth.service.app import create_app
 
     return create_app(_make_bootstrap())
 

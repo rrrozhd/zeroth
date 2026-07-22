@@ -1,4 +1,4 @@
-"""Tests for zeroth.core.parallel.models — ParallelConfig, BranchContext, BranchResult, FanInResult, GlobalStepTracker."""
+"""Tests for zeroth.runtime.parallel.models — ParallelConfig, BranchContext, BranchResult, FanInResult, GlobalStepTracker."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.parallel.models import (
+from zeroth.runtime.parallel.models import (
     BranchContext,
     BranchResult,
     FanInResult,
     GlobalStepTracker,
     ParallelConfig,
 )
-from zeroth.core.parallel.errors import ParallelStepLimitError
+from zeroth.runtime.parallel.errors import ParallelStepLimitError
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@ class TestNodeBaseParallelConfig:
     """Tests for parallel_config field on NodeBase via AgentNode."""
 
     def test_agent_node_with_parallel_config(self) -> None:
-        from zeroth.core.graph.models import AgentNode, AgentNodeData
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData
 
         config = ParallelConfig(split_path="items", max_branches=3)
         node = AgentNode(
@@ -219,7 +219,7 @@ class TestNodeBaseParallelConfig:
         assert node.parallel_config.max_branches == 3
 
     def test_agent_node_without_parallel_config(self) -> None:
-        from zeroth.core.graph.models import AgentNode, AgentNodeData
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData
 
         node = AgentNode(
             node_id="n2",

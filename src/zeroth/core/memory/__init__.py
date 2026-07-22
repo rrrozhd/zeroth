@@ -1,21 +1,20 @@
-"""Memory subsystem for Zeroth agents.
+"""Legacy import path for the memory integrations package.
 
-This package provides the building blocks for giving agents persistent memory.
-It includes governed-protocol connector implementations, models (data shapes),
-and a registry/resolver (looking up and wrapping connectors by name).
+The memory subsystem lives in :mod:`zeroth.integrations.memory`; this
+package republishes the same objects for compatibility. Import from the
+canonical location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.memory.connectors import (
+from zeroth.integrations.memory import (
+    ConnectorManifest,
+    InMemoryConnectorRegistry,
     KeyValueMemoryConnector,
+    MemoryConnectorResolver,
+    ResolvedMemoryBinding,
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,
+    register_memory_connectors,
 )
-from zeroth.core.memory.factory import register_memory_connectors
-from zeroth.core.memory.models import (
-    ConnectorManifest,
-    ResolvedMemoryBinding,
-)
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 
 __all__ = [
     "ConnectorManifest",

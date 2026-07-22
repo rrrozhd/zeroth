@@ -1,10 +1,14 @@
-"""Public API for the graph package.
+"""Legacy import path for the graph contracts package.
 
-This module re-exports the most important classes so you can import them
-directly from ``zeroth.core.graph`` instead of digging into sub-modules.
+The graph models and repository live in :mod:`zeroth.contracts.graph`; this
+package republishes the same objects for compatibility. Import from the
+canonical location instead (see docs/backend-import-migration.md). The
+public ``GraphValidator`` stays reachable through
+:mod:`zeroth.core.graph.validation`, which lazily re-exports it from the
+runtime layer.
 """
 
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     AgentToolBinding,
@@ -17,6 +21,7 @@ from zeroth.core.graph.models import (
     ExecutableUnitNodeData,
     ExecutionSettings,
     Graph,
+    GraphRepository,
     GraphStatus,
     HumanApprovalNode,
     HumanApprovalNodeData,
@@ -24,11 +29,10 @@ from zeroth.core.graph.models import (
     RetrievalNode,
     RetrievalNodeData,
     SubgraphNode,
+    SubgraphNodeData,
     TemplateMemoryBinding,
     ToolArgument,
 )
-from zeroth.core.graph.repository import GraphRepository
-from zeroth.core.subgraph.models import SubgraphNodeData
 
 __all__ = [
     "AgentNode",

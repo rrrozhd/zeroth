@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
-from zeroth.core.conditions import ConditionContext, ConditionEvaluator
-from zeroth.core.conditions.errors import ConditionEvaluationError
-from zeroth.core.conditions.evaluator import _SafeEvaluator
-from zeroth.core.graph.models import Condition as GraphCondition
+import zeroth.contracts.conditions.models as condition_models
+from zeroth.contracts.conditions import ConditionContext, ConditionEvaluator
+from zeroth.contracts.conditions.errors import ConditionEvaluationError
+from zeroth.contracts.conditions.evaluator import _SafeEvaluator
+from zeroth.contracts.graph.models import Condition as GraphCondition
+from zeroth.platform.primitives import utc_now
+
+
+def test_condition_models_consume_platform_clock_per_instance() -> None:
+    assert condition_models.BranchResolution.model_fields["resolved_at"].default_factory is utc_now
+
+    first = condition_models.BranchResolution(graph_id="graph-1", source_node_id="node-1")
+    second = condition_models.BranchResolution(graph_id="graph-2", source_node_id="node-2")
+
+    assert first.resolved_at.tzinfo is UTC
+    assert first.resolved_at is not second.resolved_at
 
 
 def test_condition_evaluator_handles_nested_paths_and_metadata() -> None:
@@ -58,6 +72,17 @@ def test_condition_evaluator_rejects_unsupported_calls() -> None:
 
     with pytest.raises(ConditionEvaluationError, match="not an allowed safe builtin"):
         evaluator.evaluate(condition, context)
+
+
+def test_condition_evaluator_rejects_dunder_attribute_on_object() -> None:
+    # Audit S5 hardening: reaching a Python object's __class__ (a str here is a
+    # non-Mapping value) would open the introspection/gadget path, so underscore
+    # attribute access on a non-Mapping object is refused.
+    ev = _SafeEvaluator({"s": "hello"})
+    with pytest.raises(ConditionEvaluationError, match="not allowed"):
+        ev.evaluate("s.__class__")
+    # Dict/JSON key access is unaffected (goes through the Mapping branch).
+    assert ev.evaluate("s") == "hello"
 
 
 # ---------------------------------------------------------------------------

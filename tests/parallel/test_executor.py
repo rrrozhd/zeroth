@@ -1,4 +1,4 @@
-"""Tests for zeroth.core.parallel.executor — ParallelExecutor fan-out/fan-in logic."""
+"""Tests for zeroth.runtime.parallel.executor — ParallelExecutor fan-out/fan-in logic."""
 
 from __future__ import annotations
 
@@ -8,12 +8,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from zeroth.core.parallel.errors import (
+from zeroth.runtime.parallel.errors import (
+    BranchApprovalPauseSignal,
     FanOutValidationError,
+    MultipleBranchPauseError,
     ParallelExecutionError,
 )
-from zeroth.core.parallel.executor import ParallelExecutor
-from zeroth.core.parallel.models import (
+from zeroth.runtime.parallel.executor import ParallelExecutor
+from zeroth.runtime.parallel.models import (
     BranchContext,
     BranchResult,
     ParallelConfig,
@@ -218,6 +220,253 @@ class TestExecuteBranches:
         assert all(r.error is None for r in results)
         assert [r.output for r in results] == [{"val": 0}, {"val": 1}, {"val": 2}]
 
+    @pytest.mark.asyncio
+    async def test_best_effort_multiple_pauses_fail_loud(
+        self, executor: ParallelExecutor
+    ) -> None:
+        # B10: best_effort runs every branch to completion, so >1 branch can hit
+        # an approval gate. The old code kept only the LAST pause signal, orphaning
+        # the earlier paused branch's child run. It must now fail loudly.
+        config = ParallelConfig(split_path="items", fail_mode="best_effort")
+        contexts = [
+            BranchContext(branch_index=i, branch_id=f"r:branch:{i}", input_payload={})
+            for i in range(3)
+        ]
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            if ctx.branch_index in (0, 2):
+                raise BranchApprovalPauseSignal(
+                    branch_index=ctx.branch_index,
+                    child_run_id=f"child-{ctx.branch_index}",
+                    graph_ref="child-wf",
+                    version=1,
+                    node_id="sub",
+                )
+            return {"ok": ctx.branch_index}
+
+        with pytest.raises(MultipleBranchPauseError, match="2 branches paused"):
+            await executor.execute_branches(contexts, branch_coro, config)
+
+    @pytest.mark.asyncio
+    async def test_best_effort_single_pause_still_propagates(
+        self, executor: ParallelExecutor
+    ) -> None:
+        # A single pause is the supported case: re-raised as BranchApprovalPauseSignal
+        # with the completed sibling attached (unchanged behavior).
+        config = ParallelConfig(split_path="items", fail_mode="best_effort")
+        contexts = [
+            BranchContext(branch_index=i, branch_id=f"r:branch:{i}", input_payload={})
+            for i in range(2)
+        ]
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            if ctx.branch_index == 1:
+                raise BranchApprovalPauseSignal(
+                    branch_index=1,
+                    child_run_id="child-1",
+                    graph_ref="child-wf",
+                    version=1,
+                    node_id="sub",
+                )
+            return {"ok": 0}
+
+        with pytest.raises(BranchApprovalPauseSignal) as exc_info:
+            await executor.execute_branches(contexts, branch_coro, config)
+        assert exc_info.value.branch_index == 1
+        completed = getattr(exc_info.value, "completed_branch_results", [])
+        assert [br.branch_index for br in completed] == [0]
+
+
+# ---------------------------------------------------------------------------
+# Concurrency controls: max_concurrency / batch_size / branch_timeout_seconds
+# ---------------------------------------------------------------------------
+
+
+def _contexts(n: int) -> list[BranchContext]:
+    return [
+        BranchContext(branch_index=i, branch_id=f"r:branch:{i}", input_payload={"i": i})
+        for i in range(n)
+    ]
+
+
+class TestConcurrencyControls:
+    """Batch-parallelized fan-out: worker cap, sequential waves, per-branch timeout."""
+
+    @pytest.mark.asyncio
+    async def test_max_concurrency_bounds_simultaneous_branches(
+        self, executor: ParallelExecutor
+    ) -> None:
+        """No more than ``max_concurrency`` branches run at once; all still complete."""
+        config = ParallelConfig(split_path="items", max_concurrency=2)
+        live = 0
+        peak = 0
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            await asyncio.sleep(0.02)  # hold the slot so overlap is observable
+            live -= 1
+            return {"i": ctx.branch_index}
+
+        results = await executor.execute_branches(_contexts(6), branch_coro, config)
+
+        assert peak <= 2, peak
+        assert peak == 2  # with 6 branches and a cap of 2, the cap is actually hit
+        assert [r.output["i"] for r in results] == list(range(6))
+
+    @pytest.mark.asyncio
+    async def test_unbounded_concurrency_runs_all_at_once(
+        self, executor: ParallelExecutor
+    ) -> None:
+        """Without a cap, every branch is in flight simultaneously (historical default)."""
+        config = ParallelConfig(split_path="items")  # no max_concurrency
+        live = 0
+        peak = 0
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            await asyncio.sleep(0.02)
+            live -= 1
+            return {"i": ctx.branch_index}
+
+        await executor.execute_branches(_contexts(5), branch_coro, config)
+        assert peak == 5
+
+    @pytest.mark.asyncio
+    async def test_batch_size_runs_sequential_waves(
+        self, executor: ParallelExecutor
+    ) -> None:
+        """Wave N+1 starts only after wave N fully completes (a barrier)."""
+        config = ParallelConfig(split_path="items", batch_size=2)
+        events: list[tuple[str, int]] = []
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            events.append(("start", ctx.branch_index))
+            await asyncio.sleep(0.01)
+            events.append(("end", ctx.branch_index))
+            return {"i": ctx.branch_index}
+
+        results = await executor.execute_branches(_contexts(5), branch_coro, config)
+
+        # All 5 processed, in order.
+        assert [r.output["i"] for r in results] == list(range(5))
+        # Waves are [0,1], [2,3], [4]. Every branch in an earlier wave must END
+        # before any branch in a later wave STARTs.
+        start_pos = {idx: pos for pos, (kind, idx) in enumerate(events) if kind == "start"}
+        end_pos = {idx: pos for pos, (kind, idx) in enumerate(events) if kind == "end"}
+        waves = [[0, 1], [2, 3], [4]]
+        for earlier, later in zip(waves, waves[1:], strict=False):
+            latest_end = max(end_pos[i] for i in earlier)
+            earliest_start = min(start_pos[i] for i in later)
+            assert latest_end < earliest_start, (earlier, later, events)
+
+    @pytest.mark.asyncio
+    async def test_batch_size_within_wave_is_concurrent(
+        self, executor: ParallelExecutor
+    ) -> None:
+        """Branches *within* a wave still run concurrently (not serialized)."""
+        config = ParallelConfig(split_path="items", batch_size=3)
+        live = 0
+        peak = 0
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            await asyncio.sleep(0.02)
+            live -= 1
+            return {"i": ctx.branch_index}
+
+        await executor.execute_branches(_contexts(3), branch_coro, config)
+        assert peak == 3  # the whole wave overlaps
+
+    @pytest.mark.asyncio
+    async def test_branch_timeout_best_effort_becomes_error(
+        self, executor: ParallelExecutor
+    ) -> None:
+        """A branch exceeding the timeout fails like any other branch (best_effort)."""
+        config = ParallelConfig(
+            split_path="items", fail_mode="best_effort", branch_timeout_seconds=0.05
+        )
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            if ctx.branch_index == 1:
+                await asyncio.sleep(10)  # will time out
+            return {"i": ctx.branch_index}
+
+        results = await executor.execute_branches(_contexts(3), branch_coro, config)
+
+        assert results[0].error is None and results[0].output == {"i": 0}
+        assert results[1].output is None and results[1].error is not None  # timed out
+        assert results[2].error is None and results[2].output == {"i": 2}
+
+    @pytest.mark.asyncio
+    async def test_branch_timeout_fail_fast_fails_the_fanout(
+        self, executor: ParallelExecutor
+    ) -> None:
+        """Under fail_fast a timed-out branch cancels the fan-out."""
+        config = ParallelConfig(
+            split_path="items", fail_mode="fail_fast", branch_timeout_seconds=0.05
+        )
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            if ctx.branch_index == 0:
+                await asyncio.sleep(10)
+            await asyncio.sleep(10)
+            return {"i": ctx.branch_index}
+
+        with pytest.raises(ParallelExecutionError):
+            await executor.execute_branches(_contexts(3), branch_coro, config)
+
+    @pytest.mark.asyncio
+    async def test_batched_approval_pause_fails_loud(
+        self, executor: ParallelExecutor
+    ) -> None:
+        """An approval pause inside a MULTI-wave fan-out is rejected loudly.
+
+        Earlier waves already ran their side effects; batched resume can't
+        represent partially-completed waves, so we fail rather than corrupt state.
+        """
+        config = ParallelConfig(split_path="items", batch_size=1)  # 3 waves of 1
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            if ctx.branch_index == 1:  # pauses in the second wave
+                raise BranchApprovalPauseSignal(
+                    branch_index=1,
+                    child_run_id="child-1",
+                    graph_ref="child-wf",
+                    version=1,
+                    node_id="sub",
+                )
+            return {"i": ctx.branch_index}
+
+        with pytest.raises(ParallelExecutionError, match="batched fan-out"):
+            await executor.execute_branches(_contexts(3), branch_coro, config)
+
+    @pytest.mark.asyncio
+    async def test_single_wave_batch_still_propagates_pause(
+        self, executor: ParallelExecutor
+    ) -> None:
+        """batch_size covering everything = one wave → pause propagates normally."""
+        config = ParallelConfig(split_path="items", batch_size=10, fail_mode="best_effort")
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            if ctx.branch_index == 1:
+                raise BranchApprovalPauseSignal(
+                    branch_index=1,
+                    child_run_id="child-1",
+                    graph_ref="child-wf",
+                    version=1,
+                    node_id="sub",
+                )
+            return {"i": ctx.branch_index}
+
+        with pytest.raises(BranchApprovalPauseSignal):
+            await executor.execute_branches(_contexts(2), branch_coro, config)
+
 
 # ---------------------------------------------------------------------------
 # collect_fan_in
@@ -319,7 +568,7 @@ class TestNodeTypeValidation:
         self, executor: ParallelExecutor, basic_config: ParallelConfig
     ) -> None:
         """HumanApprovalNode should be rejected at fan-out validation time."""
-        from zeroth.core.graph.models import HumanApprovalNode, HumanApprovalNodeData
+        from zeroth.contracts.graph.models import HumanApprovalNode, HumanApprovalNodeData
 
         node = HumanApprovalNode(
             node_id="approval1",

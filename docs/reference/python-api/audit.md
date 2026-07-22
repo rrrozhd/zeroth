@@ -1,6 +1,6 @@
 # Audit
 
-::: zeroth.core.audit
+::: zeroth.governance.audit
     options:
       show_root_heading: true
       members_order: source

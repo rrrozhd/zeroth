@@ -18,15 +18,17 @@ Storage sits underneath almost everything. [Runs](runs.md) and threads persist t
 
 ## Key types
 
-All of these live under `zeroth.core.storage`:
+All of these live under `zeroth.platform.storage`:
 
 - **`AsyncDatabase` / `AsyncConnection`** — the async database protocol everything else depends on.
 - **`AsyncSQLiteDatabase`** — the always-available SQLite backend, with optional encryption via `EncryptedField`.
 - **`AsyncPostgresDatabase`** — the Postgres backend, lazily imported (requires `memory-pg` extra).
 - **`SQLiteDatabase` / `Migration`** — the lower-level synchronous SQLite database and its migration helper.
 - **`create_database`** — factory that returns the right backend for the current `ZerothSettings`.
-- **`GovernAIRedisRuntimeStores` / `RedisConfig` / `RedisDeploymentMode`** — Redis-backed runtime state shared across workers.
-- **`build_governai_redis_runtime` / `docker_container_running`** — helpers for bootstrapping and detecting Redis in dev.
+- **`RedisConfig` / `RedisDeploymentMode`** — Redis connection configuration shared across workers.
+- **`docker_container_running`** — helper for detecting a Docker-hosted Redis in dev.
+
+The governed-runtime store bundle (`GovernAIRedisRuntimeStores`, built by `build_governai_redis_runtime`) consumes this configuration but constructs runtime and governance stores, so it lives in `zeroth.integrations.persistence.governed_redis`.
 
 The `json` submodule (`to_json_value`, `from_json_value`, `load_typed_value`) is the canonical way to round-trip Pydantic models through database columns. Every repository in Zeroth uses it, which is why runs, threads, and contracts all persist cleanly across both SQLite and Postgres without bespoke serialisation code.
 

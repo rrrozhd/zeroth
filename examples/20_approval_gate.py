@@ -43,16 +43,7 @@ import uvicorn
 from examples._common import DEMO_API_KEY, demo_auth_config
 from examples._contracts import ToolInput, ToolOutput, Topic
 from examples._tools import build_demo_tool_registry
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    DeterministicProviderAdapter,
-    ProviderResponse,
-)
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -65,10 +56,20 @@ from zeroth.core.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
-from zeroth.core.service.app import create_app
-from zeroth.core.service.bootstrap import bootstrap_service, run_migrations
-from zeroth.core.storage import AsyncSQLiteDatabase
+from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.platform.storage import AsyncSQLiteDatabase
+from zeroth.runtime.agents import (
+    AgentConfig,
+    AgentRunner,
+    DeterministicProviderAdapter,
+    ProviderResponse,
+)
+from zeroth.service.app import create_app
+from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 DEPLOYMENT_REF = "approval-demo"
 DB_PATH = Path("examples_approval.sqlite")

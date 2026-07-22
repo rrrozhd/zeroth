@@ -12,17 +12,18 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,
     ProviderResponse,
 )
-from zeroth.core.audit import AuditRepository
-from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
+from zeroth.governance.audit import AuditRepository
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
+from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.runs import Run, RunRepository, RunStatus
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
 
 
 class _In(BaseModel):

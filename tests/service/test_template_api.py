@@ -11,7 +11,7 @@ from tests.service.helpers import (
     operator_headers,
 )
 from zeroth.core.service.bootstrap import bootstrap_app
-from zeroth.core.templates.registry import TemplateRegistry
+from zeroth.contracts.templates.registry import TemplateRegistry
 
 
 async def _build_app(sqlite_db, *, template_registry=None):

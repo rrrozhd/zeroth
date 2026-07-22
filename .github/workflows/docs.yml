@@ -32,11 +32,28 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Install docs dependencies
-        # --all-extras: the OpenAPI drift check imports zeroth.core.service.app,
+        # --all-extras: the OpenAPI drift check imports zeroth.service.app,
         # which transitively requires the `dispatch` extra (redis). Installing
         # all extras is the simplest way to keep the drift gate honest in CI.
         run: uv sync --all-extras
+
+      - name: Install console dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Check generated console contracts
+        working-directory: frontend
+        run: |
+          npm run check:api
+          npm run check:version
 
       - name: Check Configuration reference is up to date
         run: |

@@ -11,7 +11,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     ExecutableUnitNode,
     ExecutableUnitNodeData,
 )
@@ -62,4 +62,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.execution_units`](../reference/python-api/execution-units.md).
+See the [Python API reference for `zeroth.integrations.execution`](../reference/python-api/execution-units.md).

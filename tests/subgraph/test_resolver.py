@@ -6,18 +6,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from zeroth.core.deployments.models import Deployment
-from zeroth.core.graph.models import (
+from zeroth.service.deployments.models import Deployment
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
     Graph,
     SubgraphNode,
 )
-from zeroth.core.graph.serialization import serialize_graph
-from zeroth.core.subgraph.errors import SubgraphResolutionError
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import (
+from zeroth.contracts.graph.serialization import serialize_graph
+from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import (
     SubgraphResolver,
     merge_governance,
     namespace_subgraph,
@@ -103,7 +103,9 @@ class TestSubgraphResolverResolve:
 
         result_graph, result_deployment = await resolver.resolve("child-ref")
 
-        resolver.deployment_service.get.assert_awaited_once_with("child-ref", None)
+        resolver.deployment_service.get.assert_awaited_once_with(
+            "child-ref", None, tenant_id=None, workspace_id=None
+        )
         assert result_graph.graph_id == "child-g"
         assert result_deployment.deployment_id == "dep-123"
 
@@ -115,7 +117,22 @@ class TestSubgraphResolverResolve:
 
         await resolver.resolve("child-ref", version=2)
 
-        resolver.deployment_service.get.assert_awaited_once_with("child-ref", 2)
+        resolver.deployment_service.get.assert_awaited_once_with(
+            "child-ref", 2, tenant_id=None, workspace_id=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_resolve_forwards_tenant_scope(self) -> None:
+        # Audit S7: resolve() must forward the parent run's tenant/workspace so
+        # the deployment lookup is tenant-scoped (deployment_ref is global).
+        graph = _make_graph()
+        resolver = _make_resolver(_make_deployment(graph))
+
+        await resolver.resolve("child-ref", version=3, tenant_id="tenant-a", workspace_id="ws-a")
+
+        resolver.deployment_service.get.assert_awaited_once_with(
+            "child-ref", 3, tenant_id="tenant-a", workspace_id="ws-a"
+        )
 
     @pytest.mark.asyncio
     async def test_resolve_raises_resolution_error_when_not_found(self) -> None:
@@ -147,6 +164,46 @@ class TestSubgraphResolverResolve:
 
         with pytest.raises(SubgraphResolutionError, match="deserialization"):
             await resolver.resolve("bad-ref")
+
+    @pytest.mark.asyncio
+    async def test_resolve_refuses_foreign_tenant_ref(self, sqlite_db) -> None:
+        """S7 (real DB): a deployment_ref owned by tenant B must NOT resolve for a
+        run owned by tenant A — cross-tenant subgraph execution is fail-closed."""
+        from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
+        from zeroth.core.graph import GraphRepository
+
+        graph = _make_graph()
+        repo = SQLiteDeploymentRepository(sqlite_db)
+        owned_by_b = Deployment(
+            deployment_id="dep-b",
+            deployment_ref="shared-ref",
+            version=1,
+            graph_id=graph.graph_id,
+            graph_version=graph.version,
+            graph_version_ref=f"{graph.graph_id}@{graph.version}",
+            serialized_graph=serialize_graph(graph),
+            tenant_id="tenant-b",
+            workspace_id=None,
+        )
+        await repo.create(owned_by_b, tenant_id="tenant-b", workspace_id=None)
+        resolver = SubgraphResolver(
+            deployment_service=DeploymentService(
+                graph_repository=GraphRepository(sqlite_db),
+                deployment_repository=repo,
+            )
+        )
+
+        # The owning tenant resolves its own ref.
+        _graph, deployment = await resolver.resolve("shared-ref", tenant_id="tenant-b")
+        assert deployment.tenant_id == "tenant-b"
+
+        # A foreign tenant is refused (fail closed) — not silently handed B's graph.
+        with pytest.raises(SubgraphResolutionError, match="not found"):
+            await resolver.resolve("shared-ref", tenant_id="tenant-a")
+
+        # Unscoped (tenant_id=None) still resolves — internal/deploy path unchanged.
+        _graph2, deployment2 = await resolver.resolve("shared-ref")
+        assert deployment2.deployment_id == "dep-b"
 
 
 # ---------------------------------------------------------------------------

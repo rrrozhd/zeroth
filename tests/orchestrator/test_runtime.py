@@ -3,18 +3,19 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     RepositoryThreadResolver,
     RepositoryThreadStateStore,
 )
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
-from zeroth.core.audit import AuditRepository
-from zeroth.core.execution_units import (
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.governance.audit import AuditRepository
+from zeroth.integrations.execution import (
     CommandArtifactSource,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
@@ -26,7 +27,7 @@ from zeroth.core.execution_units import (
     RunConfig,
     WrappedCommandUnitManifest,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -38,17 +39,18 @@ from zeroth.core.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.identity import ActorIdentity, AuthMethod
-from zeroth.core.mappings.models import EdgeMapping, PassthroughMappingOperation
+from zeroth.governance.identity import ActorIdentity, AuthMethod
+from zeroth.contracts.mappings.models import EdgeMapping, PassthroughMappingOperation
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.policy import (
+from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.core.runs import Run, RunRepository, RunStatus, ThreadRepository
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 
 class NumberInput(BaseModel):
@@ -562,6 +564,7 @@ async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqli
     assert run.audit_refs == ["audit:1"]
 
 
+@pytest.mark.legacy_engine
 async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
     store = RepositoryThreadStateStore(sqlite_db)
     thread_resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
@@ -584,6 +587,7 @@ async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
         graph_id="graph-resume",
         name="resume",
         entry_step="agent",
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[
             AgentNode(
                 node_id="agent",

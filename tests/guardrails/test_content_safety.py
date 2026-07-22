@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zeroth.core.guardrails.content import (
+from zeroth.governance.guardrails.content import (
     BlocklistFilter,
     ContentGuardrail,
     PIIFilter,

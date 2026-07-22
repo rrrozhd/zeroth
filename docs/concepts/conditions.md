@@ -2,7 +2,7 @@
 
 ## What it is
 
-A **condition** is the rule attached to a graph edge that decides, at run time, whether the orchestrator should traverse it. The `zeroth.core.conditions` subsystem evaluates those rules, resolves which outgoing edge(s) win at a branching node, and records the outcome on the run's audit trail.
+A **condition** is the rule attached to a graph edge that decides, at run time, whether the orchestrator should traverse it. The `zeroth.contracts.conditions` subsystem evaluates those rules, resolves which outgoing edge(s) win at a branching node, and records the outcome on the run's audit trail.
 
 ## Why it exists
 
@@ -18,7 +18,7 @@ Conditions sit between the [graph](graph.md) and the [orchestrator](orchestrator
 - **`ConditionEvaluator`** — evaluates a single `Condition.expression` against a `ConditionContext`.
 - **`BranchResolver`** — reduces multiple evaluated outcomes into a `BranchResolution` (which edges fire).
 - **`ConditionBinding` / `ConditionBinder`** — compile-time bridge that attaches `Condition` objects to edges before a run starts.
-- **`ConditionResultRecorder`** — persists each decision to the audit trail so branches are inspectable later.
+- **`ConditionResultRecorder`** (runtime-owned, in `zeroth.runtime.runs`) — persists each decision to the audit trail so branches are inspectable later.
 
 ## See also
 

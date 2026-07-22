@@ -11,12 +11,12 @@ provider, how the resolver is called, and how to keep values out of logs.
 ## Minimal example
 
 ```python
-from zeroth.core.secrets import (
+from zeroth.platform.secrets import (
     EnvSecretProvider,
     SecretRedactor,
     SecretResolver,
 )
-from zeroth.core.execution_units.models import EnvironmentVariable
+from zeroth.integrations.execution.models import EnvironmentVariable
 
 # 1. Pick a provider. EnvSecretProvider is the default for local dev.
 provider = EnvSecretProvider({"OPENAI_API_KEY": "sk-test-123"})
@@ -61,6 +61,6 @@ print(redactor.redact("calling LLM with sk-test-123"))  # -> "calling LLM with *
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.secrets`](../reference/python-api/secrets.md).
+See the [Python API reference for `zeroth.platform.secrets`](../reference/python-api/secrets.md).
 
 Related guides: [service how-to](service.md) · [concepts/secrets](../concepts/secrets.md).

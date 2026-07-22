@@ -1,11 +1,22 @@
-"""Deployment models, repository, and service for immutable graph snapshots."""
+"""Legacy import path for the deployment service domain.
 
-from zeroth.core.deployments.models import Deployment, DeploymentStatus
-from zeroth.core.deployments.repository import SQLiteDeploymentRepository
-from zeroth.core.deployments.service import DeploymentError, DeploymentService
+Deployments live in :mod:`zeroth.service.deployments`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
+"""
+
+from zeroth.service.deployments import (
+    Deployment,
+    DeploymentEngineMode,
+    DeploymentError,
+    DeploymentService,
+    DeploymentStatus,
+    SQLiteDeploymentRepository,
+)
 
 __all__ = [
     "Deployment",
+    "DeploymentEngineMode",
     "DeploymentError",
     "DeploymentService",
     "DeploymentStatus",

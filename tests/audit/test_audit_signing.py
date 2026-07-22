@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from zeroth.core.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
-from zeroth.core.audit.verifier import _compute_record_digest, compute_chained_record
-from zeroth.core.signing import EnvHmacSigner
-from zeroth.core.storage.json import to_json_value
+from zeroth.governance.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
+from zeroth.governance.audit.verifier import _compute_record_digest, compute_chained_record
+from zeroth.platform.signing import EnvHmacSigner
+from zeroth.platform.storage.json import to_json_value
 
 
 def _record(*, audit_id: str, run_id: str, node_id: str = "n1") -> NodeAuditRecord:
@@ -143,3 +143,68 @@ async def test_tamper_pii_leaving_commitments_and_signature_is_detected(sqlite_d
     # the mismatch is caught before the signature axis is even consulted.
     assert report.verified is False
     assert report.failed_audit_id == "a1"
+
+
+async def test_erased_record_carrying_pii_is_rejected(sqlite_db) -> None:
+    """S1: a forged erasure (flip ``erased`` + rewrite PII) must NOT verify.
+
+    ``erased`` is digest-excluded and an erased v2+ record's digest folds in the
+    STORED commitments instead of recomputing from live PII. So a DB-only
+    attacker (no signing key) can flip ``erased=True`` and overwrite the PII
+    payload while leaving pii_commitments/record_digest/record_signature
+    byte-for-byte — the digest still matches and the signature still verifies.
+    The verifier's erasure-forgery gate refuses any record that claims erasure
+    yet still carries populated PII.
+    """
+    signer = EnvHmacSigner(key_id="k1", keys={"k1": b"issuer-key"})
+    repo = AuditRepository(sqlite_db, signer=signer)
+    original = NodeAuditRecord(
+        audit_id="a1",
+        run_id="run-forge",
+        node_id="n1",
+        graph_version_ref="graph:v1",
+        deployment_ref="deploy",
+        status="completed",
+        input_snapshot={"ssn": "123-45-6789"},
+        output_snapshot={"decision": "APPROVED"},
+        error="original error",
+        started_at=datetime(2026, 7, 11, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 11, 0, 0, 1, tzinfo=UTC),
+    )
+    await repo.write(original)
+    stored = await repo.get("a1")
+    assert stored.digest_version == 3
+    assert stored.erased is False
+
+    # Baseline: the untampered signed record verifies cleanly on both axes.
+    clean = await AuditContinuityVerifier(repo, signer=signer).verify_run("run-forge")
+    assert clean.verified is True
+    assert clean.signature_verified is True
+
+    # Forge: flip erased=True and rewrite the PII payload while keeping the
+    # commitments, digest, and signature exactly as written. Because an erased
+    # record's digest folds in the STORED commitments (not the live PII), the
+    # digest stays byte-identical and the signature over it still verifies —
+    # nothing here needs the signing key.
+    forged = stored.model_copy(
+        update={
+            "erased": True,
+            "input_snapshot": {"ssn": "999-99-9999"},
+            "output_snapshot": {"decision": "DENIED"},
+            "error": "forged reason",
+        }
+    )
+    assert forged.pii_commitments == stored.pii_commitments
+    assert forged.record_digest == stored.record_digest
+    assert forged.record_signature == stored.record_signature
+    assert _compute_record_digest(forged) == stored.record_digest  # digest axis fooled
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
+            "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
+            (to_json_value(forged.model_dump(mode="json")), "a1"),
+        )
+
+    report = await AuditContinuityVerifier(repo, signer=signer).verify_run("run-forge")
+    assert report.verified is False
+    assert report.failed_audit_id == "a1"
+    assert "erased record carries PII" in (report.error or "")

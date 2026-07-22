@@ -7,7 +7,22 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.retention.models import RetentionPolicy
+import zeroth.governance.retention.models as retention_models
+from zeroth.governance.retention.models import RetentionPolicy
+from zeroth.platform.primitives import utc_now
+from tests.retention.conftest import seed_token_snapshot
+
+
+def test_retention_models_consume_platform_clock_per_instance() -> None:
+    assert retention_models.RetentionPolicy.model_fields["created_at"].default_factory is utc_now
+    assert retention_models.RetentionPolicy.model_fields["updated_at"].default_factory is utc_now
+    assert retention_models.LegalHold.model_fields["created_at"].default_factory is utc_now
+
+    first = retention_models.RetentionPolicy(tenant_id="tenant-1")
+    second = retention_models.RetentionPolicy(tenant_id="tenant-2")
+
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
 
 
 async def _pii_in_audits(database, ssn: str) -> bool:
@@ -110,7 +125,7 @@ def test_policy_rejects_fractional_ttls() -> None:
 
 @pytest.mark.parametrize("bad_ttl", [0, -1, 1.5])
 def test_settings_reject_invalid_default_ttls(bad_ttl: float) -> None:
-    from zeroth.core.config.settings import RetentionSettings
+    from zeroth.platform.config.settings import RetentionSettings
 
     with pytest.raises(ValidationError):
         RetentionSettings(default_audit_ttl_seconds=bad_ttl)
@@ -119,7 +134,7 @@ def test_settings_reject_invalid_default_ttls(bad_ttl: float) -> None:
 
 
 def test_settings_worker_poll_interval_stays_float() -> None:
-    from zeroth.core.config.settings import RetentionSettings
+    from zeroth.platform.config.settings import RetentionSettings
 
     assert RetentionSettings(worker_poll_interval=0.5).worker_poll_interval == 0.5
 
@@ -128,7 +143,7 @@ def test_settings_worker_poll_interval_stays_float() -> None:
 
 
 async def test_missing_tenant_policy_inherits_configured_defaults(sqlite_db) -> None:
-    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+    from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
     repo = RetentionPolicyRepository(
         sqlite_db,
@@ -143,7 +158,7 @@ async def test_missing_tenant_policy_inherits_configured_defaults(sqlite_db) -> 
 
 
 async def test_explicit_none_ttl_beats_configured_default(sqlite_db) -> None:
-    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+    from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
     repo = RetentionPolicyRepository(
         sqlite_db,
@@ -156,7 +171,7 @@ async def test_explicit_none_ttl_beats_configured_default(sqlite_db) -> None:
 
 
 async def test_configured_defaults_are_not_persisted_as_rows(sqlite_db) -> None:
-    from zeroth.core.retention.policy_repository import RetentionPolicyRepository
+    from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
     repo = RetentionPolicyRepository(
         sqlite_db,
@@ -217,9 +232,7 @@ async def test_audit_ttl_sweep_respects_legal_holds(env) -> None:
     await env.seed_run("run-a-held", tenant_id="t-ah", created_at=old, ssn="hhh-88-8888")
     await env.seed_run("run-a-free", tenant_id="t-ah", created_at=old, ssn="fff-99-9999")
     await env.policy_repo.upsert(
-        RetentionPolicy(
-            tenant_id="t-ah", audit_ttl_seconds=int(timedelta(days=30).total_seconds())
-        )
+        RetentionPolicy(tenant_id="t-ah", audit_ttl_seconds=int(timedelta(days=30).total_seconds()))
     )
     await env.hold_repo.place("t-ah", run_id="run-a-held", reason="litigation")
 
@@ -255,6 +268,12 @@ async def test_run_ttl_erases_only_old_terminal_runs(env) -> None:
     }
     for run_id, (status, updated_at) in cases.items():
         await env.seed_run(run_id, tenant_id="t-run", ssn=f"ssn-{run_id}")
+        await seed_token_snapshot(
+            env,
+            run_id,
+            artifact_key=f"{run_id}/token/blob",
+            ssn=f"ssn-{run_id}",
+        )
         await _force_run_state(env.database, run_id, status=status, updated_at=updated_at)
     await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-run", run_ttl_seconds=ttl))
 
@@ -265,10 +284,12 @@ async def test_run_ttl_erases_only_old_terminal_runs(env) -> None:
         run = await env.run_repo.get(run_id)
         assert f"ssn-{run_id}" not in str(run.final_output)
         assert await _checkpoint_count(env.database, run_id) == 0
+        assert await env.run_repo.get_token_snapshot(run_id) is None
         assert await _pii_in_audits(env.database, f"ssn-{run_id}") is False
     for run_id in ("run-pend", "run-live", "run-appr", "run-intr", "run-new"):
         run = await env.run_repo.get(run_id)
         assert f"ssn-{run_id}" in str(run.final_output), run_id
+        assert await env.run_repo.get_token_snapshot(run_id) is not None
         assert await _pii_in_audits(env.database, f"ssn-{run_id}") is True
 
 
@@ -286,9 +307,7 @@ async def test_run_ttl_recheck_blocks_resurrected_run(env) -> None:
     # The race: a retry resurrects the run between selection and erasure.
     await _force_run_state(env.database, "run-barrier", status="PENDING", updated_at=old)
 
-    result = await env.service.erase_run(
-        "run-barrier", "ttl", tenant_id="t-bar", ttl_cutoff=cutoff
-    )
+    result = await env.service.erase_run("run-barrier", "ttl", tenant_id="t-bar", ttl_cutoff=cutoff)
     assert result.audits_erased == 0
     assert result.checkpoints_deleted == 0
     assert result.run_redacted is False
@@ -316,7 +335,7 @@ async def test_run_ttl_ignores_runs_with_old_audits_but_recent_activity(env) -> 
 
 
 async def test_signed_chain_verifies_after_audit_ttl_tombstoning(env) -> None:
-    from zeroth.core.audit import AuditContinuityVerifier
+    from zeroth.governance.audit import AuditContinuityVerifier
 
     old = datetime.now(UTC) - timedelta(days=60)
     await env.seed_run("run-chain", tenant_id="t-chain", created_at=old, n_audits=3)
@@ -379,9 +398,7 @@ async def test_audit_sweep_query_count_does_not_scale_with_records(env, monkeypa
 
     def _sweep_counts() -> tuple[int, int]:
         selects = sum(1 for q in queries if q.lstrip().upper().startswith("SELECT"))
-        updates = sum(
-            1 for q in queries if q.lstrip().upper().startswith("UPDATE NODE_AUDITS")
-        )
+        updates = sum(1 for q in queries if q.lstrip().upper().startswith("UPDATE NODE_AUDITS"))
         return selects, updates
 
     queries.clear()

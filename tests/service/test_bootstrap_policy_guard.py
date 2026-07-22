@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.service.helpers import agent_graph, deploy_service
-from zeroth.core.config.settings import get_settings
+from zeroth.platform.config.settings import get_settings
 
 
 @pytest.mark.asyncio
@@ -14,7 +14,7 @@ async def test_default_bootstrap_wires_policy_guard(sqlite_db) -> None:
     service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="ws-c-guard-on"))
     assert service.orchestrator.policy_guard is not None
     # The default guard resolves the served ref scheme (capability values).
-    from zeroth.core.policy import Capability
+    from zeroth.governance.policy import Capability
 
     registry = service.orchestrator.policy_guard.capability_registry
     assert registry.resolve("memory_read") is Capability.MEMORY_READ

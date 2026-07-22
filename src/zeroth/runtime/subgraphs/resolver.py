@@ -1,0 +1,208 @@
+"""Subgraph resolution and node ID namespacing.
+
+Provides the ``SubgraphResolver`` that looks up a published graph by
+its deployment reference, and helper functions for namespacing node IDs
+and merging governance policy bindings from parent to child graphs.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Protocol
+
+from zeroth.contracts.graph.models import Graph
+from zeroth.contracts.graph.serialization import hydrate_deployed_graph
+from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
+
+
+class ResolvedDeployment(Protocol):
+    """The deployment fields subgraph resolution reads."""
+
+    serialized_graph: str
+    engine_mode: object
+
+
+class DeploymentLookup(Protocol):
+    """Runtime-owned seam for resolving a deployment ref to its stored graph.
+
+    The concrete ``DeploymentService`` satisfies this protocol; service
+    bootstrap injects it so the runtime never imports the service domain.
+    """
+
+    async def get(
+        self,
+        deployment_ref: str,
+        version: int | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> ResolvedDeployment | None: ...
+
+
+@dataclass(slots=True)
+class SubgraphResolver:
+    """Resolves a subgraph graph_ref to a Graph via the deployment lookup.
+
+    Uses the existing ``DeploymentService.get()`` API to look up the
+    deployment and deserializes the stored graph snapshot.
+    """
+
+    deployment_service: DeploymentLookup
+
+    async def resolve(
+        self,
+        graph_ref: str,
+        version: int | None = None,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> tuple[Graph, ResolvedDeployment]:
+        """Look up a deployment and return its deserialized graph.
+
+        Parameters
+        ----------
+        graph_ref:
+            The deployment reference name to look up.
+        version:
+            Optional specific deployment version.  ``None`` means latest.
+        tenant_id:
+            Owning tenant of the run performing the resolution. ``deployment_ref``
+            is a GLOBAL namespace, so without this scope a subgraph node could
+            reference another tenant's ref and execute their graph (audit S7).
+            Callers MUST pass the parent run's tenant so a foreign-owned ref
+            resolves to ``None`` and fails closed instead of leaking.
+        workspace_id:
+            Owning workspace of the run, forwarded alongside ``tenant_id``.
+
+        Returns:
+        -------
+        tuple[Graph, ResolvedDeployment]:
+            The deserialized graph and the deployment record.
+
+        Raises:
+        ------
+        SubgraphResolutionError:
+            If the deployment is not found (including when a foreign tenant owns
+            the ref) or the stored graph cannot be deserialized.
+        """
+        deployment = await self.deployment_service.get(
+            graph_ref, version, tenant_id=tenant_id, workspace_id=workspace_id
+        )
+        if deployment is None:
+            version_part = f"version {version} " if version else ""
+            msg = f"subgraph reference '{graph_ref}' {version_part}not found"
+            raise SubgraphResolutionError(msg)
+
+        try:
+            graph = hydrate_deployed_graph(deployment)
+        except Exception as exc:
+            msg = f"subgraph reference '{graph_ref}' deserialization failed: {exc}"
+            raise SubgraphResolutionError(msg) from exc
+
+        return graph, deployment
+
+
+def namespace_subgraph(
+    graph: Graph,
+    graph_ref: str,
+    depth: int,
+    *,
+    branch_index: int | None = None,
+) -> Graph:
+    """Prefix all node and edge IDs to prevent collisions across nesting levels.
+
+    Returns a new Graph with all identifiers prefixed with
+    ``subgraph:{graph_ref}:{depth}:`` by default, or
+    ``branch:{branch_index}:subgraph:{graph_ref}:{depth}:`` when invoked
+    from inside a parallel fan-out branch (D-10). The original graph is
+    never modified.
+
+    Parameters
+    ----------
+    graph:
+        The child graph whose IDs need namespacing.
+    graph_ref:
+        The deployment reference used as part of the prefix.
+    depth:
+        The nesting depth (0-based) used as part of the prefix.
+    branch_index:
+        Optional parallel-branch index. When set, produces a branch-
+        prefixed variant so audit traces from parallel subgraph
+        branches are grep-distinguishable (D-10). Resume-path
+        idempotency (D-11 literal) relies on passing the SAME
+        branch_index on the second namespacing pass.
+
+    Returns:
+    -------
+    Graph:
+        A copy of the graph with all IDs prefixed.
+    """
+    if branch_index is None:
+        prefix = f"subgraph:{graph_ref}:{depth}:"
+    else:
+        prefix = f"branch:{branch_index}:subgraph:{graph_ref}:{depth}:"
+
+    namespaced_nodes = [
+        node.model_copy(update={"node_id": f"{prefix}{node.node_id}"}) for node in graph.nodes
+    ]
+
+    namespaced_edges = [
+        edge.model_copy(
+            update={
+                "edge_id": f"{prefix}{edge.edge_id}",
+                "source_node_id": f"{prefix}{edge.source_node_id}",
+                "target_node_id": f"{prefix}{edge.target_node_id}",
+            }
+        )
+        for edge in graph.edges
+    ]
+
+    namespaced_entry = f"{prefix}{graph.entry_step}" if graph.entry_step else None
+
+    return graph.model_copy(
+        update={
+            "nodes": namespaced_nodes,
+            "edges": namespaced_edges,
+            "entry_step": namespaced_entry,
+        }
+    )
+
+
+_NAMESPACE_PREFIX = re.compile(r"^(?:branch:\d+:|subgraph:[^:]+:\d+:)+")
+
+
+def base_node_id(node_id: str) -> str:
+    """Strip subgraph/branch namespacing to recover the authored node id.
+
+    The inverse of :func:`namespace_subgraph` for a single id: peels every
+    stacked ``branch:{i}:`` / ``subgraph:{graph_ref}:{depth}:`` prefix so
+    runtime registries keyed by authored node ids (agent runners in
+    particular) keep resolving inside child workflows.
+    """
+    return _NAMESPACE_PREFIX.sub("", node_id)
+
+
+def merge_governance(parent_graph: Graph, subgraph: Graph) -> Graph:
+    """Prepend parent policy bindings to the subgraph's bindings.
+
+    This leverages PolicyGuard's existing intersection semantics to
+    enforce parent-ceiling governance: the subgraph can only restrict,
+    never relax, the parent's capabilities.
+
+    Returns a new Graph; the original subgraph is never modified.
+
+    Parameters
+    ----------
+    parent_graph:
+        The parent graph whose policies take precedence.
+    subgraph:
+        The child graph to merge policies into.
+
+    Returns:
+    -------
+    Graph:
+        A copy of the subgraph with merged policy bindings.
+    """
+    merged_policy_bindings = list(parent_graph.policy_bindings) + list(subgraph.policy_bindings)
+    return subgraph.model_copy(update={"policy_bindings": merged_policy_bindings})

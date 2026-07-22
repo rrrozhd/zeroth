@@ -72,8 +72,8 @@ async def test_split_fan_out_allows_subgraph_node() -> None:
     downstream nodes."""
     from unittest.mock import MagicMock
 
-    from zeroth.core.parallel.executor import ParallelExecutor
-    from zeroth.core.parallel.models import ParallelConfig
+    from zeroth.runtime.parallel.executor import ParallelExecutor
+    from zeroth.runtime.parallel.models import ParallelConfig
 
     executor = ParallelExecutor()
     config = ParallelConfig(split_path="items")

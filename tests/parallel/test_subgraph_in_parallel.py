@@ -4,7 +4,7 @@ Top-of-module note: This module's integration tests mock the
 ``SubgraphExecutor`` rather than constructing a full resolver +
 DeploymentService chain. The mocks return pre-built child ``Run``
 objects so that ``branch_coro_factory``'s SubgraphNode dispatch path is
-exercised end-to-end through ``_execute_parallel_fan_out`` and
+exercised end-to-end through ``RuntimeParallelExecutor.execute_fan_out`` and
 ``ParallelExecutor`` without the persistence overhead of
 ``tests/subgraph/test_integration.py``.
 
@@ -38,23 +38,24 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from zeroth.core.graph.models import (
+from zeroth.contracts.graph.models import (
+    ExecutionSettings,
     HumanApprovalNode,
     HumanApprovalNodeData,
     SubgraphNode,
 )
-from zeroth.core.parallel.errors import (
+from zeroth.runtime.parallel.errors import (
     BranchApprovalPauseSignal,
     FanOutValidationError,
 )
-from zeroth.core.parallel.executor import ParallelExecutor
-from zeroth.core.parallel.models import (
+from zeroth.runtime.parallel.executor import ParallelExecutor
+from zeroth.runtime.parallel.models import (
     BranchContext,
     BranchResult,
     FanInResult,
     ParallelConfig,
 )
-from zeroth.core.subgraph.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +264,8 @@ class TestNamespaceSubgraphBranchIndex:
     """D-10: ``branch_index`` kwarg produces branch-prefixed audit IDs."""
 
     def test_no_branch_index_matches_phase_39(self) -> None:
-        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
-        from zeroth.core.subgraph.resolver import namespace_subgraph
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.runtime.subgraphs.resolver import namespace_subgraph
 
         node = AgentNode(
             node_id="a1",
@@ -281,8 +282,8 @@ class TestNamespaceSubgraphBranchIndex:
         assert ns.entry_step == "subgraph:g:1:a1"
 
     def test_branch_index_produces_branch_prefix(self) -> None:
-        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
-        from zeroth.core.subgraph.resolver import namespace_subgraph
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.runtime.subgraphs.resolver import namespace_subgraph
 
         node = AgentNode(
             node_id="a1",
@@ -300,8 +301,8 @@ class TestNamespaceSubgraphBranchIndex:
 
     def test_branch_index_idempotent_re_namespacing(self) -> None:
         """D-11 idempotency: re-namespacing with same branch_index is stable."""
-        from zeroth.core.graph.models import AgentNode, AgentNodeData, Graph
-        from zeroth.core.subgraph.resolver import namespace_subgraph
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
+        from zeroth.runtime.subgraphs.resolver import namespace_subgraph
 
         node = AgentNode(
             node_id="a1",
@@ -329,12 +330,14 @@ class TestScenario1SubgraphInFanOutBranch:
     executes one child run per branch and merges their outputs via
     collect fan-in."""
 
+    pytestmark = pytest.mark.legacy_engine
+
     @pytest.mark.asyncio
     async def test_fan_out_to_subgraph_collect(self) -> None:
         from unittest.mock import AsyncMock, MagicMock
 
-        from zeroth.core.execution_units import ExecutableUnitRunner
-        from zeroth.core.graph.models import (
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.contracts.graph.models import (
             AgentNode,
             AgentNodeData,
             Edge,
@@ -342,7 +345,7 @@ class TestScenario1SubgraphInFanOutBranch:
         )
         from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
         from zeroth.core.runs.models import Run, RunStatus
-        from zeroth.core.subgraph.executor import SubgraphExecutor
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
         # Parent graph: source AgentNode (fan-out) -> SubgraphNode (downstream).
         source_node = AgentNode(
@@ -369,6 +372,7 @@ class TestScenario1SubgraphInFanOutBranch:
                 )
             ],
             entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
         )
 
         # Mock source agent runner to emit 3 items.
@@ -450,8 +454,8 @@ class TestScenario1SubgraphInFanOutBranch:
         """
         from unittest.mock import AsyncMock, MagicMock
 
-        from zeroth.core.execution_units import ExecutableUnitRunner
-        from zeroth.core.graph.models import (
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.contracts.graph.models import (
             AgentNode,
             AgentNodeData,
             Edge,
@@ -459,7 +463,7 @@ class TestScenario1SubgraphInFanOutBranch:
         )
         from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
         from zeroth.core.runs.models import Run, RunStatus
-        from zeroth.core.subgraph.executor import SubgraphExecutor
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
         source_node = AgentNode(
             node_id="source",
@@ -485,6 +489,7 @@ class TestScenario1SubgraphInFanOutBranch:
                 )
             ],
             entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
         )
 
         class _FakeResult:
@@ -559,3 +564,107 @@ class TestScenario1SubgraphInFanOutBranch:
         assert pending["paused_branch"]["child_run_id"] == "child-run-1"
         assert pending["paused_branch"]["graph_ref"] == "child-wf"
         assert pending["paused_branch"]["node_id"] == "sub-step"
+
+    async def test_nested_pause_on_resume_persists_waiting_approval(self, sqlite_db) -> None:
+        """B8: a SECOND approval gate hit while RESUMING a paused fan-out branch
+        must persist the run as WAITING_APPROVAL — not silently complete it.
+
+        Before the fix the nested-pause branch re-queued the fan-out node in
+        MEMORY and returned without put()/write_checkpoint(); the worker discards
+        the returned run, so the reloaded row (fan-out node already popped) made
+        the next _drive mark the run COMPLETED — a false run.completed and dropped
+        branch outputs. Only the SubgraphExecutor (child execution) is stubbed;
+        the parent orchestration runs against a REAL repo and the assertion
+        reloads the run from the DB.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.core.execution_units import ExecutableUnitRunner
+        from zeroth.core.graph.models import AgentNode, AgentNodeData, Edge, Graph
+        from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
+        from zeroth.core.runs import RunRepository
+        from zeroth.core.runs.models import Run, RunStatus
+        from zeroth.core.subgraph.executor import SubgraphExecutor
+
+        source_node = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4"),
+            parallel_config=ParallelConfig(split_path="items", fail_mode="best_effort"),
+        )
+        sub_node = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        parent_graph = Graph(
+            graph_id="parent-g8",
+            name="parent-g8",
+            version=1,
+            nodes=[source_node, sub_node],
+            edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sub-step")],
+            entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+        )
+
+        class _FakeResult:
+            def __init__(self, output_data: dict[str, Any]) -> None:
+                self.output_data = output_data
+                self.audit_record = {"model": "test", "token_usage": None}
+
+        source_runner = AsyncMock()
+        source_runner.run = AsyncMock(
+            return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]})
+        )
+
+        def _waiting_child() -> Run:
+            return Run(
+                run_id="child-run-1",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.WAITING_APPROVAL,
+                metadata={"subgraph_depth": 1},
+            )
+
+        async def _first_execute(**kwargs: Any) -> Run:
+            idx = kwargs["branch_context"].branch_index
+            if idx == 1:
+                return _waiting_child()  # branch 1 hits the first gate
+            return Run(
+                run_id=f"child-run-{idx}",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.COMPLETED,
+                final_output={"done": idx},
+                metadata={"subgraph_depth": 1, "total_cost_usd": 0.0},
+            )
+
+        async def _resume(**kwargs: Any) -> Run:
+            return _waiting_child()  # resumed branch hits a SECOND gate
+
+        mock_executor = MagicMock(spec=SubgraphExecutor)
+        mock_executor.execute = AsyncMock(side_effect=_first_execute)
+        mock_executor.resume = AsyncMock(side_effect=_resume)
+
+        repo = RunRepository(sqlite_db)
+        orch = RuntimeOrchestrator(
+            run_repository=repo,
+            agent_runners={"source": source_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            subgraph_executor=mock_executor,
+        )
+
+        run = await orch.run_graph(parent_graph, {"input": "test"})
+        assert run.status is RunStatus.WAITING_APPROVAL
+
+        # Resume: the paused branch pauses AGAIN (nested gate).
+        await orch.resume_graph(parent_graph, run.run_id)
+
+        # Reloaded from the DB: the fix keeps it WAITING_APPROVAL with the fan-out
+        # node re-queued and pending_parallel_subgraph still present (the bug
+        # marked it COMPLETED with an empty queue).
+        reloaded = await repo.get(run.run_id)
+        assert reloaded is not None
+        assert reloaded.status is RunStatus.WAITING_APPROVAL
+        assert "source" in reloaded.pending_node_ids
+        assert reloaded.metadata.get("pending_parallel_subgraph") is not None

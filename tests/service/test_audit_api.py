@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import admin_headers, agent_graph, deploy_service
-from zeroth.core.audit import NodeAuditRecord
+from zeroth.governance.audit import NodeAuditRecord
 from zeroth.core.service.bootstrap import bootstrap_app
 
 

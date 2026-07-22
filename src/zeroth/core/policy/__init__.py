@@ -1,27 +1,23 @@
-"""Policy and capability enforcement primitives.
+"""Legacy import path for the governance policy package.
 
-This package lets you define what agents are and aren't allowed to do.
-It provides models for capabilities (like network access or file writes),
-policy definitions that allow or deny those capabilities, and a guard that
-checks policies before a node runs.
+The policy subsystem lives in :mod:`zeroth.governance.policy`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.policy.errors import (
-    CapabilityDeniedError,
-    parse_effective_capabilities,
-    require_capabilities,
-)
-from zeroth.core.policy.guard import PolicyGuard, apply_secret_policy
-from zeroth.core.policy.models import (
+from zeroth.governance.policy import (
     Capability,
+    CapabilityDeniedError,
+    CapabilityRegistry,
     EnforcementResult,
     PolicyDecision,
     PolicyDefinition,
-)
-from zeroth.core.policy.registry import (
-    CapabilityRegistry,
+    PolicyGuard,
     PolicyRegistry,
+    apply_secret_policy,
     default_capability_registry,
+    parse_effective_capabilities,
+    require_capabilities,
 )
 
 __all__ = [

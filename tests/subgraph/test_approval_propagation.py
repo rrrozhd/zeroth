@@ -13,22 +13,27 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph.models import (
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
+    ExecutionSettings,
     Graph,
     HumanApprovalNode,
     HumanApprovalNodeData,
     SubgraphNode,
 )
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.runs.models import Run, RunStatus
-from zeroth.core.subgraph.errors import SubgraphResolutionError
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.runs import Run
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
+
+
+pytestmark = pytest.mark.legacy_engine
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +77,7 @@ def _make_parent_graph_with_subgraph(
         graph_id="parent-g",
         name="parent-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[subgraph_node],
         edges=[],
         entry_step="s1",
@@ -104,6 +110,7 @@ def _make_parent_graph_with_subgraph_and_successor(
         graph_id="parent-g",
         name="parent-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[subgraph_node, agent_node],
         edges=[edge],
         entry_step="s1",
@@ -283,6 +290,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -334,6 +342,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -374,6 +383,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 HumanApprovalNode(
                     node_id="approve-1",
@@ -443,6 +453,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -462,8 +473,11 @@ class TestApprovalPropagationResume:
 
         await orch._drive(parent_graph, parent_run)
 
-        # Verify resolver was called with correct graph_ref and version
-        mock_resolver.resolve.assert_called_once_with("child-g", 2)
+        # Verify resolver was called with correct graph_ref, version, and the
+        # parent run's tenant scope (audit S7 — resume path is tenant-scoped too).
+        mock_resolver.resolve.assert_called_once_with(
+            "child-g", 2, tenant_id=parent_run.tenant_id, workspace_id=parent_run.workspace_id
+        )
 
     @pytest.mark.asyncio
     async def test_resume_governance_merge_reapplied(self) -> None:
@@ -498,6 +512,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -573,6 +588,7 @@ class TestApprovalPropagationResume:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",
@@ -644,6 +660,7 @@ class TestApprovalPropagationNested:
             graph_id="child-g",
             name="child",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[
                 AgentNode(
                     node_id="c1",

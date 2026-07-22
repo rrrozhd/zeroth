@@ -11,14 +11,14 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from zeroth.core.governed.memory.models import MemoryScope
+from zeroth.integrations.memory.governed.models import MemoryScope
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.audit import AuditRepository
-from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import (
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.governance.audit import AuditRepository
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     Edge,
@@ -26,14 +26,15 @@ from zeroth.core.graph import (
     Graph,
     TemplateMemoryBinding,
 )
-from zeroth.core.memory.connectors import KeyValueMemoryConnector
-from zeroth.core.memory.models import ConnectorManifest
-from zeroth.core.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
-from zeroth.core.memory.tenant_scoped import TenantScopedMemoryConnector
+from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
+from zeroth.integrations.memory.models import ConnectorManifest
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.integrations.memory.tenant_scoped import TenantScopedMemoryConnector
 from zeroth.core.orchestrator.runtime import MemoryBindingResolutionError, RuntimeOrchestrator
-from zeroth.core.runs import Run, RunRepository, RunStatus
-from zeroth.core.templates.registry import TemplateRegistry
-from zeroth.core.templates.renderer import TemplateRenderer
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.contracts.templates.registry import TemplateRegistry
+from zeroth.contracts.templates.renderer import TemplateRenderer
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -402,7 +403,7 @@ class _AnyOutput(BaseModel):
 @pytest.mark.asyncio
 async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
     """End-to-end: memory value from template_memory_binding reaches the rendered template."""
-    from zeroth.core.templates.models import TemplateReference
+    from zeroth.contracts.templates.models import TemplateReference
 
     reg, raw = _make_registry_and_connector()
     await _prepopulate(raw, "lang", "Python")
@@ -478,7 +479,7 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
 @pytest.mark.asyncio
 async def test_tmb_audit_record_present_in_dispatch_audit(sqlite_db) -> None:
     """_dispatch_node populates execution_metadata.template_memory_bindings in audit record."""
-    from zeroth.core.templates.models import TemplateReference
+    from zeroth.contracts.templates.models import TemplateReference
 
     reg, raw = _make_registry_and_connector()
     await _prepopulate(raw, "ctx", "some-context")

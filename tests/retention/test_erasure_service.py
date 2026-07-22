@@ -2,15 +2,126 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 
 import pytest
 
-from tests.retention.conftest import make_audit_record
-from zeroth.core.audit.verifier import _compute_pii_commitments, compute_chained_record
-from zeroth.core.retention.erasure_service import LegalHoldError
-from zeroth.core.storage.json import to_json_value
+from tests.conftest import requires_docker
+from tests.retention.conftest import _build_env, make_audit_record, seed_token_snapshot
+from zeroth.governance.audit.verifier import _compute_pii_commitments, compute_chained_record
+from zeroth.governance.retention.erasure_service import LegalHoldError
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
+from zeroth.platform.storage.json import to_json_value
+from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotWriteDisabledError
+
+
+async def _assert_erasure_wins_snapshot_race(retention_env, monkeypatch) -> None:
+    run_id = "run-erasure-wins"
+    artifact_key = f"{run_id}/token/blob"
+    await retention_env.seed_run(run_id, n_audits=0)
+    await seed_token_snapshot(
+        retention_env,
+        run_id,
+        artifact_key=artifact_key,
+        ssn="111-22-3333",
+    )
+    current = await retention_env.run_repo.get_token_snapshot(run_id)
+    assert current is not None
+    proposed = current.model_copy(update={"revision": 1})
+
+    fenced = asyncio.Event()
+    release_erasure = asyncio.Event()
+    original = RunRepository.fence_token_snapshot_writes_in_transaction
+
+    async def pause_after_fence(self, connection, fenced_run_id):
+        result = await original(self, connection, fenced_run_id)
+        if self is retention_env.run_repo and fenced_run_id == run_id:
+            fenced.set()
+            await release_erasure.wait()
+        return result
+
+    monkeypatch.setattr(
+        RunRepository,
+        "fence_token_snapshot_writes_in_transaction",
+        pause_after_fence,
+    )
+    erasure = asyncio.create_task(retention_env.service.erase_run(run_id, "rte"))
+    await asyncio.wait_for(fenced.wait(), timeout=5)
+    writer = asyncio.create_task(
+        retention_env.run_repo.compare_and_swap_token_snapshot(
+            run_id,
+            expected_revision=0,
+            snapshot=proposed,
+        )
+    )
+    await asyncio.sleep(0.05)
+    assert not writer.done()
+    release_erasure.set()
+    await erasure
+    result = await asyncio.gather(writer, return_exceptions=True)
+
+    assert isinstance(result[0], TokenSnapshotWriteDisabledError)
+    assert await retention_env.run_repo.get_token_snapshot(run_id) is None
+    assert artifact_key not in retention_env.artifact_store.blobs
+
+
+async def _assert_snapshot_writer_wins_race(retention_env, monkeypatch) -> None:
+    run_id = "run-writer-wins"
+    artifact_key = f"{run_id}/token/blob"
+    await retention_env.seed_run(run_id, n_audits=0)
+
+    committed = asyncio.Event()
+    release_writer = asyncio.Event()
+    original = TokenSnapshotRowStore.compare_and_swap
+
+    async def pause_after_commit(self, *args, **kwargs):
+        result = await original(self, *args, **kwargs)
+        if args and args[0] == run_id:
+            committed.set()
+            await release_writer.wait()
+        return result
+
+    monkeypatch.setattr(TokenSnapshotRowStore, "compare_and_swap", pause_after_commit)
+    writer = asyncio.create_task(
+        seed_token_snapshot(
+            retention_env,
+            run_id,
+            artifact_key=artifact_key,
+            ssn="444-55-6666",
+        )
+    )
+    await asyncio.wait_for(committed.wait(), timeout=5)
+    erasure = asyncio.create_task(retention_env.service.erase_run(run_id, "rte"))
+    await erasure
+    assert not writer.done()
+    release_writer.set()
+    await writer
+
+    assert await retention_env.run_repo.get_token_snapshot(run_id) is None
+    assert artifact_key not in retention_env.artifact_store.blobs
+
+
+async def test_erasure_and_snapshot_cas_are_serialized_both_orders_on_sqlite(
+    env,
+    monkeypatch,
+) -> None:
+    await _assert_erasure_wins_snapshot_race(env, monkeypatch)
+    monkeypatch.undo()
+    await _assert_snapshot_writer_wins_race(env, monkeypatch)
+
+
+@requires_docker
+async def test_erasure_and_snapshot_cas_are_serialized_both_orders_on_postgres(
+    postgres_database,
+    monkeypatch,
+) -> None:
+    retention_env = _build_env(postgres_database)
+    await _assert_erasure_wins_snapshot_race(retention_env, monkeypatch)
+    monkeypatch.undo()
+    await _assert_snapshot_writer_wins_race(retention_env, monkeypatch)
 
 
 async def _pii_present(database, ssn: str) -> dict[str, bool]:
@@ -19,7 +130,9 @@ async def _pii_present(database, ssn: str) -> dict[str, bool]:
         audits = await connection.fetch_all("SELECT record_json FROM node_audits", ())
         checkpoints = await connection.fetch_all("SELECT state_json FROM run_checkpoints", ())
         runs = await connection.fetch_all(
-            "SELECT final_output, artifacts, metadata, error FROM runs", ()
+            "SELECT final_output, artifacts, metadata, error, execution_history, "
+            "failure_state, condition_results, channels, pending_approval FROM runs",
+            (),
         )
     return {
         "node_audits": any(ssn in (row["record_json"] or "") for row in audits),
@@ -28,9 +141,51 @@ async def _pii_present(database, ssn: str) -> dict[str, bool]:
     }
 
 
+async def test_erasure_succeeds_on_encrypted_deployment(encrypted_env) -> None:
+    """F1 part b: erasure must decrypt run_checkpoints.state_json before parsing.
+
+    Without the fix the payload harvest ran json.loads over the Fernet ciphertext,
+    raising JSONDecodeError and rolling the whole erasure back to a no-op on every
+    at-rest-encrypted deployment.
+    """
+    ssn = "555-11-2222"
+    await encrypted_env.seed_run("run-enc", n_audits=2, ssn=ssn)
+    artifact_key = "run-enc/token/blob"
+    await seed_token_snapshot(
+        encrypted_env,
+        "run-enc",
+        artifact_key=artifact_key,
+        ssn=ssn,
+    )
+
+    # The checkpoint really is encrypted at rest — the raw column holds neither
+    # the plaintext PII nor parseable JSON.
+    async with encrypted_env.database.transaction() as connection:
+        rows = await connection.fetch_all(
+            "SELECT state_json FROM run_checkpoints WHERE run_id = ?", ("run-enc",)
+        )
+    assert rows
+    assert ssn not in rows[0]["state_json"]
+    async with encrypted_env.database.transaction() as connection:
+        token_row = await connection.fetch_one(
+            "SELECT snapshot_json FROM token_engine_snapshots WHERE run_id = ?",
+            ("run-enc",),
+        )
+    assert token_row is not None and ssn not in token_row["snapshot_json"]
+
+    result = await encrypted_env.service.erase_run("run-enc", "rte")
+    assert result.run_redacted is True
+    assert result.checkpoints_deleted >= 1
+    assert await encrypted_env.run_repo.get_token_snapshot("run-enc") is None
+    assert artifact_key not in encrypted_env.artifact_store.blobs
+    assert artifact_key in encrypted_env.artifact_store.deleted_keys
+
+
 async def test_full_surface_erasure(env) -> None:
     ssn = "999-88-7777"
     await env.seed_run("run-full", n_audits=3, artifact_key="run-full/n0/blob", ssn=ssn)
+    token_artifact = "run-full/token/blob"
+    await seed_token_snapshot(env, "run-full", artifact_key=token_artifact, ssn=ssn)
 
     # Pre-condition: PII is everywhere.
     before = await _pii_present(env.database, ssn)
@@ -47,6 +202,15 @@ async def test_full_surface_erasure(env) -> None:
     # No seeded PII string remains on ANY surface.
     after = await _pii_present(env.database, ssn)
     assert after == {"node_audits": False, "run_checkpoints": False, "runs": False}
+
+    # And on read, `error` does not re-derive from a (now-cleared) failure_state
+    # (audit F1 re-audit: nulling error alone let the plaintext resurface).
+    reloaded = await env.run_repo.get("run-full")
+    assert reloaded is not None
+    assert reloaded.error is None
+    assert reloaded.failure_state is None
+    # pending_approval (free-form reason + metadata) is cleared too (F1 re-audit^2).
+    assert reloaded.pending_approval is None
     # Checkpoints deleted, run row kept (redacted), artifact gone.
     async with env.database.transaction() as connection:
         cp = await connection.fetch_all(
@@ -59,6 +223,9 @@ async def test_full_surface_erasure(env) -> None:
     assert run_row is not None  # continuity: row kept
     assert run_row["artifacts"] == "{}" and run_row["metadata"] == "{}"
     assert "run-full/n0/blob" not in env.artifact_store.blobs
+    assert token_artifact not in env.artifact_store.blobs
+    assert token_artifact in env.artifact_store.deleted_keys
+    assert await env.run_repo.get_token_snapshot("run-full") is None
     assert env.artifact_store.cleanup_calls == ["run-full"]
 
 

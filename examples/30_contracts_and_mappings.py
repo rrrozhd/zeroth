@@ -35,13 +35,7 @@ import sys
 from pydantic import BaseModel, Field
 
 from examples._common import print_run_summary, running_service
-from zeroth.core.agent_runtime import (
-    AgentConfig,
-    AgentRunner,
-    DeterministicProviderAdapter,
-    ProviderResponse,
-)
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     DisplayMetadata,
@@ -49,12 +43,18 @@ from zeroth.core.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.mappings.models import (
+from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,
     PassthroughMappingOperation,
     RenameMappingOperation,
+)
+from zeroth.runtime.agents import (
+    AgentConfig,
+    AgentRunner,
+    DeterministicProviderAdapter,
+    ProviderResponse,
 )
 
 

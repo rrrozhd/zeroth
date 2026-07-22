@@ -1,4 +1,4 @@
-"""Tests for zeroth.core.http.circuit_breaker — CircuitBreaker, Registry, TokenBucket."""
+"""Tests for zeroth.integrations.http.circuit_breaker — CircuitBreaker, Registry, TokenBucket."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ import time
 
 import pytest
 
-from zeroth.core.http.circuit_breaker import (
+from zeroth.integrations.http.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerRegistry,
     CircuitState,
     InMemoryTokenBucket,
 )
-from zeroth.core.http.errors import CircuitOpenError
+from zeroth.integrations.http.errors import CircuitOpenError
 
 
 class TestCircuitState:

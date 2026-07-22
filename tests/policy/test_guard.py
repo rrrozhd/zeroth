@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
-from zeroth.core.policy import (
+from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
+from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,
     PolicyDecision,
@@ -12,7 +12,7 @@ from zeroth.core.policy import (
     PolicyRegistry,
     apply_secret_policy,
 )
-from zeroth.core.runs import Run
+from zeroth.runtime.runs import Run
 
 
 def _graph() -> Graph:

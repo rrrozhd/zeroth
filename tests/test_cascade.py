@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import pytest
-from zeroth.core.governed.integrations.tool_calls import NormalizedToolCall
+from zeroth.runtime.agents.tooling.tool_calls import NormalizedToolCall
 
-from zeroth.core.agent_runtime.cascade import CascadingProviderAdapter, _is_blank_response
-from zeroth.core.agent_runtime.provider import ProviderRequest, ProviderResponse
+from zeroth.runtime.agents.cascade import CascadingProviderAdapter, _is_blank_response
+from zeroth.runtime.agents.provider import ProviderRequest, ProviderResponse
 
 
 class _ByModel:

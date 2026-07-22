@@ -42,16 +42,16 @@ from pathlib import Path
 
 import httpx
 
-from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage import AsyncSQLiteDatabase
-from zeroth.core.webhooks import (
+from zeroth.platform.storage import AsyncSQLiteDatabase
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.service.webhooks import (
     WebhookEventType,
     WebhookRepository,
     WebhookSubscription,
     sign_payload,
 )
-from zeroth.core.webhooks.delivery import WebhookDeliveryWorker
-from zeroth.core.webhooks.service import WebhookService
+from zeroth.service.webhooks.delivery import WebhookDeliveryWorker
+from zeroth.service.webhooks.service import WebhookService
 
 
 class FlakyReceiver:

@@ -1,34 +1,21 @@
-"""Parallel fan-out/fan-in execution for governed workflows.
+"""Legacy import path for the runtime parallel package.
 
-This package provides the data models, error hierarchy, and execution engine
-for splitting a node's output into concurrent branches, running them in
-parallel via asyncio, and collecting the results with deterministic ordering.
-
-Public API
-----------
-Models:
-    ParallelConfig, BranchContext, BranchResult, FanInResult, GlobalStepTracker
-
-Errors:
-    ParallelExecutionError, BranchError, FanOutValidationError, ParallelStepLimitError
-
-Executor:
-    ParallelExecutor
+Parallel fan-out/fan-in execution lives in :mod:`zeroth.runtime.parallel`;
+this package republishes the same objects for compatibility. Import from
+the canonical location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.parallel.errors import (
-    BranchError,
-    FanOutValidationError,
-    ParallelExecutionError,
-    ParallelStepLimitError,
-)
-from zeroth.core.parallel.executor import ParallelExecutor
-from zeroth.core.parallel.models import (
+from zeroth.runtime.parallel import (
     BranchContext,
+    BranchError,
     BranchResult,
     FanInResult,
+    FanOutValidationError,
     GlobalStepTracker,
     ParallelConfig,
+    ParallelExecutionError,
+    ParallelExecutor,
+    ParallelStepLimitError,
 )
 
 __all__ = [

@@ -24,7 +24,7 @@ the run surface.
     `zeroth.core.examples.quickstart` is a **tutorial helper only**. It
     is not a stable public API and may change without a deprecation
     cycle. For real graph authoring, build your graph with the public
-    `zeroth.core.graph` models directly.
+    `zeroth.contracts.graph` models directly.
 
 ## The example script
 

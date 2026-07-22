@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.agent_runtime.factory import tool_required_capabilities
-from zeroth.core.graph.models import (
+from zeroth.runtime.agents.factory import tool_required_capabilities
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     AgentToolBinding,
@@ -18,9 +18,9 @@ from zeroth.core.graph.models import (
     Node,
     ToolArgument,
 )
-from zeroth.core.graph.validation import GraphValidator
-from zeroth.core.graph.validation_errors import ValidationCode
-from zeroth.core.policy import Capability
+from zeroth.runtime.graph_validation import GraphValidator
+from zeroth.contracts.graph.validation_errors import ValidationCode
+from zeroth.governance.policy import Capability
 
 REF = "cap-graph@1"
 

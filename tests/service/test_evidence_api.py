@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import admin_headers, approval_graph, deploy_service
-from zeroth.core.audit import MemoryAccessRecord, NodeAuditRecord, ToolCallRecord
-from zeroth.core.runs import Run
+from zeroth.governance.audit import MemoryAccessRecord, NodeAuditRecord, ToolCallRecord
+from zeroth.runtime.runs import Run
 from zeroth.core.service.bootstrap import bootstrap_app
 
 
@@ -142,6 +142,8 @@ async def test_deployment_attestation_verification_detects_snapshot_tampering(sq
     assert attestation_response.status_code == 200
     attestation = attestation_response.json()
     assert attestation["deployment_ref"] == deployment.deployment_ref
+    assert attestation["engine_mode"] == "token"
+    assert attestation["attestation_payload_version"] == 2
     assert attestation["graph_snapshot_digest"]
     assert attestation["contract_snapshot_digest"]
     assert attestation["settings_snapshot_digest"]

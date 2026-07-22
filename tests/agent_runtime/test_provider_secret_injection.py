@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.agent_runtime.provider import LiteLLMProviderAdapter
-from zeroth.core.secrets import SecretResolutionError
+from zeroth.runtime.agents.provider import LiteLLMProviderAdapter
+from zeroth.platform.secrets import SecretResolutionError
 
 
 class _FakeSecretProvider:
@@ -170,7 +170,7 @@ async def test_ainvoke_resolves_key_without_sync_provider_call(
     from langchain_core.messages import AIMessage
     from langchain_litellm import ChatLiteLLM
 
-    from zeroth.core.agent_runtime.provider import ProviderRequest
+    from zeroth.runtime.agents.provider import ProviderRequest
 
     async def _fake_ainvoke(self, messages, **kwargs):  # noqa: ANN001
         return AIMessage(content='{"ok": true}')

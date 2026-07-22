@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     BuildConfig,
     CommandArtifactSource,
     ExecutableUnitValidator,

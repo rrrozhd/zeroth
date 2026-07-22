@@ -7,6 +7,287 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-21
+
+### Added
+
+- Rebuilt operations console, including Studio, deployment, governance,
+  optional Regulus views, and destination-only Webhooks integration.
+- Platform-admin-only, allowlisted Regulus proxy with deterministic generated
+  platform and Regulus API clients.
+
+### Changed
+
+- The durable structured-token engine is now selected for unauthored graphs.
+  Explicit `sequential_join_enabled=False` remains the temporary warned legacy
+  compatibility escape hatch; immutable deployment engine pins still win.
+
+### Fixed
+
+- Structured loop boundary delivery, nested lifecycle cancellation, graceful
+  stop, replay, checker topology/schedule coverage, and deployment pinning
+  release blockers.
+
+## [0.11.1] - 2026-07-20
+
+### Added
+
+- **B9 token/provenance join engine (P1–P3, flag-off), ported from
+  `feat/b9-join-loops`** (branch versions v0.11.5.2–v0.11.6.1 + subsequent
+  oracle/replay/diamond commits), reimplemented on the decomposed runtime.
+  Replaces the loop-epoch join model with provenance tags that travel with
+  the token:
+  - `runtime/orchestration/token_scope.py` (new): pure static loop analysis —
+    DFS back-edges, natural-loop bodies, enclosing loops, exit edges and
+    their outermost-owner units, tag propagation.
+  - `GraphDriver`: tag-keyed join buckets (per-iteration re-join on loops),
+    back-edge re-entry dispatch, loop-exit edges resolved only by the
+    exit-crossing event (whole unit at the outer tag), skip cascade with
+    dead-loop exit suppression, durable in-flight dispatch records
+    (stage/restore) so a failed node replays its exact payload and tag, and
+    declared-shape JoinConfig merges (`collect` default, `merge_path`).
+  - Validation: `IRREDUCIBLE_LOOP`, `MULTI_LATCH_LOOP`, `FANOUT_IN_LOOP`
+    (parallel-config-in-loop + structural token forks with the
+    reconvergence-before-boundary proof), `FANOUT_SUCCESSOR_JOIN`; the
+    `JOIN_ON_CYCLE` rejection is removed — loops now join correctly
+    (`contracts/graph/validation/token_loops.py`, rewritten `joins.py`).
+  - Models: `ParallelConfig` gains `max_concurrency`/`batch_size`/
+    `branch_timeout_seconds` (wave + worker-pool + per-branch timeout
+    execution in `runtime/parallel/executor.py`); `JoinConfig` default flips
+    to non-lossy `collect` and gains `merge_path`.
+  - The monolith's overridable orchestrator seams are preserved through the
+    decomposition: `_dispatch_node`, `_record_forward_resolution`,
+    `_stash_join_payload`, `_merge_join_payloads`, `_back_edge_ids` route
+    driver-internal calls through the facade so subclasses (incl. the
+    trace/oracle bridge) observe the real engine. Loop-analysis caches live
+    on the facade instance and are threaded into each driver.
+  - Test suites ported: extended `test_join_barrier{,_stress}.py` (nested
+    loops, loop-then-combine, multi-exit, bypassed-loop shapes), new
+    `test_token_scope.py`, `test_token_engine_model.py` (reference oracle),
+    `test_token_engine_runtime_trace.py` (real-runtime trace bridge incl.
+    seeded corruption), `test_failed_node_replay.py`; parallel executor
+    batching/concurrency/timeout suites.
+  - Surface fixtures re-amended additively (`ParallelConfig`, `JoinConfig`,
+    `RuntimeOrchestrator` cache fields).
+
+## [0.11.0.0.1] - 2026-07-20
+
+### Fixed
+
+- Formatting-only: collapse a wrapped list comprehension in
+  `runtime/context/tracker.py` (ruff format; missed in the v0.10.6 port
+  commit).
+
+## [0.11] - 2026-07-20
+
+### Added
+
+- **B9 — sequential join barrier (feature-flagged, default OFF), ported from
+  the public main line** (main v0.11 `924ab54` + v0.11.0.1 deadlock guard
+  `d012200`), reimplemented on the decomposed runtime. An opt-in dispatch
+  subsystem fixing diamond payload corruption: an unconditional convergent
+  node previously executed twice and clobbered its merged input. Gated by
+  `ExecutionSettings.sequential_join_enabled` (default False — flag-off
+  behavior byte-identical, verified by the unchanged characterization pins).
+  - New `JoinConfig` model (same merge vocabulary + reducer registry as
+    `ParallelConfig`) and `NodeBase.join_config`
+    (`contracts/graph/models.py`).
+  - Publish validation: `MISSING_JOIN_CONFIG` on genuine concurrent delivery
+    without a merge policy; `JOIN_ON_CYCLE` rejects convergent-on-cycle
+    graphs (new `contracts/graph/validation/joins.py`, wired into the
+    contract validator after cycle checks).
+  - `GraphDriver` gains the barrier: `run_branch_planner` (full plan with
+    suppressed edges), `edge_payload` (shared payload/mapping computation),
+    `advance_downstream` (single sequential post-node entry point), and the
+    join worklist (delivered/suppressed edge resolution, skip cascade,
+    `join_state` checkpoint round-trip, JoinConfig merge, cyclic-edge
+    defense). The approval-resolution path advances through the same entry
+    point.
+  - Deadlock guard: leftover `join_state` at completion fails the run loudly
+    (`join_deadlock`) instead of silently completing past a join waiting on
+    an unreachable inbound edge.
+  - Test suites ported: `tests/orchestrator/test_join_barrier.py` (24 tests,
+    incl. the documented shared-schema merge-clobber xfail) and
+    `test_join_barrier_stress.py`.
+  - **Surface fixture amendment (first use of the additive-amendment policy,
+    now documented in `docs/backend-library-surface.md`):**
+    `ExecutionSettings` and `NodeBase` (+ its six node subclasses) gain the
+    new optional fields in both surface fixtures — 32 signature updates plus
+    the `JoinConfig` registration on both surfaces; the legacy shim
+    `zeroth.core.graph.models` re-exports `JoinConfig`.
+
+## [0.10.6] - 2026-07-20
+
+### Fixed
+
+B-series orchestrator/infra fixes ported from the public main line (main
+v0.10.1.17, v0.10.1.19, v0.10.1.20, v0.10.1.23, v0.10.1.24, v0.10.1.25.1) —
+this completes the port of main's entire 29-release `0.10.1.x` audit series:
+
+- **B5/B6/B7 — econ-plane query 500s + dollar-denominated counterfactual**
+  (`econ/plane/{capabilities,counterfactual,performance}/service.py`), with
+  the new `tests/econ_plane/test_service_query_fixes.py` suite.
+- **B11 — sidecar no longer double-applies network config**
+  (`integrations/sandbox/executor.py`).
+- **B12 — Vault token refresh** on expiry with single-flight re-login
+  (`platform/secrets/vault.py`).
+- **B13 — signal handling left to uvicorn.** The lifespan's
+  `loop.add_signal_handler` block overrode uvicorn's own SIGTERM/SIGINT
+  handlers, so `should_exit` never set and the process hung until SIGKILL
+  (`service/bootstrap/lifecycle.py`).
+- **B1/B3 — prompt no longer re-renders audit; context tracker counts tool
+  calls** (`runtime/agents/prompt.py`, `runtime/context/tracker.py`).
+- **B8 — nested approval pause on a RESUMED fan-out branch persists
+  durably** via the same pause handler as the first pause, instead of an
+  in-memory re-queue that was lost on reload (`runtime/orchestration/
+  driver.py`).
+- **B10 — best_effort fan-out fails loud on multi-branch approval pause**
+  (new `MultipleBranchPauseError`) instead of silently orphaning all but the
+  last paused branch (`runtime/parallel/{errors,executor}.py`).
+
+## [0.10.5] - 2026-07-20
+
+### Fixed
+
+Security-hardening fixes ported from the public main line (main v0.10.1.12,
+v0.10.1.15, v0.10.1.18, v0.10.1.20.1, v0.10.1.21, v0.10.1.22):
+
+- **S5 — condition evaluator blocks dunder attribute access** on non-Mapping
+  objects, closing the `__class__`/`__globals__` introspection gadget path
+  (`contracts/conditions/evaluator.py`).
+- **S7 — subgraph resolution is tenant-scoped.** `SubgraphResolver.resolve`
+  (and the `DeploymentLookup` protocol seam) take `tenant_id`/`workspace_id`;
+  all four call sites (executor initial + resume, driver resume path,
+  parallel-executor fallback) pass the parent run's tenant, so a subgraph
+  node naming a foreign tenant's deployment ref fails closed.
+- **S3/S4 — rate-limit and quota check-and-update serialized.** Token-bucket
+  and quota transactions take `write_lock=True` (+ `FOR UPDATE` on Postgres);
+  cold-start insert uses `ON CONFLICT DO NOTHING` + re-read, so concurrent
+  first requests can't 500 or double-spend a capacity-1 bucket
+  (`governance/guardrails/rate_limit.py`).
+- **S2 — strict sandbox refuses the local backend unconditionally** (was a
+  silent no-op for bare inline units with no resource constraints); STANDARD
+  behavior unchanged (`integrations/execution/sandbox.py`).
+- **B4 — run worker never leaks a concurrency slot.** The lease-renewal task's
+  own exception (e.g. "database is locked") no longer escapes the `finally`
+  before `release_lease` + semaphore release
+  (`runtime/orchestration/run_worker.py`).
+- **S6 — failure text routed through the secret redactor.** Both persisted
+  audit `error` columns and `RunFailureState.message` (returned verbatim by
+  the public run API) are redacted; no-op without a secret resolver
+  (`runtime/orchestration/{audit_recorder,driver}.py`).
+
+## [0.10.4] - 2026-07-20
+
+### Fixed
+
+- **F3 — cooperative run cancellation, full series ported from the public
+  main line** (main v0.10.1.6, v0.10.1.8, v0.10.1.11, v0.10.1.25). The drive
+  loop holds an in-memory `Run` and blind-writes `RUNNING` every hop, so an
+  operator's out-of-band cancel (`FAILED`) or interrupt (`WAITING_INTERRUPT`)
+  was clobbered and the run drove to completion. `GraphDriver.external_stop`
+  re-reads the persisted status at the loop head and before every `RUNNING`
+  write (ordinary nodes, sync/resumed subgraphs, parallel and resumed
+  fan-ins); it adopts the operator's status onto the in-memory run and
+  persists it (so `pending_node_ids` survives for replay), and yields to a
+  concurrent operator replay/resume rather than blind-writing the stale
+  status back. The refactor-era characterization pins gain the new
+  `run.get` observations — a deliberate contract change, not drift.
+
+## [0.10.3] - 2026-07-20
+
+### Fixed
+
+Erasure + audit-integrity fixes ported from the public main line (main
+versions v0.10.1.5, v0.10.1.10, v0.10.1.14, v0.10.1.16):
+
+- **F1 — erasure left plaintext PII behind.** `redact_run` now clears every
+  free-form column that can hold PII: `execution_history` (per-node
+  input/output snapshots), `failure_state` (whose message re-derives `error`
+  on read, so nulling `error` alone resurfaced the plaintext),
+  `condition_results`, `channels`, and `pending_approval` (requester reason +
+  metadata). The pre-erasure payload harvest decrypts
+  `run_checkpoints.state_json` before parsing — previously every
+  at-rest-encrypted deployment hit `JSONDecodeError` and the erasure rolled
+  back to a silent no-op. On this tree the fix lands in
+  `integrations/persistence/runs/retention_queries.py` (with a `decrypt`
+  seam) and `run_repository.py` passes the checkpoint store's
+  `decrypt_state_json`.
+- **S1 — audit verifier accepted forged erasures.** `erased` is
+  digest-excluded and a v2+ erased record's digest folds in stored
+  commitments, so a DB-only attacker could flip `erased=True` and rewrite PII
+  without breaking digest or signature. The verifier now refuses any record
+  claiming to be erased while still carrying populated PII commitment fields
+  (`governance/audit/verifier.py`).
+
+## [0.10.2] - 2026-07-20
+
+### Fixed
+
+Tenant-isolation audit fixes ported from the public main line (main versions
+v0.10.1.2–v0.10.1.4, v0.10.1.7, v0.10.1.9, v0.10.1.13):
+
+- **F4 — cross-tenant IDOR in the tenant cost/budget API.**
+  `GET /v1/tenants/{id}/cost` and `PUT /v1/tenants/{id}/budget` now enforce
+  `require_resource_scope`: a principal may only read its own tenant's spend or
+  set its own tenant's cap (previously any tenant admin could read or zero-out
+  another tenant's budget by path id). Follow-up: `GET
+  /v1/deployments/{ref}/cost` is scoped to the served deployment.
+- **F8 — cross-tenant IDOR in the webhook API.** Subscriptions are bound to
+  the served deployment + tenant (body `deployment_ref`/`tenant_id` are no
+  longer trusted); list/get/delete are scoped to the served deployment;
+  dead-letter list/replay are scoped via the deployment's own subscription
+  set **in the query** (LIMIT applies after the tenant scope), and replay
+  carries an ownership guard so a foreign dead-letter reads as 404.
+  `WebhookRepository.list_dead_letters` gains a `subscription_ids` IN-clause
+  filter; `WebhookService.get_dead_letter` is exposed for the guard.
+- **F7 — missing RBAC gate on the econ-plane costing router.** Pricing
+  catalog and cost-profile writes are Admin-only; reads require any econ role
+  — matching every sibling econ router (previously the router carried no auth
+  dependency at all).
+
+## [0.10.1] - 2026-07-20
+
+### Added
+
+- **Console F-series wave + econ portfolio dashboard, ported from the public
+  main line** (main versions v0.10.0.0.4–v0.10.1.1). The frontend adopts the
+  console audit wave wholesale: attestation panel + deployment rollback
+  (F12/F6), run controls + quality-verdict + contract form (F3/F5/F11),
+  tenant budget card (F4), evidence export + deployment chain verify (F2),
+  Retention & Compliance page (F1), Integrations/webhooks page (F8), and
+  Prompt templates page (F9). All backend endpoints these pages call already
+  exist on this line; `openapi.json` and `api-types.ts` were regenerated from
+  this tree's app and the frontend typechecks clean.
+- **Console-reachable econ portfolio dashboard via proxy (F7).** New
+  `zeroth.service.api.econ_dashboard_api` proxies the bundled Regulus
+  read-only dashboard views under `/v1/econ/dashboard/*` behind
+  `METRICS_READ`, using the same server-side self-auth bridge as `cost_api`.
+  Registered on both the `/v1` and compat routers; covered by
+  `tests/service/test_econ_dashboard_api.py`. The refactor-era contract
+  snapshots (`backend_openapi.json`, `backend_route_inventory.json`) are
+  regenerated for the 9 additive routes — a deliberate surface extension, not
+  drift.
+
+### Removed
+
+- Dead econ-plane statistics router (F14, main v0.10.0.1.1): the 3-line
+  `statistics/api.py` stub and its two `main.py` registration lines. The
+  `statistics.schemas` models (pinned surface) are untouched.
+
+## [0.10.0.1] - 2026-07-19
+
+### Fixed
+
+- `AsyncSQLiteDatabase.transaction()` no longer fails with a spurious
+  `CoordinationTimeoutError` when several fresh connections race the one-time
+  delete→WAL journal-mode conversion on a new database. SQLite's
+  deadlock-avoidance path returns `SQLITE_BUSY` from
+  `PRAGMA journal_mode = WAL` without consulting the busy timeout, so the
+  pragma is now retried within the coordination-timeout budget. Coordination
+  semantics (`BEGIN IMMEDIATE` write lock, `CoordinationTimeoutError`
+  contract) are unchanged.
+
 ## [0.10.0.0.1] - 2026-07-13
 
 ### Changed

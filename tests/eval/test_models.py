@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zeroth.core.eval import CaseResult, EvalDataset, EvalReport, Score
+from zeroth.eval import CaseResult, EvalDataset, EvalReport, Score
 
 
 def test_dataset_from_jsonl_and_records() -> None:

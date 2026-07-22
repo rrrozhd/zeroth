@@ -11,13 +11,14 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import AgentConfig, AgentRunner
-from zeroth.core.agent_runtime.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.core.execution_units import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.core.graph import AgentNode, AgentNodeData, Edge, ExecutionSettings, Graph
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
+from zeroth.contracts.graph import AgentNode, AgentNodeData, Edge, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.core.parallel.models import ParallelConfig
-from zeroth.core.runs import RunRepository, RunStatus
+from zeroth.runtime.parallel.models import ParallelConfig
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
 
 
 class ItemsInput(BaseModel):

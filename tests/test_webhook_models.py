@@ -6,12 +6,43 @@ import hashlib
 import hmac
 from datetime import UTC, datetime
 
+import zeroth.service.webhooks.models as webhook_models
+from zeroth.platform.primitives import utc_now
+
+
+def test_webhook_models_consume_platform_clock_per_instance() -> None:
+    assert webhook_models.WebhookSubscription.model_fields["created_at"].default_factory is utc_now
+    assert webhook_models.WebhookSubscription.model_fields["updated_at"].default_factory is utc_now
+    assert webhook_models.WebhookDelivery.model_fields["next_attempt_at"].default_factory is utc_now
+    assert webhook_models.WebhookDelivery.model_fields["created_at"].default_factory is utc_now
+    assert webhook_models.WebhookDelivery.model_fields["updated_at"].default_factory is utc_now
+    assert webhook_models.WebhookDeadLetter.model_fields["created_at"].default_factory is utc_now
+    assert (
+        webhook_models.WebhookDeadLetter.model_fields["dead_lettered_at"].default_factory
+        is utc_now
+    )
+    assert webhook_models.WebhookEventPayload.model_fields["timestamp"].default_factory is utc_now
+
+    first = webhook_models.WebhookSubscription(
+        deployment_ref="deployment-1",
+        target_url="https://example.com/first",
+        event_types=[webhook_models.WebhookEventType.RUN_COMPLETED],
+    )
+    second = webhook_models.WebhookSubscription(
+        deployment_ref="deployment-1",
+        target_url="https://example.com/second",
+        event_types=[webhook_models.WebhookEventType.RUN_COMPLETED],
+    )
+
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
+
 
 class TestWebhookEventType:
     """WebhookEventType enum values."""
 
     def test_event_types(self):
-        from zeroth.core.webhooks.models import WebhookEventType
+        from zeroth.service.webhooks.models import WebhookEventType
 
         assert WebhookEventType.RUN_COMPLETED == "run.completed"
         assert WebhookEventType.RUN_FAILED == "run.failed"
@@ -24,7 +55,7 @@ class TestDeliveryStatus:
     """DeliveryStatus enum values."""
 
     def test_delivery_status_values(self):
-        from zeroth.core.webhooks.models import DeliveryStatus
+        from zeroth.service.webhooks.models import DeliveryStatus
 
         assert DeliveryStatus.PENDING == "pending"
         assert DeliveryStatus.DELIVERED == "delivered"
@@ -36,7 +67,7 @@ class TestEscalationAction:
     """EscalationAction enum values."""
 
     def test_escalation_action_values(self):
-        from zeroth.core.webhooks.models import EscalationAction
+        from zeroth.service.webhooks.models import EscalationAction
 
         assert EscalationAction.DELEGATE == "delegate"
         assert EscalationAction.AUTO_REJECT == "auto_reject"
@@ -47,7 +78,7 @@ class TestWebhookSubscription:
     """WebhookSubscription model instantiation."""
 
     def test_instantiation_with_required_fields(self):
-        from zeroth.core.webhooks.models import WebhookEventType, WebhookSubscription
+        from zeroth.service.webhooks.models import WebhookEventType, WebhookSubscription
 
         sub = WebhookSubscription(
             deployment_ref="deploy-1",
@@ -63,7 +94,7 @@ class TestWebhookSubscription:
         assert sub.tenant_id == "default"
 
     def test_auto_generates_subscription_id_and_secret(self):
-        from zeroth.core.webhooks.models import WebhookEventType, WebhookSubscription
+        from zeroth.service.webhooks.models import WebhookEventType, WebhookSubscription
 
         sub1 = WebhookSubscription(
             deployment_ref="d", target_url="https://x.com", event_types=[WebhookEventType.RUN_FAILED]
@@ -79,7 +110,7 @@ class TestWebhookDelivery:
     """WebhookDelivery model instantiation."""
 
     def test_instantiation_defaults(self):
-        from zeroth.core.webhooks.models import DeliveryStatus, WebhookDelivery, WebhookEventType
+        from zeroth.service.webhooks.models import DeliveryStatus, WebhookDelivery, WebhookEventType
 
         delivery = WebhookDelivery(
             subscription_id="sub-1",
@@ -97,7 +128,7 @@ class TestWebhookDeadLetter:
     """WebhookDeadLetter model instantiation."""
 
     def test_instantiation_from_delivery_fields(self):
-        from zeroth.core.webhooks.models import WebhookDeadLetter, WebhookEventType
+        from zeroth.service.webhooks.models import WebhookDeadLetter, WebhookEventType
 
         dl = WebhookDeadLetter(
             delivery_id="del-1",
@@ -118,7 +149,7 @@ class TestSignPayload:
     """HMAC-SHA256 signing utility."""
 
     def test_returns_hex_string(self):
-        from zeroth.core.webhooks.signing import sign_payload
+        from zeroth.service.webhooks.signing import sign_payload
 
         result = sign_payload(b"hello", "secret")
         assert isinstance(result, str)
@@ -126,21 +157,21 @@ class TestSignPayload:
         assert len(result) == 64
 
     def test_deterministic(self):
-        from zeroth.core.webhooks.signing import sign_payload
+        from zeroth.service.webhooks.signing import sign_payload
 
         a = sign_payload(b"payload", "key")
         b = sign_payload(b"payload", "key")
         assert a == b
 
     def test_different_secret_different_output(self):
-        from zeroth.core.webhooks.signing import sign_payload
+        from zeroth.service.webhooks.signing import sign_payload
 
         a = sign_payload(b"payload", "key1")
         b = sign_payload(b"payload", "key2")
         assert a != b
 
     def test_matches_manual_hmac(self):
-        from zeroth.core.webhooks.signing import sign_payload
+        from zeroth.service.webhooks.signing import sign_payload
 
         payload = b"test-payload-data"
         secret = "my-secret-key"
@@ -152,7 +183,7 @@ class TestApprovalStatusEscalated:
     """ApprovalStatus ESCALATED value."""
 
     def test_escalated_value(self):
-        from zeroth.core.approvals.models import ApprovalStatus
+        from zeroth.governance.approvals.models import ApprovalStatus
 
         assert ApprovalStatus.ESCALATED == "escalated"
 
@@ -161,7 +192,7 @@ class TestApprovalRecordSLAFields:
     """ApprovalRecord SLA fields backward compatibility."""
 
     def test_sla_fields_default_none(self):
-        from zeroth.core.approvals.models import ApprovalRecord
+        from zeroth.governance.approvals.models import ApprovalRecord
 
         record = ApprovalRecord(
             run_id="run-1",
@@ -176,7 +207,7 @@ class TestApprovalRecordSLAFields:
         assert record.escalated_from_id is None
 
     def test_sla_fields_with_values(self):
-        from zeroth.core.approvals.models import ApprovalRecord
+        from zeroth.governance.approvals.models import ApprovalRecord
 
         deadline = datetime(2026, 1, 1, tzinfo=UTC)
         record = ApprovalRecord(
@@ -199,7 +230,7 @@ class TestHumanApprovalNodeDataSLA:
     """HumanApprovalNodeData SLA config fields."""
 
     def test_defaults_none(self):
-        from zeroth.core.graph.models import HumanApprovalNodeData
+        from zeroth.contracts.graph.models import HumanApprovalNodeData
 
         data = HumanApprovalNodeData()
         assert data.sla_timeout_seconds is None
@@ -207,7 +238,7 @@ class TestHumanApprovalNodeDataSLA:
         assert data.delegate_identity is None
 
     def test_with_values(self):
-        from zeroth.core.graph.models import HumanApprovalNodeData
+        from zeroth.contracts.graph.models import HumanApprovalNodeData
 
         data = HumanApprovalNodeData(
             sla_timeout_seconds=300,
@@ -223,7 +254,7 @@ class TestWebhookSettings:
     """WebhookSettings defaults."""
 
     def test_defaults(self):
-        from zeroth.core.config.settings import WebhookSettings
+        from zeroth.platform.config.settings import WebhookSettings
 
         ws = WebhookSettings()
         assert ws.enabled is True
@@ -239,7 +270,7 @@ class TestApprovalSLASettings:
     """ApprovalSLASettings defaults."""
 
     def test_defaults(self):
-        from zeroth.core.config.settings import ApprovalSLASettings
+        from zeroth.platform.config.settings import ApprovalSLASettings
 
         sla = ApprovalSLASettings()
         assert sla.enabled is True
@@ -250,7 +281,7 @@ class TestZerothSettingsSubModels:
     """ZerothSettings includes webhook and approval_sla."""
 
     def test_has_webhook_and_approval_sla(self):
-        from zeroth.core.config.settings import ApprovalSLASettings, WebhookSettings, ZerothSettings
+        from zeroth.platform.config.settings import ApprovalSLASettings, WebhookSettings, ZerothSettings
 
         settings = ZerothSettings()
         assert isinstance(settings.webhook, WebhookSettings)

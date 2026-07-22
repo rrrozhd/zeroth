@@ -1,32 +1,21 @@
-"""Records condition evaluation results onto a run.
+"""Legacy import path for :mod:`zeroth.runtime.runs.condition_recorder`.
 
-After the branch resolver decides which edges are active, the results need
-to be saved on the Run object so they can be inspected later for debugging
-and auditing. This module handles that bookkeeping.
+``ConditionResultRecorder`` mutates ``Run`` objects, so it lives in the
+runtime run domain. Resolution stays lazy: an eager import here would put
+the runtime on the import path of the legacy conditions package.
 """
 
-from __future__ import annotations
+from typing import TYPE_CHECKING
 
-from collections.abc import Iterable
+if TYPE_CHECKING:
+    from zeroth.runtime.runs.condition_recorder import ConditionResultRecorder
 
-from zeroth.core.runs.models import Run, RunConditionResult
+__all__ = ["ConditionResultRecorder"]
 
 
-class ConditionResultRecorder:
-    """Saves condition evaluation results onto a Run for later inspection.
+def __getattr__(name: str) -> object:
+    if name == "ConditionResultRecorder":
+        import zeroth.runtime.runs.condition_recorder as condition_recorder
 
-    Use this after branch resolution to persist the results so you can
-    see exactly why each branch was taken or suppressed.
-    """
-
-    def record(self, run: Run, result: RunConditionResult) -> Run:
-        """Append a single condition result to the run and update its timestamp."""
-        run.condition_results.append(result)
-        run.touch()
-        return run
-
-    def record_many(self, run: Run, results: Iterable[RunConditionResult]) -> Run:
-        """Append multiple condition results to the run at once and update its timestamp."""
-        run.condition_results.extend(results)
-        run.touch()
-        return run
+        return condition_recorder.ConditionResultRecorder
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

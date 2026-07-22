@@ -15,13 +15,13 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.parallel.errors import (
+from zeroth.runtime.parallel.errors import (
     MergeStrategyError,
     ReducerRefValidationError,
 )
-from zeroth.core.parallel.executor import ParallelExecutor
-from zeroth.core.parallel.models import BranchResult, ParallelConfig
-from zeroth.core.parallel.reducers import (
+from zeroth.runtime.parallel.executor import ParallelExecutor
+from zeroth.runtime.parallel.models import BranchResult, ParallelConfig
+from zeroth.runtime.parallel.reducers import (
     _default_fold,
     _reduce_collect,
     _reduce_fold,

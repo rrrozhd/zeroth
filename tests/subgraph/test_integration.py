@@ -19,24 +19,29 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.graph.models import (
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
+    ExecutionSettings,
     Graph,
     HumanApprovalNode,
     HumanApprovalNodeData,
     SubgraphNode,
 )
-from zeroth.core.graph.serialization import serialize_graph
-from zeroth.core.deployments.models import Deployment
+from zeroth.contracts.graph.serialization import serialize_graph
+from zeroth.service.deployments.models import Deployment
 from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.core.runs.models import Run, RunStatus
-from zeroth.core.subgraph.errors import SubgraphCycleError, SubgraphDepthLimitError
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.runs import Run
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.subgraphs.errors import SubgraphCycleError, SubgraphDepthLimitError
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
+
+
+pytestmark = pytest.mark.legacy_engine
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +67,7 @@ def _make_agent_graph(
         graph_id=graph_id,
         name=f"{graph_id}-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[node],
         edges=[],
         entry_step=agent_name,
@@ -97,6 +103,7 @@ def _make_subgraph_parent(
         graph_id=graph_id,
         name=f"{graph_id}-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=nodes,
         edges=edges,
         entry_step="s1",
@@ -114,6 +121,7 @@ def _make_approval_graph(graph_id: str = "approval-child") -> Graph:
         graph_id=graph_id,
         name=f"{graph_id}-workflow",
         version=1,
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
         nodes=[approval_node],
         edges=[],
         entry_step="approve-1",
@@ -470,6 +478,7 @@ class TestMultiReference:
             graph_id="parent-g",
             name="parent",
             version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
             nodes=[s1, s2],
             edges=[Edge(edge_id="e1", source_node_id="s1", target_node_id="s2")],
             entry_step="s1",
@@ -576,7 +585,7 @@ class TestErrorPaths:
     @pytest.mark.asyncio
     async def test_nonexistent_graph_ref_fails_run(self) -> None:
         """graph_ref pointing to non-existent deployment fails the run."""
-        from zeroth.core.subgraph.errors import SubgraphResolutionError
+        from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
 
         mock_executor = MagicMock(spec=SubgraphExecutor)
         mock_executor.execute = AsyncMock(

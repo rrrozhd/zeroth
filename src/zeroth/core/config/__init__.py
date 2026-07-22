@@ -1,9 +1,10 @@
-"""Unified configuration for the Zeroth platform.
+"""Legacy import path for the platform config package.
 
-Loads settings from YAML defaults, .env file overrides, and environment
-variable overrides (highest priority) using pydantic-settings.
+The configuration system lives in :mod:`zeroth.platform.config`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.config.settings import ZerothSettings, get_settings
+from zeroth.platform.config import ZerothSettings, get_settings
 
 __all__ = ["ZerothSettings", "get_settings"]

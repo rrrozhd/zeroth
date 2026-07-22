@@ -6,24 +6,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.core.deployments.models import Deployment
-from zeroth.core.graph.models import (
+from zeroth.service.deployments.models import Deployment
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
     Graph,
     SubgraphNode,
 )
-from zeroth.core.graph.serialization import serialize_graph
-from zeroth.core.runs.models import Run, RunStatus
-from zeroth.core.subgraph.errors import (
+from zeroth.contracts.graph.serialization import serialize_graph
+from zeroth.runtime.runs import Run
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
     SubgraphExecutionError,
 )
-from zeroth.core.subgraph.executor import SubgraphExecutor
-from zeroth.core.subgraph.models import SubgraphNodeData
-from zeroth.core.subgraph.resolver import SubgraphResolver
+from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
+from zeroth.runtime.subgraphs.resolver import SubgraphResolver
 
 
 # ---------------------------------------------------------------------------

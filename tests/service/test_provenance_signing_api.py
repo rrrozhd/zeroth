@@ -14,14 +14,15 @@ from tests.service.helpers import (
     default_service_auth_config,
     deploy_service,
 )
-from zeroth.core.audit import NodeAuditRecord
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import GraphRepository
-from zeroth.core.identity import ServiceRole
-from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.core.service.bootstrap import bootstrap_app, bootstrap_service
-from zeroth.core.signing import EnvHmacSigner, SigningKeyProvider
+from zeroth.governance.audit import NodeAuditRecord
+from zeroth.contracts.registry import ContractRegistry
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.contracts.graph import GraphRepository
+from zeroth.governance.identity import ServiceRole
+from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
+from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider
 
 _KEY = EnvHmacSigner(key_id="k1", keys={"k1": b"provenance-endpoint-key"})
 
@@ -133,9 +134,7 @@ async def test_run_audit_verification_reports_signed(sqlite_db) -> None:
     run = await _signed_run(service)
 
     with TestClient(app) as client:
-        response = client.get(
-            f"/runs/{run.run_id}/audit-verification", headers=admin_headers()
-        )
+        response = client.get(f"/runs/{run.run_id}/audit-verification", headers=admin_headers())
 
     assert response.status_code == 200
     body = response.json()
@@ -219,9 +218,7 @@ async def test_missing_signer_fails_closed_on_signed_records(sqlite_db) -> None:
     service.signer = None
 
     with TestClient(app) as client:
-        response = client.get(
-            f"/runs/{run.run_id}/audit-verification", headers=admin_headers()
-        )
+        response = client.get(f"/runs/{run.run_id}/audit-verification", headers=admin_headers())
 
     assert response.status_code == 200
     body = response.json()
@@ -264,18 +261,12 @@ async def test_cross_tenant_verify_endpoints_return_404(sqlite_db) -> None:
 
         # Tenant A sees its own run verification.
         assert (
-            client.get(
-                f"/runs/{run.run_id}/audit-verification", headers=a_headers
-            ).status_code
+            client.get(f"/runs/{run.run_id}/audit-verification", headers=a_headers).status_code
             == 200
         )
         # Tenant B is denied the cross-tenant run (404, not a signature verdict).
-        run_denied = client.get(
-            f"/runs/{run.run_id}/audit-verification", headers=b_headers
-        )
-        post_denied = client.post(
-            f"/runs/{run.run_id}/verify-chain", json={}, headers=b_headers
-        )
+        run_denied = client.get(f"/runs/{run.run_id}/audit-verification", headers=b_headers)
+        post_denied = client.post(f"/runs/{run.run_id}/verify-chain", json={}, headers=b_headers)
         att_denied = client.get(
             f"/deployments/{deployment.deployment_ref}/attestation/verify",
             headers=b_headers,

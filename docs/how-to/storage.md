@@ -9,8 +9,9 @@ The storage layer is how every persistent Zeroth subsystem — runs, threads, ap
 ```python
 import asyncio
 
-from zeroth.core.runs import RunRepository, RunStatus
-from zeroth.core.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import RunStatus
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 async def main() -> None:
@@ -47,7 +48,7 @@ The pattern is always the same: `connect → initialise repositories → use the
 
 - **Let `create_database` decide.** Production code should almost never instantiate `AsyncSQLiteDatabase` or `AsyncPostgresDatabase` directly. Call `create_database(settings)` so the backend is driven by config.
 - **Share one database across subsystems.** Build one `AsyncDatabase` at startup and pass it to every repository and registry. They all use the same transactions and the same pool.
-- **Use Redis for ephemeral runtime state.** Don't reach for SQL when you need cross-worker coordination — `GovernAIRedisRuntimeStores` (via `build_governai_redis_runtime`) is the right primitive for dispatch, thread state, and distributed locks.
+- **Use Redis for ephemeral runtime state.** Don't reach for SQL when you need cross-worker coordination — `GovernAIRedisRuntimeStores` (via `zeroth.integrations.persistence.governed_redis.build_governai_redis_runtime`) is the right primitive for dispatch, thread state, and distributed locks.
 - **Encrypt secrets at rest.** The SQLite backend supports `EncryptedField` for per-column encryption; enable it by setting `database.encryption_key` in your settings.
 
 ## Pitfalls
@@ -60,4 +61,4 @@ The pattern is always the same: `connect → initialise repositories → use the
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.storage`](../reference/python-api/storage.md).
+See the [Python API reference for `zeroth.platform.storage`](../reference/python-api/storage.md).

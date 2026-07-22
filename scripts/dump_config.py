@@ -1,6 +1,6 @@
 """Generate the Configuration Reference markdown from pydantic-settings.
 
-Introspects :class:`zeroth.core.config.settings.ZerothSettings` and every
+Introspects :class:`zeroth.platform.config.settings.ZerothSettings` and every
 nested ``BaseModel`` sub-section, emitting one markdown table per section
 with columns ``Env Var | Type | Default | Secret | Description``.
 
@@ -33,7 +33,7 @@ PREAMBLE = """# Configuration Reference
 
 Every Zeroth setting is loaded from (in priority order): environment variables
 (`ZEROTH_` prefix, nested via `__`), a local `.env` file, then `zeroth.yaml`.
-This reference is auto-generated from `zeroth.core.config.settings` via
+This reference is auto-generated from `zeroth.platform.config.settings` via
 `scripts/dump_config.py` — **do not edit by hand**.
 
 CI runs `python scripts/dump_config.py --check` on every PR and fails if this
@@ -148,7 +148,7 @@ def _render_section(section_name: str, model_cls: type[BaseModel]) -> str:
 def render_markdown() -> str:
     """Render the full configuration reference markdown document."""
     # Deferred import so ``--help`` stays fast and side-effect free.
-    from zeroth.core.config.settings import ZerothSettings
+    from zeroth.platform.config.settings import ZerothSettings
 
     parts: list[str] = [PREAMBLE]
 

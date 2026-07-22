@@ -20,7 +20,7 @@ The [mappings](mappings.md) subsystem validates that an edge's operations produc
 
 ## Key types
 
-All of these live under `zeroth.core.contracts`:
+All of these live under `zeroth.contracts.registry`:
 
 - **`ContractRegistry`** — the async, database-backed store where contracts are registered and looked up.
 - **`ContractReference`** — a lightweight `(name, version)` pointer used to refer to a contract without loading it.

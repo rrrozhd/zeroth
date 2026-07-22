@@ -3,15 +3,15 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.core.agent_runtime import (
+from zeroth.runtime.agents import (
     AgentConfig,
     AgentRunner,
     DeterministicProviderAdapter,
     ToolAttachmentManifest,
 )
-from zeroth.core.context_window.models import ContextWindowSettings
-from zeroth.core.context_window.strategies import LLMSummarizationStrategy
-from zeroth.core.context_window.tracker import ContextWindowTracker
+from zeroth.runtime.context.models import ContextWindowSettings
+from zeroth.runtime.context.strategies import LLMSummarizationStrategy
+from zeroth.runtime.context.tracker import ContextWindowTracker
 
 
 class _AgentInput(BaseModel):

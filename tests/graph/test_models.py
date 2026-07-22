@@ -1,8 +1,16 @@
 from __future__ import annotations
 
-from zeroth.core.governed.app.spec import GovernedFlowSpec
+import json
+from contextlib import nullcontext
+from datetime import UTC, datetime
 
-from zeroth.core.graph.models import (
+import pytest
+
+import zeroth.contracts.graph.models as graph_models
+import zeroth.contracts.graph.versioning as graph_versioning
+from zeroth.contracts.governed.app.spec import GovernedFlowSpec
+
+from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Condition,
@@ -16,14 +24,48 @@ from zeroth.core.graph.models import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.core.graph.serialization import deserialize_graph, serialize_graph
-from zeroth.core.mappings.models import (
+from zeroth.contracts.graph.warnings import LegacyEngineDeprecationWarning
+from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
+from zeroth.contracts.mappings.models import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,
     PassthroughMappingOperation,
     RenameMappingOperation,
 )
+from zeroth.platform.primitives import utc_now
+
+
+def test_graph_models_consume_platform_clock_per_instance(monkeypatch) -> None:
+    assert graph_models.Graph.model_fields["created_at"].default_factory is utc_now
+    assert graph_models.Graph.model_fields["updated_at"].default_factory is utc_now
+
+    first = build_graph()
+    second = build_graph()
+    assert first.created_at.tzinfo is UTC
+    assert first.created_at is not second.created_at
+
+    fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(graph_models, "utc_now", lambda: fixed)
+
+    transitioned = first.transition_to(first.status)
+
+    assert transitioned.updated_at == fixed
+
+
+def test_graph_versioning_consumes_platform_clock(monkeypatch) -> None:
+    fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(graph_versioning, "utc_now", lambda: fixed)
+    graph = build_graph()
+
+    cloned = graph_versioning.clone_graph_version(
+        graph,
+        version=graph.version + 1,
+        status=graph_models.GraphStatus.DRAFT,
+    )
+
+    assert cloned.created_at == fixed
+    assert cloned.updated_at == fixed
 
 
 def build_graph() -> Graph:
@@ -128,6 +170,63 @@ def test_graph_serialization_round_trip_preserves_governai_shape() -> None:
     assert isinstance(decoded.to_governed_flow_spec(), GovernedFlowSpec)
     assert decoded.nodes[0].agent.tool_refs == ["tool://summarizer"]
     assert decoded.edges[0].mapping is not None
+
+
+@pytest.mark.parametrize("authored_value", [False, True])
+def test_graph_serialization_preserves_authored_engine_flag(authored_value: bool) -> None:
+    with pytest.warns(LegacyEngineDeprecationWarning) if authored_value is False else nullcontext():
+        settings = ExecutionSettings(sequential_join_enabled=authored_value)
+    graph = build_graph().model_copy(update={"execution_settings": settings})
+
+    encoded = serialize_graph(graph)
+    with pytest.warns(LegacyEngineDeprecationWarning) if authored_value is False else nullcontext():
+        decoded = deserialize_graph(encoded)
+
+    assert json.loads(encoded)["execution_settings"]["sequential_join_enabled"] is authored_value
+    assert decoded.execution_settings.sequential_join_enabled is authored_value
+    assert "sequential_join_enabled" in decoded.execution_settings.model_fields_set
+
+
+def test_graph_serialization_preserves_absent_engine_flag() -> None:
+    graph = build_graph().model_copy(update={"execution_settings": ExecutionSettings()})
+
+    encoded = serialize_graph(graph)
+    decoded = deserialize_graph(encoded)
+
+    assert "sequential_join_enabled" not in json.loads(encoded)["execution_settings"]
+    assert decoded.execution_settings.sequential_join_enabled is False
+    assert "sequential_join_enabled" not in decoded.execution_settings.model_fields_set
+
+
+def test_unauthored_engine_flag_selects_structured_token_mode() -> None:
+    from zeroth.contracts.graph.engine_mode import token_engine_enabled
+
+    settings = ExecutionSettings()
+
+    # ABI remains pinned while authored-field presence controls effective mode.
+    assert settings.sequential_join_enabled is False
+    assert "sequential_join_enabled" not in settings.model_fields_set
+    assert token_engine_enabled(settings) is True
+
+
+@pytest.mark.parametrize(("authored", "expected"), [(True, True), (False, False)])
+def test_authored_engine_flag_controls_effective_mode(authored: bool, expected: bool) -> None:
+    from zeroth.contracts.graph.engine_mode import token_engine_enabled
+
+    with pytest.warns(LegacyEngineDeprecationWarning) if authored is False else nullcontext():
+        settings = ExecutionSettings(sequential_join_enabled=authored)
+
+    assert token_engine_enabled(settings) is expected
+
+
+def test_explicit_legacy_engine_emits_structured_validation_warning() -> None:
+    with pytest.warns(LegacyEngineDeprecationWarning) as captured:
+        ExecutionSettings(sequential_join_enabled=False)
+
+    warning = captured[0].message
+    assert warning.code == "legacy_engine_deprecated"
+    assert warning.stage == "graph_validation"
+    assert warning.engine_mode == "legacy"
 
 
 def test_graph_compiles_to_governai_flow_spec() -> None:

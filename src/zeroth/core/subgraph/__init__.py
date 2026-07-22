@@ -1,33 +1,18 @@
-"""Subgraph composition for governed workflows.
+"""Legacy import path for the runtime subgraphs package.
 
-This package provides data models, error hierarchy, resolution logic,
-and the execution engine for composing workflows by embedding published
-graphs as child nodes.
-
-Public API
-----------
-Models:
-    SubgraphNodeData
-
-Executor:
-    SubgraphExecutor
-
-Errors:
-    SubgraphError, SubgraphDepthLimitError, SubgraphResolutionError,
-    SubgraphExecutionError, SubgraphCycleError
-
-Resolver (import from ``zeroth.core.subgraph.resolver`` to avoid circular imports):
-    SubgraphResolver, namespace_subgraph, merge_governance
+Subgraph composition lives in :mod:`zeroth.runtime.subgraphs`; this package
+republishes the same objects for compatibility. Import from the canonical
+location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.subgraph.errors import (
+from zeroth.runtime.subgraphs import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
     SubgraphError,
     SubgraphExecutionError,
+    SubgraphNodeData,
     SubgraphResolutionError,
 )
-from zeroth.core.subgraph.models import SubgraphNodeData
 
 __all__ = [
     "SubgraphCycleError",
@@ -43,7 +28,7 @@ __all__ = [
 def __getattr__(name: str) -> object:
     """Lazy import for SubgraphExecutor to avoid circular import with graph.models."""
     if name == "SubgraphExecutor":
-        from zeroth.core.subgraph.executor import SubgraphExecutor
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
         return SubgraphExecutor
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

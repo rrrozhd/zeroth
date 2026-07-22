@@ -32,9 +32,9 @@ pip install "zeroth-core[memory-pg]"
 ```python
 import asyncio
 
-from zeroth.core.config.settings import get_settings
-from zeroth.core.service.bootstrap import bootstrap_service
-from zeroth.core.storage.factory import create_database
+from zeroth.platform.config.settings import get_settings
+from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.platform.storage.factory import create_database
 
 
 async def main() -> None:
@@ -72,10 +72,10 @@ own, mount the service sub-app:
 ```python
 from fastapi import FastAPI
 
-from zeroth.core.service.app import create_app
-from zeroth.core.service.bootstrap import bootstrap_service
-from zeroth.core.storage.factory import create_database
-from zeroth.core.config.settings import get_settings
+from zeroth.service.app import create_app
+from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.platform.storage.factory import create_database
+from zeroth.platform.config.settings import get_settings
 
 
 async def lifespan(app: FastAPI):
@@ -98,7 +98,7 @@ app.state.zeroth)`) or import individual routers from
 - **SQLite:** no migration step required; the schema is created lazily on
   first boot.
 - **Postgres:** run `alembic upgrade head` from the host project before the
-  first boot. Reuse the `zeroth.core.storage.alembic` package as the script
+  first boot. Reuse the `zeroth.core.migrations` package as the script
   location.
 
 ## Common gotchas
