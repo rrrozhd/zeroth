@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2.4] - 2026-07-23
+
+### Fixed
+
+- Governed LangGraph streaming now scopes the correlation `ContextVar` to each
+  individual chunk pull rather than holding it across `yield` (ZER-3 audit-3): the
+  correlation is reset before a chunk reaches the consumer, so it never leaks into
+  the caller's context, an abandoned iterator leaks nothing, interleaved streams
+  cannot observe each other's correlation, and every token stays confined to the
+  context that created it (closing a stream from another task no longer raises).
+  `astream` additionally closes the delegate iterator it wraps, so early close and
+  cancellation run the delegate's own cleanup.
+
 ## [0.12.2.3] - 2026-07-23
 
 ### Fixed

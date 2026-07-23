@@ -204,34 +204,67 @@ class GovernedGraph:
         """Yield the delegate stream with the correlation published for its duration.
 
         A generator: its body runs only when the caller iterates. The ``ContextVar``
-        is set before the first chunk is pulled -- so every node callback, including
+        is set around each individual ``next()`` -- so every node callback, including
         those on parallel worker threads that inherit this context, reads it -- and
-        reset in ``finally`` when the stream is exhausted or closed (cancellation),
-        preserving chunk order and laziness.
+        reset *before* the chunk is yielded. Scoping it per-chunk (rather than across
+        the yields) keeps the correlation out of the consumer's context, leaks nothing
+        when an iterator is abandoned, stops interleaved streams observing each other,
+        and keeps every token confined to the context that created it. Chunk order and
+        laziness are unchanged.
         """
-        token = set_correlation(correlation)
+        iterator = iter(self._delegate.stream(*args, **kwargs))
         try:
-            yield from self._delegate.stream(*args, **kwargs)
+            while True:
+                token = set_correlation(correlation)
+                try:
+                    chunk = next(iterator)
+                except StopIteration:
+                    return
+                finally:
+                    reset_correlation(token)
+                yield chunk
         finally:
-            reset_correlation(token)
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                token = set_correlation(correlation)
+                try:
+                    close()
+                finally:
+                    reset_correlation(token)
 
     async def _correlated_astream(
         self, args: tuple[Any, ...], kwargs: dict[str, Any], correlation: str | None
     ) -> Any:
         """Async-yield the delegate stream with the correlation published for its duration.
 
-        The async counterpart of :meth:`_correlated_stream`: the ``ContextVar`` is
-        set when iteration begins and reset in ``finally`` at exhaustion or
-        cancellation (``aclose``), so callbacks on the run's task and any child
-        tasks read the correlation while chunk order, laziness and cancellation
-        stay unchanged.
+        The async counterpart of :meth:`_correlated_stream`. The ``ContextVar`` is
+        set around each individual ``__anext__()`` and reset *before* the chunk is
+        yielded, so callbacks on the run's task and any child tasks read the
+        correlation without it leaking into the consumer's context -- and every
+        token stays confined to the context that created it, so closing the stream
+        from a different task cannot raise. ``finally`` also closes the *delegate*
+        iterator explicitly, so its own cleanup runs on early close/cancellation.
+        Chunk order, laziness and cancellation stay unchanged.
         """
-        token = set_correlation(correlation)
+        iterator = self._delegate.astream(*args, **kwargs).__aiter__()
         try:
-            async for chunk in self._delegate.astream(*args, **kwargs):
+            while True:
+                token = set_correlation(correlation)
+                try:
+                    chunk = await iterator.__anext__()
+                except StopAsyncIteration:
+                    return
+                finally:
+                    reset_correlation(token)
                 yield chunk
         finally:
-            reset_correlation(token)
+            aclose = getattr(iterator, "aclose", None)
+            if aclose is not None:
+                token = set_correlation(correlation)
+                try:
+                    await aclose()
+                finally:
+                    reset_correlation(token)
 
     def with_config(self, config: Any = None, **kwargs: Any) -> GovernedGraph:
         """Return a still-governed graph that binds ``config`` into every run.
