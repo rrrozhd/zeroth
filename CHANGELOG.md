@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1.3] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` callback-manager governance normalization (ZER-2 audit-3): when a
+  `BaseCallbackManager`'s `handlers` and `inheritable_handlers` lists hold divergent
+  governance-handler instances, or pre-existing duplicates, the merge now collapses
+  them to a single canonical governance identity present exactly once in each list,
+  instead of leaving the lists divergent.
+
 ## [0.12.1.2] - 2026-07-23
 
 ### Fixed

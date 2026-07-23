@@ -45,9 +45,9 @@ def _register_in_manager(manager: Any, handler: BaseCallbackHandler) -> None:
     dedup is an equality test a hostile user ``__eq__`` could exploit to suppress
     governance. Instead, reuse any governance instance already present in either
     list (by ``isinstance`` -- so the *same* identity lands in both) or the
-    wrapper's own handler, and append it, by identity, to each list that lacks a
-    governance instance. Manager-likes exposing neither list fall back to
-    ``add_handler``.
+    wrapper's own handler, then normalise each list to carry exactly that one
+    canonical identity (stripping any divergent or duplicate governance
+    instances). Manager-likes exposing neither list fall back to ``add_handler``.
     """
     lists = [
         seq
@@ -63,8 +63,12 @@ def _register_in_manager(manager: Any, handler: BaseCallbackHandler) -> None:
         return
     governance = _find_governance_handler(lists) or handler
     for handlers in lists:
-        if not _has_governance_handler(handlers):
-            handlers.append(governance)
+        # Normalise each list: strip every governance instance (collapsing
+        # divergent identities across the two lists and any pre-existing
+        # duplicates) and re-add exactly the one canonical handler, so both lists
+        # end up carrying the same single governance identity.
+        handlers[:] = [h for h in handlers if not isinstance(h, ZerothGovernanceCallbackHandler)]
+        handlers.append(governance)
 
 
 def merge_governance_callbacks(
