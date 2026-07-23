@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-07-23
+
+### Added
+
+- `govern_graph`, a transparent observed-mode wrapper around a compiled
+  LangGraph, exported from `zeroth.integrations.langgraph`. One-line install
+  (`graph = govern_graph(graph)`) reuses the econ instrumentation delegation for
+  cost capture and merges a Zeroth governance callback handler into each run's
+  config without replacing or duplicating user callbacks. Results, streamed
+  chunks and exceptions are byte-for-byte equivalent to the bare graph. The
+  wrapper honours the FA5 capability floor — it mints no attestation and adds no
+  path that promotes a run above `admission` (promotion to `observed` is
+  deferred) — and exposes an optional no-op `on_run_start` stability seam.
+  Importing the package never imports the optional `langgraph` dependency.
+
 ## [0.12.0] - 2026-07-21
 
 ### Added
