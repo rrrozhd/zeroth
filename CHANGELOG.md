@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2.4] - 2026-07-23
+
+### Fixed
+
+- Governed LangGraph streaming now scopes the correlation `ContextVar` to each
+  individual chunk pull rather than holding it across `yield` (ZER-3 audit-3): the
+  correlation is reset before a chunk reaches the consumer, so it never leaks into
+  the caller's context, an abandoned iterator leaks nothing, interleaved streams
+  cannot observe each other's correlation, and every token stays confined to the
+  context that created it (closing a stream from another task no longer raises).
+  `astream` additionally closes the delegate iterator it wraps, so early close and
+  cancellation run the delegate's own cleanup.
+
+## [0.12.2.3] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry audit-2. Correlation now rides a wrapper-owned
+  `ContextVar` that only the langgraph integration package sets and reads,
+  replacing the `config["metadata"]["zeroth_correlation_id"]` channel (F8,
+  security). Metadata is caller-reachable — via `config["metadata"]`, a
+  callback-manager's `metadata`/`inheritable_metadata`, or a preceding callback
+  mutating it at runtime — so sanitizing each path was whack-a-mole; the carrier
+  is now never exposed to callers and caller metadata can no longer forge the
+  gateway correlation. `GovernedGraph` sets the carrier around each run (reset in
+  `finally`) and wraps the returned `stream`/`astream` generators so it is
+  published at iteration start and reset at exhaustion/cancellation, preserving
+  chunk order, laziness and cancellation. The extract-only, unverified token
+  parsing (8 KiB cap + `RecursionError` guard) is unchanged. `CausalSpan` now
+  always copies its incoming metadata instead of retaining a caller's
+  `MappingProxyType` (whose backing dict stays mutable) and drops non-scalar
+  values defensively (F9).
+
+## [0.12.2.2] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry audit hardening (audit-1). Closed a correlation trust-
+  boundary hole: the `govern_graph` wrapper now strips any caller-supplied
+  `metadata["zeroth_correlation_id"]` before injection and re-sets it only from a
+  valid gateway `_zeroth` token, so an untrusted caller can no longer forge the
+  gateway correlation (absent/malformed token now yields `None`, never the
+  caller's value). Bounded reserved-context token parsing against denial of
+  service — oversized tokens are rejected by length before decoding and
+  `RecursionError` from a deeply nested payload is swallowed to `None` instead of
+  propagating out of graph invocation. Span names now resolve from the callback
+  `name` kwarg then the serialized runnable/tool/model name before falling back
+  to the LangGraph node, so a nested sub-runnable keeps its own name and tool/LLM
+  spans are no longer nameless. `CausalSpan.metadata` is now an immutable
+  `MappingProxyType`, so a consumer cannot mutate a returned span or defeat the
+  metadata whitelist. The LLM callbacks mirror the pinned langchain-core 1.5.0
+  signatures (`tags` on `on_llm_end`/`on_llm_error`, upstream `LLMResult` /
+  chunk / `BaseMessage` types). Added stronger dedup (full run id vs shared
+  prefix) and live concurrent-read coverage.
+
+## [0.12.2.1] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry orphan classification. The `govern_graph` governance
+  handler previously classified a start whose `parent_run_id` was `None` as an
+  `orphan` whenever another root was still open on the shared handler — so two
+  genuinely concurrent (or sequential) top-level runs through the one handler
+  instance could mislabel a legitimate root as an orphan depending on
+  scheduling, corrupting ancestry. Now every `parent_run_id is None` start is a
+  root (many roots coexist cleanly on one handler), and an `orphan` is instead a
+  span whose non-`None` `parent_run_id` names a run id that was never observed (a
+  dangling reference). Orphan is determined at read time (in the
+  `completed_spans` / `open_spans` accessors) against every observed run id, not
+  frozen at the start callback — so an out-of-order child delivered before its
+  parent resolves to the real parent, while a truly dangling parent is marked
+  `orphan` (status override) and never reparented to a root.
+
+## [0.12.2] - 2026-07-23
+
+### Added
+
+- Causal LangGraph callback ancestry capture (ZER-3): the `govern_graph`
+  governance handler now reconstructs a run's causal `run_id` / `parent_run_id`
+  tree into neutral, OpenTelemetry-agnostic `CausalSpan` records (kind, status,
+  timings, tags and a whitelisted structural-metadata subset) held in an
+  in-memory sink. Concurrency-safe under a single shared handler: lock-guarded
+  state keyed by full run ids (never truncated), one span per run id, exactly
+  one terminal per run, and detached starts flagged `orphan` rather than
+  reparented. The wrapper also carries the gateway correlation id onto every
+  span by extracting it (extract-only, unverified) from the reserved-context
+  token and merging it into `config["metadata"]`, riding LangGraph's native
+  metadata inheritance. Capture only — no delivery/persistence (ZER-5) and no
+  OpenTelemetry mapping (ZER-4).
+
 ## [0.12.1.3] - 2026-07-23
 
 ### Fixed

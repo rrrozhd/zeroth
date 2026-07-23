@@ -9,6 +9,11 @@ from typing import Any
 from langchain_core.runnables.config import merge_configs
 
 from zeroth.integrations.langgraph._callbacks import inject_governance_handler
+from zeroth.integrations.langgraph._correlation import (
+    correlation_from_call,
+    reset_correlation,
+    set_correlation,
+)
 from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
 
 _COMPOSE_ERROR = (
@@ -132,35 +137,134 @@ class GovernedGraph:
 
     def _prepare(
         self, args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
-        """Bind any :meth:`with_config` config, then merge the governance handler."""
+    ) -> tuple[tuple[Any, ...], dict[str, Any], str | None]:
+        """Bind config, extract the correlation id, then merge the governance handler.
+
+        Correlation is extracted after any :meth:`with_config` bind (so a token in
+        the bound config is seen); the extracted id is *returned* for the caller
+        to publish on the wrapper-owned ``ContextVar`` around the delegate run
+        (see :func:`set_correlation`). It is never written into the run config, so
+        no caller-reachable metadata channel carries it. Purely observational: it
+        leaves results / order / cancellation unchanged.
+        """
         if self._bound_config:
             args, kwargs = _apply_bound_config(args, kwargs, self._bound_config)
-        return inject_governance_handler(args, kwargs, self._handler)
+        correlation = correlation_from_call(args, kwargs)
+        args, kwargs = inject_governance_handler(args, kwargs, self._handler)
+        return args, kwargs, correlation
 
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         """Invoke the wrapped graph with the governance handler merged in."""
-        args, kwargs = self._prepare(args, kwargs)
+        args, kwargs, correlation = self._prepare(args, kwargs)
         self._run_start("invoke")
-        return self._delegate.invoke(*args, **kwargs)
+        token = set_correlation(correlation)
+        try:
+            return self._delegate.invoke(*args, **kwargs)
+        finally:
+            reset_correlation(token)
 
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         """Async-invoke the wrapped graph with the governance handler merged in."""
-        args, kwargs = self._prepare(args, kwargs)
+        args, kwargs, correlation = self._prepare(args, kwargs)
         self._run_start("ainvoke")
-        return await self._delegate.ainvoke(*args, **kwargs)
+        token = set_correlation(correlation)
+        try:
+            return await self._delegate.ainvoke(*args, **kwargs)
+        finally:
+            reset_correlation(token)
 
     def stream(self, *args: Any, **kwargs: Any) -> Any:
-        """Stream the wrapped graph with the governance handler merged in."""
-        args, kwargs = self._prepare(args, kwargs)
+        """Stream the wrapped graph with the governance handler merged in.
+
+        The delegate generator is iterated by the caller *after* this method
+        returns, so the correlation ``ContextVar`` is published inside the wrapper
+        generator -- set when iteration begins, reset when it ends -- not in the
+        method body (which would reset it before the caller ever iterates).
+        """
+        args, kwargs, correlation = self._prepare(args, kwargs)
         self._run_start("stream")
-        return self._delegate.stream(*args, **kwargs)
+        return self._correlated_stream(args, kwargs, correlation)
 
     def astream(self, *args: Any, **kwargs: Any) -> Any:
-        """Async-stream the wrapped graph with the governance handler merged in."""
-        args, kwargs = self._prepare(args, kwargs)
+        """Async-stream the wrapped graph with the governance handler merged in.
+
+        As with :meth:`stream`, the async generator is driven after this method
+        returns, so the correlation ``ContextVar`` is published inside the wrapper
+        async generator (set at first iteration, reset in ``finally``), never in
+        the method body. Stays a plain ``def`` returning an async iterator -- an
+        ``async def`` here would return a coroutine callers cannot ``async for``.
+        """
+        args, kwargs, correlation = self._prepare(args, kwargs)
         self._run_start("astream")
-        return self._delegate.astream(*args, **kwargs)
+        return self._correlated_astream(args, kwargs, correlation)
+
+    def _correlated_stream(
+        self, args: tuple[Any, ...], kwargs: dict[str, Any], correlation: str | None
+    ) -> Any:
+        """Yield the delegate stream with the correlation published for its duration.
+
+        A generator: its body runs only when the caller iterates. The ``ContextVar``
+        is set around each individual ``next()`` -- so every node callback, including
+        those on parallel worker threads that inherit this context, reads it -- and
+        reset *before* the chunk is yielded. Scoping it per-chunk (rather than across
+        the yields) keeps the correlation out of the consumer's context, leaks nothing
+        when an iterator is abandoned, stops interleaved streams observing each other,
+        and keeps every token confined to the context that created it. Chunk order and
+        laziness are unchanged.
+        """
+        iterator = iter(self._delegate.stream(*args, **kwargs))
+        try:
+            while True:
+                token = set_correlation(correlation)
+                try:
+                    chunk = next(iterator)
+                except StopIteration:
+                    return
+                finally:
+                    reset_correlation(token)
+                yield chunk
+        finally:
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                token = set_correlation(correlation)
+                try:
+                    close()
+                finally:
+                    reset_correlation(token)
+
+    async def _correlated_astream(
+        self, args: tuple[Any, ...], kwargs: dict[str, Any], correlation: str | None
+    ) -> Any:
+        """Async-yield the delegate stream with the correlation published for its duration.
+
+        The async counterpart of :meth:`_correlated_stream`. The ``ContextVar`` is
+        set around each individual ``__anext__()`` and reset *before* the chunk is
+        yielded, so callbacks on the run's task and any child tasks read the
+        correlation without it leaking into the consumer's context -- and every
+        token stays confined to the context that created it, so closing the stream
+        from a different task cannot raise. ``finally`` also closes the *delegate*
+        iterator explicitly, so its own cleanup runs on early close/cancellation.
+        Chunk order, laziness and cancellation stay unchanged.
+        """
+        iterator = self._delegate.astream(*args, **kwargs).__aiter__()
+        try:
+            while True:
+                token = set_correlation(correlation)
+                try:
+                    chunk = await iterator.__anext__()
+                except StopAsyncIteration:
+                    return
+                finally:
+                    reset_correlation(token)
+                yield chunk
+        finally:
+            aclose = getattr(iterator, "aclose", None)
+            if aclose is not None:
+                token = set_correlation(correlation)
+                try:
+                    await aclose()
+                finally:
+                    reset_correlation(token)
 
     def with_config(self, config: Any = None, **kwargs: Any) -> GovernedGraph:
         """Return a still-governed graph that binds ``config`` into every run.
