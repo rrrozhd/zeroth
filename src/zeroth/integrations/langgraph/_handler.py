@@ -21,7 +21,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -29,8 +29,35 @@ from langchain_core.callbacks import BaseCallbackHandler
 from zeroth.integrations.langgraph._correlation import CORRELATION_METADATA_KEY
 from zeroth.integrations.langgraph._spans import CausalSpan, SpanKind
 
+if TYPE_CHECKING:
+    # Type-only imports (never evaluated at runtime under ``from __future__ import
+    # annotations``), so they cost nothing at import and never pull in langgraph.
+    from langchain_core.messages import BaseMessage
+    from langchain_core.outputs import ChatGenerationChunk, GenerationChunk, LLMResult
+
 _METADATA_WHITELIST = ("langgraph_node", "langgraph_step", "thread_id")
 """Structural keys copied into a span. No inputs / outputs / free-form metadata."""
+
+
+def _resolve_span_name(name: Any, serialized: Any, metadata: dict[str, Any] | None) -> str | None:
+    """Resolve a span's name from the richest identity source LangChain surfaces.
+
+    Preference order: the explicit callback ``name`` kwarg (a named runnable or
+    chain -- e.g. a nested ``RunnableLambda(name=...)``), then the serialized
+    runnable / tool / model ``name`` (how tools and chat models carry identity),
+    then the LangGraph node name in ``metadata``. Non-string candidates are
+    skipped; ``None`` means an anonymous run. Preferring the callback name fixes a
+    nested sub-runnable being mislabelled as its enclosing node and a tool / LLM
+    span being left nameless.
+    """
+    if isinstance(name, str) and name:
+        return name
+    if isinstance(serialized, dict):
+        serialized_name = serialized.get("name")
+        if isinstance(serialized_name, str) and serialized_name:
+            return serialized_name
+    node = (metadata or {}).get("langgraph_node")
+    return node if isinstance(node, str) else None
 
 
 class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
@@ -104,9 +131,11 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         parent_run_id: UUID | None,
         tags: list[str] | None,
         metadata: dict[str, Any] | None,
+        name: str | None,
     ) -> None:
         """Register a ``running`` span for a start, deduplicating by run id.
 
+        ``name`` is the already-resolved span name (see :func:`_resolve_span_name`).
         The ``parent_run_id`` is stored verbatim; whether that reference is
         dangling (an ``orphan``) is decided at read time by :meth:`_resolve`, not
         here -- so an out-of-order start whose parent has not yet arrived is not
@@ -123,7 +152,7 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
                 run_id=rid,
                 parent_run_id=prid,
                 kind=kind,
-                name=meta.get("langgraph_node"),
+                name=name,
                 start=time.perf_counter(),
                 end=None,
                 status="running",
@@ -183,7 +212,8 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Record the start of a chain run (a graph or node)."""
-        self._record_start("chain", run_id, parent_run_id, tags, metadata)
+        name = _resolve_span_name(kwargs.get("name"), serialized, metadata)
+        self._record_start("chain", run_id, parent_run_id, tags, metadata, name)
 
     def on_tool_start(
         self,
@@ -198,7 +228,8 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Record the start of a tool run."""
-        self._record_start("tool", run_id, parent_run_id, tags, metadata)
+        name = _resolve_span_name(kwargs.get("name"), serialized, metadata)
+        self._record_start("tool", run_id, parent_run_id, tags, metadata, name)
 
     def on_llm_start(
         self,
@@ -212,12 +243,13 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Record the start of a (non-chat) LLM run."""
-        self._record_start("llm", run_id, parent_run_id, tags, metadata)
+        name = _resolve_span_name(kwargs.get("name"), serialized, metadata)
+        self._record_start("llm", run_id, parent_run_id, tags, metadata, name)
 
     def on_chat_model_start(
         self,
         serialized: dict[str, Any],
-        messages: list[list[Any]],
+        messages: list[list[BaseMessage]],
         *,
         run_id: UUID,
         parent_run_id: UUID | None = None,
@@ -231,13 +263,14 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         ``*args`` override would make LangChain fall back to ``on_llm_start`` and
         raise ``IndexError`` when converting messages to prompt strings.
         """
-        self._record_start("chat_model", run_id, parent_run_id, tags, metadata)
+        name = _resolve_span_name(kwargs.get("name"), serialized, metadata)
+        self._record_start("chat_model", run_id, parent_run_id, tags, metadata, name)
 
     def on_llm_new_token(
         self,
         token: str | list[str | dict[str, Any]],
         *,
-        chunk: Any = None,
+        chunk: GenerationChunk | ChatGenerationChunk | None = None,
         run_id: UUID,
         parent_run_id: UUID | None = None,
         tags: list[str] | None = None,
@@ -287,7 +320,13 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         self._record_end(run_id, "error", type(error).__name__)
 
     def on_llm_end(
-        self, response: Any, *, run_id: UUID, parent_run_id: UUID | None = None, **kwargs: Any
+        self,
+        response: LLMResult,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
+        **kwargs: Any,
     ) -> None:
         """Terminate an LLM / chat-model span with ``ok``."""
         self._record_end(run_id, "ok")
@@ -298,6 +337,7 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         *,
         run_id: UUID,
         parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Terminate an LLM / chat-model span with ``error``."""

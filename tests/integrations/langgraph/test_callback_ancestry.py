@@ -259,6 +259,7 @@ def test_r3_nested_run_reconstructs_exact_parent_child_edges() -> None:
     inner = _children(spans, node_a.run_id)
     assert len(inner) == 1  # inner_a's parent is node a, NOT the root
     assert inner[0].parent_run_id == node_a.run_id
+    assert inner[0].name == "inner_a"  # F2: named sub-runnable keeps ITS name, not node "a"
     # Exact edge set: root fans out to exactly {a, b, c}; a, b, c are otherwise leaves.
     assert {s.run_id for s in _children(spans, root.run_id)} == {
         node_a.run_id,

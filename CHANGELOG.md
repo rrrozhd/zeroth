@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2.2] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry audit hardening (audit-1). Closed a correlation trust-
+  boundary hole: the `govern_graph` wrapper now strips any caller-supplied
+  `metadata["zeroth_correlation_id"]` before injection and re-sets it only from a
+  valid gateway `_zeroth` token, so an untrusted caller can no longer forge the
+  gateway correlation (absent/malformed token now yields `None`, never the
+  caller's value). Bounded reserved-context token parsing against denial of
+  service — oversized tokens are rejected by length before decoding and
+  `RecursionError` from a deeply nested payload is swallowed to `None` instead of
+  propagating out of graph invocation. Span names now resolve from the callback
+  `name` kwarg then the serialized runnable/tool/model name before falling back
+  to the LangGraph node, so a nested sub-runnable keeps its own name and tool/LLM
+  spans are no longer nameless. `CausalSpan.metadata` is now an immutable
+  `MappingProxyType`, so a consumer cannot mutate a returned span or defeat the
+  metadata whitelist. The LLM callbacks mirror the pinned langchain-core 1.5.0
+  signatures (`tags` on `on_llm_end`/`on_llm_error`, upstream `LLMResult` /
+  chunk / `BaseMessage` types). Added stronger dedup (full run id vs shared
+  prefix) and live concurrent-read coverage.
+
 ## [0.12.2.1] - 2026-07-23
 
 ### Fixed

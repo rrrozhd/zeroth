@@ -9,7 +9,9 @@ ZER-5. ZER-3 only *captures* the causal tree.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Literal
 
 SpanKind = Literal["chain", "tool", "llm", "chat_model"]
@@ -52,7 +54,12 @@ class CausalSpan:
             ``orphan`` at read time for a dangling-parent span (see
             :data:`SpanStatus`).
         tags: Callback ``tags`` captured at start.
-        metadata: Whitelisted structural metadata only.
+        metadata: Whitelisted structural metadata only, exposed as an immutable
+            mapping (a ``MappingProxyType`` over a private copy). Because the span
+            is frozen but a plain ``dict`` would still be mutable in place, the
+            record coerces it so a consumer of ``completed_spans`` / ``open_spans``
+            cannot mutate it and thereby corrupt the shared sink or defeat the
+            whitelist.
         correlation_id: The UNVERIFIED gateway correlation id carried on the run's
             callback metadata, or ``None``. Unverified because it is extracted
             from the reserved-context token's payload without signature checking
@@ -68,9 +75,22 @@ class CausalSpan:
     end: float | None
     status: SpanStatus
     tags: tuple[str, ...]
-    metadata: dict[str, Any]
+    metadata: Mapping[str, Any]
     correlation_id: str | None
     error_type: str | None
+
+    def __post_init__(self) -> None:
+        """Freeze ``metadata`` into an immutable, independently owned mapping.
+
+        The dataclass is ``frozen`` but a ``dict`` field would still allow
+        ``span.metadata[k] = ...`` to mutate shared state. Coercing to a
+        ``MappingProxyType`` over a fresh copy makes every span's metadata
+        read-only regardless of how it was constructed (including via
+        :func:`dataclasses.replace`), so the whitelist cannot be defeated by an
+        external consumer.
+        """
+        if not isinstance(self.metadata, MappingProxyType):
+            object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
 __all__ = ["CausalSpan", "SpanKind", "SpanStatus"]
