@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1.3] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` callback-manager governance normalization (ZER-2 audit-3): when a
+  `BaseCallbackManager`'s `handlers` and `inheritable_handlers` lists hold divergent
+  governance-handler instances, or pre-existing duplicates, the merge now collapses
+  them to a single canonical governance identity present exactly once in each list,
+  instead of leaving the lists divergent.
+
+## [0.12.1.2] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` with_config chaining and manager inheritance (ZER-2 audit-2):
+  - Chained `GovernedGraph.with_config(...)` now shallow-overwrites previously
+    bound top-level keys (tags/metadata/configurable/callbacks/run_name/...)
+    wholesale, matching `RunnableBinding.with_config`, instead of merging and
+    accumulating them. `merge_configs` still layers the bound config under the
+    call config at invoke time, unchanged.
+  - Governance callback-manager dedup now keeps exactly one governance handler in
+    **both** `handlers` and `inheritable_handlers` (same identity), regardless of
+    which list a pre-installed handler started in — so governance always
+    propagates to child runs and is never duplicated.
+  - Broadened the audit gate tests: telemetry-failure safety is now exercised
+    across all four entrypoints (invoke/stream/ainvoke/astream) with the failing
+    transport asserted to actually run, plus chained-with_config equivalence and
+    asymmetric callback-manager layouts.
+
+## [0.12.1.1] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` transparency and callback-merge hardening (ZER-2 audit-1):
+  - `GovernedGraph.with_config(...)` now stays governed. Previously it delegated
+    through `__getattr__` and handed back a bare, ungoverned `RunnableBinding`,
+    silently dropping governance. It now returns a governed wrapper that binds the
+    config into every run while preserving attribute delegation and the
+    `on_run_start` seam. `|` composition raises a clear, actionable error.
+  - Callback-merge dedup keys on governance-handler **type/identity**, never on
+    user-callback equality. Nested `govern_graph(govern_graph(g))` or a
+    pre-installed handler no longer double-installs governance, and a user
+    callback with a hostile `__eq__` can no longer suppress the Zeroth handler
+    (both list and `BaseCallbackManager` config shapes).
+  - Econ telemetry emission in `InstrumentedLangGraph` is now best-effort: a
+    failing transport can never replace the graph's result, mask its exception,
+    or alter cancellation.
+
+## [0.12.1] - 2026-07-23
+
+### Added
+
+- `govern_graph`, a transparent observed-mode wrapper around a compiled
+  LangGraph, exported from `zeroth.integrations.langgraph`. One-line install
+  (`graph = govern_graph(graph)`) reuses the econ instrumentation delegation for
+  cost capture and merges a Zeroth governance callback handler into each run's
+  config without replacing or duplicating user callbacks. Results, streamed
+  chunks and exceptions are byte-for-byte equivalent to the bare graph. The
+  wrapper honours the FA5 capability floor — it mints no attestation and adds no
+  path that promotes a run above `admission` (promotion to `observed` is
+  deferred) — and exposes an optional no-op `on_run_start` stability seam.
+  Importing the package never imports the optional `langgraph` dependency.
+
 ## [0.12.0] - 2026-07-21
 
 ### Added
