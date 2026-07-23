@@ -21,8 +21,10 @@ SpanStatus = Literal["running", "ok", "error", "orphan"]
 * ``running`` -- started, not yet terminal.
 * ``ok`` -- ended normally.
 * ``error`` -- ended via an ``on_*_error`` callback.
-* ``orphan`` -- a start with no attachable parent (see the handler's root rule);
-  recorded as-is and **never** reparented to a root.
+* ``orphan`` -- a span whose ``parent_run_id`` names a run id that was never
+  observed (a dangling reference). Determined when spans are *read*, not at the
+  start callback; it overrides the lifecycle value above and the parent is
+  **never** reparented to a root.
 """
 
 
@@ -37,15 +39,18 @@ class CausalSpan:
 
     Attributes:
         run_id: Full ``str(run_id)`` of this run.
-        parent_run_id: Full ``str(parent_run_id)``, or ``None`` for a tree root
-            (or an orphan).
+        parent_run_id: Full ``str(parent_run_id)``, or ``None`` for a tree root.
+            An orphan keeps its (dangling) parent id verbatim -- only its
+            ``status`` changes, never this reference.
         kind: Neutral node kind.
         name: The LangGraph node name (``metadata["langgraph_node"]``) captured
             at start, or ``None``.
         start: ``time.perf_counter()`` reading at start.
         end: ``time.perf_counter()`` reading at the terminal event, or ``None``
-            while still running / orphaned.
-        status: Neutral lifecycle status.
+            while still running.
+        status: Neutral lifecycle status; the handler's accessors override it to
+            ``orphan`` at read time for a dangling-parent span (see
+            :data:`SpanStatus`).
         tags: Callback ``tags`` captured at start.
         metadata: Whitelisted structural metadata only.
         correlation_id: The UNVERIFIED gateway correlation id carried on the run's

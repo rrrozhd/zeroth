@@ -4,9 +4,10 @@ Gated behind the ``gateway-conformance`` group and the ``langgraph_conformance``
 marker (deselected by default): run with
 ``uv run pytest -o addopts= -q tests/integrations/langgraph/``.
 
-The concurrency / dedup / orphan class (FA2, FA4, FA5, R8) is front-loaded: a
-single handler instance is shared across all concurrent runs, so these guard the
-lock-protected, run-id-keyed state that must not corrupt across trees.
+The concurrency / dedup class (FA2, FA4, R8) is front-loaded: a single handler
+instance is shared across all concurrent runs, so these guard the lock-protected,
+run-id-keyed state that must not corrupt across trees. The root / orphan class
+(FA5) lives in the companion ``test_callback_ancestry_orphans.py``.
 """
 
 from __future__ import annotations
@@ -161,7 +162,7 @@ async def _drain(astream: Any) -> list[Any]:
 
 
 # --------------------------------------------------------------------------- #
-# Concurrency / dedup / orphan class (front-loaded).                          #
+# Concurrency / dedup class (front-loaded). Root / orphan: companion file.     #
 # --------------------------------------------------------------------------- #
 
 
@@ -193,21 +194,6 @@ def test_r6_duplicate_start_for_one_run_id_yields_one_span() -> None:
 
     assert len(handler.open_spans) == 1
     assert handler.open_spans[0].run_id == str(run_id)
-
-
-def test_r7_detached_start_is_orphaned_not_reparented() -> None:
-    """FA5: a non-root start (parent=None) while a root is open => orphan, not attached."""
-    handler = ZerothGovernanceCallbackHandler()
-    root_id = uuid.uuid4()
-    handler.on_chain_start({}, {}, run_id=root_id, parent_run_id=None)  # establishes the root
-
-    detached_id = uuid.uuid4()
-    handler.on_chain_start({}, {}, run_id=detached_id, parent_run_id=None)
-
-    detached = next(s for s in handler.open_spans if s.run_id == str(detached_id))
-    assert detached.status == "orphan"
-    assert detached.parent_run_id is None  # never silently reparented to the root
-    assert detached.run_id != str(root_id)
 
 
 def test_r8_two_graphs_one_handler_do_not_cross_contaminate() -> None:

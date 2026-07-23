@@ -4030,7 +4030,7 @@ source = { directory = "packaging/console" }
 
 [[package]]
 name = "zeroth-core"
-version = "0.12.2"
+version = "0.12.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

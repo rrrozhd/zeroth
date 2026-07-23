@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2.1] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry orphan classification. The `govern_graph` governance
+  handler previously classified a start whose `parent_run_id` was `None` as an
+  `orphan` whenever another root was still open on the shared handler — so two
+  genuinely concurrent (or sequential) top-level runs through the one handler
+  instance could mislabel a legitimate root as an orphan depending on
+  scheduling, corrupting ancestry. Now every `parent_run_id is None` start is a
+  root (many roots coexist cleanly on one handler), and an `orphan` is instead a
+  span whose non-`None` `parent_run_id` names a run id that was never observed (a
+  dangling reference). Orphan is determined at read time (in the
+  `completed_spans` / `open_spans` accessors) against every observed run id, not
+  frozen at the start callback — so an out-of-order child delivered before its
+  parent resolves to the real parent, while a truly dangling parent is marked
+  `orphan` (status override) and never reparented to a root.
+
 ## [0.12.2] - 2026-07-23
 
 ### Added

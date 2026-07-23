@@ -39,24 +39,32 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
     Semantics (all keyed by full ``str(run_id)``, all under one lock):
 
     * **Start** builds a ``running`` span recording ``parent_run_id``, ``kind``,
-      the node name, tags, whitelisted metadata and the correlation id.
-    * **Root rule** -- a start whose ``parent_run_id`` is ``None`` is a tree root
-      *unless another root is still open*, in which case it is an ``orphan``
-      (never reparented). This keeps every genuine top-level run a valid root --
-      including sequential and concurrent re-invocations sharing this instance --
-      while flagging a detached start injected mid-tree.
-    * **End / error** move the open span to the completed sink with status ``ok``
-      / ``error`` (``error_type`` recorded); exactly one terminal per run id --
-      later end / error events for it are ignored. An ``orphan`` keeps that
-      status through its terminal.
+      the node name, tags, whitelisted metadata and the correlation id. The
+      parent reference is stored verbatim; no root/orphan judgment is made here.
+    * **Root vs orphan** -- a determination made when spans are *read*, not at the
+      start callback. A span whose ``parent_run_id`` is ``None`` is a tree root
+      (always, never an orphan). A span whose ``parent_run_id`` is *not* ``None``
+      but names a run id no start was ever observed for is an ``orphan`` (a
+      dangling reference): its status is overridden to ``orphan`` in the
+      accessors and its parent is never reparented. Deferring to read time is
+      what makes out-of-order delivery correct -- a child whose start precedes
+      its parent's still resolves to the real parent, present by read time. Many
+      roots may coexist on one shared handler, so concurrent and sequential
+      top-level runs all classify cleanly.
+    * **End / error** move the open span to the completed sink with lifecycle
+      status ``ok`` / ``error`` (``error_type`` recorded); exactly one terminal
+      per run id -- later end / error events for it are ignored.
     * **Dedup** -- a second start for a run id already seen creates no second
       span.
     * Ancestry comes only from callbacks; out-of-order events are tolerated and no
       ordering is assumed.
 
-    Completed spans are observable via :attr:`completed_spans`; still-open spans
-    (including orphans) via :attr:`open_spans`. An optional ``on_span_complete``
-    callback is invoked (outside the lock) as each span terminates.
+    Completed spans are observable via :attr:`completed_spans`, still-open spans
+    via :attr:`open_spans`; both apply the read-time orphan determination. An
+    optional ``on_span_complete`` callback fires (outside the lock) as each span
+    terminates, observing the *lifecycle* status (``ok`` / ``error``): orphan is a
+    read-time property of the whole tree, so a per-span terminal notification --
+    fired before the observed set is final -- never carries it.
     """
 
     def __init__(self, *, on_span_complete: Callable[[CausalSpan], None] | None = None) -> None:
@@ -70,7 +78,6 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         self._lock = threading.Lock()
         self._open: dict[str, CausalSpan] = {}
         self._completed: list[CausalSpan] = []
-        self._open_roots: set[str] = set()
         self._seen: set[str] = set()
         self._on_span_complete = on_span_complete
 
@@ -78,15 +85,15 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
 
     @property
     def completed_spans(self) -> list[CausalSpan]:
-        """A snapshot list of spans that have reached a terminal state."""
+        """A snapshot of terminal spans, dangling-parent ones marked ``orphan``."""
         with self._lock:
-            return list(self._completed)
+            return [self._resolve(span) for span in self._completed]
 
     @property
     def open_spans(self) -> list[CausalSpan]:
-        """A snapshot list of spans still open (running or orphaned, no terminal)."""
+        """A snapshot of still-open spans, dangling-parent ones marked ``orphan``."""
         with self._lock:
-            return list(self._open.values())
+            return [self._resolve(span) for span in self._open.values()]
 
     # -- shared span machinery --------------------------------------------
 
@@ -98,7 +105,13 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         tags: list[str] | None,
         metadata: dict[str, Any] | None,
     ) -> None:
-        """Register a ``running`` (or ``orphan``) span, deduplicating by run id."""
+        """Register a ``running`` span for a start, deduplicating by run id.
+
+        The ``parent_run_id`` is stored verbatim; whether that reference is
+        dangling (an ``orphan``) is decided at read time by :meth:`_resolve`, not
+        here -- so an out-of-order start whose parent has not yet arrived is not
+        frozen as an orphan.
+        """
         rid = str(run_id)
         prid = str(parent_run_id) if parent_run_id is not None else None
         meta = metadata or {}
@@ -106,9 +119,6 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
             if rid in self._seen:
                 return
             self._seen.add(rid)
-            status = self._start_status(prid)
-            if status == "running" and prid is None:
-                self._open_roots.add(rid)
             self._open[rid] = CausalSpan(
                 run_id=rid,
                 parent_run_id=prid,
@@ -116,38 +126,44 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
                 name=meta.get("langgraph_node"),
                 start=time.perf_counter(),
                 end=None,
-                status=status,
+                status="running",
                 tags=tuple(tags or ()),
                 metadata={k: meta[k] for k in _METADATA_WHITELIST if k in meta},
                 correlation_id=meta.get(CORRELATION_METADATA_KEY),
                 error_type=None,
             )
 
-    def _start_status(self, parent_run_id: str | None) -> str:
-        """Classify a start: child, root, or orphan (must hold the lock)."""
-        if parent_run_id is not None:
-            return "running"
-        # A root can only open when no other root is currently open; a second
-        # concurrently-open root (or a detached start injected mid-tree) is an
-        # orphan and is never reparented.
-        return "orphan" if self._open_roots else "running"
+    def _resolve(self, span: CausalSpan) -> CausalSpan:
+        """Return ``span`` with an ``orphan`` status if its parent is dangling.
+
+        A span is an orphan when its ``parent_run_id`` is not ``None`` yet names a
+        run id that was never observed (checked against every observed run id).
+        Orphan overrides the lifecycle status and never rewrites ``parent_run_id``
+        (the dangling id is preserved, never reparented); roots (``parent_run_id
+        is None``) are never orphans. Must hold the lock.
+        """
+        if span.parent_run_id is not None and span.parent_run_id not in self._seen:
+            return replace(span, status="orphan")
+        return span
 
     def _record_end(
         self, run_id: UUID, terminal_status: str, error_type: str | None = None
     ) -> None:
-        """Move an open span to the completed sink exactly once."""
+        """Move an open span to the completed sink exactly once.
+
+        The span keeps its lifecycle ``terminal_status`` (``ok`` / ``error``); a
+        dangling-parent span is surfaced as ``orphan`` only at read time (see
+        :meth:`_resolve`), so the completion callback observes the lifecycle
+        status, never ``orphan``.
+        """
         rid = str(run_id)
         completed: CausalSpan | None = None
         with self._lock:
             span = self._open.pop(rid, None)
             if span is None:
                 return
-            self._open_roots.discard(rid)
-            # An orphan stays an orphan through its terminal (its ancestry was
-            # broken); otherwise it takes the ok/error terminal status.
-            final_status = "orphan" if span.status == "orphan" else terminal_status
             completed = replace(
-                span, end=time.perf_counter(), status=final_status, error_type=error_type
+                span, end=time.perf_counter(), status=terminal_status, error_type=error_type
             )
             self._completed.append(completed)
         if self._on_span_complete is not None:
