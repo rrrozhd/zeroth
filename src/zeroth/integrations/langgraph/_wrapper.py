@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.runnables.config import merge_configs
 
 from zeroth.integrations.langgraph._callbacks import inject_governance_handler
+from zeroth.integrations.langgraph._correlation import inject_correlation_metadata
 from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
 
 _COMPOSE_ERROR = (
@@ -133,9 +134,16 @@ class GovernedGraph:
     def _prepare(
         self, args: tuple[Any, ...], kwargs: dict[str, Any]
     ) -> tuple[tuple[Any, ...], dict[str, Any]]:
-        """Bind any :meth:`with_config` config, then merge the governance handler."""
+        """Bind config, carry the correlation id, then merge the governance handler.
+
+        Correlation is injected after any :meth:`with_config` bind (so a token in
+        the bound config is seen) and before the handler merge; it rides
+        LangGraph's metadata inheritance to every node callback. It is purely
+        observational and leaves results / order / cancellation unchanged.
+        """
         if self._bound_config:
             args, kwargs = _apply_bound_config(args, kwargs, self._bound_config)
+        args, kwargs = inject_correlation_metadata(args, kwargs)
         return inject_governance_handler(args, kwargs, self._handler)
 
     def invoke(self, *args: Any, **kwargs: Any) -> Any:

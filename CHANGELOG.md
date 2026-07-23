@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-07-23
+
+### Added
+
+- Causal LangGraph callback ancestry capture (ZER-3): the `govern_graph`
+  governance handler now reconstructs a run's causal `run_id` / `parent_run_id`
+  tree into neutral, OpenTelemetry-agnostic `CausalSpan` records (kind, status,
+  timings, tags and a whitelisted structural-metadata subset) held in an
+  in-memory sink. Concurrency-safe under a single shared handler: lock-guarded
+  state keyed by full run ids (never truncated), one span per run id, exactly
+  one terminal per run, and detached starts flagged `orphan` rather than
+  reparented. The wrapper also carries the gateway correlation id onto every
+  span by extracting it (extract-only, unverified) from the reserved-context
+  token and merging it into `config["metadata"]`, riding LangGraph's native
+  metadata inheritance. Capture only — no delivery/persistence (ZER-5) and no
+  OpenTelemetry mapping (ZER-4).
+
 ## [0.12.1.3] - 2026-07-23
 
 ### Fixed
