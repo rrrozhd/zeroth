@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1.2] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` with_config chaining and manager inheritance (ZER-2 audit-2):
+  - Chained `GovernedGraph.with_config(...)` now shallow-overwrites previously
+    bound top-level keys (tags/metadata/configurable/callbacks/run_name/...)
+    wholesale, matching `RunnableBinding.with_config`, instead of merging and
+    accumulating them. `merge_configs` still layers the bound config under the
+    call config at invoke time, unchanged.
+  - Governance callback-manager dedup now keeps exactly one governance handler in
+    **both** `handlers` and `inheritable_handlers` (same identity), regardless of
+    which list a pre-installed handler started in — so governance always
+    propagates to child runs and is never duplicated.
+  - Broadened the audit gate tests: telemetry-failure safety is now exercised
+    across all four entrypoints (invoke/stream/ainvoke/astream) with the failing
+    transport asserted to actually run, plus chained-with_config equivalence and
+    asymmetric callback-manager layouts.
+
 ## [0.12.1.1] - 2026-07-23
 
 ### Fixed

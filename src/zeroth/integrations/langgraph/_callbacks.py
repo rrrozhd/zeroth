@@ -22,24 +22,49 @@ def _has_governance_handler(handlers: Iterable[Any]) -> bool:
     return any(isinstance(h, ZerothGovernanceCallbackHandler) for h in handlers)
 
 
-def _register_in_manager(manager: Any, handler: BaseCallbackHandler) -> None:
-    """Add ``handler`` to a callback-manager copy by identity, never equality.
+def _find_governance_handler(handler_lists: Iterable[Any]) -> Any:
+    """Return the first governance-handler *instance* found across ``handler_lists``.
 
-    ``BaseCallbackManager.add_handler`` dedups with ``handler not in
-    self.handlers`` -- an equality test -- so a hostile user ``__eq__`` could stop
-    the governance handler from ever being registered. Append directly to the
-    copy's handler lists using identity checks instead; fall back to
-    ``add_handler`` only for manager-likes that expose no plain handler list.
+    Detection is by ``isinstance`` so a pre-installed governance handler is reused
+    (its identity shared into every list) rather than duplicated. Returns ``None``
+    when no list carries a governance handler.
     """
-    handlers = getattr(manager, "handlers", None)
-    if isinstance(handlers, list):
-        if not any(h is handler for h in handlers):
-            handlers.append(handler)
-        inheritable = getattr(manager, "inheritable_handlers", None)
-        if isinstance(inheritable, list) and not any(h is handler for h in inheritable):
-            inheritable.append(handler)
-    elif hasattr(manager, "add_handler"):
-        manager.add_handler(handler, inherit=True)
+    for handlers in handler_lists:
+        for h in handlers:
+            if isinstance(h, ZerothGovernanceCallbackHandler):
+                return h
+    return None
+
+
+def _register_in_manager(manager: Any, handler: BaseCallbackHandler) -> None:
+    """Ensure exactly one governance handler lives in BOTH manager handler lists.
+
+    Governance must be inheritable, so it belongs in ``handlers`` *and*
+    ``inheritable_handlers`` (langchain's ``add_handler(h, inherit=True)`` intent).
+    ``add_handler`` is bypassed because its ``handler not in self.handlers``
+    dedup is an equality test a hostile user ``__eq__`` could exploit to suppress
+    governance. Instead, reuse any governance instance already present in either
+    list (by ``isinstance`` -- so the *same* identity lands in both) or the
+    wrapper's own handler, and append it, by identity, to each list that lacks a
+    governance instance. Manager-likes exposing neither list fall back to
+    ``add_handler``.
+    """
+    lists = [
+        seq
+        for seq in (
+            getattr(manager, "handlers", None),
+            getattr(manager, "inheritable_handlers", None),
+        )
+        if isinstance(seq, list)
+    ]
+    if not lists:
+        if hasattr(manager, "add_handler"):
+            manager.add_handler(handler, inherit=True)
+        return
+    governance = _find_governance_handler(lists) or handler
+    for handlers in lists:
+        if not _has_governance_handler(handlers):
+            handlers.append(governance)
 
 
 def merge_governance_callbacks(
@@ -56,8 +81,9 @@ def merge_governance_callbacks(
     * ``callbacks`` absent: ``[handler]``;
     * ``callbacks`` a list: ``[*existing, handler]`` (skipped only if a
       governance handler -- recognised by type -- is already present);
-    * ``callbacks`` a ``BaseCallbackManager``: a copy with the handler added, so
-      the caller's own manager is never mutated.
+    * ``callbacks`` a ``BaseCallbackManager``: a copy carrying exactly one
+      governance handler in both ``handlers`` and ``inheritable_handlers`` (so it
+      propagates to child runs), leaving the caller's own manager untouched.
 
     Whether the handler is already present is decided solely by governance-handler
     *type* / *identity*; arbitrary user-callback equality never gets a say, so a
@@ -83,11 +109,10 @@ def merge_governance_callbacks(
         return merged
 
     # Anything else is treated as a BaseCallbackManager-like object. Copy it so
-    # the caller's manager is left untouched, then add the governance handler by
-    # identity/type iff no governance handler is present yet.
+    # the caller's manager is left untouched, then ensure exactly one governance
+    # handler in each of its handler lists (see _register_in_manager).
     manager = existing.copy() if hasattr(existing, "copy") else existing
-    if not _has_governance_handler(getattr(manager, "handlers", ())):
-        _register_in_manager(manager, handler)
+    _register_in_manager(manager, handler)
     merged["callbacks"] = manager
     return merged
 

@@ -169,10 +169,13 @@ class GovernedGraph:
         to the wrapped graph would hand back a bare, ungoverned ``RunnableBinding``
         (governance silently dropped); instead this returns a new
         :class:`GovernedGraph` around the *same* underlying graph, carrying the
-        merged bound config, the ``on_run_start`` seam and a governance handler.
-        Attribute delegation and single-handler injection are preserved, and the
-        bound config is applied to every ``invoke`` / ``ainvoke`` / ``stream`` /
-        ``astream`` call exactly as the bare graph's ``with_config`` would.
+        bound config, the ``on_run_start`` seam and a governance handler. Chained
+        ``with_config`` calls shallow-overwrite previously bound top-level keys
+        (tags/metadata/configurable/callbacks/run_name/...) wholesale, matching
+        ``RunnableBinding``; they do not accumulate. Attribute delegation and
+        single-handler injection are preserved, and the bound config is applied to
+        every ``invoke`` / ``ainvoke`` / ``stream`` / ``astream`` call exactly as
+        the bare graph's ``with_config`` would.
 
         Args:
             config: A ``RunnableConfig`` mapping to bind. Defaults to ``None``.
@@ -183,10 +186,13 @@ class GovernedGraph:
             the merged config bound.
         """
         call_config = {**(config or {}), **kwargs}
-        merged_bound = merge_configs(self._bound_config, call_config)
-        return GovernedGraph(
-            self._graph, on_run_start=self._on_run_start, bound_config=merged_bound
-        )
+        # Shallow top-level overwrite, matching ``RunnableBinding.with_config``:
+        # each present key in ``call_config`` REPLACES the previously bound value
+        # wholesale rather than accumulating it. ``merge_configs`` is applied only
+        # at invoke time (``_apply_bound_config``) -- exactly where a
+        # ``RunnableBinding`` layers its bound config under the call-time config.
+        new_bound = {**(self._bound_config or {}), **call_config}
+        return GovernedGraph(self._graph, on_run_start=self._on_run_start, bound_config=new_bound)
 
     def __or__(self, _other: Any) -> Any:
         """Reject pipe composition; ZER-2 governs graphs, it does not compose them."""
