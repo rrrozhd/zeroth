@@ -5,9 +5,8 @@ file within the 400-line ceiling). Same gate: the ``langgraph_conformance``
 marker (deselected by default) -- run with
 ``uv run pytest -o addopts= -q tests/integrations/langgraph/``.
 
-Each test pins one Codex audit finding:
+Each test pins one Codex audit finding (audit-1 unless noted):
 
-* F1 -- an untrusted caller cannot forge the gateway correlation id.
 * F3 -- a deeply nested / oversized ``_zeroth`` token is a rejected, not a DoS.
 * F2 -- a span's name comes from the callback / serialized identity, not only the
   enclosing LangGraph node.
@@ -15,15 +14,22 @@ Each test pins one Codex audit finding:
 * F5 -- the LLM callbacks expose the upstream lc-core ``tags`` parameter.
 * F6 -- start dedup keys on the FULL run id, never a shared prefix.
 * F7 -- concurrent reads during writes never race the lock-guarded accessors.
+* F9 (audit-2) -- a frozen span copies its incoming metadata, so mutating the
+  caller's source (even a ``MappingProxyType`` backing dict) never changes it.
+
+The audit-1 correlation-forge finding (F1) is superseded by audit-2 (F8):
+correlation now rides a wrapper-owned ``ContextVar`` instead of caller-reachable
+metadata, so its forge / real-path / isolation coverage moved to
+``test_correlation_carrier.py``.
 """
 
 from __future__ import annotations
 
 import base64
 import inspect
-import json
 import threading
 import uuid
+from types import MappingProxyType
 from typing import Any, TypedDict
 
 import pytest
@@ -33,7 +39,7 @@ pytest.importorskip("langgraph", reason="requires the gateway-conformance depend
 from langgraph.graph import END, START, StateGraph
 
 from zeroth.econ.instrumentation.runtime import get_runtime
-from zeroth.integrations.langgraph import ZerothGovernanceCallbackHandler, govern_graph
+from zeroth.integrations.langgraph import CausalSpan, ZerothGovernanceCallbackHandler, govern_graph
 from zeroth.integrations.langgraph._correlation import _correlation_from_config
 
 pytestmark = pytest.mark.langgraph_conformance
@@ -57,12 +63,6 @@ def _build_graph() -> Any:
     return builder.compile()
 
 
-def _payload_token(correlation_id: str) -> str:
-    """A token whose payload segment decodes to a correlation id (signature ignored)."""
-    payload = base64.urlsafe_b64encode(json.dumps({"correlation_id": correlation_id}).encode())
-    return f"header.{payload.rstrip(b'=').decode()}.signature"
-
-
 def _nested_token(depth: int) -> str:
     """A token whose payload is a JSON array nested ``depth`` levels deep (a DoS probe)."""
     payload = ("[" * depth + "]" * depth).encode()
@@ -80,35 +80,6 @@ def _transparent_econ():
         yield
     finally:
         runtime.config.enabled = original
-
-
-# --------------------------------------------------------------------------- #
-# F1 -- correlation trust boundary (security): no forged correlation.          #
-# --------------------------------------------------------------------------- #
-
-
-def test_f1_forged_correlation_without_token_is_stripped_to_none() -> None:
-    """F1: a caller-forged ``metadata`` correlation with NO ``_zeroth`` yields None spans."""
-    governed = govern_graph(_build_graph())
-    governed.invoke({"text": "hi"}, config={"metadata": {"zeroth_correlation_id": "FORGED"}})
-    spans = governed._handler.completed_spans
-    assert spans
-    assert all(s.correlation_id is None for s in spans)
-    assert all(s.correlation_id != "FORGED" for s in spans)
-
-
-def test_f1_valid_token_wins_over_forged_metadata() -> None:
-    """F1: a real extracted correlation is injected; a caller 'FORGED' value never leaks."""
-    governed = govern_graph(_build_graph())
-    config = {
-        "metadata": {"zeroth_correlation_id": "FORGED"},
-        "configurable": {"_zeroth": _payload_token("CORR-REAL")},
-    }
-    governed.invoke({"text": "hi"}, config=config)
-    spans = governed._handler.completed_spans
-    assert spans
-    assert all(s.correlation_id == "CORR-REAL" for s in spans)
-    assert all(s.correlation_id != "FORGED" for s in spans)
 
 
 # --------------------------------------------------------------------------- #
@@ -197,6 +168,54 @@ def test_f4_returned_span_metadata_is_immutable() -> None:
         span.metadata["injected"] = "x"  # type: ignore[index]
     # A later snapshot is uncorrupted by the attempted mutations.
     assert handler.open_spans[0].metadata["langgraph_node"] == "n"
+
+
+# --------------------------------------------------------------------------- #
+# F9 -- a frozen span copies its incoming metadata (audit-2).                  #
+# --------------------------------------------------------------------------- #
+
+
+def _span_with_metadata(metadata: Any) -> CausalSpan:
+    """A minimal running span carrying ``metadata`` (all other fields are inert)."""
+    return CausalSpan(
+        run_id="r",
+        parent_run_id=None,
+        kind="chain",
+        name=None,
+        start=0.0,
+        end=None,
+        status="running",
+        tags=(),
+        metadata=metadata,
+        correlation_id=None,
+        error_type=None,
+    )
+
+
+def test_f9_frozen_span_copies_its_incoming_metadata_source() -> None:
+    """F9: a span snapshots metadata at construction; mutating the caller's source is inert.
+
+    The prior fix only wrapped a plain ``dict`` and *retained* an incoming
+    ``MappingProxyType`` verbatim -- but a proxy is a read-only view whose backing
+    dict a caller still owns and can mutate. The span must copy either shape, and
+    drop any non-scalar value so no shared mutable object survives inside it.
+    """
+    # A mutable dict: post-construction mutation of the source must not leak in.
+    source = {"langgraph_node": "n", "thread_id": "t"}
+    span = _span_with_metadata(source)
+    source["langgraph_node"] = "hacked"
+    source["injected"] = "x"
+    assert dict(span.metadata) == {"langgraph_node": "n", "thread_id": "t"}
+
+    # A MappingProxyType: mutating the proxy's backing dict must not leak in either.
+    backing = {"langgraph_node": "n", "langgraph_step": 3}
+    proxied = _span_with_metadata(MappingProxyType(backing))
+    backing["langgraph_node"] = "hacked"
+    assert dict(proxied.metadata) == {"langgraph_node": "n", "langgraph_step": 3}
+
+    # Non-scalar values are dropped defensively (no shared mutable object retained).
+    with_list = _span_with_metadata({"langgraph_node": "n", "evil": ["mutable"]})
+    assert dict(with_list.metadata) == {"langgraph_node": "n"}
 
 
 # --------------------------------------------------------------------------- #

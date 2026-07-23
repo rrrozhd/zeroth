@@ -26,7 +26,7 @@ from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
 
-from zeroth.integrations.langgraph._correlation import CORRELATION_METADATA_KEY
+from zeroth.integrations.langgraph._correlation import current_correlation
 from zeroth.integrations.langgraph._spans import CausalSpan, SpanKind
 
 if TYPE_CHECKING:
@@ -66,8 +66,10 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
     Semantics (all keyed by full ``str(run_id)``, all under one lock):
 
     * **Start** builds a ``running`` span recording ``parent_run_id``, ``kind``,
-      the node name, tags, whitelisted metadata and the correlation id. The
-      parent reference is stored verbatim; no root/orphan judgment is made here.
+      the node name, tags, whitelisted metadata and the correlation id read from
+      the wrapper-owned ``ContextVar`` for the current run (never from caller
+      metadata, which cannot forge it). The parent reference is stored verbatim;
+      no root/orphan judgment is made here.
     * **Root vs orphan** -- a determination made when spans are *read*, not at the
       start callback. A span whose ``parent_run_id`` is ``None`` is a tree root
       (always, never an orphan). A span whose ``parent_run_id`` is *not* ``None``
@@ -158,7 +160,7 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
                 status="running",
                 tags=tuple(tags or ()),
                 metadata={k: meta[k] for k in _METADATA_WHITELIST if k in meta},
-                correlation_id=meta.get(CORRELATION_METADATA_KEY),
+                correlation_id=current_correlation(),
                 error_type=None,
             )
 

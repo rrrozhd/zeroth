@@ -60,10 +60,11 @@ class CausalSpan:
             record coerces it so a consumer of ``completed_spans`` / ``open_spans``
             cannot mutate it and thereby corrupt the shared sink or defeat the
             whitelist.
-        correlation_id: The UNVERIFIED gateway correlation id carried on the run's
-            callback metadata, or ``None``. Unverified because it is extracted
-            from the reserved-context token's payload without signature checking
-            (see ``_correlation``); enforced mode must never inherit trust from it.
+        correlation_id: The UNVERIFIED gateway correlation id published on the
+            wrapper-owned ``ContextVar`` for the run (never caller-supplied
+            metadata), or ``None``. Unverified because it is extracted from the
+            reserved-context token's payload without signature checking (see
+            ``_correlation``); enforced mode must never inherit trust from it.
         error_type: ``type(error).__name__`` for an errored span, else ``None``.
     """
 
@@ -80,17 +81,24 @@ class CausalSpan:
     error_type: str | None
 
     def __post_init__(self) -> None:
-        """Freeze ``metadata`` into an immutable, independently owned mapping.
+        """Freeze ``metadata`` into an immutable, independently owned copy.
 
         The dataclass is ``frozen`` but a ``dict`` field would still allow
-        ``span.metadata[k] = ...`` to mutate shared state. Coercing to a
-        ``MappingProxyType`` over a fresh copy makes every span's metadata
-        read-only regardless of how it was constructed (including via
-        :func:`dataclasses.replace`), so the whitelist cannot be defeated by an
-        external consumer.
+        ``span.metadata[k] = ...`` to mutate shared state. The incoming mapping is
+        *always* copied -- even an incoming ``MappingProxyType`` is snapshotted,
+        never retained, because a proxy is only a read-only *view* whose backing
+        dict a caller can still mutate. Whitelisted values are scalars (``str``
+        node / thread ids, ``int`` step); any non-scalar value is dropped
+        defensively so no shared mutable object survives inside the frozen span.
+        Applied on every construction, including via :func:`dataclasses.replace`,
+        so the whitelist cannot be defeated by an external consumer.
         """
-        if not isinstance(self.metadata, MappingProxyType):
-            object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        owned = {
+            key: value
+            for key, value in dict(self.metadata).items()
+            if isinstance(value, (str, int))
+        }
+        object.__setattr__(self, "metadata", MappingProxyType(owned))
 
 
 __all__ = ["CausalSpan", "SpanKind", "SpanStatus"]

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2.3] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry audit-2. Correlation now rides a wrapper-owned
+  `ContextVar` that only the langgraph integration package sets and reads,
+  replacing the `config["metadata"]["zeroth_correlation_id"]` channel (F8,
+  security). Metadata is caller-reachable — via `config["metadata"]`, a
+  callback-manager's `metadata`/`inheritable_metadata`, or a preceding callback
+  mutating it at runtime — so sanitizing each path was whack-a-mole; the carrier
+  is now never exposed to callers and caller metadata can no longer forge the
+  gateway correlation. `GovernedGraph` sets the carrier around each run (reset in
+  `finally`) and wraps the returned `stream`/`astream` generators so it is
+  published at iteration start and reset at exhaustion/cancellation, preserving
+  chunk order, laziness and cancellation. The extract-only, unverified token
+  parsing (8 KiB cap + `RecursionError` guard) is unchanged. `CausalSpan` now
+  always copies its incoming metadata instead of retaining a caller's
+  `MappingProxyType` (whose backing dict stays mutable) and drops non-scalar
+  values defensively (F9).
+
 ## [0.12.2.2] - 2026-07-23
 
 ### Fixed
