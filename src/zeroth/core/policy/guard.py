@@ -1,5 +1,9 @@
 """Legacy import path for :mod:`zeroth.governance.policy.guard`."""
 
-from zeroth.governance.policy.guard import PolicyGuard, apply_secret_policy
+from zeroth.governance.policy.guard import (
+    PolicyGuard,
+    RunAdmissionRequest,
+    apply_secret_policy,
+)
 
-__all__ = ["PolicyGuard", "apply_secret_policy"]
+__all__ = ["PolicyGuard", "RunAdmissionRequest", "apply_secret_policy"]

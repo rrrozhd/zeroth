@@ -19,9 +19,7 @@ from zeroth.service.bootstrap.configuration import (
 from zeroth.service.bootstrap.container import (
     DeploymentBootstrapError as DeploymentBootstrapError,
 )
-from zeroth.service.bootstrap.container import (
-    ServiceBootstrap as ServiceBootstrap,
-)
+from zeroth.service.bootstrap.container import ServiceBootstrap as ServiceBootstrap
 from zeroth.service.bootstrap.factory import bootstrap_app as bootstrap_app
 from zeroth.service.bootstrap.factory import bootstrap_service as bootstrap_service
 from zeroth.service.bootstrap.migrations import run_migrations as run_migrations

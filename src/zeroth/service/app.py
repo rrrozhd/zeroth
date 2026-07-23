@@ -23,7 +23,7 @@ from zeroth.service.api.contracts_api import register_contract_routes
 from zeroth.service.api.cost_api import register_cost_routes
 from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
 from zeroth.service.api.econ_dashboard_api import register_econ_dashboard_routes
-from zeroth.service.api.health import HealthResponse
+from zeroth.service.api.health import HealthResponse, langgraph_gateway_health
 from zeroth.service.api.regulus_proxy_api import register_regulus_proxy_routes
 from zeroth.service.api.retention_api import register_retention_routes
 from zeroth.service.api.rightsizing_api import register_rightsizing_routes
@@ -33,6 +33,8 @@ from zeroth.service.api.webhook_api import register_webhook_routes
 from zeroth.service.bootstrap.lifecycle import service_lifespan
 
 logger = logging.getLogger(__name__)
+
+_PUBLIC_HEALTH_PATHS = frozenset({"/health", "/health/live", "/health/ready"})
 
 
 class ServiceBootstrapLike(Protocol):
@@ -107,16 +109,11 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         # Bypass authentication for:
         #  - /health probes (load balancers),
         #  - the /console static UI (browser navigation can't send the API key;
-        #    the UI's own /v1 and /api/studio fetches still carry it),
-        #  - CORS preflight (OPTIONS carries no API key); CORSMiddleware runs
-        #    outermost and answers these before they reach here.
+        #    the UI's own /v1 and /api/studio fetches still carry it).
+        # Valid configured CORS preflights are answered by the outermost
+        # CORSMiddleware before they reach this authentication boundary.
         path = request.url.path
-        if (
-            path.startswith("/health")
-            or path == "/console"
-            or path.startswith("/console/")
-            or request.method == "OPTIONS"
-        ):
+        if path in _PUBLIC_HEALTH_PATHS or path == "/console" or path.startswith("/console/"):
             cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
             set_correlation_id(cid)
             response = await call_next(request)
@@ -159,13 +156,14 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         response.headers["X-Correlation-ID"] = get_correlation_id()
         return response
 
-    @app.get("/health", response_model=HealthResponse)
+    @app.get("/health", response_model=HealthResponse, response_model_exclude_none=True)
     async def health() -> HealthResponse:
         deployment = app.state.bootstrap.deployment
         return HealthResponse(
             deployment_ref=deployment.deployment_ref,
             deployment_version=deployment.version,
             graph_version_ref=deployment.graph_version_ref,
+            langgraph_gateway=langgraph_gateway_health(app.state.bootstrap),
         )
 
     # Primary: versioned routes under /v1/ (per D-06)
@@ -203,6 +201,25 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
 
     app.include_router(v1_router)
 
+    # Mount the static console before the gateway catch-all so native console
+    # navigation remains authoritative.
+    mount_console(app)
+
+    # The optional Agent Server gateway owns root compatibility paths after all
+    # native/versioned surfaces, but before the unversioned Zeroth aliases.
+    gateway_proxy = getattr(bootstrap, "langgraph_gateway_proxy", None)
+    gateway_websocket_handler = getattr(bootstrap, "langgraph_gateway_websocket_handler", None)
+    if gateway_proxy is not None and gateway_websocket_handler is not None:
+        from zeroth.core.langgraph_gateway.routes import register_gateway_routes
+
+        register_gateway_routes(
+            app,
+            proxy=gateway_proxy,
+            websocket_handler=gateway_websocket_handler,
+            authenticator=bootstrap.authenticator,
+            compatibility=getattr(bootstrap, "langgraph_gateway_compatibility", None),
+        )
+
     # Backward-compatible aliases: same routes without /v1/ prefix,
     # excluded from OpenAPI spec to avoid duplicate operationIds (per D-06, Pitfall 3)
     compat_router = APIRouter(include_in_schema=False)
@@ -237,8 +254,5 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             allow_headers=["X-API-Key", "Content-Type", "Accept", "X-Correlation-ID"],
             allow_credentials=False,
         )
-
-    # Mount the static console UI at /console when a build is present.
-    mount_console(app)
 
     return app

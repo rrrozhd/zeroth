@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph, GraphRepository
     from zeroth.contracts.registry import ContractRegistry
+    from zeroth.core.langgraph_gateway.models import CompatibilityResult
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.econ.analytics.client import RegulusClient
     from zeroth.governance.approvals import ApprovalService
@@ -99,6 +101,15 @@ class ServiceBootstrap:
     # chain). None when signing is unconfigured (unsigned-legacy). Threaded into
     # the verify endpoints for the dual (digest + signature) check.
     signer: SigningKeyProvider | None = None
+    # LangGraph Agent Server gateway foundation. All remain absent when the
+    # mode is disabled so the ordinary service creates no upstream client or
+    # probe traffic.
+    policy_guard: object | None = None
+    langgraph_gateway_proxy: object | None = None
+    langgraph_gateway_transport: object | None = None
+    langgraph_gateway_compatibility: CompatibilityResult | None = None
+    langgraph_gateway_capability_reporter: object | None = None
+    langgraph_gateway_websocket_handler: object | None = None
     # WS-E: retention / right-to-erasure surface (per-tenant TTLs, legal holds,
     # full-surface erasure that preserves the audit hash-chain). Always wired;
     # the purge WORKER is only started when ZEROTH_RETENTION__ENABLED is true.
@@ -107,6 +118,24 @@ class ServiceBootstrap:
     retention_log_repository: object | None = None
     retention_erasure_service: object | None = None
     retention_worker: object | None = None
+
+
+_bootstrap_parameters = inspect.signature(ServiceBootstrap).parameters
+ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
+    parameters=[
+        parameter
+        for name, parameter in _bootstrap_parameters.items()
+        if name
+        not in {
+            "policy_guard",
+            "langgraph_gateway_proxy",
+            "langgraph_gateway_transport",
+            "langgraph_gateway_compatibility",
+            "langgraph_gateway_capability_reporter",
+            "langgraph_gateway_websocket_handler",
+        }
+    ]
+)
 
 
 def _default_role_registry() -> object:

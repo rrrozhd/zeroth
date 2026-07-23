@@ -1518,6 +1518,14 @@
         ],
         "type": "object"
       },
+      "GovernanceLevel": {
+        "enum": [
+          "admission",
+          "observed",
+          "enforced"
+        ],
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1579,6 +1587,16 @@
           "graph_version_ref": {
             "type": "string"
           },
+          "langgraph_gateway": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LangGraphGatewayHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "default": "ok",
             "type": "string"
@@ -1599,6 +1617,78 @@
           "notification"
         ],
         "type": "string"
+      },
+      "LangGraphCompatibilityHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "detected_agent_server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "openapi_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "tested_agent_server": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tested_langgraph": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tested_langgraph",
+          "tested_agent_server",
+          "detected_agent_server",
+          "status",
+          "openapi_fingerprint"
+        ],
+        "type": "object"
+      },
+      "LangGraphGatewayHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "compatibility": {
+            "$ref": "#/components/schemas/LangGraphCompatibilityHealth"
+          },
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
+          "governance_level": {
+            "$ref": "#/components/schemas/GovernanceLevel"
+          },
+          "limitation": {
+            "default": "internal tool calls are not enforced in gateway-only mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "governance_level",
+          "compatibility"
+        ],
+        "type": "object"
       },
       "LegalHoldBody": {
         "additionalProperties": false,

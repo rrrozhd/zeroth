@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def service_lifespan(app: FastAPI):
+async def _service_runtime_lifespan(app: FastAPI):
     """Start and stop the deployment-scoped background surface.
 
     Everything resolves off ``app.state.bootstrap``: the bundled Regulus
@@ -203,3 +203,18 @@ async def service_lifespan(app: FastAPI):
         close_result = provider_aclose()
         if inspect.isawaitable(close_result):
             await close_result
+
+
+@asynccontextmanager
+async def service_lifespan(app: FastAPI):
+    """Own the gateway transport around the existing service lifecycle."""
+    try:
+        async with _service_runtime_lifespan(app):
+            yield
+    finally:
+        gateway_transport = getattr(app.state.bootstrap, "langgraph_gateway_transport", None)
+        gateway_aclose = getattr(gateway_transport, "aclose", None)
+        if callable(gateway_aclose):
+            close_result = gateway_aclose()
+            if inspect.isawaitable(close_result):
+                await close_result

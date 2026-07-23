@@ -5,6 +5,6 @@ republishes the same objects for compatibility. Import from the canonical
 location instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.platform.config import ZerothSettings, get_settings
+from zeroth.platform.config import LangGraphGatewaySettings, ZerothSettings, get_settings
 
-__all__ = ["ZerothSettings", "get_settings"]
+__all__ = ["LangGraphGatewaySettings", "ZerothSettings", "get_settings"]

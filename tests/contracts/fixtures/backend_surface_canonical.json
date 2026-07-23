@@ -11948,6 +11948,126 @@
       "module": "zeroth.contracts.graph.models",
       "name": "JoinConfig",
       "signature": "(*, merge_strategy: Literal['collect', 'reduce', 'merge', 'custom'] = 'collect', reducer_ref: str | None = None, merge_path: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.langgraph_gateway.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.langgraph_gateway.models:AdmissionDecision"
+      ],
+      "module": "zeroth.core.langgraph_gateway.models",
+      "name": "AdmissionDecision",
+      "signature": "(*, allowed: bool, policy_version: str, reason: str | None = None, budget_spend_usd: float | None = None, budget_cap_usd: float | None = None, budget_check_degraded: bool = False) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.langgraph_gateway.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.langgraph_gateway.models:AdmissionRequest"
+      ],
+      "module": "zeroth.core.langgraph_gateway.models",
+      "name": "AdmissionRequest",
+      "signature": "(*, tenant_id: str, principal_id: str, roles: tuple[str, ...], deployment_ref: str, assistant_id: str | None = None, thread_id: str | None = None, operation: str, input_payload: Any, input_classification: str = 'unclassified', input_size_bytes: Annotated[int, Ge(ge=0)], policy_bindings: tuple[str, ...] = ()) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.langgraph_gateway.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.langgraph_gateway.models:CompatibilityResult"
+      ],
+      "module": "zeroth.core.langgraph_gateway.models",
+      "name": "CompatibilityResult",
+      "signature": "(*, tested_langgraph_versions: tuple[str, ...], tested_agent_server_versions: tuple[str, ...], detected_agent_server_version: str | None = None, openapi_fingerprint: str | None = None, status: zeroth.core.langgraph_gateway.models.CompatibilityStatus, reason: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.langgraph_gateway.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.langgraph_gateway.models:GatewayCorrelation"
+      ],
+      "module": "zeroth.core.langgraph_gateway.models",
+      "name": "GatewayCorrelation",
+      "signature": "(*, correlation_id: str, deployment_ref: str, tenant_id: str, principal_id: str, assistant_id: str | None = None, thread_id: str | None = None, run_id: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.langgraph_gateway.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.langgraph_gateway.models:GatewayError"
+      ],
+      "module": "zeroth.core.langgraph_gateway.models",
+      "name": "GatewayError",
+      "signature": "(*, code: str, correlation_id: str, retryable: bool, reason: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.langgraph_gateway.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.langgraph_gateway.models:GatewayEvent"
+      ],
+      "module": "zeroth.core.langgraph_gateway.models",
+      "name": "GatewayEvent",
+      "signature": "(*, correlation: zeroth.core.langgraph_gateway.models.GatewayCorrelation, operation: str, disposition: zeroth.core.langgraph_gateway.models.RouteDisposition, governance_level: zeroth.core.langgraph_gateway.models.GovernanceLevel, status: zeroth.core.langgraph_gateway.models.GatewayEventStatus, started_at: datetime.datetime, completed_at: datetime.datetime, policy_version: str | None = None, budget_spend_usd: float | None = None, budget_cap_usd: float | None = None, budget_check_degraded: bool = False, compatibility_fingerprint: str | None = None, input_sha256: str | None = None, input_size_bytes: Annotated[int | None, Ge(ge=0)] = None, output_sha256: str | None = None, output_size_bytes: Annotated[int | None, Ge(ge=0)] = None, upstream_status_code: int | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.core.langgraph_gateway.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.langgraph_gateway.models:RunCapabilityEvidence"
+      ],
+      "module": "zeroth.core.langgraph_gateway.models",
+      "name": "RunCapabilityEvidence",
+      "signature": "(*, correlation_id: str, governance_level: zeroth.core.langgraph_gateway.models.GovernanceLevel, observed_at: datetime.datetime, graph_version: str | None = None, signature_valid: bool = False, tool_manifest_complete: bool = False) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.governance.policy.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.governance.policy.models:RunAdmissionResult"
+      ],
+      "module": "zeroth.governance.policy.models",
+      "name": "RunAdmissionResult",
+      "signature": "(*, allowed: bool, policy_version: str, reason: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.health"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.service.api.health:LangGraphCompatibilityHealth"
+      ],
+      "module": "zeroth.service.api.health",
+      "name": "LangGraphCompatibilityHealth",
+      "signature": "(*, tested_langgraph: tuple[str, ...], tested_agent_server: tuple[str, ...], detected_agent_server: str | None, status: str, openapi_fingerprint: str | None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.health"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.service.api.health:LangGraphGatewayHealth"
+      ],
+      "module": "zeroth.service.api.health",
+      "name": "LangGraphGatewayHealth",
+      "signature": "(*, enabled: bool = True, governance_level: zeroth.core.langgraph_gateway.models.GovernanceLevel, limitation: str = 'internal tool calls are not enforced in gateway-only mode', compatibility: zeroth.service.api.health.LangGraphCompatibilityHealth) -> None"
     }
   ]
 }
