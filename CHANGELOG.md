@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1.1] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` transparency and callback-merge hardening (ZER-2 audit-1):
+  - `GovernedGraph.with_config(...)` now stays governed. Previously it delegated
+    through `__getattr__` and handed back a bare, ungoverned `RunnableBinding`,
+    silently dropping governance. It now returns a governed wrapper that binds the
+    config into every run while preserving attribute delegation and the
+    `on_run_start` seam. `|` composition raises a clear, actionable error.
+  - Callback-merge dedup keys on governance-handler **type/identity**, never on
+    user-callback equality. Nested `govern_graph(govern_graph(g))` or a
+    pre-installed handler no longer double-installs governance, and a user
+    callback with a hostile `__eq__` can no longer suppress the Zeroth handler
+    (both list and `BaseCallbackManager` config shapes).
+  - Econ telemetry emission in `InstrumentedLangGraph` is now best-effort: a
+    failing transport can never replace the graph's result, mask its exception,
+    or alter cancellation.
+
 ## [0.12.1] - 2026-07-23
 
 ### Added

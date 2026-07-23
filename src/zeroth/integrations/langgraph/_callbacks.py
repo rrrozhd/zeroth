@@ -2,9 +2,44 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
+
+from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
+
+
+def _has_governance_handler(handlers: Iterable[Any]) -> bool:
+    """Return ``True`` if a Zeroth governance handler is already present.
+
+    Detection is by **type** (``isinstance``), never by equality: a user callback
+    whose ``__eq__`` returns ``True`` for everything must not be able to
+    masquerade as -- and thereby suppress -- the governance handler, and two
+    distinct governance-handler instances (e.g. from ``govern_graph`` nesting)
+    must be recognised as the same governance role so only one is ever installed.
+    """
+    return any(isinstance(h, ZerothGovernanceCallbackHandler) for h in handlers)
+
+
+def _register_in_manager(manager: Any, handler: BaseCallbackHandler) -> None:
+    """Add ``handler`` to a callback-manager copy by identity, never equality.
+
+    ``BaseCallbackManager.add_handler`` dedups with ``handler not in
+    self.handlers`` -- an equality test -- so a hostile user ``__eq__`` could stop
+    the governance handler from ever being registered. Append directly to the
+    copy's handler lists using identity checks instead; fall back to
+    ``add_handler`` only for manager-likes that expose no plain handler list.
+    """
+    handlers = getattr(manager, "handlers", None)
+    if isinstance(handlers, list):
+        if not any(h is handler for h in handlers):
+            handlers.append(handler)
+        inheritable = getattr(manager, "inheritable_handlers", None)
+        if isinstance(inheritable, list) and not any(h is handler for h in inheritable):
+            inheritable.append(handler)
+    elif hasattr(manager, "add_handler"):
+        manager.add_handler(handler, inherit=True)
 
 
 def merge_governance_callbacks(
@@ -19,9 +54,14 @@ def merge_governance_callbacks(
 
     * ``config`` absent or falsy: a fresh config carrying only the handler;
     * ``callbacks`` absent: ``[handler]``;
-    * ``callbacks`` a list: ``[*existing, handler]`` (skipped if already present);
+    * ``callbacks`` a list: ``[*existing, handler]`` (skipped only if a
+      governance handler -- recognised by type -- is already present);
     * ``callbacks`` a ``BaseCallbackManager``: a copy with the handler added, so
       the caller's own manager is never mutated.
+
+    Whether the handler is already present is decided solely by governance-handler
+    *type* / *identity*; arbitrary user-callback equality never gets a say, so a
+    hostile ``__eq__`` can neither suppress nor duplicate governance.
 
     Args:
         config: The user-provided runnable config mapping, or ``None``.
@@ -38,16 +78,16 @@ def merge_governance_callbacks(
         return merged
 
     if isinstance(existing, list):
-        if handler not in existing:
+        if not _has_governance_handler(existing):
             merged["callbacks"] = [*existing, handler]
         return merged
 
     # Anything else is treated as a BaseCallbackManager-like object. Copy it so
-    # the caller's manager is left untouched, then append if not already present.
+    # the caller's manager is left untouched, then add the governance handler by
+    # identity/type iff no governance handler is present yet.
     manager = existing.copy() if hasattr(existing, "copy") else existing
-    handlers = getattr(manager, "handlers", ())
-    if handler not in handlers and hasattr(manager, "add_handler"):
-        manager.add_handler(handler, inherit=True)
+    if not _has_governance_handler(getattr(manager, "handlers", ())):
+        _register_in_manager(manager, handler)
     merged["callbacks"] = manager
     return merged
 

@@ -6,8 +6,33 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from langchain_core.runnables.config import merge_configs
+
 from zeroth.integrations.langgraph._callbacks import inject_governance_handler
 from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
+
+_COMPOSE_ERROR = (
+    "GovernedGraph does not support `|` composition; compose the graph before "
+    "governing it (e.g. govern_graph(a | b)), then invoke the governed wrapper."
+)
+
+
+def _apply_bound_config(
+    args: tuple[Any, ...], kwargs: dict[str, Any], bound: Any
+) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    """Merge the ``with_config`` bound config *under* the call-time config.
+
+    Mirrors ``RunnableBinding``: the bound config is the base and the call-time
+    config layers on top (``merge_configs(bound, call)``), so a governed
+    ``with_config(...)`` run is equivalent to the same bind on the bare graph.
+    The config is located wherever the caller placed it (``config=`` keyword,
+    second positional, or absent). Neither input is mutated.
+    """
+    if "config" in kwargs:
+        return args, {**kwargs, "config": merge_configs(bound, kwargs["config"])}
+    if len(args) >= 2:
+        return (args[0], merge_configs(bound, args[1]), *args[2:]), kwargs
+    return args, {**kwargs, "config": merge_configs(bound, None)}
 
 
 @dataclass(frozen=True)
@@ -51,9 +76,15 @@ class GovernedGraph:
     :meth:`__getattr__`.
     """
 
-    _RESERVED = frozenset({"_graph", "_on_run_start", "_handler", "_delegate"})
+    _RESERVED = frozenset({"_graph", "_on_run_start", "_handler", "_delegate", "_bound_config"})
 
-    def __init__(self, graph: Any, *, on_run_start: OnRunStart | None = None) -> None:
+    def __init__(
+        self,
+        graph: Any,
+        *,
+        on_run_start: OnRunStart | None = None,
+        bound_config: Any = None,
+    ) -> None:
         """Wrap ``graph``; optionally register a one-shot ``on_run_start`` hook.
 
         Args:
@@ -61,6 +92,8 @@ class GovernedGraph:
                 ``invoke`` / ``ainvoke`` / ``stream`` / ``astream`` surface).
             on_run_start: Optional stability seam invoked exactly once per
                 run-start. Defaults to ``None`` (no-op).
+            bound_config: Config bound via :meth:`with_config`, merged under every
+                run's call-time config. Internal; callers use ``with_config``.
         """
         # Imported lazily so importing this package never requires ``langgraph``
         # and never eagerly constructs the econ runtime and its transport.
@@ -70,6 +103,7 @@ class GovernedGraph:
 
         self._graph = graph
         self._on_run_start = on_run_start
+        self._bound_config = bound_config
         self._handler = ZerothGovernanceCallbackHandler()
         # Reuse -- not reimplement -- the econ delegation shape.
         self._delegate = instrument_langgraph_graph(
@@ -96,29 +130,71 @@ class GovernedGraph:
             )
         )
 
+    def _prepare(
+        self, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        """Bind any :meth:`with_config` config, then merge the governance handler."""
+        if self._bound_config:
+            args, kwargs = _apply_bound_config(args, kwargs, self._bound_config)
+        return inject_governance_handler(args, kwargs, self._handler)
+
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         """Invoke the wrapped graph with the governance handler merged in."""
-        args, kwargs = inject_governance_handler(args, kwargs, self._handler)
+        args, kwargs = self._prepare(args, kwargs)
         self._run_start("invoke")
         return self._delegate.invoke(*args, **kwargs)
 
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         """Async-invoke the wrapped graph with the governance handler merged in."""
-        args, kwargs = inject_governance_handler(args, kwargs, self._handler)
+        args, kwargs = self._prepare(args, kwargs)
         self._run_start("ainvoke")
         return await self._delegate.ainvoke(*args, **kwargs)
 
     def stream(self, *args: Any, **kwargs: Any) -> Any:
         """Stream the wrapped graph with the governance handler merged in."""
-        args, kwargs = inject_governance_handler(args, kwargs, self._handler)
+        args, kwargs = self._prepare(args, kwargs)
         self._run_start("stream")
         return self._delegate.stream(*args, **kwargs)
 
     def astream(self, *args: Any, **kwargs: Any) -> Any:
         """Async-stream the wrapped graph with the governance handler merged in."""
-        args, kwargs = inject_governance_handler(args, kwargs, self._handler)
+        args, kwargs = self._prepare(args, kwargs)
         self._run_start("astream")
         return self._delegate.astream(*args, **kwargs)
+
+    def with_config(self, config: Any = None, **kwargs: Any) -> GovernedGraph:
+        """Return a still-governed graph that binds ``config`` into every run.
+
+        Mirrors ``Runnable.with_config`` but keeps governance intact. Delegating
+        to the wrapped graph would hand back a bare, ungoverned ``RunnableBinding``
+        (governance silently dropped); instead this returns a new
+        :class:`GovernedGraph` around the *same* underlying graph, carrying the
+        merged bound config, the ``on_run_start`` seam and a governance handler.
+        Attribute delegation and single-handler injection are preserved, and the
+        bound config is applied to every ``invoke`` / ``ainvoke`` / ``stream`` /
+        ``astream`` call exactly as the bare graph's ``with_config`` would.
+
+        Args:
+            config: A ``RunnableConfig`` mapping to bind. Defaults to ``None``.
+            **kwargs: Individual config fields, mirroring ``Runnable.with_config``.
+
+        Returns:
+            A new :class:`GovernedGraph` wrapping the same underlying graph with
+            the merged config bound.
+        """
+        call_config = {**(config or {}), **kwargs}
+        merged_bound = merge_configs(self._bound_config, call_config)
+        return GovernedGraph(
+            self._graph, on_run_start=self._on_run_start, bound_config=merged_bound
+        )
+
+    def __or__(self, _other: Any) -> Any:
+        """Reject pipe composition; ZER-2 governs graphs, it does not compose them."""
+        raise TypeError(_COMPOSE_ERROR)
+
+    def __ror__(self, _other: Any) -> Any:
+        """Reject reflected pipe composition with the same actionable error."""
+        raise TypeError(_COMPOSE_ERROR)
 
     def __getattr__(self, item: str) -> Any:
         """Delegate unknown attributes to the econ delegate (and thus the graph)."""
