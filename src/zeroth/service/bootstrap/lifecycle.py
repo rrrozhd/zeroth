@@ -26,6 +26,41 @@ TRANSPORT_CLOSE_TIMEOUT_SECONDS = 5.0
 # so the loop does not report them as destroyed while pending.
 _ABANDONED_TASKS: set[asyncio.Task] = set()
 
+# The fixed code an abandoned task's eventual failure is logged under. The task
+# is an injected client's, so its exception message is outside every check this
+# process makes over what may reach the log stream.
+_ABANDONED_TASK_FAILED = "abandoned_task_failed"
+
+# The fixed code for a transport close that failed while a startup was already
+# failing. Same reason it is a code: the message is the injected client's.
+_STARTUP_CLOSE_FAILED = "startup_transport_close_failed"
+
+
+def _release_abandoned_task(task: asyncio.Task) -> None:
+    """Retire an abandoned shutdown task, consuming the result nobody awaited.
+
+    Releasing a task without ever retrieving its exception hands the reporting
+    to asyncio, whose default handler prints "Task exception was never
+    retrieved" together with the exception's full message and traceback --
+    an injected transport's message, on a path this process otherwise keeps
+    free of foreign text. Consuming it here makes the failure a fixed code and
+    an exception type instead.
+
+    Args:
+        task: The finished task that was abandoned at a shutdown bound.
+    """
+    _ABANDONED_TASKS.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            "abandoned shutdown task failed code=%s task=%s exception_type=%s",
+            _ABANDONED_TASK_FAILED,
+            task.get_name(),
+            type(exc).__name__,
+        )
+
 
 @asynccontextmanager
 async def _service_runtime_lifespan(app: FastAPI):
@@ -276,7 +311,7 @@ async def _close_gateway_transport(app: FastAPI, *, timeout: float) -> None:
     if not done:
         task.cancel()
         _ABANDONED_TASKS.add(task)
-        task.add_done_callback(_ABANDONED_TASKS.discard)
+        task.add_done_callback(_release_abandoned_task)
         logger.error("gateway transport close exceeded %.1fs; abandoning it", timeout)
         return
     exc = task.exception()
@@ -288,31 +323,73 @@ async def _close_gateway_transport(app: FastAPI, *, timeout: float) -> None:
 async def service_lifespan(app: FastAPI):
     """Own the gateway transport and the audit drain around the service lifecycle.
 
-    The drain runs in an unconditional ``finally``. It used to sit after an
-    unbounded transport close, so a transport whose ``aclose`` raised skipped the
-    drain entirely and one that hung postponed it forever -- either way the
-    accepted audit backlog was lost with nothing reporting it, and a transport
-    failing to close is exactly when that backlog is least likely to be empty.
-    The transport error is preserved and re-raised, but only once the drain has
-    had its bounded turn.
+    Both run *inside* the runtime lifespan, in an unconditional ``finally``, so
+    they are the first thing that happens when serving stops and the whole of
+    the runtime teardown is still ahead of them. Sitting outside it was a bound
+    on paper only: the drain then queued behind every post-yield await that
+    teardown performs -- a run worker's graceful shutdown, the ARQ consumer and
+    pool, the webhook client, the secret provider -- none of which has a
+    deadline. Any one of them hanging postponed the drain indefinitely, which is
+    the same lost backlog R10 exists to prevent, reached by a slower route.
+
+    The two keep their order relative to each other: the transport stops first,
+    so a still-serving gateway is not submitting into a queue that is already
+    draining; the drain then runs whatever the close did, because a transport
+    that failed to stop is not a reason to abandon evidence already accepted.
+    A transport error is preserved and re-raised, but only after the drain has
+    had its bounded turn *and* the runtime has torn down -- raising it any
+    earlier would skip that teardown entirely.
+
+    A startup that fails never reaches the body, so the shutdown inside it never
+    runs; the outer guard is what still closes a transport the bootstrap had
+    already built, exactly once.
     """
+    transport_error: BaseException | None = None
+    stopped = False
     try:
         async with _service_runtime_lifespan(app):
-            yield
+            try:
+                yield
+            finally:
+                stopped = True
+                transport_error = await _stop_gateway_and_drain_audit(app)
     finally:
-        transport_error: BaseException | None = None
-        try:
-            await _close_gateway_transport(app, timeout=TRANSPORT_CLOSE_TIMEOUT_SECONDS)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 -- the drain must run either way,
-            # and the error is re-raised below once it has.
-            transport_error = exc
-        finally:
-            # Strictly after the transport, so a still-serving gateway is not
-            # still submitting into a queue that is already draining -- but
-            # unconditionally, because a transport that failed to stop is not a
-            # reason to abandon the evidence already accepted.
-            await _drain_audit_delivery(app)
-        if transport_error is not None:
-            raise transport_error
+        if not stopped:
+            failure = await _stop_gateway_and_drain_audit(app)
+            if failure is not None:
+                # Never raised: the startup failure already propagating here is
+                # the one an operator needs, and it is the more informative of
+                # the two.
+                logger.error(
+                    "gateway transport close failed during a failed startup "
+                    "code=%s exception_type=%s",
+                    _STARTUP_CLOSE_FAILED,
+                    type(failure).__name__,
+                )
+    if transport_error is not None:
+        raise transport_error
+
+
+async def _stop_gateway_and_drain_audit(app: FastAPI) -> BaseException | None:
+    """Stop the gateway transport, then drain the audit stage, both bounded.
+
+    Args:
+        app: The application whose ``state.bootstrap`` owns both.
+
+    Returns:
+        Whatever the transport's close raised, for the caller to re-raise once
+        the rest of teardown has run. The drain runs either way: a transport
+        that failed to stop is not a reason to abandon evidence already
+        accepted, and is exactly when the backlog is least likely to be empty.
+    """
+    transport_error: BaseException | None = None
+    try:
+        await _close_gateway_transport(app, timeout=TRANSPORT_CLOSE_TIMEOUT_SECONDS)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- the drain must run either way, and
+        # the error is handed back to the caller rather than dropped.
+        transport_error = exc
+    finally:
+        await _drain_audit_delivery(app)
+    return transport_error

@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
 from zeroth.governance.policy import Capability, apply_secret_policy
 from zeroth.integrations.execution.adapters import PythonRuntimeAdapter
 from zeroth.integrations.execution.constraints import ResourceConstraints
@@ -283,7 +284,13 @@ class ExecutableUnitRunner:
         )
 
     def _admit_manifest(self, binding: ExecutableUnitBinding) -> None:
-        """Reject untrusted manifests before any execution begins."""
+        """Reject untrusted manifests before any execution begins.
+
+        The carried audit record is *flat*: the audit capture boundary keeps an
+        allowlisted, per-key-typed projection of ``execution_metadata``, and a
+        nested ``{"admission": {...}}`` dict is not a kind any key declares, so
+        a nested verdict is dropped before it is ever persisted.
+        """
         controller = self.admission_controller
         if controller is None:
             return
@@ -293,11 +300,10 @@ class ExecutableUnitRunner:
         raise ExecutableUnitAdmissionError(
             f"admission denied for {binding.manifest_ref}: {result.reason}",
             audit_record={
-                "admission": {
-                    "admitted": result.admitted,
-                    "reason": result.reason,
-                    "digest": result.digest,
-                }
+                "admitted": result.admitted,
+                "decision": "deny",
+                "reason_code": normalize_reason_code(result.reason),
+                "admission_digest": result.digest,
             },
         )
 

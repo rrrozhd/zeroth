@@ -34,19 +34,19 @@ Nothing wider: the same method raises plain ``ValueError`` for a record it
 rejected before the commit, and reading every ``ValueError`` as "already
 stored" reported a record as delivered that was never written at all.
 
-**Redaction is owned here and cannot be swapped.** The queue constructs its own
-:class:`~zeroth.governance.audit.capture_policy.AuditCapturePolicy` and applies
-it between the dequeue and the first write attempt; no parameter accepts a
-policy object. A caller may inject a *classifier* -- which picks between two
-fixed outcomes -- and may widen the redaction rules, but it cannot supply the
-transform, because a boundary a caller can replace with a pass-through is not a
-boundary: the previous shape accepted one and wrote the producer's prompt
-verbatim. If the policy fails while failing closed the worker falls back to
-:func:`~zeroth.governance.audit.capture_policy.blank_record`, and failing even
-that it drops the event as ``failed`` rather than letting one exception take
-the only worker with it. Running the transform once, ahead of the retry loop,
-is what makes "no attempt can reach the writer with what the producer
-submitted" true without walking the same payload per attempt.
+**Redaction is not owned here at all.** This stage once ran its own
+:class:`~zeroth.governance.audit.capture_policy.AuditCapturePolicy` between the
+dequeue and the first write attempt, which put capture in two places --
+:meth:`~zeroth.governance.audit.repository.AuditRepository.write` runs one too,
+and every direct writer reaches only that one. Two capture points meant the
+second had to recognise the first's work or destroy it, the recognition rode on
+producer-supplied metadata, and a producer could keep a genuine marker while
+changing the content it described. So capture happens once, at the durable
+sink: this stage transforms nothing, and ``writer`` is required to be a
+capture-applying sink (see
+:class:`~zeroth.governance.audit.delivery_state.AuditRecordWriter`). The
+deployment's capture posture is configured on the repository, through
+``AuditRepository.configure_capture``.
 
 **Exhaustion is failure, not delivery, and failure keeps its name.** After the
 final attempt an event is counted as ``failed`` and its ``audit_id`` retained,
@@ -74,7 +74,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from zeroth.governance.audit.capture_policy import AuditCapturePolicy
 from zeroth.governance.audit.delivery_state import (
     COUNTER_METRICS,
     IN_FLIGHT_AGE_GAUGE,
@@ -96,10 +95,7 @@ from zeroth.governance.audit.delivery_worker import (
 from zeroth.platform.observability.metrics import MetricsCollector
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from zeroth.governance.audit.capture_policy import CaptureClassifier
-    from zeroth.governance.audit.models import AuditRedactionConfig, NodeAuditRecord
+    from zeroth.governance.audit.models import NodeAuditRecord
 
 logger = logging.getLogger(__name__)
 
@@ -107,13 +103,14 @@ logger = logging.getLogger(__name__)
 class AuditDeliveryQueue:
     """Bounded delivery stage between an audit producer and the durable write.
 
-    A single worker task consumes the queue, applies this stage's own capture
-    policy, and writes one event at a time -- retrying the *same* record, and
-    therefore the same ``audit_id``, with jittered exponential backoff until it
-    lands or the attempt budget runs out.
+    A single worker task consumes the queue and writes one event at a time --
+    retrying the *same* record, and therefore the same ``audit_id``, with
+    jittered exponential backoff until it lands or the attempt budget runs out.
+    Classification and redaction are the writer's, not this stage's.
 
     Args:
-        writer: The durable append-only write. Must be cancellable; see
+        writer: The durable, capture-applying append-only write. Must be
+            cancellable; see
             :class:`~zeroth.governance.audit.delivery_state.AuditRecordWriter`.
         max_queue_size: How many events may wait before ``submit`` rejects.
         max_attempts: Write attempts per event, including the first.
@@ -123,12 +120,6 @@ class AuditDeliveryQueue:
             attempt that overruns it is cancelled, counted, and retried under
             the same ``audit_id``; it is never waited on past the bound.
         metrics: Where the counters are published.
-        classifier: Decides per event whether content may be retained. The one
-            replaceable part of the capture boundary, and it chooses between
-            two fixed outcomes rather than authoring the record.
-        redaction: Extra key-redaction and path-omission rules. Widens the
-            stage's defaults; cannot narrow them.
-        known_secrets: Resolved secret values to mask wherever they appear.
     """
 
     def __init__(
@@ -141,9 +132,6 @@ class AuditDeliveryQueue:
         max_delay_seconds: float = 30.0,
         write_timeout_seconds: float = DEFAULT_WRITE_TIMEOUT_SECONDS,
         metrics: MetricsCollector | None = None,
-        classifier: CaptureClassifier | None = None,
-        redaction: AuditRedactionConfig | None = None,
-        known_secrets: Mapping[str, str] | None = None,
     ) -> None:
         if type(max_queue_size) is not int or max_queue_size < 1:
             raise ValueError("max_queue_size must be a positive int")
@@ -165,11 +153,6 @@ class AuditDeliveryQueue:
         self._queue: asyncio.Queue[PendingAudit] = asyncio.Queue(maxsize=max_queue_size)
         self._loop_worker = DeliveryWorker(
             writer=writer,
-            # Constructed, never accepted: see the module docstring. Only the
-            # classifier and the redaction inputs cross this boundary.
-            policy=AuditCapturePolicy(
-                classifier=classifier, redaction=redaction, known_secrets=known_secrets
-            ),
             counters=self._counters,
             queue=self._queue,
             max_attempts=max_attempts,

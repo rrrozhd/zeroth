@@ -7,6 +7,154 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.5.1] - 2026-07-25
+
+### Fixed
+
+- `capture_vocabulary` claimed that `tests/governance/audit/test_capture_vocabulary.py`
+  "pins each mirror against the enum it mirrors so the two cannot drift". That file
+  did not exist, so the hand-transcribed vocabularies were unpinned. A drift here
+  fails *open* in the direction that matters: a new enum member is summarized away,
+  so a real decision silently stops being retained and the audit row loses evidence
+  it is meant to keep. The test now exists and imports both sides — tests are not
+  bound by the layering rule that forces the transcription in the first place.
+  The comment's reasoning was also wrong for two of the mirrors: `PolicyDecision`
+  lives in `governance` itself and `ApprovalDecisionType` in `contracts`, both
+  importable; only `SandboxStrictnessMode` (`integrations`) and `GovernanceLevel`
+  (gateway package) genuinely have to be copied. Corrected to say so.
+
+## [0.12.4.5] - 2026-07-25
+
+### Fixed
+
+- Closed the startup-failure hole the bounded-shutdown reorder opened. Moving the
+  gateway stop and the audit drain *inside* the runtime lifespan is what made
+  them bounded — outside it, the drain queued behind every unbounded post-yield
+  await (a run worker's graceful shutdown, the ARQ consumer and pool, the webhook
+  client, the secret provider), so one hung predecessor postponed it for as long
+  as the hang lasted, which is the lost backlog R10 forbids reached by a slower
+  route. But a startup that fails never reaches the body, and an inner-only
+  shutdown therefore never ran at all: the transport the bootstrap had already
+  built was left open and the accepted audit backlog was left unpersisted and
+  unreported. `service_lifespan` now runs the stop and the drain for that case
+  through an outer guard, and — because a normal shutdown already ran them —
+  exactly once either way. A transport close that fails while a startup is
+  already failing is logged under a fixed code and an exception type, never
+  re-raised over the startup error an operator actually needs.
+
+### Added
+
+- Failing-before probes for both halves of that guard: a runtime lifespan that
+  refuses to start still closes its transport exactly once and still drains the
+  events already accepted, a close that fails during a failed startup never masks
+  it and never puts its own message in the log, and a normal shutdown does not
+  close a transport the inner stop already closed. The existing hung-predecessor
+  and abandoned-close probes round out the ordering suite.
+
+## [0.12.4.4] - 2026-07-25
+
+### Fixed
+
+- Realigned the audit-capture suites with the collision-free canonical mapping.
+  A canonical mapping is now an entry *sequence* (`{"<entries>": [[key, value],
+  …]}`) rather than a flat `{hashed_key: type_name}` dict, because unsafe and
+  non-string keys all rendered to the same `***REDACTED***` marker and therefore
+  overwrote one another: two submitted entries were persisted as a count of one
+  and a schema missing a branch, which broke R4's promise that the hashes and
+  counts of dropped content are retained. Five assertions still described the old
+  flat shape and were updated to the new one; each still fails if the property it
+  was written for breaks. The `operation` assertion moved with the metadata
+  vocabulary — its text is filled partly from a client-supplied protocol method,
+  so it is now replaced by a stable correlating digest rather than retained.
+
+### Added
+
+- Failing-before probes for the three capture gaps that shipped without one:
+  a registered secret nested inside a `set` (the container type none of the three
+  stacked walkers traversed), a label-shaped credential filed under `reason_code`
+  / `decision` / `status` (a shape check is not a provenance check), and an
+  artifact reference whose `store`, `content_type` and nested `metadata` used to
+  ride into a metadata-only capture alongside the one key retention needs. Each
+  probe leaks its seeded value against the pre-fix source and is clean against
+  the current one. A collision probe pins the entry-sequence fix directly: two
+  entries whose keys both canonicalize unsafely must count as two, and must
+  digest differently from one of them alone.
+
+## [0.12.4.3.1] - 2026-07-25
+
+### Fixed
+
+- Restored the retention suite's opt-in to content capture. Collapsing capture to
+  a single unconditional point at `AuditRepository.write` left the retention
+  fixtures stamping a capture marker onto each seeded record — a genuine opt-in
+  before the seal was deleted, a no-op that still read like one afterwards. The
+  seeded PII those eleven tests assert is present *before* a sweep was therefore
+  stripped at write time, and the pre-sweep assertions failed. The fixtures now
+  install a content-retaining `CaptureClassifier` on the repository via
+  `configure_capture`, which is the surviving legitimate mechanism: a deployment
+  picks between two fixed outcomes and cannot author the transform, and no record
+  influences whether it is captured. The marker-stamping helper is deleted rather
+  than left in place under a name it no longer earns.
+
+### Fixed
+
+- Made "decision metadata is retained" true rather than merely claimed. The
+  metadata-only capture keeps an allowlisted, per-key-typed projection of
+  `execution_metadata`, but every denial producer filed its verdict in a *nested*
+  dict (`admission`, `enforcement`, `extra`, `response`) or in the free-form
+  `error` the capture replaces — so admission denials, per-branch identifiers,
+  enforcement modes, retry counts and cache dispositions all vanished at the
+  durable write. Producers now promote those onto flat, allowlisted keys:
+  `admitted`, `admission_digest`, `decision`, `reason_code`, `network_mode`,
+  `sandbox_strictness_mode`, `branch_id`, `branch_index`, `attempt` and
+  `disposition`. `AdmissionController.admit` returns a stable `snake_case`
+  reason code on every branch instead of a rendered message.
+- `collect_policy_events` was silently inert: it substring-matched
+  `denied`/`forbidden`/`policy` against `NodeAuditRecord.error`, which capture
+  replaces with a fixed redaction marker, so both `/evidence` endpoints returned
+  an always-empty `policy_events` list. It now reads the structural decision
+  fields, and each event names the node, the decision and the reason code.
+- Retention erasure lost its join key: `join_key` was not on the metadata
+  allowlist, so `RetentionErasureService` could not find the econ events an
+  erased run produced. `join_key` and the branch identifiers are retained
+  verbatim under a new `MetadataKind.IDENTIFIER` — hashing them would satisfy a
+  presence check while breaking every consumer that compares them.
+
+### Added
+
+- `MetadataKind.IDENTIFIER`, for the ids this codebase mints from a record's own
+  identity, and `normalize_reason_code`, which renders a producer's failure or
+  denial *name* as a stable label-shaped code.
+
+## [0.12.4.2] - 2026-07-25
+
+### Fixed
+
+- Collapsed audit capture to a single point. `AuditRepository.write` is now the
+  sole, unconditional capture boundary: it always applies the capture policy and
+  reads nothing off the record it is handed. Capture previously ran twice — once
+  on the delivery worker and once on the durable write — which forced the second
+  pass to recognise the first pass's work through a marker on producer-supplied
+  `execution_metadata`. A caller could obtain a genuine marker, alter the content
+  around it, and have the repository skip capture entirely, bypassing R3/R5.
+
+### Removed
+
+- `zeroth.governance.audit.capture_seal` in full — the per-process nonce,
+  `seal_metadata`, `is_sealed`, `strip_seal`, `capture_for_write` and
+  `CAPTURE_SEAL_KEY`. With one capture point there is nothing to attest and
+  nothing to forge. `CAPTURE_METADATA_KEY` moved to
+  `zeroth.governance.audit.capture_policy`.
+- The delivery worker no longer classifies or redacts; `AuditDeliveryQueue` no
+  longer accepts `classifier`, `redaction` or `known_secrets`, and
+  `DeliveryFailure.CAPTURE_FAILED` is gone. `redaction` and `known_secrets` were
+  dropped along with the worker's policy and have **no** configuration path:
+  `AuditRepository.configure_capture` takes a classifier only, and the
+  repository builds its own `AuditCapturePolicy` with the default redaction
+  chain and no registered secrets. `AuditRecordWriter` implementations are now
+  required to be capture-applying durable sinks; production injects only
+  `AuditRepository`.
+
 ## [0.12.4.1.1] - 2026-07-25
 
 ### Fixed

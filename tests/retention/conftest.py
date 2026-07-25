@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from tests.conftest import content_capture
 from zeroth.contracts.graph import (
     CancellationFence,
     SchedulingState,
@@ -16,7 +17,6 @@ from zeroth.contracts.graph import (
     TokenLifecycleState,
 )
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
-from zeroth.governance.audit.capture_policy import AuditCapturePolicy, CaptureDecision
 from zeroth.governance.retention import (
     LegalHoldRepository,
     RetentionAuditLogRepository,
@@ -27,31 +27,6 @@ from zeroth.contracts.governed.models.approval import ApprovalRequest
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.signing import EnvHmacSigner
-
-
-class _ContentClassifier:
-    """Classify every seeded record into content -- the opt-in retention posture."""
-
-    def classify(self, record: NodeAuditRecord) -> str:
-        """Answer ``content`` whatever the record holds."""
-        del record
-        return CaptureDecision.CONTENT.value
-
-
-_CONTENT_CAPTURE = AuditCapturePolicy(classifier=_ContentClassifier())
-
-
-def content_captured(record: NodeAuditRecord) -> NodeAuditRecord:
-    """Classify one seeded record into content before it is written.
-
-    ``AuditRepository.write`` applies the metadata-only capture policy to every
-    record that has not been classified already, so a fixture that needs a
-    PII-bearing row has to say so. That is the point of retention: it exists for
-    the deployments that deliberately retain content, and this is how one is
-    expressed. A record classified here arrives at the write sealed, and is
-    stored exactly as this policy left it.
-    """
-    return _CONTENT_CAPTURE.apply(record)
 
 
 async def seed_token_snapshot(env, run_id: str, *, artifact_key: str, ssn: str) -> None:
@@ -248,16 +223,14 @@ class RetentionEnv:
             self.artifact_store.blobs[artifact_key] = b"pii"
         for i in range(n_audits):
             await self.audit_repo.write(
-                content_captured(
-                    make_audit_record(
-                        audit_id=f"{run_id}-a{i}",
-                        run_id=run_id,
-                        tenant_id=tenant_id,
-                        node_id=f"n{i}",
-                        started_at=started_at,
-                        artifact_key=artifact_key if i == 0 else None,
-                        ssn=ssn,
-                    )
+                make_audit_record(
+                    audit_id=f"{run_id}-a{i}",
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    node_id=f"n{i}",
+                    started_at=started_at,
+                    artifact_key=artifact_key if i == 0 else None,
+                    ssn=ssn,
                 )
             )
         if created_at is not None:
@@ -272,7 +245,12 @@ class RetentionEnv:
 def _build_env(database) -> RetentionEnv:
     """Wire a full RetentionEnv over a given (possibly encrypted) database."""
     signer = EnvHmacSigner(key_id="k1", keys={"k1": b"retention-secret"})
-    audit_repo = AuditRepository(database, signer=signer)
+    # Retention is the discipline of destroying content a deployment chose to
+    # keep, so every fixture here is a deployment that chose to keep it. The
+    # opt-in is a classifier installed on the repository -- the one replaceable
+    # part of the capture boundary -- never a marker on a seeded record: a
+    # record cannot be allowed to authorize its own capture posture.
+    audit_repo = content_capture(AuditRepository(database, signer=signer))
     run_repo = RunRepository(database)
     policy_repo = RetentionPolicyRepository(database)
     hold_repo = LegalHoldRepository(database)

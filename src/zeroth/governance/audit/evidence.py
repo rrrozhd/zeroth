@@ -1,10 +1,24 @@
-"""Review-friendly evidence bundle builders."""
+"""Review-friendly evidence bundle builders.
+
+**Denials are read from structural fields, never from ``error`` text.**
+:func:`collect_policy_events` used to substring-match ``denied``/``forbidden``/
+``policy`` against ``record.error``. That channel is free-form prose an
+exception authors, and
+:class:`~zeroth.governance.audit.capture_policy.AuditCapturePolicy` now replaces
+it with a fixed redaction marker before the durable write -- so the matcher saw
+the marker, matched nothing, and both ``/evidence`` endpoints returned an
+always-empty ``policy_events`` list. Denial producers promote their verdict onto
+allowlisted ``execution_metadata`` keys (``admitted``, ``decision``,
+``enforcement_applied``, ``reason_code``) that survive the capture, and this
+module reads those.
+"""
 
 from __future__ import annotations
 
 import base64
 import copy
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from zeroth.governance.audit.models import NodeAuditRecord
@@ -13,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 # Fields that identify an ArtifactReference-shaped dict.
 _ARTIFACT_REF_FIELDS = frozenset({"store", "key", "content_type", "size"})
+# Values of the allowlisted ``decision`` key that mean "this attempt was stopped".
+_DENIED_DECISIONS = frozenset({"deny", "denied", "block", "blocked", "reject", "rejected"})
+# The record status a governance rejection is persisted under.
+_REJECTED_STATUS = "rejected"
 
 
 def build_summary(
@@ -39,14 +57,43 @@ def build_summary(
     return result
 
 
+def _denied(record: NodeAuditRecord, metadata: Mapping[str, Any]) -> bool:
+    """Answer whether one record's structural fields say the attempt was stopped."""
+    if metadata.get("admitted") is False or metadata.get("enforcement_applied") is False:
+        return True
+    decision = metadata.get("decision")
+    if type(decision) is str and decision in _DENIED_DECISIONS:
+        return True
+    return record.status == _REJECTED_STATUS
+
+
+def _policy_event(record: NodeAuditRecord, metadata: Mapping[str, Any]) -> str:
+    """Describe one denial from structural fields only -- never from ``error`` prose."""
+    decision = metadata.get("decision")
+    outcome = decision if type(decision) is str else record.status
+    reason = metadata.get("reason_code")
+    detail = f": {reason}" if type(reason) is str and reason else ""
+    return f"{record.node_id} {outcome}{detail}"
+
+
 def collect_policy_events(audits: list[NodeAuditRecord]) -> list[str]:
-    """Extract policy and authorization failures into a review-friendly list."""
+    """Extract policy and authorization failures into a review-friendly list.
+
+    Args:
+        audits: The bundle's audit records, already capture-transformed.
+
+    Returns:
+        One line per denied attempt, naming the node, the decision and the
+        normalized reason code. Every part comes from an allowlisted metadata
+        key or a typed column, so the list survives a metadata-only capture and
+        carries no producer text.
+    """
     events: list[str] = []
     for record in audits:
-        if not record.error:
+        metadata = record.execution_metadata
+        if not isinstance(metadata, Mapping) or not _denied(record, metadata):
             continue
-        if "denied" in record.error or "forbidden" in record.error or "policy" in record.error:
-            events.append(record.error)
+        events.append(_policy_event(record, metadata))
     return events
 
 

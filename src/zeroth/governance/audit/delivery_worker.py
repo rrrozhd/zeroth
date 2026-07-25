@@ -1,4 +1,4 @@
-"""The delivery stage's consume-capture-write loop.
+"""The delivery stage's consume-write-retry loop.
 
 Split from :mod:`zeroth.governance.audit.delivery` along the seam that matters
 operationally: that module is what a *producer* touches -- a bounded, synchronous
@@ -13,12 +13,16 @@ only worker, which stranded every later event in the queue *and* left the one
 that caused it counted nowhere; the broad guard below is what makes "one bad
 event" cost one record instead of the whole stage.
 
-**Capture is a ladder, not a call.** The policy already fails closed
-internally, so an exception reaching :meth:`DeliveryWorker._capture` means it
-failed *while* failing closed. The fallback is the queue-owned
-:func:`~zeroth.governance.audit.capture_policy.blank_record`, and if even that
-raises, the event is dropped and counted -- because the one output that is
-never an option is the record the producer submitted.
+**This loop does not classify, and deliberately so.** It used to apply the
+capture policy between the dequeue and the first write, which meant capture ran
+twice -- here and again inside
+:meth:`~zeroth.governance.audit.repository.AuditRepository.write` -- and the
+second pass had to be told the first had happened. The only channel available
+for telling it was producer-supplied metadata, so "already captured" was
+forgeable and capture was skippable. Classification now belongs to the durable
+sink alone; the writer this loop holds must be one (see
+:class:`~zeroth.governance.audit.delivery_state.AuditRecordWriter`). What is
+left here is delivery and retry.
 
 **Every attempt is bounded, and the bound does not depend on the writer's
 manners.** ``await writer.write(...)`` was unbounded, so a single hung write
@@ -30,6 +34,17 @@ cannot extend the bound by ignoring it. The same ``audit_id`` is retried, so if
 the abandoned attempt does eventually commit, the retry meets
 :class:`~zeroth.governance.audit.errors.DuplicateAuditIdError` and is counted
 once, as delivered.
+
+**Released is not forgotten.** An abandoned attempt is never *waited on*, but
+its eventual result is still consumed, because the two ways it can end are both
+consequential. A *final* attempt that overran the deadline is counted as a
+failure and its record may nonetheless commit seconds later -- an operator told
+``failed=1`` would go recovering a record that already exists -- so a late
+commit reconciles the event, exactly once. And an abandoned attempt that raises
+has nobody left to catch it: an unretrieved task exception reaches asyncio's
+default handler, which prints the writer's own message and traceback into the
+log stream. Both ends are handled by the same completion callback, which logs a
+fixed code and an exception *type* and never the message.
 
 **One event, one terminal count.** Shutdown can mark an in-flight event
 abandoned while its write is still outstanding, and that write can still
@@ -45,9 +60,9 @@ import asyncio
 import logging
 import random
 from enum import StrEnum
+from functools import partial
 from typing import TYPE_CHECKING
 
-from zeroth.governance.audit import capture_policy as capture_policy_module
 from zeroth.governance.audit.delivery_state import (
     DeliveryFailure,
     DeliveryOutcome,
@@ -56,7 +71,6 @@ from zeroth.governance.audit.delivery_state import (
 from zeroth.governance.audit.errors import DuplicateAuditIdError
 
 if TYPE_CHECKING:
-    from zeroth.governance.audit.capture_policy import AuditCapturePolicy
     from zeroth.governance.audit.delivery_state import (
         AuditRecordWriter,
         DeliveryCounters,
@@ -80,12 +94,11 @@ class AttemptOutcome(StrEnum):
 
 
 class DeliveryWorker:
-    """Consume one bounded queue, capture each event, and write it with retries.
+    """Consume one bounded queue and write each event with retries.
 
     Args:
-        writer: The durable append-only write.
-        policy: The stage's own capture transform. Constructed by the queue and
-            never supplied by a caller.
+        writer: The durable append-only write. Must be a capture-applying sink;
+            this loop hands it the record exactly as the producer built it.
         counters: Where every outcome is recorded.
         queue: The bounded hand-off this loop drains.
         max_attempts: Write attempts per event, including the first.
@@ -98,7 +111,6 @@ class DeliveryWorker:
         self,
         *,
         writer: AuditRecordWriter,
-        policy: AuditCapturePolicy,
         counters: DeliveryCounters,
         queue: asyncio.Queue[PendingAudit],
         max_attempts: int,
@@ -107,7 +119,6 @@ class DeliveryWorker:
         write_timeout: float = DEFAULT_WRITE_TIMEOUT_SECONDS,
     ) -> None:
         self._writer = writer
-        self._policy = policy
         self._counters = counters
         self._queue = queue
         self._max_attempts = max_attempts
@@ -117,7 +128,8 @@ class DeliveryWorker:
         self._in_flight: PendingAudit | None = None
         self._started_at: float | None = None
         # Attempts that overran their deadline. Owned so they are neither
-        # garbage-collected mid-flight nor waited on.
+        # garbage-collected mid-flight nor waited on -- and each one carries the
+        # event it was writing, so its eventual result can still be accounted.
         self._orphans: set[asyncio.Task[object]] = set()
 
     @property
@@ -139,11 +151,7 @@ class DeliveryWorker:
             self._in_flight = item
             self._started_at = asyncio.get_running_loop().time()
             try:
-                captured = self._capture(item)
-                if captured is None:
-                    self.fail(item, DeliveryFailure.CAPTURE_FAILED)
-                else:
-                    await self._deliver(item, captured)
+                await self._deliver(item, item.record)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - one event must never take the
@@ -154,6 +162,11 @@ class DeliveryWorker:
             finally:
                 self._in_flight = None
                 self._started_at = None
+                # The event has left the worker's hands, so nothing is in
+                # flight. Left unreset, the gauge kept presenting the last
+                # timed-out attempt's duration as the current age of an idle
+                # worker's write -- a wedge that had already resolved.
+                self._counters.publish_in_flight_age(0.0)
                 self._queue.task_done()
                 self._counters.publish_depth(self._queue.qsize())
 
@@ -172,9 +185,14 @@ class DeliveryWorker:
         )
 
     def commit(self, item: PendingAudit) -> None:
-        """Count one durable event, or reconcile a write that landed after shutdown gave up."""
+        """Count one durable event, or reconcile a write that landed after the stage gave up."""
         if item.terminal.claim(DeliveryOutcome.DELIVERED):
             self._counters.increment("delivered")
+            return
+        if not item.terminal.claim_reconciliation():
+            # Either the event is already counted as delivered -- a released
+            # attempt and its retry both observing the one durable row is one
+            # event, not two -- or a previous late commit already reconciled it.
             return
         self._counters.increment("reconciled")
         logger.warning(
@@ -183,35 +201,11 @@ class DeliveryWorker:
             item.terminal.outcome,
         )
 
-    def _capture(self, item: PendingAudit) -> NodeAuditRecord | None:
-        """Apply the stage's own capture policy, degrading to blank, then to nothing.
-
-        Returns:
-            The record to write, or ``None`` when even the blank fallback
-            failed -- in which case the event is dropped rather than persisted
-            as the producer submitted it.
-        """
-        try:
-            return self._policy.apply(item.record)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - the policy already fails closed
-            # internally, so reaching here means it failed while doing so.
-            self._log_degraded(item.audit_id, exc)
-        try:
-            return capture_policy_module.blank_record(item.record)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - the last rung; a record that
-            # cannot even be emptied is given up on, counted and named.
-            self._log_degraded(item.audit_id, exc)
-            return None
-
     async def _deliver(self, item: PendingAudit, record: NodeAuditRecord) -> None:
         """Write one event, retrying the same ``audit_id`` until attempts run out."""
         attempt = 1
         while True:
-            outcome, exc = await self._attempt(record)
+            outcome, exc = await self._attempt(item, record)
             if outcome is AttemptOutcome.WRITTEN or outcome is AttemptOutcome.DUPLICATE:
                 # DUPLICATE is the append-only contract's one benign refusal: this
                 # audit_id is already stored, so an earlier attempt did land.
@@ -232,7 +226,7 @@ class DeliveryWorker:
             attempt += 1
 
     async def _attempt(
-        self, record: NodeAuditRecord
+        self, item: PendingAudit, record: NodeAuditRecord
     ) -> tuple[AttemptOutcome, BaseException | None]:
         """Run one write under a finite deadline, waiting on nothing past it."""
         loop = asyncio.get_running_loop()
@@ -248,9 +242,10 @@ class DeliveryWorker:
         if not done:
             # Cancelled and released, never awaited: a writer that swallows the
             # cancellation would otherwise own this worker for as long as it liked.
+            # Its result is still consumed, off this stack, by ``_orphan_done``.
             task.cancel()
             self._orphans.add(task)
-            task.add_done_callback(self._orphans.discard)
+            task.add_done_callback(partial(self._orphan_done, item))
             self._counters.publish_in_flight_age(loop.time() - started)
             return AttemptOutcome.TIMED_OUT, None
         if task.cancelled():
@@ -267,25 +262,39 @@ class DeliveryWorker:
         # the attempt budget says otherwise.
         return AttemptOutcome.FAILED, exc
 
+    def _orphan_done(self, item: PendingAudit, task: asyncio.Task[object]) -> None:
+        """Account for an attempt that was released at its deadline and finished anyway.
+
+        Runs on the loop, on nobody's stack: this is the only place an abandoned
+        attempt's result is ever observed. Returning normally means the record is
+        durable -- that is what the writer contract makes a return mean -- and a
+        duplicate id means the same thing, so both reconcile the event. Anything
+        else is logged by fixed code and exception *type*: an unretrieved task
+        exception is what put the writer's own message, and a full traceback,
+        into the log stream at asyncio's discretion.
+
+        Args:
+            item: The event this attempt was writing, carried since the deadline.
+            task: The finished attempt, whose result is consumed here.
+        """
+        self._orphans.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None or isinstance(exc, DuplicateAuditIdError):
+            self.commit(item)
+            return
+        logger.warning(
+            "audit delivery abandoned attempt failed code=%s audit_id=%s exception_type=%s",
+            DeliveryFailure.ABANDONED_WRITE_FAILED.value,
+            item.audit_id,
+            type(exc).__name__,
+        )
+
     def _backoff_delay(self, attempt: int) -> float:
         """Full-jitter exponential backoff for a 1-based attempt number."""
         ceiling = min(self._base_delay * (2 ** (attempt - 1)), self._max_delay)
         return random.uniform(0.0, ceiling)  # noqa: S311 - backoff jitter, not crypto
-
-    def _log_degraded(self, audit_id: str, exc: BaseException) -> None:
-        """Note a capture degradation by code and exception type, never by message.
-
-        ``str(exc)`` is attacker-reachable here: the capture transform walks
-        producer-supplied payloads and calls an injected classifier, either of
-        which can put the value it was holding into the message it raises. The
-        log stream is an export path none of the record-level checks cover.
-        """
-        logger.warning(
-            "audit delivery capture degraded code=%s audit_id=%s exception_type=%s",
-            DeliveryFailure.CAPTURE_FAILED.value,
-            audit_id,
-            type(exc).__name__,
-        )
 
 
 __all__ = ["DEFAULT_WRITE_TIMEOUT_SECONDS", "AttemptOutcome", "DeliveryWorker"]

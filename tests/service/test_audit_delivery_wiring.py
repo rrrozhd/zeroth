@@ -365,13 +365,14 @@ def test_health_omits_the_delivery_block_when_no_stage_is_wired() -> None:
     assert audit_delivery_health(SimpleNamespace(audit_delivery_queue=None)) is None
 
 
-async def test_the_lifespan_drains_the_queue_after_the_transport_and_before_teardown_ends() -> None:
+async def test_the_lifespan_drains_the_queue_after_the_transport_and_before_teardown() -> None:
     """R10: ordering, proven by making the transport's shutdown release the write.
 
     The write can only complete after ``aclose`` opened the gate, so a passing
     order pins two things at once: the drain runs after the gateway stopped
-    submitting, and the audit writer is still reachable when it runs -- the
-    lifespan tears nothing down after this point.
+    submitting, and it runs *before* the runtime teardown that closes everything
+    else -- so the audit writer is still reachable, and no unbounded await in
+    that teardown can postpone a drain that has already happened.
     """
     order: list[str] = []
     gate = asyncio.Event()
@@ -386,7 +387,7 @@ async def test_the_lifespan_drains_the_queue_after_the_transport_and_before_tear
     async with service_lifespan(app):
         assert queue.submit(_record("audit-drained")) is True
 
-    assert order == ["secret_provider", "gateway_transport", "audit_write"]
+    assert order == ["gateway_transport", "audit_write", "secret_provider"]
     assert writer.written == ["audit-drained"]
     assert queue.counts().delivered == 1
 

@@ -11,7 +11,6 @@ import pytest
 from tests.conftest import requires_docker
 from tests.retention.conftest import (
     _build_env,
-    content_captured,
     make_audit_record,
     seed_token_snapshot,
 )
@@ -428,7 +427,7 @@ async def test_external_cleanup_retry_reloads_manifest_and_skips_completed(env) 
             "execution_metadata": {"join_key": "metadata-join"},
         }
     )
-    await env.audit_repo.write(content_captured(record))
+    await env.audit_repo.write(record)
     # A second key exists only in the database checkpoint/run payload, proving
     # authorization harvests every database-resident surface before redaction.
     async with env.database.transaction() as connection:

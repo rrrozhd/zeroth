@@ -29,7 +29,14 @@ from zeroth.econ.analytics import (
     waste_gate,
 )
 from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
-from zeroth.contracts.graph import AgentNode, AgentNodeData, Condition, Edge, ExecutionSettings, Graph
+from zeroth.contracts.graph import (
+    AgentNode,
+    AgentNodeData,
+    Condition,
+    Edge,
+    ExecutionSettings,
+    Graph,
+)
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.runs import RunStatus
@@ -635,7 +642,7 @@ async def test_retry_overhead_fires_end_to_end(sqlite_db) -> None:
 
     audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
     n1 = next(a for a in audits if a.node_id == "n1")
-    assert n1.execution_metadata["extra"]["attempts"] == 2  # retry recorded in the audit
+    assert n1.execution_metadata["attempt"] == 2  # retry recorded in the audit
     report = analyze_run(run.run_id, run.status, audits)
     retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
     assert retry.metadata["attempts"] == 2

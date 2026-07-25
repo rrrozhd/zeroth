@@ -8,7 +8,10 @@ from zeroth.runtime.agents.thread_store import (
     RepositoryThreadStateStore,
 )
 from zeroth.governance.audit import AuditRepository
+from zeroth.governance.audit.capture_policy import CAPTURE_METADATA_KEY
+from zeroth.governance.audit.capture_projection import canonicalize, digest
 from zeroth.integrations.execution import EnvironmentVariable
+from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
@@ -17,6 +20,11 @@ from zeroth.platform.secrets import EnvSecretProvider, SecretResolver
 from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.platform.storage import EncryptedField
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+
+
+def _payload_digest(payload: dict[str, object]) -> str:
+    """Digest a payload exactly as the capture boundary's projection does."""
+    return digest(canonicalize(payload))
 
 
 def test_encrypted_field_round_trips_plaintext() -> None:
@@ -118,14 +126,44 @@ async def test_audit_records_do_not_contain_raw_secret_values_at_rest(tmp_path: 
     assert run.status is RunStatus.COMPLETED
     audits = await audit_repository.list_by_run(run.run_id)
     audit = audits[0]
-    assert audit.input_snapshot == {"value": "[REDACTED:API_KEY]"}
-    assert audit.execution_metadata["secret"] == "[REDACTED:API_KEY]"
+    # Capture empties the content channels, so the record no longer carries the
+    # masked snapshot -- it carries no snapshot at all. Asserting only ``== {}``
+    # would stop distinguishing "the producer masked the secret" from "the
+    # producer's redactor is a no-op", which is exactly what
+    # ``RuntimeAuditRecorder.redact`` becomes without a secret resolver. The
+    # content-free stand-ins are what keep the assertion honest: the digest that
+    # replaced the snapshot is the digest of the *redacted* payload.
+    assert audit.input_snapshot == {}
+    dropped = audit.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]
+    assert dropped["input_snapshot"]["count"] == 1
+    assert dropped["input_snapshot"]["sha256"] == _payload_digest({"value": "[REDACTED:API_KEY]"})
+    assert dropped["input_snapshot"]["sha256"] != _payload_digest({"value": "super-secret"})
 
     async with database.transaction() as connection:
         row = await connection.fetch_one("SELECT record_json FROM node_audits", ())
     assert row is not None
     assert "super-secret" not in row["record_json"]
     await database.close()
+
+
+def test_the_runtime_recorder_masks_registered_secrets_before_the_audit_write() -> None:
+    """The producer-side redactor, covered on its own so unwiring it fails here.
+
+    ``RuntimeAuditRecorder.redact`` is a pass-through when no secret resolver is
+    injected -- the opposite posture from the capture boundary. The at-rest test
+    above can only see the digest of whatever the producer handed over, so this
+    is where "the resolver is actually wired to the redactor" is pinned.
+    """
+    resolver = SecretResolver(EnvSecretProvider({"API_KEY": "super-secret"}))
+    resolver.resolve_environment_variables(
+        [EnvironmentVariable(name="API_KEY", secret_ref="API_KEY")]
+    )
+
+    masked = RuntimeAuditRecorder(secret_resolver=resolver).redact({"value": "super-secret"})
+    unwired = RuntimeAuditRecorder().redact({"value": "super-secret"})
+
+    assert masked == {"value": "[REDACTED:API_KEY]"}
+    assert unwired == {"value": "super-secret"}
 
 
 async def test_failure_error_and_message_are_redacted(tmp_path: Path) -> None:

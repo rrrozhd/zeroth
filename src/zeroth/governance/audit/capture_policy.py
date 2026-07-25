@@ -5,8 +5,8 @@ to decide what may be kept: the producer is holding the prompt, the tool
 arguments and the model's answer, and a content channel that is closed only
 because every caller remembered to clear it is open the first time one caller
 forgets. This module owns that decision instead, and
-:class:`~zeroth.governance.audit.delivery.AuditDeliveryQueue` constructs one of
-these itself for every event it dequeues.
+:class:`~zeroth.governance.audit.repository.AuditRepository` constructs one of
+these itself and applies it to every record it writes.
 
 **The invariant: an event retains content only when it is classified into
 content, and anything this stage cannot classify retains none.**
@@ -35,11 +35,13 @@ through :class:`~zeroth.governance.audit.capture_projection.ContentFreeProjectio
 which keeps a projection typed per key and replaces everything else -- error
 text included -- with a digest, a schema and a count.
 
-**The boundary is the durable write, not this stage.** Applying the transform
-where the delivery worker happens to sit would leave every direct
-``AuditRepository.write`` caller outside it, so ``write`` applies the policy
-itself and :mod:`~zeroth.governance.audit.capture_seal` is how it recognises a
-record that has already been through one.
+**The boundary is the durable write, and it is the only one.** Applying the
+transform where the delivery worker happens to sit left every direct
+``AuditRepository.write`` caller outside it, so ``write`` applies the policy --
+unconditionally, on every record, trusting nothing the record carries. Capturing
+in two places once required proof that a record had already been through one,
+and that proof lived in producer-supplied ``execution_metadata``, where its
+shape was forgeable. One capture point: nothing to prove, nothing to forge.
 
 **What is removed and what is kept are equally load-bearing.** Under
 ``metadata_only`` every content channel (``input_snapshot``, ``output_snapshot``,
@@ -52,16 +54,17 @@ lineage, ``status``, timing, ``token_usage``, ``cost_usd``, the actor, the
 approval decisions themselves and the digest-chain fields. A record whose
 evidentiary value died with its content would be a slower way of not auditing.
 
-**The primitives are reused, not reinvented.** Key-based redaction comes from
-:class:`~zeroth.governance.audit.sanitizer.PayloadSanitizer`, masking of
-registered secret values from
-:class:`~zeroth.platform.secrets.redaction.SecretRedactor`, pattern detection
-from :class:`~zeroth.governance.guardrails.content.PIIFilter` (``email``,
-``ssn`` and ``credit_card`` only -- its phone heuristic matches any ten-digit
-run). All three are complements and none carries the guarantee: a key rule
-cannot see a secret under an unexpected key, a value rule cannot see a secret
-nobody registered, a pattern cannot see what it does not match. The channel drop
-and the metadata allowlist are what hold.
+**The primitives are reused, not reinvented.** Masking of registered secret
+values comes from :class:`~zeroth.platform.secrets.redaction.SecretRedactor` and
+pattern detection from :class:`~zeroth.governance.guardrails.content.PIIFilter`
+(``email``, ``ssn`` and ``credit_card`` only -- its phone heuristic matches any
+ten-digit run); :mod:`~zeroth.governance.audit.capture_scrub` owns the single
+traversal that reaches them, because three primitives walking three different
+container vocabularies is how a secret inside a ``set`` reached storage. All of
+it is complement and none of it carries the guarantee: a key rule cannot see a
+secret under an unexpected key, a value rule cannot see a secret nobody
+registered, a pattern cannot see what it does not match. The channel drop and
+the metadata allowlist are what hold.
 """
 
 from __future__ import annotations
@@ -72,28 +75,29 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any, Protocol
 
-from zeroth.governance.audit.capture_projection import (
-    REDACTED,
-    ContentFreeProjection,
-    canonicalize,
+from zeroth.governance.audit.capture_artifacts import (
+    ARTIFACT_KEYS_FIELD,
+    retained_artifact_keys,
 )
+from zeroth.governance.audit.capture_projection import REDACTED, ContentFreeProjection
 from zeroth.governance.audit.capture_scrub import DEFAULT_REDACT_KEYS, RedactionChain
-from zeroth.governance.audit.capture_seal import CAPTURE_METADATA_KEY, seal_metadata
 from zeroth.governance.audit.models import (
     AuditRedactionConfig,
     MemoryAccessRecord,
     NodeAuditRecord,
     ToolCallRecord,
 )
-from zeroth.platform.artifacts.helpers import extract_artifact_refs
 
 logger = logging.getLogger(__name__)
+
+# Where the capture decision is filed. Evidence written by the transform, never
+# read back as permission to skip it: ``AuditRepository.write`` captures
+# unconditionally and does not consult this key.
+CAPTURE_METADATA_KEY = "audit_capture"
 
 _EMPTIED_MAPPING_FIELDS = ("input_snapshot", "output_snapshot", "validation_results")
 _EMPTIED_LIST_FIELDS = ("condition_results",)
 _EMPTIED_TEXT_FIELDS = ("stdout", "stderr")
-# A record names the artifacts it produced; it is not an artifact index.
-_MAX_RETAINED_ARTIFACT_REFS = 64
 
 
 class CaptureDecision(StrEnum):
@@ -113,11 +117,11 @@ class CaptureClassifier(Protocol):
     """Decide what a single audit event allows to be retained.
 
     Mirrors the repository's ``classify(payload) -> str`` classifier shape, but
-    synchronously: this runs on the delivery worker between the dequeue and the
-    durable write, and an awaited classifier would put an unbounded wait in
-    front of every audit write. This is the *only* replaceable part of the
-    capture boundary: it picks between two fixed outcomes and cannot author
-    either, because a security boundary a caller can swap out is not a boundary.
+    synchronously: this runs inside the durable write, and an awaited classifier
+    would put an unbounded wait in front of it. This is the *only* replaceable
+    part of the capture boundary: it picks between two fixed outcomes and cannot
+    author either, because a security boundary a caller can swap out is not a
+    boundary.
     """
 
     def classify(self, record: NodeAuditRecord) -> str:
@@ -132,43 +136,6 @@ class MetadataOnlyCaptureClassifier:
         """Classify every event as metadata-only, whatever it holds."""
         del record
         return CaptureDecision.METADATA_ONLY.value
-
-
-def retained_artifact_refs(record: NodeAuditRecord) -> list[dict[str, Any]]:
-    """Keep the addressing of the artifacts a run owns, never their contents.
-
-    An artifact reference is a storage key, a MIME type and a byte count -- the
-    same kind of evidence as a memory interaction's ``key``, which this stage
-    already keeps while dropping its ``value``. Emptying the channels these
-    refs live in without keeping them would orphan every blob an erased run
-    produced: :class:`~zeroth.governance.retention.erasure_service.RetentionErasureService`
-    harvests them straight out of the persisted record, so a record that no
-    longer names them is a record whose artifacts can never be destroyed.
-
-    Args:
-        record: The record about to lose its content channels.
-
-    Returns:
-        Up to :data:`_MAX_RETAINED_ARTIFACT_REFS` deduplicated references, each
-        in the exact four-field shape the harvester re-validates. Only keys
-        inside the run's own ``{run_id}/`` namespace are kept, so a producer
-        cannot use this channel to file arbitrary text: the prefix is fixed by
-        the record's identity, not by the payload.
-    """
-    payloads = canonicalize(
-        {name: getattr(record, name) for name in (*_EMPTIED_MAPPING_FIELDS, "execution_metadata")}
-    )
-    prefix = f"{record.run_id}/"
-    kept: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in extract_artifact_refs({"payload": payloads}):
-        if not ref.key.startswith(prefix) or ref.key in seen:
-            continue
-        seen.add(ref.key)
-        kept.append(ref.model_dump(mode="json"))
-        if len(kept) >= _MAX_RETAINED_ARTIFACT_REFS:
-            break
-    return kept
 
 
 def blank_record(record: NodeAuditRecord) -> NodeAuditRecord:
@@ -189,13 +156,11 @@ def blank_record(record: NodeAuditRecord) -> NodeAuditRecord:
         "memory_interactions": [],
         "approval_actions": [],
         "execution_metadata": {
-            CAPTURE_METADATA_KEY: seal_metadata(
-                {
-                    "classification": CaptureDecision.METADATA_ONLY.value,
-                    "content_retained": False,
-                    "capture_failed": True,
-                }
-            )
+            CAPTURE_METADATA_KEY: {
+                "classification": CaptureDecision.METADATA_ONLY.value,
+                "content_retained": False,
+                "capture_failed": True,
+            }
         },
     }
     return record.model_copy(update=update)
@@ -307,10 +272,10 @@ class AuditCapturePolicy:
             "dropped_fields": summaries,
         }
         if decision is not CaptureDecision.CONTENT:
-            refs = retained_artifact_refs(record)
-            if refs:
-                marker["artifact_refs"] = refs
-        metadata[CAPTURE_METADATA_KEY] = seal_metadata(marker)
+            keys = retained_artifact_keys(record)
+            if keys:
+                marker[ARTIFACT_KEYS_FIELD] = keys
+        metadata[CAPTURE_METADATA_KEY] = marker
         return metadata
 
     def _dropped_content(self, record: NodeAuditRecord) -> tuple[dict[str, Any], dict[str, Any]]:
