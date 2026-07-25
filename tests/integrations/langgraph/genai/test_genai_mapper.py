@@ -351,6 +351,70 @@ def test_non_string_tags_are_dropped_so_the_sequence_stays_homogeneous() -> None
     assert mapped.attributes[LANGGRAPH_TAGS] == ("keep",)
 
 
+class _SpoofKey(str):
+    """A ``str`` subclass key that claims to be an allowlisted name."""
+
+    def __hash__(self) -> int:
+        return hash("langgraph_node")
+
+    def __eq__(self, other: object) -> bool:
+        return other in ("langgraph_node", "thread_id") or str.__eq__(self, other)
+
+
+class _ExplodingKey(str):
+    """A ``str`` subclass key whose comparison raises with arbitrary text."""
+
+    def __hash__(self) -> int:
+        return hash("langgraph_node")
+
+    def __eq__(self, other: object) -> bool:
+        raise RuntimeError(f"boom {CONTENT_SENTINEL}")
+
+
+def _span_with_metadata(metadata: dict) -> CausalSpan:
+    """Build a span directly so hostile metadata keys survive to the mapper."""
+    return CausalSpan(
+        run_id="r1",
+        parent_run_id=None,
+        kind="chain",
+        name=None,
+        start=1000.0,
+        end=1000.5,
+        status="ok",
+        tags=(),
+        metadata=metadata,
+        correlation_id=None,
+        error_type=None,
+    )
+
+
+def test_a_spoofing_metadata_key_is_skipped_without_running_its_code() -> None:
+    """A hostile key must not reach an allowlisted slot.
+
+    ``CausalSpan.__post_init__`` filters metadata by *value* type only, so a
+    ``str`` subclass key survives to the mapper. Gating ``type(key) is str``
+    before any comparison keeps its ``__hash__`` / ``__eq__`` from running.
+    """
+    span = _span_with_metadata({_SpoofKey("prompt"): CONTENT_SENTINEL})
+
+    mapped = map_causal_span(span)
+
+    assert LANGGRAPH_NODE not in mapped.attributes
+    assert CONTENT_SENTINEL not in json.dumps(mapped.to_dict())
+    assert CONTENT_SENTINEL not in repr(mapped)
+    assert mapped.name == OPERATION_INVOKE_WORKFLOW  # no target was adopted
+
+
+def test_a_metadata_key_that_raises_on_comparison_cannot_escape() -> None:
+    """A raising ``__eq__`` must never run, so its text cannot propagate."""
+    span = _span_with_metadata({_ExplodingKey("prompt"): "value"})
+
+    mapped = map_causal_span(span)
+
+    assert LANGGRAPH_NODE not in mapped.attributes
+    assert CONTENT_SENTINEL not in json.dumps(mapped.to_dict())
+
+
 class _SneakyTags(tuple):  # noqa: SLOT001 - the point is to subclass tuple
     """A ``tuple`` subclass whose ``__iter__`` yields entries it never stored."""
 

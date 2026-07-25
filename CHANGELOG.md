@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.1.2] - 2026-07-25
+
+### Fixed
+
+- The GenAI mapper no longer looks metadata up by key. A `Mapping` lookup runs the
+  stored key's `__hash__`/`__eq__`, so a `str` subclass key could execute its own
+  code inside the mapper -- spoofing an allowlisted name, or raising an exception
+  carrying arbitrary text (`CausalSpan` filters metadata by value type only, so
+  such a key survives). Entries are now iterated and `type(key) is str` is checked
+  before any comparison.
+
 ## [0.12.3.1.1] - 2026-07-25
 
 ### Fixed

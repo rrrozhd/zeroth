@@ -264,10 +264,19 @@ def _allowed_metadata(metadata: Mapping[str, Any]) -> dict[str, str | int]:
     """Return the allowlisted metadata entries whose value passes the gate.
 
     Rogue keys, floats, containers, blanks and subclasses are dropped silently.
+
+    Entries are *iterated* rather than looked up by key. A ``dict``/``Mapping``
+    lookup runs the stored key's ``__hash__`` / ``__eq__``, so a ``str`` subclass
+    key could execute its own code inside the mapper -- spoofing equality with an
+    allowlisted name, or raising an exception carrying arbitrary text. Gating
+    ``type(key) is str`` *before* any comparison means such a key is skipped
+    without its code ever running.
     """
     allowed: dict[str, str | int] = {}
-    for key in _METADATA_ALLOWLIST:
-        value = _plain_scalar(metadata.get(key))
+    for key, raw in metadata.items():
+        if type(key) is not str or key not in _METADATA_ALLOWLIST:
+            continue
+        value = _plain_scalar(raw)
         if value is not None:
             allowed[key] = value
     return allowed
