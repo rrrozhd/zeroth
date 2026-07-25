@@ -70,6 +70,19 @@ class AuditRecordWriter(Protocol):
       shutdown enforces one absolute deadline over both the drain and the
       cancellation, and a writer that ignores cancellation can only be left
       running past it -- reported as an undrained close, never waited on.
+    * **The write MUST NOT block the event loop.** Every bound this stage
+      offers -- the per-attempt ``write_timeout``, the shutdown deadline, the
+      proxy's own cooperative guard -- is an ``asyncio`` timeout, and an
+      ``asyncio`` timeout can only preempt at an ``await`` the implementation
+      actually reaches. Synchronous work before the first ``await`` therefore
+      runs to completion whatever the deadline says, on the loop that is also
+      serving requests. An implementation's synchronous prefix must be O(one
+      record) CPU work and nothing else: no synchronous socket, file or lock,
+      and no unbounded walk of producer-supplied content. Anything with real
+      latency belongs behind the database driver's own deadline.
+      :class:`~zeroth.governance.audit.repository.AuditRepository` satisfies
+      this -- its prefix is one bounded capture pass over a single record, and
+      the transaction it then awaits is the driver's.
     """
 
     async def write(self, record: NodeAuditRecord) -> object:
@@ -97,6 +110,7 @@ class TerminalState:
     """
 
     outcome: DeliveryOutcome | None = None
+    reconciled: bool = False
 
     def claim(self, outcome: DeliveryOutcome) -> bool:
         """Take the event's one terminal outcome, or report that it is already taken.
@@ -107,6 +121,27 @@ class TerminalState:
         if self.outcome is not None:
             return False
         self.outcome = outcome
+        return True
+
+    def claim_reconciliation(self) -> bool:
+        """Take the one reconciliation a late commit may count, or report it taken.
+
+        An attempt cancelled at its deadline is released rather than awaited, so
+        a writer that ignores the cancellation can commit long after the event
+        was counted as a loss. That is real news -- the row exists -- but it is
+        news exactly once: several abandoned attempts of the same ``audit_id``
+        can each come back, and one durable record must not become several
+        reconciliations. An event already counted as ``delivered`` reconciles
+        nothing at all, because nothing about it was ever reported as lost.
+
+        Returns:
+            ``True`` only for the first late commit contradicting a loss.
+        """
+        if self.outcome is None or self.outcome is DeliveryOutcome.DELIVERED:
+            return False
+        if self.reconciled:
+            return False
+        self.reconciled = True
         return True
 
 
@@ -130,6 +165,11 @@ class DeliveryRejection(StrEnum):
     INVALID_RECORD = "invalid_record"
     # A terminal event the gateway sink could not even project into a record.
     PROJECTION_FAILED = "projection_failed"
+    # The hand-off itself raised. ``submit`` is a ``put_nowait`` and returns a
+    # bool, but it is reached through an injected submitter, and a producer that
+    # let that exception escape turned one refused event into one traceback --
+    # carrying the submitter's own message -- on the response path.
+    SUBMIT_FAILED = "submit_failed"
 
 
 class DeliveryFailure(StrEnum):
@@ -143,6 +183,10 @@ class DeliveryFailure(StrEnum):
     WRITE_FAILED = "write_failed"
     WRITE_TIMEOUT = "write_timeout"
     WORKER_ERROR = "worker_error"
+    # An attempt released at its deadline that failed afterwards, on nobody's
+    # stack. Its result is still consumed -- an unretrieved one reaches
+    # asyncio's default handler, which prints the whole exception.
+    ABANDONED_WRITE_FAILED = "abandoned_write_failed"
 
 
 @dataclass(frozen=True, slots=True)

@@ -25,6 +25,8 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from zeroth.governance.audit.capture_artifacts import ARTIFACT_KEYS_FIELD
+from zeroth.governance.audit.capture_policy import CAPTURE_METADATA_KEY
 from zeroth.governance.audit.erasure_schema import AUDIT_CLEANUP_PAYLOAD_FIELDS
 from zeroth.governance.retention.claims import CleanupClaims
 from zeroth.governance.retention.cleanup_manifest import (
@@ -70,11 +72,41 @@ logger = logging.getLogger(__name__)
 _CleanupReplayState = CleanupReplayState
 
 
+def _captured_artifact_keys(payload: Any) -> set[str]:
+    """Collect the artifact keys an audit capture retained on this payload.
+
+    A metadata-only capture empties the channels a reference lived in, so the
+    reference-shaped dicts the scanner looks for are gone by the time erasure
+    reads the record. What it leaves behind is a list of validated key strings
+    under its own marker -- see
+    :mod:`~zeroth.governance.audit.capture_artifacts` -- and this is where they
+    are read back. The prefix filter in :func:`_harvest_artifact_keys` still
+    applies to them; the capture stage's own grammar check is a stricter gate on
+    the same property, not a substitute for it.
+
+    Args:
+        payload: One erasure payload, typically a record's ``execution_metadata``.
+
+    Returns:
+        The keys the capture boundary filed, or an empty set.
+    """
+    if not isinstance(payload, dict):
+        return set()
+    marker = payload.get(CAPTURE_METADATA_KEY)
+    if not isinstance(marker, dict):
+        return set()
+    keys = marker.get(ARTIFACT_KEYS_FIELD)
+    if not isinstance(keys, list):
+        return set()
+    return {key for key in keys if type(key) is str}
+
+
 def _harvest_artifact_keys(payload: Any, *, run_id: str) -> set[str]:
     """Collect fully validated artifact refs owned by ``run_id``'s key namespace."""
-    refs = extract_artifact_refs({"payload": payload})
+    keys = {ref.key for ref in extract_artifact_refs({"payload": payload})}
+    keys |= _captured_artifact_keys(payload)
     prefix = f"{run_id}/"
-    return {ref.key for ref in refs if ref.key.startswith(prefix)}
+    return {key for key in keys if key.startswith(prefix)}
 
 
 def _audit_cleanup_payloads(record: Any) -> tuple[Any, ...]:

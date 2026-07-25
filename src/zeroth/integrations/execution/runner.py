@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from zeroth.governance.audit.capture_projection import normalize_reason_code
+from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
 from zeroth.governance.policy import Capability, apply_secret_policy
 from zeroth.integrations.execution.adapters import PythonRuntimeAdapter
 from zeroth.integrations.execution.constraints import ResourceConstraints

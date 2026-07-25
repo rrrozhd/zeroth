@@ -49,6 +49,12 @@ the moment the process can least afford it -- produced one traceback per refused
 event on the response-completion path, carrying whatever a foreign sink's
 exception message holds. A counter is scraped; a log line is not.
 
+*Including a hand-off that raises rather than refusing.* An injected submitter
+raising ``RuntimeError`` escaped past a guard that caught only ``ValueError``,
+restoring the traceback-per-event with its message. Every ordinary exception
+from the hand-off, and from the accounting that answers it, is now a counted
+rejection; :class:`asyncio.CancelledError` is re-raised ahead of all of it.
+
 **What the proxy's own guards mean now.** ``GatewayProxy`` still wraps this call
 in ``asyncio.timeout(event_sink_timeout_seconds)``, but that is a *cooperative*
 guard and nothing more: synchronous work before the first await, a sink that
@@ -65,6 +71,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from collections.abc import Callable, Mapping
 from typing import Protocol
 from uuid import uuid4
@@ -78,8 +85,14 @@ from zeroth.governance.audit.delivery import (
     DeliveryRejection,
 )
 
+logger = logging.getLogger(__name__)
+
 _IDENTIFIER_KEYS = ("run_id", "thread_id", "assistant_id")
 _GATEWAY_NODE_ID = "langgraph.gateway"
+# The fixed code the last resort is logged under: the accounting call itself
+# raised, so there is no counter left to move and nothing but a code may be said
+# about it -- the submitter is injected and its message is foreign text.
+_ACCOUNTING_FAILED = "audit_accounting_failed"
 
 
 class AuditRecordSubmitter(Protocol):
@@ -333,7 +346,7 @@ class AuditGatewayEventSink:
         except Exception:  # noqa: BLE001 - the event is foreign input and the
             # projection validates it; a malformed one must cost this one audit
             # record, counted, rather than a traceback on the streaming path.
-            self._delivery.reject(audit_id, DeliveryRejection.PROJECTION_FAILED)
+            self._reject(audit_id, DeliveryRejection.PROJECTION_FAILED)
             return
         try:
             # A ``False`` return and a ValueError are both already counted by the
@@ -341,6 +354,38 @@ class AuditGatewayEventSink:
             self._delivery.submit(record)
         except ValueError:
             return
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - the submitter is injected, so the
+            # hand-off can raise anything at all; letting it escape reached the
+            # proxy's ``logger.exception``, which is one traceback per event
+            # carrying a foreign exception message on the response path.
+            self._reject(audit_id, DeliveryRejection.SUBMIT_FAILED)
+
+    def _reject(self, audit_id: str, reason: DeliveryRejection) -> None:
+        """Count one event that never became a queued record, without ever raising.
+
+        The accounting call is itself the injected submitter's, so it can fail
+        the same way the hand-off can. When it does there is no counter left to
+        move: all that may be emitted is a fixed code and the exception type,
+        never its message and never a traceback.
+
+        Args:
+            audit_id: The identity the sink had minted, for the counter's log line.
+            reason: Why the event never became a queued record.
+        """
+        try:
+            self._delivery.reject(audit_id, reason)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - emitting a terminal event never
+            # raises at its producer, and that has to hold for the accounting too.
+            logger.error(
+                "gateway audit accounting failed code=%s reason=%s exception_type=%s",
+                _ACCOUNTING_FAILED,
+                reason.value,
+                type(exc).__name__,
+            )
 
     def _project(self, event: GatewayEvent, *, audit_id: str) -> NodeAuditRecord:
         """Build the content-free audit record for one terminal gateway event.

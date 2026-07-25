@@ -23,40 +23,33 @@ authored.
 **Names are never printed, only counted and hashed.** Gating a key on
 "identifier-shaped and short" was not enough: ``AKIAIOSFODNN7EXAMPLE`` is a
 perfectly well-formed identifier, so a seeded credential used as a mapping key
-was persisted verbatim inside a dropped-content schema. A schema key is now
-:func:`key_digest` -- a truncated SHA-256 of the key -- so two payloads that
-shared a key still look alike and no producer text survives. Type names in a
-schema come from a closed set (:data:`_SCHEMA_TYPE_NAMES`), because
+was persisted verbatim inside a dropped-content schema. A canonical mapping key
+is now :func:`key_digest` -- a truncated SHA-256 of the key -- so two payloads
+that shared a key still look alike and no producer text survives. Type names in
+a schema come from a closed set (:data:`_SCHEMA_TYPE_NAMES`), because
 :meth:`ContentFreeProjection.schema` only ever reads canonical values and a
 dynamically constructed class can carry any ``__name__`` it likes.
 
+**A canonical mapping is a sequence of entries, not a mapping.** Rendering keys
+to fixed markers made distinct keys collide: every unsafe or non-string key
+became the same ``***REDACTED***`` key, so two submitted entries overwrote each
+other and the record claimed a count of one and a schema missing a branch --
+R4's retained hashes and counts, wrong. Canonicalizing to ``{"<entries>":
+[[key, value], ...]}`` removes the collapse entirely: an entry is a list
+element, so it cannot be overwritten by a sibling whatever its key rendered to.
+Keys are hashed when they are exact strings and become a closed
+per-type marker otherwise, and the entries are sorted by their own rendering so
+two equal payloads still digest alike.
+
 **Metadata is a typed allowlist, not a scrub.** ``execution_metadata`` and
 approval metadata are free-form ``dict[str, Any]`` that producers fill with
-whatever they were holding -- a prompt under ``execution_metadata["prompt"]``, a
-password nested in a tuple, a raw exception string. Best-effort key-based
-redaction cannot close that: it only masks the key names someone thought of. An
-allowlist of key *names* did not close it either, because every allowlisted key
-accepted any short string: ``correlation_id`` is filled from a client-supplied
-``X-Correlation-ID`` header, so a credential pasted into that header was
-persisted verbatim. Each allowlisted key therefore declares a
-:class:`MetadataKind` -- a number, a boolean, a digest, a bounded lowercase
-label, a system-minted identifier, or an opaque identifier that is only ever
-hashed -- and a value that does not fit its key's kind is summarized rather than
-retained.
-
-**Why identifiers are their own kind rather than OPAQUE or LABEL.** ``branch_id``
-and ``join_key`` are not producer payload: the runtime mints ``branch_id`` from
-the record's own ``run_id`` and branch index, and ``join_key`` is the
-business-request id a retention sweep must match against econ events. OPAQUE
-hashes what it retains, which satisfies a key-presence check while breaking every
-consumer that *compares* the value -- the branch-fan-out audits and
-:class:`~zeroth.governance.retention.erasure_service.RetentionErasureService`
-both compare. LABEL would keep them verbatim but LABEL means "a closed
-vocabulary term", and widening it to cover open identifiers would quietly widen
-every status and route name with it. :data:`MetadataKind.IDENTIFIER` therefore
-validates the shape an identifier has -- lower-case, bounded, punctuated only by
-the separators an id uses -- and keeps the value itself, so a mixed-case or
-opaque credential parked under one of these keys is still summarized away.
+whatever they were holding, and neither key-based redaction nor an allowlist of
+key *names* closes that. Each allowlisted key declares a
+:class:`~zeroth.governance.audit.capture_vocabulary.MetadataKind`, and
+:meth:`ContentFreeProjection.project` here is the enforcement of it: a value
+that does not fit its key's kind is summarized rather than retained. What the
+kinds mean, and why a vocabulary replaced the old label-shape check, is argued
+in :mod:`~zeroth.governance.audit.capture_vocabulary`.
 """
 
 from __future__ import annotations
@@ -66,8 +59,16 @@ import json
 import math
 import re
 from collections.abc import Callable, Mapping
-from enum import StrEnum
 from typing import Any
+
+from zeroth.governance.audit.capture_vocabulary import (
+    ALLOWED_METADATA_KEYS as ALLOWED_METADATA_KEYS,
+)
+from zeroth.governance.audit.capture_vocabulary import (
+    METADATA_KINDS,
+    METADATA_VOCABULARIES,
+    MetadataKind,
+)
 
 REDACTED = "***REDACTED***"
 
@@ -76,97 +77,32 @@ REDACTED = "***REDACTED***"
 MAX_DEPTH = 6
 # A key name is schema; a string long enough to be a credential is not.
 _MAX_NAME_CHARS = 64
-# An allowlisted label is a status, a route name or a short vocabulary term.
-_MAX_LABEL_CHARS = 64
 # Identifier-shaped: what a key name looks like when it is a name.
 _SAFE_NAME = re.compile(r"\A[A-Za-z_][A-Za-z0-9_.:\-]*\Z")
-# A label this stage retains verbatim: lower-case, punctuated only by the
-# separators a vocabulary term uses. Deliberately narrower than _SAFE_NAME --
-# credentials are overwhelmingly mixed-case or opaque, and a value that fails
-# this shape is summarized rather than lost.
-_SAFE_LABEL = re.compile(r"\A[a-z0-9][a-z0-9._:/\-]*\Z")
-# An identifier this codebase minted (a run-scoped branch id, a join key). Same
-# lower-case discipline as a label, without "/" and with a longer bound: an id
-# is compared, never read, so it may be longer than a vocabulary term.
+# An identifier this codebase minted (a run-scoped branch id, a join key):
+# lower-case, bounded, punctuated only by the separators an id uses.
 _MAX_IDENTIFIER_CHARS = 128
 _SAFE_IDENTIFIER = re.compile(r"\A[a-z0-9][a-z0-9._:\-]*\Z")
 # A hash, optionally prefixed by its algorithm ("sha256:...").
 _SAFE_DIGEST = re.compile(r"\A(?:[a-z0-9]{1,16}:)?[0-9a-f]{16,128}\Z")
-# How much of a key's SHA-256 stands in for the key in a schema.
+# How much of a key's SHA-256 stands in for the key in a canonical rendering.
 _KEY_DIGEST_CHARS = 16
 # The only type names a schema can carry, because schemas read canonical values.
 _SCHEMA_TYPE_NAMES = frozenset({"NoneType", "bool", "int", "float", "str", "dict", "list"})
-
-
-class MetadataKind(StrEnum):
-    """What one allowlisted metadata key is allowed to hold.
-
-    The kind is the whole of the per-key contract: a value that does not match
-    its key's kind is replaced by a summary, so widening what a key accepts
-    takes a deliberate edit here rather than a producer writing something new
-    into it.
-    """
-
-    NUMBER = "number"
-    BOOLEAN = "boolean"
-    DIGEST = "digest"
-    LABEL = "label"
-    IDENTIFIER = "identifier"
-    OPAQUE = "opaque"
-
-
-# The metadata keys this stage recognises as structural, each with the kind of
-# value it may carry. A key outside this mapping is not retained under a
-# metadata-only capture, whatever it holds.
-#
-# OPAQUE marks the identifiers whose text is chosen by somebody outside this
-# codebase -- ``correlation_id`` comes straight from a client request header,
-# ``assistant_id`` from a client-supplied path, ``reviewer`` from whoever
-# submitted an approval, ``cost_event_id`` from a producer. None of them is ever
-# retained verbatim; each is replaced by a stable digest, which still correlates
-# two records that shared one while carrying none of the text. ``cost_event_id``
-# and ``cost_usd`` also live in typed :class:`NodeAuditRecord` columns, so the
-# evidence survives the projection either way.
-METADATA_KINDS: Mapping[str, MetadataKind] = {
-    "admission_digest": MetadataKind.DIGEST,
-    "admitted": MetadataKind.BOOLEAN,
-    "assistant_id": MetadataKind.OPAQUE,
-    "attempt": MetadataKind.NUMBER,
-    "branch_id": MetadataKind.IDENTIFIER,
-    "branch_index": MetadataKind.NUMBER,
-    "budget_cap_usd": MetadataKind.NUMBER,
-    "budget_check_degraded": MetadataKind.BOOLEAN,
-    "budget_spend_usd": MetadataKind.NUMBER,
-    "compatibility_fingerprint": MetadataKind.DIGEST,
-    "correlation_id": MetadataKind.OPAQUE,
-    "cost_event_id": MetadataKind.OPAQUE,
-    "cost_usd": MetadataKind.NUMBER,
-    "decision": MetadataKind.LABEL,
-    "disposition": MetadataKind.LABEL,
-    "duration_ms": MetadataKind.NUMBER,
-    "enforcement_applied": MetadataKind.BOOLEAN,
-    "governance_level": MetadataKind.LABEL,
-    "input_sha256": MetadataKind.DIGEST,
-    "input_size_bytes": MetadataKind.NUMBER,
-    "join_key": MetadataKind.IDENTIFIER,
-    "model_name": MetadataKind.LABEL,
-    "network_mode": MetadataKind.LABEL,
-    "node_kind": MetadataKind.LABEL,
-    "operation": MetadataKind.LABEL,
-    "output_sha256": MetadataKind.DIGEST,
-    "output_size_bytes": MetadataKind.NUMBER,
-    "policy_version": MetadataKind.LABEL,
-    "provider": MetadataKind.LABEL,
-    "reason_code": MetadataKind.LABEL,
-    "retry_count": MetadataKind.NUMBER,
-    "reviewer": MetadataKind.OPAQUE,
-    "sandbox_strictness_mode": MetadataKind.LABEL,
-    "status": MetadataKind.LABEL,
-    "upstream_status_code": MetadataKind.NUMBER,
-}
-
-# Derived, never maintained alongside: the two cannot drift apart.
-ALLOWED_METADATA_KEYS = frozenset(METADATA_KINDS)
+# The single key a canonical mapping carries; its value is the entry sequence.
+ENTRIES_KEY = "<entries>"
+# Closed markers for mapping keys that are not exact strings. Matched by
+# identity on the exact type, never by name: a class may be *called* ``int``.
+_KEY_TYPE_MARKERS: tuple[tuple[type, str], ...] = (
+    (type(None), "<key:none>"),
+    (bool, "<key:bool>"),
+    (int, "<key:int>"),
+    (float, "<key:float>"),
+    (tuple, "<key:tuple>"),
+    (bytes, "<key:bytes>"),
+    (frozenset, "<key:frozenset>"),
+)
+_OTHER_KEY_MARKER = "<key:other>"
 
 
 def safe_name(name: Any) -> str:
@@ -190,37 +126,11 @@ def type_name(value: Any) -> str:
     return safe_name(type(value).__name__)
 
 
-def normalize_reason_code(name: Any) -> str | None:
-    """Render a producer's failure or denial *name* as a stable label-shaped code.
-
-    A denial's reason is decision metadata and has to survive the metadata-only
-    capture, but :data:`_SAFE_LABEL` is lower-case, so ``"AgentProviderError"``
-    would be summarized away and lost. Producers therefore normalize before
-    filing: ``"AgentProviderError"`` becomes ``"agent_provider_error"``.
-
-    Call this on a *name* -- an exception class, a denial branch -- never on a
-    message. Lower-cased ASCII words survive the transform, so a sentence that
-    interpolated a value would carry that value through it.
-
-    Args:
-        name: The candidate name. Only an exact ``str`` can pass.
-
-    Returns:
-        A bounded ``snake_case`` code, or ``None`` when nothing survives.
-    """
-    if type(name) is not str:
-        return None
-    split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)
-    code = re.sub(r"[^a-z0-9]+", "_", split.lower()).strip("_")
-    return code[:_MAX_LABEL_CHARS].rstrip("_") or None
-
-
 def key_digest(name: Any) -> str:
     """Stand a mapping key's text off with a short, stable digest of it.
 
     Args:
-        name: A canonical mapping key -- always an exact ``str``, because
-            :func:`canonicalize` gates keys before this is reached.
+        name: A candidate mapping key.
 
     Returns:
         A truncated SHA-256 of the key, or :data:`REDACTED` for anything that
@@ -233,6 +143,39 @@ def key_digest(name: Any) -> str:
     return hashlib.sha256(name.encode("utf-8")).hexdigest()[:_KEY_DIGEST_CHARS]
 
 
+def canonical_key(key: Any) -> str:
+    """Render one mapping key as a hashed exact string or a closed type marker.
+
+    Args:
+        key: The producer-supplied key, of any type.
+
+    Returns:
+        :func:`key_digest` of the key when it is an exact ``str``, else a marker
+        naming only the key's exact type. Two keys may render alike; entries are
+        a sequence, so alike renderings no longer overwrite one another.
+    """
+    key_type = type(key)
+    if key_type is str:
+        return key_digest(key)
+    for candidate, marker in _KEY_TYPE_MARKERS:
+        if key_type is candidate:
+            return marker
+    return _OTHER_KEY_MARKER
+
+
+def _ordering(item: Any) -> str:
+    """Order canonical siblings by their own rendering, never by their type's."""
+    return json.dumps(item, sort_keys=True)
+
+
+def canonical_entries(canonical: Any) -> list[Any] | None:
+    """Return a canonical mapping's entry sequence, or ``None`` for anything else."""
+    if type(canonical) is not dict or len(canonical) != 1:
+        return None
+    entries = canonical.get(ENTRIES_KEY)
+    return entries if type(entries) is list else None
+
+
 def canonicalize(value: Any, *, depth: int = 0) -> Any:
     """Render any payload as JSON-safe data, dispatching on type and never on behaviour.
 
@@ -242,8 +185,8 @@ def canonicalize(value: Any, *, depth: int = 0) -> Any:
 
     Returns:
         A structure of ``None``, ``bool``, ``int``, ``float``, ``str``, ``list``
-        and ``dict`` with ``str`` keys -- so :func:`json.dumps` on it cannot
-        raise, and nothing in it was produced by ``__str__`` or ``__repr__``.
+        and entry-sequence mappings -- so :func:`json.dumps` on it cannot raise,
+        and nothing in it was produced by ``__str__`` or ``__repr__``.
     """
     if depth >= MAX_DEPTH:
         return "..."
@@ -255,12 +198,14 @@ def canonicalize(value: Any, *, depth: int = 0) -> Any:
     if value_type is str:
         return value
     if isinstance(value, Mapping):
-        return {safe_name(key): canonicalize(item, depth=depth + 1) for key, item in value.items()}
+        entries = [
+            [canonical_key(key), canonicalize(item, depth=depth + 1)] for key, item in value.items()
+        ]
+        return {ENTRIES_KEY: sorted(entries, key=_ordering)}
     if isinstance(value, list | tuple):
         return [canonicalize(item, depth=depth + 1) for item in value]
     if isinstance(value, set | frozenset):
-        items = [canonicalize(item, depth=depth + 1) for item in value]
-        return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
+        return sorted((canonicalize(item, depth=depth + 1) for item in value), key=_ordering)
     if isinstance(value, str):
         # A ``str`` subclass: take the underlying characters through ``str``'s own
         # implementation rather than the subclass's ``__str__``.
@@ -280,7 +225,10 @@ def entry_count(canonical: Any) -> int:
     """Count a canonical payload's entries (or characters), never inspecting them."""
     if canonical is None:
         return 0
-    if type(canonical) is dict or type(canonical) is list or type(canonical) is str:
+    entries = canonical_entries(canonical)
+    if entries is not None:
+        return len(entries)
+    if type(canonical) is list or type(canonical) is str:
         return len(canonical)
     return 1
 
@@ -289,8 +237,8 @@ class ContentFreeProjection:
     """Describe dropped payloads as digests, schemas and counts.
 
     Args:
-        scrub: The policy's redaction chain, applied to the bounded labels this
-            projection retains. It is a complement, not the guarantee: what
+        scrub: The policy's redaction chain, applied to the bounded identifiers
+            this projection retains. It is a complement, not the guarantee: what
             makes the output content-free is that only allowlisted keys with
             values matching their declared kind survive at all.
     """
@@ -308,13 +256,13 @@ class ContentFreeProjection:
         }
 
     def schema(self, canonical: Any, *, depth: int = 0) -> Any:
-        """Describe a canonical payload's shape: hashed key names and closed type names."""
+        """Describe a canonical payload's shape: rendered keys and closed type names."""
         if depth >= MAX_DEPTH:
             return "..."
-        if type(canonical) is dict:
+        entries = canonical_entries(canonical)
+        if entries is not None:
             return {
-                key_digest(key): self.schema(item, depth=depth + 1)
-                for key, item in canonical.items()
+                ENTRIES_KEY: [[key, self.schema(item, depth=depth + 1)] for key, item in entries]
             }
         if type(canonical) is list:
             # The first element stands for the list's shape; its length is in ``count``.
@@ -340,12 +288,12 @@ class ContentFreeProjection:
             if kind is None:
                 dropped += 1
                 continue
-            kept[key] = self.project(kind, value)
+            kept[key] = self.project(key, kind, value)
         summary = self.summarize(metadata)
         summary["dropped_keys"] = dropped
         return kept, summary
 
-    def project(self, kind: MetadataKind, value: Any) -> Any:
+    def project(self, key: str, kind: MetadataKind, value: Any) -> Any:
         """Retain one allowlisted value only while it matches its key's declared kind."""
         value_type = type(value)
         if kind is MetadataKind.NUMBER:
@@ -360,8 +308,11 @@ class ContentFreeProjection:
             if value_type is str and _SAFE_DIGEST.match(value):
                 return value
             return self.summarize(value)
-        if kind is MetadataKind.LABEL:
-            return self._bounded(value, _MAX_LABEL_CHARS, _SAFE_LABEL)
+        if kind is MetadataKind.VOCABULARY:
+            terms = METADATA_VOCABULARIES.get(key)
+            if terms is not None and value_type is str and value in terms:
+                return value
+            return self.summarize(value)
         if kind is MetadataKind.IDENTIFIER:
             return self._bounded(value, _MAX_IDENTIFIER_CHARS, _SAFE_IDENTIFIER)
         # OPAQUE: chosen outside this codebase, so hashed rather than retained.
@@ -379,16 +330,18 @@ class ContentFreeProjection:
 
 __all__ = [
     "ALLOWED_METADATA_KEYS",
+    "ENTRIES_KEY",
     "MAX_DEPTH",
     "METADATA_KINDS",
     "REDACTED",
     "ContentFreeProjection",
     "MetadataKind",
+    "canonical_entries",
+    "canonical_key",
     "canonicalize",
     "digest",
     "entry_count",
     "key_digest",
-    "normalize_reason_code",
     "safe_name",
     "type_name",
 ]

@@ -81,6 +81,40 @@ class _HangingWriter:
         return record
 
 
+class _LateCommittingWriter:
+    """Ignores the deadline's cancellation and commits well after it passed.
+
+    The probe for an attempt the stage released: it is never waited on, so the
+    row it eventually writes appears with nobody on the stack to notice.
+    """
+
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.written: list[str] = []
+
+    async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
+        """Park through every cancellation, then persist once released."""
+        self.entered.set()
+        while not self.release.is_set():
+            try:
+                await self.release.wait()
+            except asyncio.CancelledError:  # noqa: PERF203 - the violation under test
+                continue
+        self.written.append(record.audit_id)
+        return record
+
+
+async def _settle_until(predicate, *, timeout: float = 1.0) -> None:
+    """Yield to the loop until a predicate holds, failing at its own bound."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() > deadline:
+            raise AssertionError("the condition was never reached within its bound")
+        await asyncio.sleep(0.001)
+
+
 def _record(audit_id: str = "audit-1", *, tenant_id: str = "tenant-a") -> NodeAuditRecord:
     return NodeAuditRecord(
         audit_id=audit_id,
@@ -194,6 +228,83 @@ async def test_the_age_of_a_write_that_overran_its_deadline_is_published() -> No
     writer.release.set()
 
     assert IN_FLIGHT_AGE_GAUGE in metrics.render_prometheus_text()
+
+
+async def test_the_published_in_flight_age_is_cleared_once_the_event_leaves_the_worker() -> None:
+    # The reproduction: the gauge was set at a timeout and never reset, so an
+    # idle worker went on presenting a resolved wedge's duration as the age of a
+    # write that is currently outstanding -- and no write was outstanding at all.
+    metrics = MetricsCollector()
+    writer = _HangingWriter()
+    queue = AuditDeliveryQueue(
+        writer,
+        max_attempts=1,
+        base_delay_seconds=0,
+        max_delay_seconds=0,
+        write_timeout_seconds=0.01,
+        metrics=metrics,
+    )
+
+    assert queue.submit(_record()) is True
+    await queue.aclose(timeout=1.0)
+    writer.release.set()
+
+    assert metrics.snapshot()["gauges"][IN_FLIGHT_AGE_GAUGE] == 0.0
+    assert queue.in_flight_seconds is None
+
+
+async def test_a_write_that_commits_after_its_deadline_reconciles_the_event_it_lost() -> None:
+    # The reproduction: the final attempt overran its deadline and was released,
+    # the event was counted as failed, and the write then landed -- leaving a
+    # durable row an operator was told to go and recover, and a report that said
+    # ``failed=1, reconciled=0`` about a record that exists.
+    writer = _LateCommittingWriter()
+    queue = AuditDeliveryQueue(
+        writer,
+        max_attempts=1,
+        base_delay_seconds=0,
+        max_delay_seconds=0,
+        write_timeout_seconds=0.01,
+    )
+
+    assert queue.submit(_record()) is True
+    report = await queue.aclose(timeout=1.0)
+    assert report.counts.failed == 1
+    assert report.counts.reconciled == 0
+
+    writer.release.set()
+    await _settle_until(lambda: queue.counts().reconciled == 1)
+
+    counts = queue.counts()
+    assert writer.written == ["audit-1"]
+    assert counts.reconciled == 1
+    assert counts.failed == 1
+    assert counts.delivered == 0
+
+
+async def test_two_released_attempts_that_both_land_reconcile_the_event_once() -> None:
+    # R7: reconciliation is a claim, not an increment. Every attempt of one
+    # ``audit_id`` can come back, and one durable record is one reconciliation.
+    writer = _LateCommittingWriter()
+    queue = AuditDeliveryQueue(
+        writer,
+        max_attempts=2,
+        base_delay_seconds=0,
+        max_delay_seconds=0,
+        write_timeout_seconds=0.01,
+    )
+
+    assert queue.submit(_record()) is True
+    report = await queue.aclose(timeout=1.0)
+    assert report.counts.failed == 1
+
+    writer.release.set()
+    await _settle_until(lambda: len(writer.written) == 2)
+    await asyncio.sleep(0)
+
+    counts = queue.counts()
+    assert counts.reconciled == 1
+    assert counts.delivered == 0
 
 
 async def test_a_wedged_write_reports_how_long_it_has_been_outstanding() -> None:

@@ -23,7 +23,7 @@ from typing import Any
 from zeroth.contracts.graph import Node
 from zeroth.core.runs import Run, RunHistoryEntry
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
-from zeroth.governance.audit.capture_projection import normalize_reason_code
+from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
 from zeroth.governance.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRecord
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.parallel.models import BranchContext

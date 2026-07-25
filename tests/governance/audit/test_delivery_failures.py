@@ -18,6 +18,7 @@ event is retried, counted and named -- never stored as the producer built it.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -95,6 +96,21 @@ def _queue(writer: Any, **kwargs: Any) -> AuditDeliveryQueue:
     kwargs.setdefault("base_delay_seconds", 0)
     kwargs.setdefault("max_delay_seconds", 0)
     return AuditDeliveryQueue(writer, **kwargs)
+
+
+def _messages(caplog: pytest.LogCaptureFixture) -> str:
+    """Join every captured log message, so an assertion can read the whole stream."""
+    return " ".join(record.getMessage() for record in caplog.records)
+
+
+async def _settle_until(predicate: Any, *, timeout: float = 1.0) -> None:
+    """Yield to the loop until a predicate holds, failing at its own bound."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() > deadline:
+            raise AssertionError("the condition was never reached within its bound")
+        await asyncio.sleep(0.001)
 
 
 async def test_a_pre_commit_value_error_is_never_reported_as_a_delivered_record() -> None:
@@ -199,6 +215,44 @@ async def test_a_write_failure_is_logged_by_code_and_type_never_by_its_message(
     assert secret not in emitted
     assert "write_failed" in emitted
     assert "ConnectionError" in emitted
+
+
+async def test_a_released_attempt_that_fails_later_is_logged_by_code_and_type_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # An attempt cancelled at its deadline is released, so its failure lands on
+    # nobody's stack. Left unretrieved, asyncio's own handler eventually reports
+    # it -- with the writer's full message and traceback, on a path this process
+    # otherwise keeps free of foreign text. The result is consumed instead.
+    secret = "sk-proj-LATE-FAILURE-PROBE"
+
+    class _LateFailingWriter:
+        """Ignores the deadline's cancellation, then fails holding a secret."""
+
+        def __init__(self) -> None:
+            self.release = asyncio.Event()
+
+        async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
+            while not self.release.is_set():
+                try:
+                    await self.release.wait()
+                except asyncio.CancelledError:  # noqa: PERF203 - the violation under test
+                    continue
+            raise ConnectionError(f"late write refused holding {secret}")
+
+    writer = _LateFailingWriter()
+    queue = _queue(writer, max_attempts=1, write_timeout_seconds=0.01)
+
+    with caplog.at_level(logging.WARNING, logger="zeroth.governance.audit.delivery_worker"):
+        assert queue.submit(_record("audit-late-failure")) is True
+        await queue.aclose(timeout=1.0)
+        writer.release.set()
+        await _settle_until(lambda: "abandoned_write_failed" in _messages(caplog))
+
+    emitted = _messages(caplog)
+    assert secret not in emitted
+    assert "ConnectionError" in emitted
+    assert queue.counts().reconciled == 0
 
 
 async def test_a_capture_policy_cannot_be_injected_into_the_delivery_stage() -> None:

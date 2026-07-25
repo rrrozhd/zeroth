@@ -54,16 +54,17 @@ lineage, ``status``, timing, ``token_usage``, ``cost_usd``, the actor, the
 approval decisions themselves and the digest-chain fields. A record whose
 evidentiary value died with its content would be a slower way of not auditing.
 
-**The primitives are reused, not reinvented.** Key-based redaction comes from
-:class:`~zeroth.governance.audit.sanitizer.PayloadSanitizer`, masking of
-registered secret values from
-:class:`~zeroth.platform.secrets.redaction.SecretRedactor`, pattern detection
-from :class:`~zeroth.governance.guardrails.content.PIIFilter` (``email``,
-``ssn`` and ``credit_card`` only -- its phone heuristic matches any ten-digit
-run). All three are complements and none carries the guarantee: a key rule
-cannot see a secret under an unexpected key, a value rule cannot see a secret
-nobody registered, a pattern cannot see what it does not match. The channel drop
-and the metadata allowlist are what hold.
+**The primitives are reused, not reinvented.** Masking of registered secret
+values comes from :class:`~zeroth.platform.secrets.redaction.SecretRedactor` and
+pattern detection from :class:`~zeroth.governance.guardrails.content.PIIFilter`
+(``email``, ``ssn`` and ``credit_card`` only -- its phone heuristic matches any
+ten-digit run); :mod:`~zeroth.governance.audit.capture_scrub` owns the single
+traversal that reaches them, because three primitives walking three different
+container vocabularies is how a secret inside a ``set`` reached storage. All of
+it is complement and none of it carries the guarantee: a key rule cannot see a
+secret under an unexpected key, a value rule cannot see a secret nobody
+registered, a pattern cannot see what it does not match. The channel drop and
+the metadata allowlist are what hold.
 """
 
 from __future__ import annotations
@@ -74,11 +75,11 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any, Protocol
 
-from zeroth.governance.audit.capture_projection import (
-    REDACTED,
-    ContentFreeProjection,
-    canonicalize,
+from zeroth.governance.audit.capture_artifacts import (
+    ARTIFACT_KEYS_FIELD,
+    retained_artifact_keys,
 )
+from zeroth.governance.audit.capture_projection import REDACTED, ContentFreeProjection
 from zeroth.governance.audit.capture_scrub import DEFAULT_REDACT_KEYS, RedactionChain
 from zeroth.governance.audit.models import (
     AuditRedactionConfig,
@@ -86,7 +87,6 @@ from zeroth.governance.audit.models import (
     NodeAuditRecord,
     ToolCallRecord,
 )
-from zeroth.platform.artifacts.helpers import extract_artifact_refs
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +98,6 @@ CAPTURE_METADATA_KEY = "audit_capture"
 _EMPTIED_MAPPING_FIELDS = ("input_snapshot", "output_snapshot", "validation_results")
 _EMPTIED_LIST_FIELDS = ("condition_results",)
 _EMPTIED_TEXT_FIELDS = ("stdout", "stderr")
-# A record names the artifacts it produced; it is not an artifact index.
-_MAX_RETAINED_ARTIFACT_REFS = 64
 
 
 class CaptureDecision(StrEnum):
@@ -138,43 +136,6 @@ class MetadataOnlyCaptureClassifier:
         """Classify every event as metadata-only, whatever it holds."""
         del record
         return CaptureDecision.METADATA_ONLY.value
-
-
-def retained_artifact_refs(record: NodeAuditRecord) -> list[dict[str, Any]]:
-    """Keep the addressing of the artifacts a run owns, never their contents.
-
-    An artifact reference is a storage key, a MIME type and a byte count -- the
-    same kind of evidence as a memory interaction's ``key``, which this stage
-    already keeps while dropping its ``value``. Emptying the channels these
-    refs live in without keeping them would orphan every blob an erased run
-    produced: :class:`~zeroth.governance.retention.erasure_service.RetentionErasureService`
-    harvests them straight out of the persisted record, so a record that no
-    longer names them is a record whose artifacts can never be destroyed.
-
-    Args:
-        record: The record about to lose its content channels.
-
-    Returns:
-        Up to :data:`_MAX_RETAINED_ARTIFACT_REFS` deduplicated references, each
-        in the exact four-field shape the harvester re-validates. Only keys
-        inside the run's own ``{run_id}/`` namespace are kept, so a producer
-        cannot use this channel to file arbitrary text: the prefix is fixed by
-        the record's identity, not by the payload.
-    """
-    payloads = canonicalize(
-        {name: getattr(record, name) for name in (*_EMPTIED_MAPPING_FIELDS, "execution_metadata")}
-    )
-    prefix = f"{record.run_id}/"
-    kept: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for ref in extract_artifact_refs({"payload": payloads}):
-        if not ref.key.startswith(prefix) or ref.key in seen:
-            continue
-        seen.add(ref.key)
-        kept.append(ref.model_dump(mode="json"))
-        if len(kept) >= _MAX_RETAINED_ARTIFACT_REFS:
-            break
-    return kept
 
 
 def blank_record(record: NodeAuditRecord) -> NodeAuditRecord:
@@ -311,9 +272,9 @@ class AuditCapturePolicy:
             "dropped_fields": summaries,
         }
         if decision is not CaptureDecision.CONTENT:
-            refs = retained_artifact_refs(record)
-            if refs:
-                marker["artifact_refs"] = refs
+            keys = retained_artifact_keys(record)
+            if keys:
+                marker[ARTIFACT_KEYS_FIELD] = keys
         metadata[CAPTURE_METADATA_KEY] = marker
         return metadata
 
