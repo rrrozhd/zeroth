@@ -49,7 +49,7 @@ from zeroth.integrations.langgraph._genai import (
     map_causal_span,
 )
 
-from ._causal import CONTENT_SENTINEL, causal_span, golden_tree
+from ._causal import BLANKS, CONTENT_SENTINEL, HostileStr, causal_span, golden_tree
 
 FIXTURES = Path(__file__).with_name("fixtures")
 GOLDEN_TREE = "mapped_genai_tree.json"
@@ -347,6 +347,131 @@ def test_non_string_tags_are_dropped_so_the_sequence_stays_homogeneous() -> None
     mapped = map_causal_span(causal_span("r1", tags=("keep", 7, None, _SneakyStr("drop"))))
 
     assert mapped.attributes[LANGGRAPH_TAGS] == ("keep",)
+
+
+# -- a blank string is ABSENT, never an empty attribute value ------------------
+
+
+@pytest.mark.parametrize("blank", BLANKS)
+def test_a_blank_string_is_absent_rather_than_an_empty_attribute(blank: str) -> None:
+    """Empty and whitespace-only values are omitted, not emitted as ``""``.
+
+    ``gen_ai.conversation.id=""`` would contradict R3 and the "never empty"
+    contract; a blank name is no name at all. Integers are unaffected -- ``0`` is
+    a legitimate step number, not an absent one.
+    """
+    mapped = map_causal_span(
+        causal_span(
+            "r1",
+            kind="tool",
+            name=blank,
+            correlation_id=blank,
+            tags=("keep", blank),
+            metadata={"thread_id": blank, "langgraph_node": blank, "langgraph_step": 0},
+        )
+    )
+
+    assert GEN_AI_TOOL_NAME not in mapped.attributes
+    assert GEN_AI_CONVERSATION_ID not in mapped.attributes
+    assert ZEROTH_CORRELATION_ID not in mapped.attributes
+    assert LANGGRAPH_NODE not in mapped.attributes
+    assert mapped.attributes[LANGGRAPH_TAGS] == ("keep",)
+    assert mapped.attributes[LANGGRAPH_STEP] == 0
+    # Every target source is blank, so the span name is the operation alone.
+    assert mapped.name == OPERATION_EXECUTE_TOOL
+    assert not [key for key, value in mapped.attributes.items() if value == ""]
+    assert not [key for key, value in mapped.to_dict()["attributes"].items() if value == ""]
+
+
+@pytest.mark.parametrize("blank", BLANKS)
+def test_a_blank_node_name_does_not_become_the_target(blank: str) -> None:
+    mapped = map_causal_span(
+        causal_span("r1", kind="tool", name=None, metadata={"langgraph_node": blank})
+    )
+
+    assert GEN_AI_TOOL_NAME not in mapped.attributes
+    assert LANGGRAPH_NODE not in mapped.attributes
+    assert mapped.name == OPERATION_EXECUTE_TOOL
+
+
+@pytest.mark.parametrize("blank", BLANKS)
+def test_a_blank_run_id_is_refused_at_the_mapper(blank: str) -> None:
+    with pytest.raises(ValueError, match="empty run id"):
+        map_causal_span(causal_span(blank))
+
+
+# -- exact-type gates: a hostile ``str`` subclass reaches no channel ------------
+
+
+@pytest.mark.parametrize("slot", ["name", "correlation_id", "langgraph_node", "thread_id", "tag"])
+def test_a_hostile_str_subclass_is_dropped_from_every_optional_slot(slot: str) -> None:
+    """A ``str`` subclass overriding ``__format__`` / ``__str__`` must not render.
+
+    It passes ``isinstance`` and survives ``CausalSpan.__post_init__``, so without
+    an exact-type gate it would reach a ``gen_ai.*`` attribute and substitute its
+    own text into the span name and the record's ``repr``.
+    """
+    hostile = HostileStr("planner")
+    fields: dict[str, Any] = {"kind": "tool"}
+    metadata: dict[str, Any] = {}
+    if slot in ("name", "correlation_id"):
+        fields[slot] = hostile
+    elif slot == "tag":
+        fields["tags"] = (hostile, "keep")
+    else:
+        metadata[slot] = hostile
+
+    mapped = map_causal_span(causal_span("r1", metadata=metadata, **fields))
+
+    assert CONTENT_SENTINEL not in mapped.name
+    assert CONTENT_SENTINEL not in repr(mapped)
+    assert CONTENT_SENTINEL not in json.dumps(mapped.to_dict())
+    for key, value in mapped.attributes.items():
+        assert CONTENT_SENTINEL not in str(value), key
+        assert type(value) in (str, int, tuple), key
+        if type(value) is tuple:
+            assert all(type(item) is str for item in value), key
+    # Nothing else names a target, so the span name is the operation alone.
+    assert mapped.name == OPERATION_EXECUTE_TOOL
+    assert "planner" not in json.dumps(mapped.to_dict())
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("run_id", HostileStr("r1"), "empty run id"),
+        ("parent", HostileStr("r0"), "not a plain str"),
+        ("kind", HostileStr("chain"), "unmappable causal span"),
+        ("status", HostileStr("ok"), "unmappable causal span"),
+    ],
+)
+def test_a_hostile_str_subclass_in_an_identity_field_is_refused(
+    field: str, value: Any, match: str
+) -> None:
+    """Identity cannot be dropped, so an untrusted one rejects the whole record.
+
+    A ``str`` subclass hashes equal to a contract literal, so it would pass the
+    ``kind`` / ``status`` lookups and still land in ``langgraph.kind`` /
+    ``zeroth.span_status``; dropping ``parent_run_id`` would silently reparent an
+    orphan to a root. No ``MappedGenAiSpan`` is built in either case.
+    """
+    fields: dict[str, Any] = {"run_id": "r1", "kind": "chain", "status": "ok", field: value}
+
+    with pytest.raises(ValueError, match=match) as excinfo:
+        map_causal_span(causal_span(**fields))
+    assert CONTENT_SENTINEL not in str(excinfo.value)
+
+
+def test_a_hostile_start_reading_yields_no_duration_instead_of_an_object() -> None:
+    class _HostileFloat(float):
+        def __sub__(self, other: object) -> Any:
+            return CONTENT_SENTINEL
+
+    mapped = map_causal_span(causal_span("r1", start=_HostileFloat(1000.0), end=1000.5))
+
+    assert mapped.duration_ns is None
+    assert CONTENT_SENTINEL not in repr(mapped)
+    assert CONTENT_SENTINEL not in json.dumps(mapped.to_dict())
 
 
 # -- R7: no content channel at all --------------------------------------------

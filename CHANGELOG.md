@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.1] - 2026-07-25
+
+### Fixed
+
+- Replayed causal trees no longer attach to the ambient span. `emit_genai_spans`
+  starts every root — and every orphan, whose dangling parent makes it a root —
+  against an explicitly empty OpenTelemetry `Context` instead of inheriting
+  whatever span happens to be active at emit time. The records are historical
+  (their start/end are past `perf_counter` readings), so inheriting the ambient
+  span misattributed a replayed tree to an unrelated caller and made two
+  independent roots siblings of one trace, breaking the one-trace-per-tree
+  guarantee. Children still carry their in-batch parent's context.
+- Blank strings are treated as absent throughout the GenAI mapper. An empty or
+  whitespace-only value for the resolved target/name, `thread_id`
+  (`gen_ai.conversation.id`), `correlation_id` (`zeroth.correlation_id`), an
+  allowlisted metadata string or a tag entry now omits the attribute entirely
+  rather than emitting `""`; a span whose only target source is blank falls back
+  to an operation-only span name. Integers are unaffected — `langgraph.step=0` is
+  still emitted.
+- Exact-type gates at the mapper boundary. Every value admitted into a span
+  attribute, the span name, the OTel status or `MappedGenAiSpan` is checked with
+  `type(x) is str` / `type(x) is int` rather than `isinstance`, so a `str`
+  subclass can no longer override `__format__` / `__str__` / `__repr__` to inject
+  unrelated content while itself reaching a `gen_ai.*` attribute. Optional values
+  failing the gate are dropped; the structural identity (`run_id`,
+  `parent_run_id`, `kind`, `status`) cannot be dropped without silently
+  reparenting an orphan, so such a record is rejected before any span is started.
+  Untrusted `perf_counter` readings yield no `duration_ns` or `start_time`.
+
 ## [0.12.3] - 2026-07-25
 
 ### Added

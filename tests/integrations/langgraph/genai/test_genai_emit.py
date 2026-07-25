@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 import pytest
+from opentelemetry.context import Context
 
 from zeroth.integrations.langgraph._genai import (
     GEN_AI_CONVERSATION_ID,
@@ -26,7 +27,7 @@ from zeroth.integrations.langgraph._genai import (
 )
 from zeroth.integrations.langgraph._genai_emit import emit_genai_spans
 
-from ._causal import CONTENT_SENTINEL, causal_span, golden_tree
+from ._causal import BLANKS, CONTENT_SENTINEL, HostileStr, causal_span, golden_tree
 
 
 class _RecordingSpan:
@@ -93,6 +94,64 @@ def test_emitted_spans_rebuild_the_causal_tree(otel_spans: Any) -> None:
     assert chat.parent.span_id == agent.context.span_id
     assert tool.parent.span_id == agent.context.span_id
     assert {span.context.trace_id for span in (root, agent, chat, tool)} == {root.context.trace_id}
+
+
+def test_two_independent_roots_detach_from_the_ambient_span(otel_spans: Any) -> None:
+    """R5: one trace per causal tree, whatever span happens to be active.
+
+    These records are HISTORICAL -- their ``start`` / ``end`` are past
+    ``perf_counter`` readings -- so inheriting the ambient span would misattribute
+    a replayed tree to an unrelated caller and make two independent roots siblings
+    of the same trace. Roots are therefore started with an empty ``Context``.
+    """
+    from opentelemetry import trace
+
+    ambient_tracer = trace.get_tracer("test.ambient")
+    spans = (
+        causal_span("run-a", kind="chain", name="graph-a"),
+        causal_span("run-a-child", parent="run-a", kind="tool", name="tool-a"),
+        causal_span("run-b", kind="chain", name="graph-b"),
+        causal_span("run-b-child", parent="run-b", kind="tool", name="tool-b"),
+    )
+
+    with ambient_tracer.start_as_current_span("ambient") as ambient:
+        ambient_trace_id = ambient.get_span_context().trace_id
+        emit_genai_spans(spans)
+
+    exported = _by_name(otel_spans)
+    root_a = exported["invoke_workflow graph-a"]
+    root_b = exported["invoke_workflow graph-b"]
+    child_a = exported["execute_tool tool-a"]
+    child_b = exported["execute_tool tool-b"]
+
+    # (a) neither root is parented, (b) they are two distinct traces, and
+    # (c) neither belongs to the ambient span's trace.
+    assert root_a.parent is None
+    assert root_b.parent is None
+    assert root_a.context.trace_id != root_b.context.trace_id
+    assert ambient_trace_id not in {root_a.context.trace_id, root_b.context.trace_id}
+    # (d) each child sits under its own root, in that root's trace.
+    assert child_a.parent.span_id == root_a.context.span_id
+    assert child_a.context.trace_id == root_a.context.trace_id
+    assert child_b.parent.span_id == root_b.context.span_id
+    assert child_b.context.trace_id == root_b.context.trace_id
+
+
+def test_an_orphan_root_also_detaches_from_the_ambient_span(otel_spans: Any) -> None:
+    from opentelemetry import trace
+
+    ambient_tracer = trace.get_tracer("test.ambient")
+
+    with ambient_tracer.start_as_current_span("ambient") as ambient:
+        ambient_trace_id = ambient.get_span_context().trace_id
+        emit_genai_spans([causal_span("run-orphan", parent="run-vanished", status="orphan")])
+
+    orphan = _by_name(otel_spans)["invoke_agent"]
+
+    assert orphan.parent is None
+    assert orphan.context.trace_id != ambient_trace_id
+    # The dangling reference is still reported, never reparented away.
+    assert orphan.attributes["langgraph.parent_run_id"] == "run-vanished"
 
 
 def test_a_parent_absent_from_the_batch_is_emitted_as_a_root(otel_spans: Any) -> None:
@@ -248,6 +307,84 @@ def test_no_content_sentinel_reaches_the_exporter(otel_spans: Any) -> None:
     assert exported.attributes[LANGGRAPH_TAGS] == ("safe",)
 
 
+@pytest.mark.parametrize("blank", BLANKS)
+def test_a_blank_string_exports_no_attribute_at_all(blank: str, otel_spans: Any) -> None:
+    emit_genai_spans(
+        [
+            causal_span(
+                "run-1",
+                kind="tool",
+                name=blank,
+                correlation_id=blank,
+                tags=(blank,),
+                metadata={"thread_id": blank, "langgraph_node": blank, "langgraph_step": 0},
+            )
+        ]
+    )
+    (exported,) = otel_spans.get_finished_spans()
+
+    assert exported.name == "execute_tool"
+    for key in (
+        GEN_AI_TOOL_NAME,
+        GEN_AI_CONVERSATION_ID,
+        ZEROTH_CORRELATION_ID,
+        LANGGRAPH_NODE,
+        LANGGRAPH_TAGS,
+    ):
+        assert key not in exported.attributes
+    # An int is unaffected: 0 is a real step number, not an absent one.
+    assert exported.attributes[LANGGRAPH_STEP] == 0
+    assert not [key for key, value in exported.attributes.items() if value == ""]
+
+
+def test_a_hostile_str_subclass_reaches_no_exported_channel(otel_spans: Any) -> None:
+    """The gate is what stops it: OTel's own attribute check is ``isinstance``."""
+    hostile = HostileStr("planner")
+
+    emit_genai_spans(
+        [
+            causal_span(
+                "run-1",
+                kind="tool",
+                name=hostile,
+                correlation_id=hostile,
+                tags=(hostile, "safe"),
+                metadata={"thread_id": hostile, "langgraph_node": hostile},
+            )
+        ]
+    )
+    (exported,) = otel_spans.get_finished_spans()
+
+    assert exported.name == "execute_tool"
+    assert CONTENT_SENTINEL not in exported.name
+    assert CONTENT_SENTINEL not in str(exported.status.description)
+    assert not exported.events
+    for key, value in exported.attributes.items():
+        assert CONTENT_SENTINEL not in str(value), key
+        assert type(value) in (str, int, tuple), key
+    assert exported.attributes[LANGGRAPH_TAGS] == ("safe",)
+    for key in (GEN_AI_TOOL_NAME, GEN_AI_CONVERSATION_ID, ZEROTH_CORRELATION_ID, LANGGRAPH_NODE):
+        assert key not in exported.attributes
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("run_id", HostileStr("run-1")),
+        ("parent", HostileStr("run-0")),
+        ("kind", HostileStr("chain")),
+        ("status", HostileStr("ok")),
+    ],
+)
+def test_an_untrusted_identity_field_starts_no_span(field: str, value: Any) -> None:
+    tracer = _RecordingTracer()
+    fields: dict[str, Any] = {"run_id": "run-1", "kind": "chain", "status": "ok", field: value}
+
+    with pytest.raises(ValueError):
+        emit_genai_spans([causal_span(**fields)], tracer=tracer)
+    assert tracer.started == []
+
+
 # -- topology validation, before any span is started ---------------------------
 
 
@@ -313,8 +450,9 @@ def test_a_deep_reverse_ordered_chain_emits_parent_before_child() -> None:
         "invoke_workflow node-0",
         *(f"invoke_agent node-{index}" for index in range(1, depth)),
     ]
-    assert tracer.started[0]["context"] is None
-    assert all(call["context"] is not None for call in tracer.started[1:])
+    # An empty Context() detaches the root; a child always carries its parent's.
+    assert tracer.started[0]["context"] == Context()
+    assert all(call["context"] != Context() for call in tracer.started[1:])
 
 
 def test_an_explicit_tracer_receives_every_span() -> None:

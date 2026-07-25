@@ -16,6 +16,28 @@ from zeroth.integrations.langgraph._spans import CausalSpan
 CONTENT_SENTINEL = "PROMPT_SECRET_29ab"
 """Content-looking value stuffed into records to prove no content channel exists."""
 
+BLANKS = ("", " ", "\t\n  ")
+"""Strings that carry no identity: the mapper must treat each as ABSENT, not ``""``."""
+
+
+class HostileStr(str):
+    """A ``str`` subclass that substitutes :data:`CONTENT_SENTINEL` when rendered.
+
+    Every hook a span name, an attribute value or a ``repr`` could reach is
+    overridden, so if such an object escapes the mapper's exact-type gate the
+    secret becomes visible downstream. ``isinstance(x, str)`` admits it and
+    ``CausalSpan.__post_init__`` keeps it, so only the gate can stop it.
+    """
+
+    def __format__(self, format_spec: str) -> str:
+        return CONTENT_SENTINEL
+
+    def __str__(self) -> str:
+        return CONTENT_SENTINEL
+
+    def __repr__(self) -> str:
+        return CONTENT_SENTINEL
+
 
 def causal_span(
     run_id: str,

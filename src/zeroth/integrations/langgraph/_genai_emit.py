@@ -17,6 +17,14 @@ child is started with its parent's context via
 causal tree even though spans are created and ended one at a time. Ordering is
 computed in one iterative pass, so a deep or reverse-ordered batch cannot raise
 ``RecursionError``.
+
+Every root -- and every orphan, whose dangling parent makes it a root here -- is
+started against an explicitly **empty** :class:`~opentelemetry.context.Context`
+rather than the ambient one. These records are HISTORICAL: their ``start`` /
+``end`` are past ``perf_counter`` readings, so attaching them to whatever span
+happens to be active at emit time would misattribute a replayed tree to an
+unrelated caller, and two independent roots in one batch would come out as
+siblings of the same trace. Each causal tree therefore gets its own trace.
 """
 
 from __future__ import annotations
@@ -25,6 +33,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from opentelemetry import trace
+from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode, Tracer
 
 from zeroth.integrations.langgraph._genai import (
@@ -108,9 +117,12 @@ def _start_time_ns(source: CausalSpan, anchor: PerfCounterAnchor | None) -> int 
 
     ``None`` means "let the SDK stamp it": without an anchor the record's
     arbitrary-origin readings cannot be placed on a wall clock, and fabricating
-    an epoch time would be worse than an honest emission timestamp.
+    an epoch time would be worse than an honest emission timestamp. The reading
+    itself must be exactly ``float`` / ``int``, matching the mapper's gate on
+    ``duration_ns`` -- a subclass could override ``__sub__`` and pick the
+    exported ``start_time`` outright.
     """
-    if anchor is None:
+    if anchor is None or type(source.start) not in (float, int):
         return None
     return anchor.epoch_ns + round((source.start - anchor.perf_counter) * 1_000_000_000)
 
@@ -135,10 +147,11 @@ def emit_genai_spans(
     """Emit a batch of causal spans as one OpenTelemetry GenAI span tree.
 
     The whole batch is mapped and validated first, so a rejected batch starts no
-    span at all. Root spans are started against the ambient context (nesting the
-    causal tree under a caller's span when there is one); every other span is
-    started with its in-batch parent's context, so parent/child links and the
-    trace id are the real ones.
+    span at all. Root spans are **detached**: they are started against an empty
+    ``Context``, never the ambient one, because these records are historical (see
+    the module docstring), so every causal tree in the batch becomes its own
+    trace. Every other span is started with its in-batch parent's context, so
+    parent/child links and the trace id are the real ones.
 
     Args:
         spans: Causal spans, normally ``handler.completed_spans``. Order is
@@ -166,7 +179,9 @@ def emit_genai_spans(
     for run_id in order:
         source, mapped = indexed[run_id]
         parent = started.get(mapped.parent_run_id) if mapped.parent_run_id else None
-        context = trace.set_span_in_context(parent) if parent is not None else None
+        # An empty Context() for a root/orphan, not None: None would let OTel
+        # inherit the ambient span and merge unrelated trees into one trace.
+        context = trace.set_span_in_context(parent) if parent is not None else Context()
         start_ns = _start_time_ns(source, anchor)
         span = emitter.start_span(
             mapped.name,
