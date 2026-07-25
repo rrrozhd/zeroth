@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.1.2] - 2026-07-25
+
+### Fixed
+
+- The GenAI mapper no longer looks metadata up by key. A `Mapping` lookup runs the
+  stored key's `__hash__`/`__eq__`, so a `str` subclass key could execute its own
+  code inside the mapper -- spoofing an allowlisted name, or raising an exception
+  carrying arbitrary text (`CausalSpan` filters metadata by value type only, so
+  such a key survives). Entries are now iterated and `type(key) is str` is checked
+  before any comparison.
+
+## [0.12.3.1.1] - 2026-07-25
+
+### Fixed
+
+- The GenAI mapper now gates the `tags` *container* type, not just its entries: a
+  `tuple` subclass could override `__iter__` and yield entries it never stored,
+  injecting them into `langgraph.tags`. `CausalSpan` normalises only `metadata`,
+  so such a container reaches the mapper intact; anything but an exact `tuple`
+  is now omitted.
+
+## [0.12.3.1] - 2026-07-25
+
+### Fixed
+
+- Replayed causal trees no longer attach to the ambient span. `emit_genai_spans`
+  starts every root — and every orphan, whose dangling parent makes it a root —
+  against an explicitly empty OpenTelemetry `Context` instead of inheriting
+  whatever span happens to be active at emit time. The records are historical
+  (their start/end are past `perf_counter` readings), so inheriting the ambient
+  span misattributed a replayed tree to an unrelated caller and made two
+  independent roots siblings of one trace, breaking the one-trace-per-tree
+  guarantee. Children still carry their in-batch parent's context.
+- Blank strings are treated as absent throughout the GenAI mapper. An empty or
+  whitespace-only value for the resolved target/name, `thread_id`
+  (`gen_ai.conversation.id`), `correlation_id` (`zeroth.correlation_id`), an
+  allowlisted metadata string or a tag entry now omits the attribute entirely
+  rather than emitting `""`; a span whose only target source is blank falls back
+  to an operation-only span name. Integers are unaffected — `langgraph.step=0` is
+  still emitted.
+- Exact-type gates at the mapper boundary. Every value admitted into a span
+  attribute, the span name, the OTel status or `MappedGenAiSpan` is checked with
+  `type(x) is str` / `type(x) is int` rather than `isinstance`, so a `str`
+  subclass can no longer override `__format__` / `__str__` / `__repr__` to inject
+  unrelated content while itself reaching a `gen_ai.*` attribute. Optional values
+  failing the gate are dropped; the structural identity (`run_id`,
+  `parent_run_id`, `kind`, `status`) cannot be dropped without silently
+  reparenting an orphan, so such a record is rejected before any span is started.
+  Untrusted `perf_counter` readings yield no `duration_ns` or `start_time`.
+
+## [0.12.3] - 2026-07-25
+
+### Added
+
+- Versioned mapper from the neutral LangGraph causal-span records to standard
+  OpenTelemetry GenAI spans (ZER-4). `map_causal_span` is pure and imports no
+  OpenTelemetry: it resolves `gen_ai.operation.name` from the record's kind
+  (`tool` → `execute_tool`, `llm`/`chat_model` → `chat`, root `chain` →
+  `invoke_workflow`, nested `chain` → `invoke_agent`), names the span
+  `"{operation} {target}"`, and emits three disjoint namespaces — standard
+  `gen_ai.*` identifiers only, `langgraph.*` ancestry and structure, and
+  `zeroth.*` governance metadata that keeps the unverified gateway correlation id
+  out of `gen_ai.*`. Every span is stamped with the mapping's
+  `zeroth.convention_version`, so consumers pin the attribute shape by that value
+  alone and a bump never touches the collection contract.
+- `emit_genai_spans` rebuilds the real parent/child span tree on the OpenTelemetry
+  SDK, starting each child with its parent's context and treating a parent absent
+  from the batch as a root. Batch topology is validated before the first span is
+  started (empty or duplicate run ids and parent cycles are rejected) and
+  emission order is computed in one iterative pass, so a deeply nested or
+  reverse-ordered batch cannot recurse. Timestamps are never fabricated: mapped
+  spans expose only a `perf_counter`-derived `duration_ns`, and absolute times
+  are derived solely from an explicit caller-supplied clock anchor. Exported
+  lazily, so importing the integration package still works without the `otel`
+  extra.
+- Privacy is structural rather than configurable: the records carry no prompts,
+  tool arguments or results, so the mapper has no content channel and
+  deliberately no `capture_content` switch. Golden fixtures and exporter
+  integration tests pin the emitted attribute sets, the allowlisted-metadata type
+  gates (`bool` and `str` subclasses rejected), and the absence of any content
+  channel; a drift test compares the vendored `gen_ai.*` constants against
+  `opentelemetry.semconv` whenever it is importable.
+
 ## [0.12.2.4] - 2026-07-23
 
 ### Fixed
