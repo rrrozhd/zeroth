@@ -34,6 +34,13 @@ Re-minting an id per attempt (what a naive retry wrapped around the existing
 gateway sink would do, since it calls ``uuid4()`` on every emit) would persist
 one logical event as two records.
 
+**A queued event carries its own tenant.** The worker runs long after the
+producer's request context is gone, so the tenant must ride on the record --
+and ``NodeAuditRecord.tenant_id`` defaults to ``"default"``, the reserved tenant
+owning the fallback retention policy, so an absent one is misattributed *and*
+given the wrong TTL, silently on both counts. ``submit`` therefore rejects a
+blank tenant: the one shape of that omission pydantic has not already erased.
+
 **Capture classification and redaction run on the worker, once per event, ahead
 of the first attempt.** The transform is
 :class:`~zeroth.governance.audit.capture_policy.AuditCapturePolicy`, and this
@@ -239,11 +246,13 @@ class AuditDeliveryQueue:
             this event will not be persisted.
 
         Raises:
-            ValueError: If ``record.audit_id`` is not a non-empty string.
+            ValueError: If ``record.audit_id`` or ``record.tenant_id`` is not a
+                non-empty string.
         """
         audit_id = record.audit_id
-        if type(audit_id) is not str or not audit_id:
-            raise ValueError("record.audit_id must be a non-empty str")
+        for name, value in (("audit_id", audit_id), ("tenant_id", record.tenant_id)):
+            if type(value) is not str or not value:
+                raise ValueError(f"record.{name} must be a non-empty str")
         if self._closed:
             self._count("rejected", reason=DeliveryRejection.CLOSED)
             return False

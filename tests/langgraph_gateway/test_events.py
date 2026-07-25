@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 from datetime import UTC, datetime
 
@@ -6,6 +7,7 @@ import pytest
 from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
 from zeroth.core.langgraph_gateway.events import (
     AuditGatewayEventSink,
+    GatewayAuditRefusedError,
     TeeObserver,
 )
 from zeroth.core.langgraph_gateway.models import (
@@ -15,6 +17,7 @@ from zeroth.core.langgraph_gateway.models import (
     GovernanceLevel,
     RouteDisposition,
 )
+from zeroth.governance.audit.delivery import AuditDeliveryQueue
 
 
 def test_json_observer_extracts_only_known_identifiers_and_tracks_safe_output_metadata():
@@ -151,15 +154,80 @@ def test_malformed_or_oversized_observation_disables_extraction_without_touching
 class RecordingAuditRepository:
     def __init__(self):
         self.records = []
+        self.attempted_ids = []
 
     async def write(self, record):
+        self.attempted_ids.append(record.audit_id)
+        if any(stored.audit_id == record.audit_id for stored in self.records):
+            raise ValueError(f"audit_id {record.audit_id!r} already exists")
         self.records.append(record)
         return record
 
 
+class FlakyAuditRepository(RecordingAuditRepository):
+    """Fails the first ``failures`` attempts, so a retry has to reuse the identity."""
+
+    def __init__(self, failures):
+        super().__init__()
+        self._remaining = failures
+
+    async def write(self, record):
+        if self._remaining > 0:
+            self._remaining -= 1
+            self.attempted_ids.append(record.audit_id)
+            raise ConnectionError("audit write failed")
+        return await super().write(record)
+
+
+class BlockingAuditRepository(RecordingAuditRepository):
+    """Never returns from a write, so an awaiting producer would never come back."""
+
+    def __init__(self):
+        super().__init__()
+        self.started = asyncio.Event()
+
+    async def write(self, record):
+        self.started.set()
+        await asyncio.Future()
+        raise AssertionError("unreachable")
+
+
+class RecordingDelivery:
+    """Captures what the sink hands off, without any of the delivery machinery."""
+
+    def __init__(self, *, accept=True):
+        self.records = []
+        self.accept = accept
+
+    def submit(self, record):
+        self.records.append(record)
+        return self.accept
+
+
+def gateway_event(started, *, tenant_id="tenant-a", **overrides):
+    fields = {
+        "correlation": GatewayCorrelation(
+            correlation_id="corr-1",
+            deployment_ref="deployment-a",
+            tenant_id=tenant_id,
+            principal_id="user-7",
+            assistant_id="assistant-2",
+            thread_id="thread-4",
+            run_id="run-7",
+        ),
+        "operation": "runs.stream",
+        "disposition": RouteDisposition.GOVERNED,
+        "governance_level": GovernanceLevel.ADMISSION,
+        "status": GatewayEventStatus.SUCCESS,
+        "started_at": started,
+        "completed_at": started,
+    }
+    return GatewayEvent(**(fields | overrides))
+
+
 @pytest.mark.asyncio
-async def test_audit_sink_writes_content_free_langgraph_gateway_node_record():
-    repository = RecordingAuditRepository()
+async def test_audit_sink_submits_content_free_langgraph_gateway_node_record():
+    delivery = RecordingDelivery()
     principal = AuthenticatedPrincipal(
         subject="user-7",
         auth_method=AuthMethod.API_KEY,
@@ -167,7 +235,11 @@ async def test_audit_sink_writes_content_free_langgraph_gateway_node_record():
         tenant_id="tenant-a",
         workspace_id="workspace-a",
     )
-    sink = AuditGatewayEventSink(repository, actor_for=lambda _event: principal.to_actor())
+    sink = AuditGatewayEventSink(
+        RecordingAuditRepository(),
+        actor_for=lambda _event: principal.to_actor(),
+        delivery=delivery,
+    )
     started = datetime(2026, 7, 22, 12, tzinfo=UTC)
     event = GatewayEvent(
         correlation=GatewayCorrelation(
@@ -198,10 +270,15 @@ async def test_audit_sink_writes_content_free_langgraph_gateway_node_record():
 
     await sink.emit(event)
 
-    [record] = repository.records
+    [record] = delivery.records
     assert record.node_id == "langgraph.gateway"
     assert record.run_id == "run-7"
     assert record.thread_id == "thread-4"
+    # R9: the tenant is threaded from the correlation, never left to the model
+    # default -- "default" is the reserved tenant of the fallback retention policy.
+    assert record.tenant_id == "tenant-a"
+    # The identity is already on the record the delivery stage receives.
+    assert record.audit_id.startswith("langgraph.gateway:")
     assert record.actor == principal.to_actor()
     assert record.input_snapshot == {}
     assert record.output_snapshot == {}
@@ -226,3 +303,73 @@ async def test_audit_sink_writes_content_free_langgraph_gateway_node_record():
     serialized = record.model_dump_json()
     assert "raw-secret-value" not in serialized
     assert "signed-context-token-value" not in serialized
+
+
+async def test_emitting_a_terminal_event_never_awaits_the_audit_write():
+    # R6: the producer half. The repository below never returns, so a sink that
+    # still awaited the durable write could not reach the assertions at all.
+    repository = BlockingAuditRepository()
+    queue = AuditDeliveryQueue(repository, base_delay_seconds=0, max_delay_seconds=0)
+    sink = AuditGatewayEventSink(repository, actor_for=lambda _event: None, delivery=queue)
+
+    await asyncio.wait_for(
+        sink.emit(gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC))), timeout=1.0
+    )
+
+    assert queue.counts().queued == 1
+    assert queue.counts().delivered == 0
+    await asyncio.wait_for(repository.started.wait(), timeout=1.0)
+    report = await queue.aclose(timeout=0)
+    assert report.drained is False
+
+
+async def test_one_terminal_event_keeps_one_audit_id_across_every_delivery_attempt():
+    # The identity trap: the id is fixed before the hand-off, so the two failed
+    # attempts and the successful one all carry the same one.
+    repository = FlakyAuditRepository(failures=2)
+    queue = AuditDeliveryQueue(repository, base_delay_seconds=0, max_delay_seconds=0)
+    sink = AuditGatewayEventSink(repository, actor_for=lambda _event: None, delivery=queue)
+
+    await sink.emit(gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC)))
+    report = await queue.aclose(timeout=1.0)
+
+    assert report.drained is True
+    assert len(repository.attempted_ids) == 3
+    assert len(set(repository.attempted_ids)) == 1
+    assert [record.audit_id for record in repository.records] == repository.attempted_ids[:1]
+
+
+async def test_a_correlation_without_a_tenant_is_refused_instead_of_landing_on_default():
+    # R9: an omitted tenant would be misattributed to the reserved "default"
+    # tenant and inherit its retention TTL, so it fails at the boundary instead.
+    delivery = AuditDeliveryQueue(RecordingAuditRepository())
+    sink = AuditGatewayEventSink(
+        RecordingAuditRepository(), actor_for=lambda _event: None, delivery=delivery
+    )
+    event = gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC), tenant_id="")
+
+    with pytest.raises(ValueError, match="tenant_id"):
+        await sink.emit(event)
+
+    assert delivery.pending == 0
+    assert delivery.counts().queued == 0
+
+
+async def test_a_refused_hand_off_is_raised_so_the_producer_can_count_the_loss():
+    delivery = RecordingDelivery(accept=False)
+    sink = AuditGatewayEventSink(
+        RecordingAuditRepository(), actor_for=lambda _event: None, delivery=delivery
+    )
+
+    with pytest.raises(GatewayAuditRefusedError, match="langgraph.gateway:"):
+        await sink.emit(gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC)))
+
+    assert len(delivery.records) == 1
+
+
+async def test_the_sink_owns_a_bounded_delivery_stage_when_none_is_injected():
+    # The production wiring passes a repository and nothing else; falling back to
+    # an inline write there would restore the blocking path this stage removes.
+    sink = AuditGatewayEventSink(RecordingAuditRepository(), actor_for=lambda _event: None)
+
+    assert isinstance(sink.delivery, AuditDeliveryQueue)

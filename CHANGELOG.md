@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.4] - 2026-07-25
+
+### Changed
+
+- The LangGraph gateway's audit sink (`AuditGatewayEventSink`) now hands terminal
+  events to `AuditDeliveryQueue.submit()` instead of awaiting
+  `AuditRepository.write()` from inside the streaming response's `finally`. The
+  durable write, its retries and its backoff run on the delivery worker, so a
+  slow or wedged audit repository can no longer stall, truncate or reorder a
+  streamed body; a refused hand-off raises `GatewayAuditRefusedError`, which the
+  proxy counts in `sink_failure_count` rather than dropping silently. The
+  `audit_id` is minted once per terminal event and fixed on the record before the
+  hand-off, so every delivery attempt rewrites the same identity and a retry
+  after a partially succeeded write is absorbed by the append-only duplicate
+  check. Deriving it from `correlation_id` was rejected: that value can be
+  client-supplied, so two unrelated requests could collapse into one record.
+- Tenancy is explicit on the audit delivery path: the sink always threads
+  `correlation.tenant_id` onto the record, and `AuditDeliveryQueue.submit()` now
+  rejects a blank `tenant_id` with `ValueError`. The delivery worker has no
+  ambient tenant, and `"default"` is both the model default and the reserved
+  tenant owning the fallback retention policy, so an absent tenant would be
+  misattributed and given the wrong TTL without surfacing anywhere. No field was
+  added to `NodeAuditRecord`.
+
 ## [0.12.3.3] - 2026-07-25
 
 ### Added

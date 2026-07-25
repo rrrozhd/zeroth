@@ -92,13 +92,14 @@ class _BlockingAuditWriter(_CollectingAuditWriter):
         return await super().write(record)
 
 
-def _record(audit_id: str) -> NodeAuditRecord:
+def _record(audit_id: str, *, tenant_id: str = "tenant-a") -> NodeAuditRecord:
     return NodeAuditRecord(
         audit_id=audit_id,
         run_id="run-1",
         node_id="node-1",
         graph_version_ref="graph:v1",
         deployment_ref="deployment-1",
+        tenant_id=tenant_id,
         status="completed",
     )
 
@@ -337,3 +338,27 @@ async def test_an_event_without_an_audit_id_is_rejected_at_submit() -> None:
 
     with pytest.raises(ValueError, match="audit_id"):
         queue.submit(_record(""))
+
+
+async def test_an_event_without_a_tenant_is_rejected_at_submit() -> None:
+    # R9: the worker has no ambient tenant, and a blank one would be persisted
+    # against the reserved "default" tenant with its fallback retention TTL.
+    queue = _queue(_CollectingAuditWriter())
+
+    with pytest.raises(ValueError, match="tenant_id"):
+        queue.submit(_record("audit-1", tenant_id=""))
+
+    assert queue.pending == 0
+    assert queue.counts().queued == 0
+
+
+async def test_the_submitted_tenant_is_the_tenant_that_reaches_the_writer() -> None:
+    # R9: capture classification rewrites the content channels; tenancy is not
+    # one of them, so the record lands under the tenant the producer named.
+    writer = _CollectingAuditWriter()
+    queue = _queue(writer)
+
+    queue.submit(_record("audit-1", tenant_id="tenant-b"))
+    await queue.aclose(timeout=1.0)
+
+    assert [record.tenant_id for record in writer.records] == ["tenant-b"]
