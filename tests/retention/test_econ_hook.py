@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.retention.conftest import make_audit_record
+from tests.retention.conftest import content_captured, make_audit_record
 
 from zeroth.runtime.runs import Run
 from zeroth.governance.retention import RetentionErasureService, SqlAlchemyEconEventEraser
@@ -43,7 +43,7 @@ async def test_erase_run_calls_econ_hook_with_run_and_metadata_join_keys(env) ->
     )
     rec = make_audit_record(audit_id="run-econ-a0", run_id="run-econ", node_id="n0")
     rec = rec.model_copy(update={"execution_metadata": {"join_key": "case-42"}})
-    await env.audit_repo.write(rec)
+    await env.audit_repo.write(content_captured(rec))
 
     result = await service.erase_run("run-econ", "rte")
 

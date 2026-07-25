@@ -110,6 +110,12 @@ class ServiceBootstrap:
     langgraph_gateway_compatibility: CompatibilityResult | None = None
     langgraph_gateway_capability_reporter: object | None = None
     langgraph_gateway_websocket_handler: object | None = None
+    # The bounded audit-delivery stage the gateway event sink submits into.
+    # Held here because two owners outside the sink need it: the lifespan,
+    # which drains it after the transport stops and before the database goes
+    # away, and the health surface, which reports its depth and its failures.
+    # A sink that kept it private would make both of those unreachable.
+    audit_delivery_queue: object | None = None
     # WS-E: retention / right-to-erasure surface (per-tenant TTLs, legal holds,
     # full-surface erasure that preserves the audit hash-chain). Always wired;
     # the purge WORKER is only started when ZEROTH_RETENTION__ENABLED is true.
@@ -133,6 +139,7 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             "langgraph_gateway_compatibility",
             "langgraph_gateway_capability_reporter",
             "langgraph_gateway_websocket_handler",
+            "audit_delivery_queue",
         }
     ]
 )

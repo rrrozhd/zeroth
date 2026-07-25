@@ -18,6 +18,14 @@ from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
+# The gateway transport is an injected client; its close gets a bound so the
+# audit drain behind it cannot be postponed indefinitely.
+TRANSPORT_CLOSE_TIMEOUT_SECONDS = 5.0
+
+# Tasks cancelled at a shutdown bound and deliberately not awaited. Held only
+# so the loop does not report them as destroyed while pending.
+_ABANDONED_TASKS: set[asyncio.Task] = set()
+
 
 @asynccontextmanager
 async def _service_runtime_lifespan(app: FastAPI):
@@ -205,16 +213,106 @@ async def _service_runtime_lifespan(app: FastAPI):
             await close_result
 
 
+async def _drain_audit_delivery(app: FastAPI, *, timeout: float = 5.0) -> None:
+    """Drain the bounded audit-delivery stage and log whatever it could not persist.
+
+    Runs after the gateway transport has stopped -- so no further terminal
+    event can be submitted -- and while the audit repository is still open,
+    because the delivery worker writes through it. Skipping the drain would
+    abandon every event still queued when the process stopped; discarding the
+    report would lose the one list naming them.
+
+    Args:
+        app: The application whose ``state.bootstrap`` owns the delivery stage.
+        timeout: Seconds the bounded shutdown may take, in total.
+    """
+    queue = getattr(app.state.bootstrap, "audit_delivery_queue", None)
+    aclose = getattr(queue, "aclose", None)
+    if not callable(aclose):
+        return
+    try:
+        report = await aclose(timeout=timeout)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- the rest of teardown must still run
+        # Type only, never the message: the delivery stage deliberately logs
+        # failure codes rather than exception text, which can carry a payload.
+        logger.error("audit delivery drain failed exception_type=%s", type(exc).__name__)
+        return
+    undelivered = getattr(report, "undelivered_audit_ids", ())
+    if undelivered:
+        logger.error(
+            "audit delivery shutdown left %d event(s) undelivered: %s",
+            len(undelivered),
+            ", ".join(undelivered),
+        )
+
+
+async def _close_gateway_transport(app: FastAPI, *, timeout: float) -> None:
+    """Stop the gateway transport within a bound, whatever it does about it.
+
+    The close is an injected client's, so it can hang; awaiting it unbounded put
+    the audit drain behind something with no deadline. An overrunning close is
+    cancelled and released rather than waited on, exactly as the delivery stage
+    treats a writer that ignores cancellation.
+
+    Args:
+        app: The application whose ``state.bootstrap`` owns the transport.
+        timeout: Seconds the close may take before it is abandoned.
+
+    Raises:
+        BaseException: Whatever the transport's own close raised, so the caller
+            can preserve it -- after the drain has run.
+    """
+    transport = getattr(app.state.bootstrap, "langgraph_gateway_transport", None)
+    aclose = getattr(transport, "aclose", None)
+    if not callable(aclose):
+        return
+    close_result = aclose()
+    if not inspect.isawaitable(close_result):
+        return
+    task = asyncio.ensure_future(close_result)
+    done, _pending = await asyncio.wait({task}, timeout=timeout)
+    if not done:
+        task.cancel()
+        _ABANDONED_TASKS.add(task)
+        task.add_done_callback(_ABANDONED_TASKS.discard)
+        logger.error("gateway transport close exceeded %.1fs; abandoning it", timeout)
+        return
+    exc = task.exception()
+    if exc is not None:
+        raise exc
+
+
 @asynccontextmanager
 async def service_lifespan(app: FastAPI):
-    """Own the gateway transport around the existing service lifecycle."""
+    """Own the gateway transport and the audit drain around the service lifecycle.
+
+    The drain runs in an unconditional ``finally``. It used to sit after an
+    unbounded transport close, so a transport whose ``aclose`` raised skipped the
+    drain entirely and one that hung postponed it forever -- either way the
+    accepted audit backlog was lost with nothing reporting it, and a transport
+    failing to close is exactly when that backlog is least likely to be empty.
+    The transport error is preserved and re-raised, but only once the drain has
+    had its bounded turn.
+    """
     try:
         async with _service_runtime_lifespan(app):
             yield
     finally:
-        gateway_transport = getattr(app.state.bootstrap, "langgraph_gateway_transport", None)
-        gateway_aclose = getattr(gateway_transport, "aclose", None)
-        if callable(gateway_aclose):
-            close_result = gateway_aclose()
-            if inspect.isawaitable(close_result):
-                await close_result
+        transport_error: BaseException | None = None
+        try:
+            await _close_gateway_transport(app, timeout=TRANSPORT_CLOSE_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- the drain must run either way,
+            # and the error is re-raised below once it has.
+            transport_error = exc
+        finally:
+            # Strictly after the transport, so a still-serving gateway is not
+            # still submitting into a queue that is already draining -- but
+            # unconditionally, because a transport that failed to stop is not a
+            # reason to abandon the evidence already accepted.
+            await _drain_audit_delivery(app)
+        if transport_error is not None:
+            raise transport_error

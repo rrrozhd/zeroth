@@ -7,6 +7,204 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.1] - 2026-07-25
+
+### Fixed
+
+- The durable audit write is now the capture boundary. `AuditRepository.write`
+  applies the capture policy itself, so the orchestration runtime, the approvals
+  service and the service API can no longer reach storage around it: node
+  prompts, results, error text, policy denials and approval audits are
+  classified and redacted before the digest is computed, whatever the producer
+  submitted and whether or not a secret resolver was ever injected (R3, R4, R5).
+  A record produced by a capture policy in this process carries a process-local
+  nonce and is written unchanged, so the delivery stage's output is not
+  transformed twice; the nonce is stripped before the write, so it never reaches
+  storage and cannot be replayed. `AuditRepository.configure_capture` installs a
+  deployment's classifier once, at wiring time, for deployments that opt into
+  retaining content.
+- Allowlisted `execution_metadata` keys are now projected per key by declared
+  kind -- number, boolean, digest, bounded lower-case label, or an opaque
+  identifier that is only ever hashed -- instead of accepting any short scalar.
+  A credential pasted into the client-supplied `X-Correlation-ID` header is no
+  longer persisted verbatim (R4, R5).
+- Mapping key text supplied by a producer is never persisted in a dropped-content
+  schema: schema keys are truncated SHA-256 digests, and schema type names come
+  from a closed set. An identifier-shaped credential used as a mapping key was
+  previously stored as a "shape" (R5).
+- The capture redaction chain masks mapping keys as well as values, and the
+  payload sanitizer accepts only exact `str` keys instead of calling `str(key)`.
+  A registered secret used as a mapping key survived content-mode capture (R5).
+- `AuditDeliveryQueue.submit` rejects a whitespace-only tenant and counts a
+  dedicated `invalid_record` rejection before raising, so a refused event is
+  visible on `/v1/metrics` and `/health` instead of disappearing with every
+  counter at zero (R7, R8, R9).
+- Each audit write attempt now runs under a finite deadline; an attempt that
+  overruns it is cancelled, released without being awaited, counted, and retried
+  under the same `audit_id`. One hung write previously owned the stage's only
+  worker indefinitely, with no retry, no failure and no counter movement.
+  `zeroth_audit_delivery_in_flight_seconds` reports the age of an outstanding
+  attempt.
+- Shutdown claims an in-flight event's terminal state before cancelling, so a
+  write that lands after abandonment is recorded under
+  `zeroth_audit_delivery_reconciled_total` rather than counted a second time as
+  delivered. "Abandoned" and "delivered" are mutually exclusive again (R7).
+- The service lifespan bounds the gateway transport's shutdown and drains the
+  audit-delivery queue in an unconditional `finally`. A transport close that
+  raised skipped the drain entirely and one that hung postponed it forever,
+  losing the accepted backlog; the transport error is now preserved and re-raised
+  only after the drain has reported (R10).
+- `AuditGatewayEventSink.emit` counts a refused or unprojectable terminal event
+  through the delivery stage's counters and returns, instead of raising into the
+  gateway proxy's generic handler -- which logged a full traceback per refusal on
+  the response-completion path, exactly under saturation. `GatewayAuditRefusedError`
+  is removed.
+
+### Changed
+
+- Artifact references owned by a run (`{run_id}/...`) are retained as addressing
+  under the capture marker, so retention can still find and destroy a run's
+  artifacts after its content channels are emptied.
+- `AuditRecordSubmitter` documents as a hard requirement that an implementation
+  must be non-blocking and synchronous at the hand-off; the proxy's
+  `asyncio.timeout` around the sink is a cooperative guard and cannot make a
+  blocking or cancellation-swallowing sink safe.
+
+## [0.12.4] - 2026-07-25
+
+### Added
+
+- The gateway's audit-delivery stage is now built by the service factory with the
+  application `MetricsCollector`, so `zeroth_audit_delivery_queued_total`,
+  `_retried_total`, `_rejected_total`, `_failed_total`, `_abandoned_total` and the
+  `zeroth_audit_delivery_queue_depth` gauge are rendered by `GET /v1/metrics`
+  instead of accumulating on a private collector nothing scrapes (R7).
+- `GET /health` carries an `audit_delivery` block (queue depth, the per-outcome
+  counts and `losing_events`), and `GET /health/ready` carries a matching
+  `audit_delivery` dependency check that degrades readiness when the stage has
+  lost an event. A loss is never rendered as a delivery (R8).
+- `ServiceBootstrap.audit_delivery_queue` exposes the stage the gateway event
+  sink submits into, giving it a lifecycle owner outside the sink.
+
+### Changed
+
+- `service_lifespan` now drains the audit-delivery queue during teardown, after
+  the gateway transport has stopped and while the audit repository is still
+  open, and logs every `audit_id` the bounded drain could not persist rather
+  than abandoning it silently (R10).
+
+## [0.12.3.5.1] - 2026-07-25
+
+### Fixed
+
+- Restored the audit capture/redaction test names that the ZER-5 requirement
+  manifest pins as proof for R3, so the requirement checks resolve again.
+
+## [0.12.3.5] - 2026-07-25
+
+### Fixed
+
+- `AuditDeliveryQueue` no longer accepts a `capture_policy`. The stage constructs
+  its own `AuditCapturePolicy` and applies it before every write; callers may
+  still inject a `classifier` and widen `redaction`/`known_secrets`, but they
+  cannot substitute a pass-through for the redaction transform (R3).
+- A capture transform that raises no longer kills the delivery worker. The worker
+  falls back to `blank_record()` and, if even that fails, counts and names the
+  event as failed before continuing (R3, R7).
+- Metadata-only capture now projects `execution_metadata`, approval metadata and
+  every free-form error string through an allowlist
+  (`capture_projection.ContentFreeProjection`). Unrecognised keys, containers and
+  error text are replaced by a digest, a schema and a count instead of surviving
+  best-effort key redaction (R4).
+- Dropped-content schemas no longer render mapping keys with `str(key)`. Keys are
+  gated by exact type, length and shape, and digests are computed from a
+  canonical form that never invokes user `__str__`/`__repr__`, so a payload that
+  previously produced `sha256=None` now always produces a digest (R4, R5).
+- Capture, classifier and writer failures are logged as a fixed error code plus
+  the exception type. Exception messages, which can carry the value that caused
+  them, no longer reach the log stream (R5).
+- `AuditRepository.write` raises `DuplicateAuditIdError` (a `ValueError`
+  subclass, so existing callers are unaffected) and the delivery queue counts
+  only that type as "already delivered". A pre-commit validation `ValueError` is
+  now retried and then failed rather than reported as a durable write (R8).
+- `aclose()` retains the ids of events that exhausted their retries, includes
+  them in the close report with `drained=False`, and keeps `failed` distinct from
+  `abandoned` (R7, R10).
+- `aclose()` applies one absolute deadline to the drain *and* the worker
+  cancellation, so a writer that swallows `CancelledError` is reported instead of
+  awaited past the bound; the writer contract now requires cancellability (R10).
+- Concurrent `aclose()` calls share one close task and one cached report, so an
+  in-flight event can no longer be abandoned and counted twice (R7).
+- Retry delays and the shutdown timeout reject `NaN` and infinity.
+- The delivery stage's task set is now a real supervised registry with a done
+  callback that retrieves task exceptions.
+
+### Changed
+
+- Extracted `zeroth.governance.audit.capture_projection`, `delivery_state`,
+  `delivery_worker` and `errors` from `capture_policy.py` and `delivery.py`.
+
+## [0.12.3.4] - 2026-07-25
+
+### Changed
+
+- The LangGraph gateway's audit sink (`AuditGatewayEventSink`) now hands terminal
+  events to `AuditDeliveryQueue.submit()` instead of awaiting
+  `AuditRepository.write()` from inside the streaming response's `finally`. The
+  durable write, its retries and its backoff run on the delivery worker, so a
+  slow or wedged audit repository can no longer stall, truncate or reorder a
+  streamed body; a refused hand-off raises `GatewayAuditRefusedError`, which the
+  proxy counts in `sink_failure_count` rather than dropping silently. The
+  `audit_id` is minted once per terminal event and fixed on the record before the
+  hand-off, so every delivery attempt rewrites the same identity and a retry
+  after a partially succeeded write is absorbed by the append-only duplicate
+  check. Deriving it from `correlation_id` was rejected: that value can be
+  client-supplied, so two unrelated requests could collapse into one record.
+- Tenancy is explicit on the audit delivery path: the sink always threads
+  `correlation.tenant_id` onto the record, and `AuditDeliveryQueue.submit()` now
+  rejects a blank `tenant_id` with `ValueError`. The delivery worker has no
+  ambient tenant, and `"default"` is both the model default and the reserved
+  tenant owning the fallback retention policy, so an absent tenant would be
+  misattributed and given the wrong TTL without surfacing anywhere. No field was
+  added to `NodeAuditRecord`.
+
+## [0.12.3.3] - 2026-07-25
+
+### Added
+
+- Capture classification and redaction on the audit delivery path
+  (`zeroth.governance.audit.capture_policy`). `AuditDeliveryQueue` now applies
+  `AuditCapturePolicy` itself, once per event and before the first write
+  attempt, so no record -- on the first attempt, on a retry, or on a retry after
+  a partially succeeded write -- can reach the durable writer uncaptured.
+  Content capture is off by default: prompt, argument and result values
+  (`input_snapshot`, `output_snapshot`, `validation_results`,
+  `condition_results`, `stdout`, `stderr`, each tool call's `arguments` and
+  `outcome`, each memory interaction's `value`) are emptied and replaced by a
+  SHA-256 digest, a key-and-type schema and an entry count filed under
+  `execution_metadata["audit_capture"]`, while identity, `status`, timing,
+  token usage, cost, actor, approval actions and the digest-chain fields are
+  retained. The default is fail-closed in both directions: a queue built with
+  no policy still redacts, and a policy that fails mid-transform emits a record
+  stripped of every content channel rather than the submitted one. Redaction
+  reuses `PayloadSanitizer`, `SecretRedactor` and `PIIFilter`; no field was
+  added to `NodeAuditRecord`.
+
+## [0.12.3.2] - 2026-07-25
+
+### Added
+
+- Bounded audit-event delivery stage (`zeroth.governance.audit.delivery`). It sits
+  between an audit-event producer and the append-only audit write: `submit()` is a
+  synchronous `put_nowait` onto a finite queue, so a slow or wedged writer can never
+  suspend a producer, and a saturated queue rejects the newest event with accounting
+  instead of growing. A single worker retries each event with jittered exponential
+  backoff, reusing the `audit_id` minted at submit time, so a retry persists exactly
+  one record -- the repository's duplicate-`audit_id` `ValueError` is read as "already
+  durable", not as an error. Queued, delivered, retried, rejected, failed and
+  abandoned events are counted on an injectable `MetricsCollector`, and
+  `aclose(timeout=...)` drains within a bound and names what it could not deliver.
+
 ## [0.12.3.1.2] - 2026-07-25
 
 ### Fixed

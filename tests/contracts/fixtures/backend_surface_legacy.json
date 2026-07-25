@@ -10254,6 +10254,16 @@
       "legacy_module": "zeroth.service.api.health",
       "legacy_name": "LangGraphGatewayHealth",
       "signature": "(*, enabled: bool = True, governance_level: zeroth.core.langgraph_gateway.models.GovernanceLevel, limitation: str = 'internal tool calls are not enforced in gateway-only mode', compatibility: zeroth.service.api.health.LangGraphCompatibilityHealth) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.health"
+      ],
+      "id": "zeroth.service.api.health:AuditDeliveryHealth",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.health",
+      "legacy_name": "AuditDeliveryHealth",
+      "signature": "(*, queue_depth: int, queued: int, delivered: int, retried: int, rejected: int, failed: int, abandoned: int, losing_events: bool) -> None"
     }
   ],
   "immutable": true,

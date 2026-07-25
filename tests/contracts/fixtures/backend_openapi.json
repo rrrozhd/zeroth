@@ -409,6 +409,46 @@
         ],
         "type": "object"
       },
+      "AuditDeliveryHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "abandoned": {
+            "type": "integer"
+          },
+          "delivered": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "losing_events": {
+            "type": "boolean"
+          },
+          "queue_depth": {
+            "type": "integer"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "rejected": {
+            "type": "integer"
+          },
+          "retried": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "queue_depth",
+          "queued",
+          "delivered",
+          "retried",
+          "rejected",
+          "failed",
+          "abandoned",
+          "losing_events"
+        ],
+        "type": "object"
+      },
       "AuditRecordListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1578,6 +1618,16 @@
       "HealthResponse": {
         "additionalProperties": false,
         "properties": {
+          "audit_delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuditDeliveryHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deployment_ref": {
             "type": "string"
           },

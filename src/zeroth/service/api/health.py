@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import from_url as redis_from_url
 
 from zeroth.core.langgraph_gateway.models import CompatibilityResult, GovernanceLevel
+from zeroth.governance.audit.delivery import AuditDeliveryQueue
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -58,12 +59,14 @@ def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
     - If the database is not "ok", or a *configured* redis errors -> "unhealthy"
       (redis "unavailable" means not configured/disabled — informational only)
     - If only regulus has status != "ok" -> "degraded"
+    - If audit delivery is losing events -> "degraded" (never "ok")
     - Otherwise -> "ok"
     """
     db_status = checks.get("database")
     redis_status = checks.get("redis")
     regulus_status = checks.get("regulus")
     agent_server_status = checks.get("agent_server")
+    audit_delivery_status = checks.get("audit_delivery")
 
     if (db_status and db_status.status != "ok") or (
         redis_status and redis_status.status not in {"ok", "unavailable"}
@@ -74,6 +77,11 @@ def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
         return "degraded"
 
     if agent_server_status and agent_server_status.status != "supported":
+        return "degraded"
+
+    # Losing audit evidence does not stop the service from answering requests,
+    # so it degrades rather than fails the probe -- but it is never "ok".
+    if audit_delivery_status and audit_delivery_status.status != "ok":
         return "degraded"
 
     return "ok"
@@ -175,6 +183,9 @@ def register_health_routes(app: FastAPI) -> None:
                 status=compatibility.status.value,
                 detail=compatibility.reason,
             )
+        delivery = audit_delivery_health(bootstrap)
+        if delivery is not None:
+            checks["audit_delivery"] = _audit_delivery_check(delivery)
 
         status = determine_readiness_status(checks)
         return ReadinessResponse(status=status, checks=checks)
@@ -237,6 +248,72 @@ def langgraph_gateway_health(bootstrap: object) -> LangGraphGatewayHealth | None
     )
 
 
+class AuditDeliveryHealth(BaseModel):
+    """The bounded audit-delivery stage's own accounting, rendered as health.
+
+    Read straight off the stage's counters rather than recomputed: "delivered"
+    is the only counter that means an event is durable, and the three loss
+    counters are reported beside it so a failing stage can never be read as a
+    healthy one. ``queue_depth`` is the backlog still waiting for the worker.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    queue_depth: int
+    queued: int
+    delivered: int
+    retried: int
+    rejected: int
+    failed: int
+    abandoned: int
+    losing_events: bool
+
+
+def audit_delivery_health(bootstrap: object) -> AuditDeliveryHealth | None:
+    """Build audit-delivery health from the delivery stage's own counters.
+
+    Args:
+        bootstrap: The service container. ``None`` is returned when it owns no
+            delivery stage, which is the case for every deployment that does
+            not run the gateway.
+
+    Returns:
+        The stage's depth, its per-outcome counts and whether it has lost any
+        event, or ``None`` when there is no stage to report on.
+    """
+    delivery = getattr(bootstrap, "audit_delivery_queue", None)
+    if type(delivery) is not AuditDeliveryQueue:
+        return None
+    counts = delivery.counts()
+    return AuditDeliveryHealth(
+        queue_depth=delivery.pending,
+        queued=counts.queued,
+        delivered=counts.delivered,
+        retried=counts.retried,
+        rejected=counts.rejected,
+        failed=counts.failed,
+        abandoned=counts.abandoned,
+        losing_events=bool(counts.rejected or counts.failed or counts.abandoned),
+    )
+
+
+def _audit_delivery_check(delivery: AuditDeliveryHealth) -> DependencyStatus:
+    """Render audit-delivery health as one readiness dependency.
+
+    The detail always carries the depth and the three loss counts, so an
+    operator reading a bare probe sees what was lost and not merely that
+    something was.
+    """
+    return DependencyStatus(
+        status="error" if delivery.losing_events else "ok",
+        detail=(
+            f"queue_depth={delivery.queue_depth} delivered={delivery.delivered} "
+            f"rejected={delivery.rejected} failed={delivery.failed} "
+            f"abandoned={delivery.abandoned}"
+        ),
+    )
+
+
 class HealthResponse(BaseModel):
     """Response payload for the wrapper health endpoint.
 
@@ -255,11 +332,14 @@ class HealthResponse(BaseModel):
     deployment_version: int
     graph_version_ref: str
     langgraph_gateway: LangGraphGatewayHealth | None = None
+    audit_delivery: AuditDeliveryHealth | None = None
 
 
 _health_parameters = inspect.signature(HealthResponse).parameters
 HealthResponse.__signature__ = inspect.signature(HealthResponse).replace(
     parameters=[
-        parameter for name, parameter in _health_parameters.items() if name != "langgraph_gateway"
+        parameter
+        for name, parameter in _health_parameters.items()
+        if name not in {"langgraph_gateway", "audit_delivery"}
     ]
 )

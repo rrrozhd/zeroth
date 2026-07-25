@@ -18,6 +18,7 @@ from zeroth.core.econ.budget import BudgetCheckResult
 from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
 from zeroth.core.langgraph_gateway.compatibility import CompatibilityResult
 from zeroth.core.langgraph_gateway.context import ReservedContextCodec
+from zeroth.core.langgraph_gateway.events import AuditGatewayEventSink
 from zeroth.core.langgraph_gateway.headers import UpstreamCredentialUnavailableError
 from zeroth.core.langgraph_gateway.inventory import classify_endpoint
 from zeroth.core.langgraph_gateway.models import CompatibilityStatus
@@ -26,6 +27,8 @@ from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
 from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.core.secrets.provider import EnvSecretProvider
 from zeroth.core.signing import EnvHmacSigner, NullSigner
+from zeroth.governance.audit.delivery import AuditDeliveryQueue
+from zeroth.governance.audit.models import NodeAuditRecord
 
 
 async def upstream_fixture(request: Request) -> Response:
@@ -1163,6 +1166,93 @@ async def test_event_sink_failure_is_counted_and_does_not_change_or_reorder_resp
     assert chunks == [b"one-", b"two"]
     assert proxy.sink_failure_count == 1
     assert sink.events[-1].status.value == "success"
+    await transport.aclose()
+
+
+class BlockingAuditWriter:
+    """An audit write that never returns, so the delivery worker parks inside it."""
+
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.attempted_ids = []
+
+    async def write(self, record):
+        self.attempted_ids.append(record.audit_id)
+        self.started.set()
+        await asyncio.Future()
+        raise AssertionError("unreachable")
+
+
+def audit_record(audit_id):
+    return NodeAuditRecord(
+        audit_id=audit_id,
+        run_id="run-1",
+        node_id="node-1",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment-a",
+        tenant_id="tenant-a",
+        status="completed",
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_saturated_audit_queue_neither_reorders_nor_delays_the_streamed_body():
+    # R6: audit transport is independent of the streaming path. The writer never
+    # returns, the queue is already full when the request starts, and the proxy's
+    # own sink bound is 10s -- so any producer-side await on either the queue or
+    # the database would blow the 1s bound below rather than pass it.
+    writer = BlockingAuditWriter()
+    queue = AuditDeliveryQueue(writer, max_queue_size=1)
+    sink = AuditGatewayEventSink(writer, actor_for=lambda _event: None, delivery=queue)
+    assert queue.submit(audit_record("audit-in-flight")) is True
+    await asyncio.wait_for(writer.started.wait(), timeout=1.0)
+    assert queue.submit(audit_record("audit-queued")) is True
+    assert queue.submit(audit_record("audit-rejected")) is False
+
+    async def upstream(request):
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"one-"
+                yield b"two-"
+                yield b"three"
+
+        return httpx.Response(200, stream=Body(), headers={"content-type": "text/plain"})
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(EnvHmacSigner(key_id="k", keys={"k": b"key"})),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        event_sink=sink,
+        event_sink_timeout_seconds=10,
+    )
+
+    response = await proxy.handle_http(authenticated_empty_request("/ok"))
+    chunks = await asyncio.wait_for(anext_chunk_list(response.body_iterator), timeout=1.0)
+
+    assert chunks == [b"one-", b"two-", b"three"]
+    assert queue.counts().rejected == 2
+    # The refused terminal event is counted by the delivery stage -- which is
+    # what ``/v1/metrics`` and the readiness probe read -- and no longer raised
+    # into the proxy's generic handler, whose ``logger.exception`` produced one
+    # full traceback per refusal on the response-completion path.
+    assert proxy.sink_failure_count == 0
+    assert writer.attempted_ids == ["audit-in-flight"]
+    report = await queue.aclose(timeout=0)
+    assert report.undelivered_audit_ids == ("audit-in-flight", "audit-queued")
     await transport.aclose()
 
 

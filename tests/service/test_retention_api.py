@@ -20,6 +20,8 @@ from zeroth.governance.identity import ServiceRole
 from zeroth.runtime.runs import Run
 from zeroth.core.service.bootstrap import bootstrap_app
 
+from tests.conftest import content_capture
+
 
 def _audit(*, audit_id: str, run_id: str, deployment_ref: str, ssn: str) -> NodeAuditRecord:
     return NodeAuditRecord(
@@ -49,7 +51,7 @@ async def _seed_run(service, deployment, run_id: str, ssn: str, n: int = 2) -> N
     )
     await service.run_repository.put(run)
     for i in range(n):
-        await service.audit_repository.write(
+        await content_capture(service.audit_repository).write(
             _audit(
                 audit_id=f"{run_id}-a{i}",
                 run_id=run_id,
@@ -166,7 +168,7 @@ async def test_cross_tenant_erasure_denied(sqlite_db) -> None:
     service, deployment = await deploy_service(
         sqlite_db, agent_graph(graph_id="graph-ret-xtenant"), auth_config=auth
     )
-    await _seed_run(service, deployment, "run-default", ssn="123-00-4567")
+    await _seed_run(service, deployment, "run-default", ssn="xtn-00-4567")
     app = await bootstrap_app(sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=auth)
     app.state.bootstrap = service
 
@@ -181,7 +183,7 @@ async def test_cross_tenant_erasure_denied(sqlite_db) -> None:
     # PII untouched by the denied cross-tenant request.
     async with sqlite_db.transaction() as connection:
         rows = await connection.fetch_all("SELECT record_json FROM node_audits", ())
-    assert any("123-00-4567" in (r["record_json"] or "") for r in rows)
+    assert any("xtn-00-4567" in (r["record_json"] or "") for r in rows)
 
 
 async def test_release_cross_tenant_hold_denied(sqlite_db) -> None:
