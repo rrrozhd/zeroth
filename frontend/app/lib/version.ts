@@ -1,2 +1,2 @@
 // Generated from pyproject.toml; run `npm run gen:version`.
-export const VERSION = "0.12.0";
+export const VERSION = "0.12.4.1.1";

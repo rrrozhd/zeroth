@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.1.1] - 2026-07-25
+
+### Fixed
+
+- Regenerated the console's derived contracts, which the ZER-5 audit-delivery work
+  left stale: `frontend/openapi.json` and `frontend/app/lib/api-types.ts` were
+  missing the additive `AuditDeliveryHealth` schema and the `audit_delivery` block
+  on `HealthResponse`, and `frontend/app/lib/version.ts` still carried the previous
+  version. Both drift gates (`docs` → `check:api`, `verify-extras` → `check:version`)
+  were failing on `main` as a result.
+
 ## [0.12.4.1] - 2026-07-25
 
 ### Fixed
