@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.5] - 2026-07-25
+
+### Fixed
+
+- Closed the startup-failure hole the bounded-shutdown reorder opened. Moving the
+  gateway stop and the audit drain *inside* the runtime lifespan is what made
+  them bounded — outside it, the drain queued behind every unbounded post-yield
+  await (a run worker's graceful shutdown, the ARQ consumer and pool, the webhook
+  client, the secret provider), so one hung predecessor postponed it for as long
+  as the hang lasted, which is the lost backlog R10 forbids reached by a slower
+  route. But a startup that fails never reaches the body, and an inner-only
+  shutdown therefore never ran at all: the transport the bootstrap had already
+  built was left open and the accepted audit backlog was left unpersisted and
+  unreported. `service_lifespan` now runs the stop and the drain for that case
+  through an outer guard, and — because a normal shutdown already ran them —
+  exactly once either way. A transport close that fails while a startup is
+  already failing is logged under a fixed code and an exception type, never
+  re-raised over the startup error an operator actually needs.
+
+### Added
+
+- Failing-before probes for both halves of that guard: a runtime lifespan that
+  refuses to start still closes its transport exactly once and still drains the
+  events already accepted, a close that fails during a failed startup never masks
+  it and never puts its own message in the log, and a normal shutdown does not
+  close a transport the inner stop already closed. The existing hung-predecessor
+  and abandoned-close probes round out the ordering suite.
+
 ## [0.12.4.4] - 2026-07-25
 
 ### Fixed

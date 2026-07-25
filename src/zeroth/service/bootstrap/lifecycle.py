@@ -31,6 +31,10 @@ _ABANDONED_TASKS: set[asyncio.Task] = set()
 # process makes over what may reach the log stream.
 _ABANDONED_TASK_FAILED = "abandoned_task_failed"
 
+# The fixed code for a transport close that failed while a startup was already
+# failing. Same reason it is a code: the message is the injected client's.
+_STARTUP_CLOSE_FAILED = "startup_transport_close_failed"
+
 
 def _release_abandoned_task(task: asyncio.Task) -> None:
     """Retire an abandoned shutdown task, consuming the result nobody awaited.
@@ -357,7 +361,9 @@ async def service_lifespan(app: FastAPI):
                 # the one an operator needs, and it is the more informative of
                 # the two.
                 logger.error(
-                    "gateway transport close failed during a failed startup exception_type=%s",
+                    "gateway transport close failed during a failed startup "
+                    "code=%s exception_type=%s",
+                    _STARTUP_CLOSE_FAILED,
                     type(failure).__name__,
                 )
     if transport_error is not None:
