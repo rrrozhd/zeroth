@@ -561,7 +561,7 @@ async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqli
     assert audits[0].status == "failed"
     assert audits[0].node_id == "agent"
     assert audits[0].error is not None
-    assert audits[0].execution_metadata["error_type"] == "AgentProviderError"
+    assert audits[0].execution_metadata["reason_code"] == "agent_provider_error"
     assert run.audit_refs == ["audit:1"]
 
 

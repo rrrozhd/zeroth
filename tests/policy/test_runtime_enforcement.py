@@ -182,8 +182,9 @@ async def test_runtime_orchestrator_passes_enforcement_context_to_runners_and_au
     assert eu_runner.calls[0]["enforcement_context"]["allowed_secrets"] == ["API_KEY"]
 
     audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
-    assert audits[0].execution_metadata["enforcement"]["network_mode"] == "disabled"
-    assert audits[1].execution_metadata["enforcement"]["sandbox_strictness_mode"] == "strict"
+    assert audits[0].execution_metadata["network_mode"] == "disabled"
+    assert audits[1].execution_metadata["sandbox_strictness_mode"] == "strict"
+    assert audits[0].execution_metadata["enforcement_applied"] is True
 
 
 async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(sqlite_db) -> None:

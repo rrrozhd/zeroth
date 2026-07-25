@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.3] - 2026-07-25
+
+### Fixed
+
+- Made "decision metadata is retained" true rather than merely claimed. The
+  metadata-only capture keeps an allowlisted, per-key-typed projection of
+  `execution_metadata`, but every denial producer filed its verdict in a *nested*
+  dict (`admission`, `enforcement`, `extra`, `response`) or in the free-form
+  `error` the capture replaces — so admission denials, per-branch identifiers,
+  enforcement modes, retry counts and cache dispositions all vanished at the
+  durable write. Producers now promote those onto flat, allowlisted keys:
+  `admitted`, `admission_digest`, `decision`, `reason_code`, `network_mode`,
+  `sandbox_strictness_mode`, `branch_id`, `branch_index`, `attempt` and
+  `disposition`. `AdmissionController.admit` returns a stable `snake_case`
+  reason code on every branch instead of a rendered message.
+- `collect_policy_events` was silently inert: it substring-matched
+  `denied`/`forbidden`/`policy` against `NodeAuditRecord.error`, which capture
+  replaces with a fixed redaction marker, so both `/evidence` endpoints returned
+  an always-empty `policy_events` list. It now reads the structural decision
+  fields, and each event names the node, the decision and the reason code.
+- Retention erasure lost its join key: `join_key` was not on the metadata
+  allowlist, so `RetentionErasureService` could not find the econ events an
+  erased run produced. `join_key` and the branch identifiers are retained
+  verbatim under a new `MetadataKind.IDENTIFIER` — hashing them would satisfy a
+  presence check while breaking every consumer that compares them.
+
+### Added
+
+- `MetadataKind.IDENTIFIER`, for the ids this codebase mints from a record's own
+  identity, and `normalize_reason_code`, which renders a producer's failure or
+  denial *name* as a stable label-shaped code.
+
 ## [0.12.4.2] - 2026-07-25
 
 ### Fixed
@@ -28,11 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `zeroth.governance.audit.capture_policy`.
 - The delivery worker no longer classifies or redacts; `AuditDeliveryQueue` no
   longer accepts `classifier`, `redaction` or `known_secrets`, and
-  `DeliveryFailure.CAPTURE_FAILED` is gone. `AuditRepository.configure_capture`
-  gained the `redaction` and `known_secrets` keywords in their place, so the
-  deployment's capture posture is configured where capture happens.
-  `AuditRecordWriter` implementations are now required to be capture-applying
-  durable sinks; production injects only `AuditRepository`.
+  `DeliveryFailure.CAPTURE_FAILED` is gone. `redaction` and `known_secrets` were
+  dropped along with the worker's policy and have **no** configuration path:
+  `AuditRepository.configure_capture` takes a classifier only, and the
+  repository builds its own `AuditCapturePolicy` with the default redaction
+  chain and no registered secrets. `AuditRecordWriter` implementations are now
+  required to be capture-applying durable sinks; production injects only
+  `AuditRepository`.
 
 ## [0.12.4.1.1] - 2026-07-25
 

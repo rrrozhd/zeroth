@@ -40,8 +40,23 @@ accepted any short string: ``correlation_id`` is filled from a client-supplied
 ``X-Correlation-ID`` header, so a credential pasted into that header was
 persisted verbatim. Each allowlisted key therefore declares a
 :class:`MetadataKind` -- a number, a boolean, a digest, a bounded lowercase
-label, or an opaque identifier that is only ever hashed -- and a value that does
-not fit its key's kind is summarized rather than retained.
+label, a system-minted identifier, or an opaque identifier that is only ever
+hashed -- and a value that does not fit its key's kind is summarized rather than
+retained.
+
+**Why identifiers are their own kind rather than OPAQUE or LABEL.** ``branch_id``
+and ``join_key`` are not producer payload: the runtime mints ``branch_id`` from
+the record's own ``run_id`` and branch index, and ``join_key`` is the
+business-request id a retention sweep must match against econ events. OPAQUE
+hashes what it retains, which satisfies a key-presence check while breaking every
+consumer that *compares* the value -- the branch-fan-out audits and
+:class:`~zeroth.governance.retention.erasure_service.RetentionErasureService`
+both compare. LABEL would keep them verbatim but LABEL means "a closed
+vocabulary term", and widening it to cover open identifiers would quietly widen
+every status and route name with it. :data:`MetadataKind.IDENTIFIER` therefore
+validates the shape an identifier has -- lower-case, bounded, punctuated only by
+the separators an id uses -- and keeps the value itself, so a mixed-case or
+opaque credential parked under one of these keys is still summarized away.
 """
 
 from __future__ import annotations
@@ -70,6 +85,11 @@ _SAFE_NAME = re.compile(r"\A[A-Za-z_][A-Za-z0-9_.:\-]*\Z")
 # credentials are overwhelmingly mixed-case or opaque, and a value that fails
 # this shape is summarized rather than lost.
 _SAFE_LABEL = re.compile(r"\A[a-z0-9][a-z0-9._:/\-]*\Z")
+# An identifier this codebase minted (a run-scoped branch id, a join key). Same
+# lower-case discipline as a label, without "/" and with a longer bound: an id
+# is compared, never read, so it may be longer than a vocabulary term.
+_MAX_IDENTIFIER_CHARS = 128
+_SAFE_IDENTIFIER = re.compile(r"\A[a-z0-9][a-z0-9._:\-]*\Z")
 # A hash, optionally prefixed by its algorithm ("sha256:...").
 _SAFE_DIGEST = re.compile(r"\A(?:[a-z0-9]{1,16}:)?[0-9a-f]{16,128}\Z")
 # How much of a key's SHA-256 stands in for the key in a schema.
@@ -91,6 +111,7 @@ class MetadataKind(StrEnum):
     BOOLEAN = "boolean"
     DIGEST = "digest"
     LABEL = "label"
+    IDENTIFIER = "identifier"
     OPAQUE = "opaque"
 
 
@@ -107,8 +128,12 @@ class MetadataKind(StrEnum):
 # and ``cost_usd`` also live in typed :class:`NodeAuditRecord` columns, so the
 # evidence survives the projection either way.
 METADATA_KINDS: Mapping[str, MetadataKind] = {
+    "admission_digest": MetadataKind.DIGEST,
+    "admitted": MetadataKind.BOOLEAN,
     "assistant_id": MetadataKind.OPAQUE,
     "attempt": MetadataKind.NUMBER,
+    "branch_id": MetadataKind.IDENTIFIER,
+    "branch_index": MetadataKind.NUMBER,
     "budget_cap_usd": MetadataKind.NUMBER,
     "budget_check_degraded": MetadataKind.BOOLEAN,
     "budget_spend_usd": MetadataKind.NUMBER,
@@ -123,7 +148,9 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "governance_level": MetadataKind.LABEL,
     "input_sha256": MetadataKind.DIGEST,
     "input_size_bytes": MetadataKind.NUMBER,
+    "join_key": MetadataKind.IDENTIFIER,
     "model_name": MetadataKind.LABEL,
+    "network_mode": MetadataKind.LABEL,
     "node_kind": MetadataKind.LABEL,
     "operation": MetadataKind.LABEL,
     "output_sha256": MetadataKind.DIGEST,
@@ -133,6 +160,7 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "reason_code": MetadataKind.LABEL,
     "retry_count": MetadataKind.NUMBER,
     "reviewer": MetadataKind.OPAQUE,
+    "sandbox_strictness_mode": MetadataKind.LABEL,
     "status": MetadataKind.LABEL,
     "upstream_status_code": MetadataKind.NUMBER,
 }
@@ -160,6 +188,31 @@ def safe_name(name: Any) -> str:
 def type_name(value: Any) -> str:
     """Name a value's type without letting the value render itself."""
     return safe_name(type(value).__name__)
+
+
+def normalize_reason_code(name: Any) -> str | None:
+    """Render a producer's failure or denial *name* as a stable label-shaped code.
+
+    A denial's reason is decision metadata and has to survive the metadata-only
+    capture, but :data:`_SAFE_LABEL` is lower-case, so ``"AgentProviderError"``
+    would be summarized away and lost. Producers therefore normalize before
+    filing: ``"AgentProviderError"`` becomes ``"agent_provider_error"``.
+
+    Call this on a *name* -- an exception class, a denial branch -- never on a
+    message. Lower-cased ASCII words survive the transform, so a sentence that
+    interpolated a value would carry that value through it.
+
+    Args:
+        name: The candidate name. Only an exact ``str`` can pass.
+
+    Returns:
+        A bounded ``snake_case`` code, or ``None`` when nothing survives.
+    """
+    if type(name) is not str:
+        return None
+    split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)
+    code = re.sub(r"[^a-z0-9]+", "_", split.lower()).strip("_")
+    return code[:_MAX_LABEL_CHARS].rstrip("_") or None
 
 
 def key_digest(name: Any) -> str:
@@ -308,16 +361,18 @@ class ContentFreeProjection:
                 return value
             return self.summarize(value)
         if kind is MetadataKind.LABEL:
-            return self._label(value)
+            return self._bounded(value, _MAX_LABEL_CHARS, _SAFE_LABEL)
+        if kind is MetadataKind.IDENTIFIER:
+            return self._bounded(value, _MAX_IDENTIFIER_CHARS, _SAFE_IDENTIFIER)
         # OPAQUE: chosen outside this codebase, so hashed rather than retained.
         return self.summarize(value)
 
-    def _label(self, value: Any) -> Any:
-        """Retain a bounded lower-case vocabulary term, summarizing anything else."""
-        if type(value) is not str or len(value) > _MAX_LABEL_CHARS:
+    def _bounded(self, value: Any, limit: int, shape: re.Pattern[str]) -> Any:
+        """Retain a bounded lower-case term matching ``shape``, summarizing anything else."""
+        if type(value) is not str or len(value) > limit:
             return self.summarize(value)
         text = self._scrub(value)
-        if type(text) is not str or not _SAFE_LABEL.match(text):
+        if type(text) is not str or not shape.match(text):
             return self.summarize(value)
         return text
 
@@ -333,6 +388,7 @@ __all__ = [
     "digest",
     "entry_count",
     "key_digest",
+    "normalize_reason_code",
     "safe_name",
     "type_name",
 ]

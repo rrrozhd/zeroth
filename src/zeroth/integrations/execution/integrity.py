@@ -29,7 +29,12 @@ class ManifestIntegrityRecord:
 
 @dataclass(frozen=True, slots=True)
 class AdmissionResult:
-    """Outcome of admitting a manifest for execution."""
+    """Outcome of admitting a manifest for execution.
+
+    ``reason`` is a stable ``snake_case`` code naming the branch that decided
+    the verdict, never a rendered message: it is promoted into the audit trail
+    as decision metadata, which is retained where free-form text is not.
+    """
 
     admitted: bool
     reason: str
@@ -58,22 +63,27 @@ class AdmissionController:
         self._trusted_digests[manifest_ref] = digest
 
     def admit(self, manifest: Any) -> AdmissionResult:
+        """Return the verdict for one manifest, naming the branch that decided it.
+
+        ``reason`` is a stable ``snake_case`` code on every branch, matching the
+        ``trusted_digest`` the admitted branch already returned. The rejected
+        manifest's own text (its runtime, its command, its unit id) stays out of
+        it: the reason travels into an audit record, where a producer-authored
+        string is content rather than decision metadata, and the caller's
+        exception message still names the binding that was refused.
+        """
         digest = compute_manifest_digest(manifest)
         runtime = manifest.runtime.value
         if self.allowed_runtimes and runtime not in self.allowed_runtimes:
-            return AdmissionResult(False, f"runtime {runtime!r} is not allowed", digest)
+            return AdmissionResult(False, "runtime_not_allowed", digest)
         command = self._command_identity(manifest)
         if self.allowed_commands and command not in self.allowed_commands:
-            return AdmissionResult(False, f"command {command!r} is not allowed", digest)
+            return AdmissionResult(False, "command_not_allowed", digest)
         trusted_digest = self._trusted_digests.get(manifest.unit_id)
         if trusted_digest is None:
-            return AdmissionResult(
-                False,
-                f"no trusted digest registered for {manifest.unit_id}",
-                digest,
-            )
+            return AdmissionResult(False, "no_trusted_digest_registered", digest)
         if trusted_digest != digest:
-            return AdmissionResult(False, "manifest digest does not match trusted digest", digest)
+            return AdmissionResult(False, "trusted_digest_mismatch", digest)
         return AdmissionResult(True, "trusted_digest", digest)
 
     def _command_identity(self, manifest: Any) -> str:

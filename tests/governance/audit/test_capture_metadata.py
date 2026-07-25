@@ -332,6 +332,46 @@ def test_the_structural_values_an_allowlisted_key_is_for_still_survive() -> None
     assert metadata["compatibility_fingerprint"] == "sha256:" + "b" * 64
 
 
+def test_the_decision_metadata_a_denial_producer_promotes_survives() -> None:
+    # R4's other half: content off by default *while retaining* the decision.
+    # Each of these is a verdict, a normalized reason code, an enforcement mode
+    # or a system-minted id -- never a payload a producer was holding.
+    captured = _captured(
+        execution_metadata={
+            "admitted": False,
+            "admission_digest": "c" * 64,
+            "decision": "deny",
+            "reason_code": "runtime_not_allowed",
+            "enforcement_applied": False,
+            "network_mode": "disabled",
+            "sandbox_strictness_mode": "strict",
+            "attempt": 2,
+            "disposition": "cache_hit",
+        }
+    )
+
+    metadata = captured.execution_metadata
+    assert metadata["admitted"] is False
+    assert metadata["admission_digest"] == "c" * 64
+    assert metadata["decision"] == "deny"
+    assert metadata["reason_code"] == "runtime_not_allowed"
+    assert metadata["enforcement_applied"] is False
+    assert metadata["network_mode"] == "disabled"
+    assert metadata["sandbox_strictness_mode"] == "strict"
+    assert metadata["attempt"] == 2
+    assert metadata["disposition"] == "cache_hit"
+
+
+def test_an_identifier_key_still_refuses_a_value_that_is_not_identifier_shaped() -> None:
+    # IDENTIFIER retains verbatim, so it is the widest kind here: a value under
+    # one of its keys must still be lower-case and bounded, or it is summarized.
+    captured = _captured(execution_metadata={"join_key": SECRET, "branch_id": "run-1:branch:0"})
+
+    assert SECRET not in captured.model_dump_json()
+    assert set(captured.execution_metadata["join_key"]) == {"sha256", "schema", "count"}
+    assert captured.execution_metadata["branch_id"] == "run-1:branch:0"
+
+
 def test_a_value_of_the_wrong_kind_for_its_key_is_summarized_rather_than_kept() -> None:
     captured = _captured(execution_metadata={"duration_ms": ROOT_KEY, "input_sha256": ROOT_KEY})
 
