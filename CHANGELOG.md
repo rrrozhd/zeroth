@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.3] - 2026-07-25
+
+### Added
+
+- Capture classification and redaction on the audit delivery path
+  (`zeroth.governance.audit.capture_policy`). `AuditDeliveryQueue` now applies
+  `AuditCapturePolicy` itself, once per event and before the first write
+  attempt, so no record -- on the first attempt, on a retry, or on a retry after
+  a partially succeeded write -- can reach the durable writer uncaptured.
+  Content capture is off by default: prompt, argument and result values
+  (`input_snapshot`, `output_snapshot`, `validation_results`,
+  `condition_results`, `stdout`, `stderr`, each tool call's `arguments` and
+  `outcome`, each memory interaction's `value`) are emptied and replaced by a
+  SHA-256 digest, a key-and-type schema and an entry count filed under
+  `execution_metadata["audit_capture"]`, while identity, `status`, timing,
+  token usage, cost, actor, approval actions and the digest-chain fields are
+  retained. The default is fail-closed in both directions: a queue built with
+  no policy still redacts, and a policy that fails mid-transform emits a record
+  stripped of every content channel rather than the submitted one. Redaction
+  reuses `PayloadSanitizer`, `SecretRedactor` and `PIIFilter`; no field was
+  added to `NodeAuditRecord`.
+
 ## [0.12.3.2] - 2026-07-25
 
 ### Added

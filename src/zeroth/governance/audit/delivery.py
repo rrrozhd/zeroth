@@ -34,6 +34,21 @@ Re-minting an id per attempt (what a naive retry wrapped around the existing
 gateway sink would do, since it calls ``uuid4()`` on every emit) would persist
 one logical event as two records.
 
+**Capture classification and redaction run on the worker, once per event, ahead
+of the first attempt.** The transform is
+:class:`~zeroth.governance.audit.capture_policy.AuditCapturePolicy`, and this
+stage applies it *itself* rather than trusting a producer to have done so.
+``_consume`` runs it between the dequeue and ``_deliver``, so ``_deliver`` --
+the only code here that touches the writer -- holds nothing but the captured
+record. Producer-side application was the alternative: it would keep an
+unredacted record out of the in-process buffer, but it would also put an
+O(payload) walk on the latency-sensitive path that ``submit`` exists to keep
+O(1), and the buffer holds an object the producer was already holding, whereas
+the writer is durable storage. Running it once, ahead of the retry loop, is what
+makes "no attempt -- including the one after a partial success -- can reach the
+writer with what the producer submitted" true without walking the same payload
+once per attempt and risking a doubly-escaped value.
+
 **Exhaustion is failure, not delivery.** After the final attempt an event is
 counted as ``failed`` and dropped. ``failed``, ``rejected`` and ``delivered``
 are distinct counters precisely so an operator can tell "the writer is broken"
@@ -56,6 +71,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
+from zeroth.governance.audit.capture_policy import AuditCapturePolicy
 from zeroth.platform.observability.metrics import MetricsCollector
 
 if TYPE_CHECKING:
@@ -158,6 +174,7 @@ class AuditDeliveryQueue:
         base_delay_seconds: float = 0.5,
         max_delay_seconds: float = 30.0,
         metrics: MetricsCollector | None = None,
+        capture_policy: AuditCapturePolicy | None = None,
     ) -> None:
         if type(max_queue_size) is not int or max_queue_size < 1:
             raise ValueError("max_queue_size must be a positive int")
@@ -174,6 +191,9 @@ class AuditDeliveryQueue:
         # A private collector rather than None: metrics are always recorded, and
         # an un-wired deployment loses the scrape, not the accounting.
         self._metrics = MetricsCollector() if metrics is None else metrics
+        # Never None, for the same reason the collector is not: "no policy was
+        # supplied" must not resolve to "persist what the producer sent".
+        self._policy = AuditCapturePolicy() if capture_policy is None else capture_policy
         self._queue: asyncio.Queue[_PendingAudit] = asyncio.Queue(maxsize=max_queue_size)
         self._tasks: set[asyncio.Task[None]] = set()
         self._worker: asyncio.Task[None] | None = None
@@ -280,7 +300,12 @@ class AuditDeliveryQueue:
             item = await self._queue.get()
             self._in_flight = item
             try:
-                await self._deliver(item)
+                # The single application point of the capture policy: everything
+                # downstream of here, retries included, sees only its output.
+                captured = _PendingAudit(
+                    audit_id=item.audit_id, record=self._policy.apply(item.record)
+                )
+                await self._deliver(captured)
             finally:
                 self._in_flight = None
                 self._queue.task_done()
