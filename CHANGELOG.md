@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.2] - 2026-07-25
+
+### Added
+
+- Bounded audit-event delivery stage (`zeroth.governance.audit.delivery`). It sits
+  between an audit-event producer and the append-only audit write: `submit()` is a
+  synchronous `put_nowait` onto a finite queue, so a slow or wedged writer can never
+  suspend a producer, and a saturated queue rejects the newest event with accounting
+  instead of growing. A single worker retries each event with jittered exponential
+  backoff, reusing the `audit_id` minted at submit time, so a retry persists exactly
+  one record -- the repository's duplicate-`audit_id` `ValueError` is read as "already
+  durable", not as an error. Queued, delivered, retried, rejected, failed and
+  abandoned events are counted on an injectable `MetricsCollector`, and
+  `aclose(timeout=...)` drains within a bound and names what it could not deliver.
+
 ## [0.12.3.1.2] - 2026-07-25
 
 ### Fixed
