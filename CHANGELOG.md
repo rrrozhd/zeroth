@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.5.1] - 2026-07-25
+
+### Fixed
+
+- Restored the audit capture/redaction test names that the ZER-5 requirement
+  manifest pins as proof for R3, so the requirement checks resolve again.
+
 ## [0.12.3.5] - 2026-07-25
 
 ### Fixed

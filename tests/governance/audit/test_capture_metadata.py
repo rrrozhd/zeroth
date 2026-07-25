@@ -237,27 +237,3 @@ def test_a_capture_failure_is_logged_as_a_code_and_type_never_as_its_message(
     emitted = " ".join(record.getMessage() for record in caplog.records)
     assert SECRET not in emitted
     assert "capture_failed" in emitted
-
-
-def test_a_transform_that_fails_mid_walk_returns_a_blank_record_not_a_raw_one() -> None:
-    # The other fail-closed direction: a broken transform loses the content, not
-    # the guarantee.
-    class _Exploding(AuditCapturePolicy):
-        def _apply(self, record: NodeAuditRecord) -> NodeAuditRecord:
-            del record
-            raise RuntimeError("transform failed")
-
-    blanked = _Exploding().apply(
-        _record(
-            input_snapshot={"prompt": SECRET},
-            stdout=SECRET,
-            tool_calls=[ToolCallRecord(tool_ref="tool:http", alias="http", error=SECRET)],
-        )
-    )
-
-    assert blanked.input_snapshot == {}
-    assert blanked.tool_calls == []
-    assert blanked.memory_interactions == []
-    assert blanked.stdout is None
-    assert blanked.execution_metadata[CAPTURE_METADATA_KEY]["capture_failed"] is True
-    assert SECRET not in blanked.model_dump_json()

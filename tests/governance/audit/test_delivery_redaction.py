@@ -1,17 +1,14 @@
 """Capture classification and redaction on the audit delivery path.
 
-These tests pin the three properties that make the delivery stage safe to point
-at durable storage: the transform runs before any write and cannot be bypassed
+These tests pin the properties that make the delivery stage safe to point at
+durable storage: the transform runs before any write and cannot be bypassed
 (R3), content capture is off by default while the useful metadata survives (R4),
-and secrets seeded into prompt-, argument- and result-shaped fields do not reach
-the writer (R5).
-
-The writers record every *attempt*, not just the stored rows, because the retry
-and partial-success paths are where an ordering bug would show. R3's structural
-half is the pass-through probe: the transform is not an injectable collaborator
-at all, because a stage that accepted one wrote the seeded prompt verbatim the
-moment a caller supplied a policy that returned its argument. Only the
-*classifier* is replaceable.
+and seeded secrets do not reach the writer (R5). The writers record every
+*attempt*, not just the stored rows, because the retry and partial-success paths
+are where an ordering bug would show. R3's structural half is the pass-through
+probe: the transform is not an injectable collaborator at all, because a stage
+that accepted one wrote the seeded prompt verbatim the moment a caller supplied
+a policy that returned its argument. Only the *classifier* is replaceable.
 """
 
 from __future__ import annotations
@@ -75,9 +72,7 @@ class _FlakyRecordingWriter(_RecordingWriter):
 class _CrashAfterCommitWriter(_RecordingWriter):
     """Stores the row and then raises once -- the partial-success case."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._crashed = False
+    _crashed = False
 
     async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         stored = await super().write(record)
@@ -115,6 +110,14 @@ class _CountingClassifier:
     def classify(self, record: NodeAuditRecord) -> str:
         self.seen.append(record.audit_id)
         return CaptureDecision.METADATA_ONLY.value
+
+
+class _ExplodingCapturePolicy(AuditCapturePolicy):
+    """A policy whose transform blows up part-way through the walk."""
+
+    def _apply(self, record: NodeAuditRecord) -> NodeAuditRecord:
+        del record
+        raise RuntimeError("transform failed")
 
 
 class _PassThroughCapturePolicy:
@@ -190,9 +193,8 @@ async def _deliver_one(writer: Any, record: NodeAuditRecord, **kwargs: Any) -> N
 
 
 async def test_a_pass_through_policy_cannot_be_installed_on_the_delivery_stage() -> None:
-    # R3, structurally. The reproduction was: hand the stage a policy whose
-    # apply() returns its argument, and the seeded prompt is persisted verbatim.
-    # There is no longer a parameter that accepts one.
+    # R3, structurally: hand the stage a policy whose apply() returns its
+    # argument and the seeded prompt was persisted verbatim. No parameter takes one.
     writer = _RecordingWriter()
 
     with pytest.raises(TypeError):
@@ -215,8 +217,7 @@ async def test_the_writer_never_observes_the_record_object_the_producer_submitte
 
 
 async def test_every_attempt_including_the_retry_writes_only_the_captured_record() -> None:
-    # R3: two failed attempts and one that lands -- all three see the captured
-    # record, never the submitted one.
+    # R3: two failed attempts and one that lands all see the captured record.
     writer = _FlakyRecordingWriter(failures=2)
     queue = _queue(writer, max_attempts=3)
 
@@ -229,9 +230,8 @@ async def test_every_attempt_including_the_retry_writes_only_the_captured_record
         assert all(secret not in attempt.model_dump_json() for secret in SEEDED_SECRETS)
 
 
-async def test_the_capture_transform_runs_once_no_matter_how_many_write_attempts() -> None:
-    # Re-running the transform per attempt would double-escape an already
-    # redacted value and burn the walk again for nothing.
+async def test_the_capture_policy_runs_once_no_matter_how_many_write_attempts() -> None:
+    # Re-running it per attempt would double-escape an already redacted value.
     classifier = _CountingClassifier()
     writer = _FlakyRecordingWriter(failures=2)
     queue = _queue(writer, max_attempts=3, classifier=classifier)
@@ -335,7 +335,7 @@ async def test_seeded_secrets_at_every_nesting_depth_are_absent_from_the_emitted
         assert secret not in emitted
 
 
-async def test_a_queue_given_no_capture_configuration_still_redacts_before_the_write() -> None:
+async def test_a_queue_given_no_capture_policy_still_redacts_before_the_write() -> None:
     # The fail-closed default: "nothing was configured" must not mean "emit raw".
     writer = _RecordingWriter()
     queue = AuditDeliveryQueue(writer, base_delay_seconds=0, max_delay_seconds=0)
@@ -385,3 +385,16 @@ async def test_an_unrecognised_classification_retains_no_content(decision: objec
 
     assert stored.input_snapshot == {}
     assert stored.execution_metadata[CAPTURE_METADATA_KEY]["content_retained"] is False
+
+
+async def test_a_policy_that_fails_mid_transform_emits_a_blank_record_not_a_raw_one() -> None:
+    # The other fail-closed direction: a broken transform loses the content, not
+    # the guarantee. Exercised at the policy: the stage no longer has a seam.
+    blanked = _ExplodingCapturePolicy().apply(_seeded_record())
+
+    assert blanked.input_snapshot == {}
+    assert blanked.tool_calls == []
+    assert blanked.memory_interactions == []
+    assert blanked.stdout is None
+    assert blanked.execution_metadata[CAPTURE_METADATA_KEY]["capture_failed"] is True
+    assert all(secret not in blanked.model_dump_json() for secret in SEEDED_SECRETS)
