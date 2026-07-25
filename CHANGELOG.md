@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.12.4.3] - 2026-07-25
+## [0.12.4.3.1] - 2026-07-25
+
+### Fixed
+
+- Restored the retention suite's opt-in to content capture. Collapsing capture to
+  a single unconditional point at `AuditRepository.write` left the retention
+  fixtures stamping a capture marker onto each seeded record — a genuine opt-in
+  before the seal was deleted, a no-op that still read like one afterwards. The
+  seeded PII those eleven tests assert is present *before* a sweep was therefore
+  stripped at write time, and the pre-sweep assertions failed. The fixtures now
+  install a content-retaining `CaptureClassifier` on the repository via
+  `configure_capture`, which is the surviving legitimate mechanism: a deployment
+  picks between two fixed outcomes and cannot author the transform, and no record
+  influences whether it is captured. The marker-stamping helper is deleted rather
+  than left in place under a name it no longer earns.
 
 ### Fixed
 

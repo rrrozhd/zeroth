@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from tests.retention.conftest import content_captured, make_audit_record
+from tests.retention.conftest import make_audit_record
 from zeroth.governance.audit.erasure_schema import (
     AUDIT_CLEANUP_PAYLOAD_FIELDS,
     ERASED_PII_VALUES,
@@ -82,7 +82,7 @@ async def test_econ_cleanup_is_tenant_scoped_and_ignores_nested_untrusted_join_k
             "validation_results": {"nested": {"join_key": "tenant-b-secret"}},
         }
     )
-    await env.audit_repo.write(content_captured(record))
+    await env.audit_repo.write(record)
 
     await service.erase_run("run-econ-safe", "rte", tenant_id="tenant-a")
 
@@ -112,7 +112,7 @@ async def test_valid_cross_run_artifact_reference_is_never_deleted(env) -> None:
             }
         }
     )
-    await env.audit_repo.write(content_captured(record))
+    await env.audit_repo.write(record)
 
     await env.service.erase_run("run-artifact-safe", "rte")
 
