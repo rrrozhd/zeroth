@@ -13,6 +13,7 @@ a policy that returned its argument. Only the *classifier* is replaceable.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from zeroth.governance.audit.capture_policy import (
     AuditCapturePolicy,
     CaptureDecision,
 )
+from zeroth.governance.audit.capture_projection import key_digest
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.audit.errors import DuplicateAuditIdError
 from zeroth.governance.audit.models import (
@@ -288,7 +290,10 @@ async def test_timing_outcome_and_decision_metadata_survive_the_default_policy()
     assert [call.tool_ref for call in stored.tool_calls] == ["tool:http"]
     assert [item.operation for item in stored.memory_interactions] == ["write"]
     assert [action.action for action in stored.approval_actions] == ["approved"]
-    assert [action.metadata["reviewer"] for action in stored.approval_actions] == ["ops"]
+    # ``reviewer`` names whoever submitted the approval, so it is retained as a
+    # stable digest rather than as their text -- correlatable, not readable.
+    [reviewer] = [action.metadata["reviewer"] for action in stored.approval_actions]
+    assert reviewer["sha256"] == hashlib.sha256(b'"ops"').hexdigest()
 
 
 async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained() -> None:
@@ -317,8 +322,11 @@ async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained
     assert len(dropped["input_snapshot"]["sha256"]) == 64
     assert dropped["input_snapshot"]["sha256"] != dropped["output_snapshot"]["sha256"]
     assert dropped["input_snapshot"]["count"] == len(submitted.input_snapshot)
-    assert set(dropped["input_snapshot"]["schema"]) == {"prompt", "context"}
-    assert dropped["input_snapshot"]["schema"]["prompt"] == "str"
+    # Key names are hashed, never printed: a credential used as a mapping key
+    # would otherwise be persisted verbatim inside the schema of what was dropped.
+    schema = dropped["input_snapshot"]["schema"]
+    assert set(schema) == {key_digest("prompt"), key_digest("context")}
+    assert schema[key_digest("prompt")] == "str"
     assert dropped["stdout"]["count"] == len(submitted.stdout or "")
     assert dropped["tool_calls"]["count"] == 1
 

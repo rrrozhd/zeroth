@@ -19,6 +19,24 @@ failed *while* failing closed. The fallback is the queue-owned
 :func:`~zeroth.governance.audit.capture_policy.blank_record`, and if even that
 raises, the event is dropped and counted -- because the one output that is
 never an option is the record the producer submitted.
+
+**Every attempt is bounded, and the bound does not depend on the writer's
+manners.** ``await writer.write(...)`` was unbounded, so a single hung write
+owned the only worker indefinitely: it never retried, never failed, and showed
+up nowhere until the queue filled or shutdown began. Each attempt now runs as
+its own task under a finite deadline, and an attempt that overruns it is
+cancelled and *left*, never awaited -- a writer that swallows cancellation
+cannot extend the bound by ignoring it. The same ``audit_id`` is retried, so if
+the abandoned attempt does eventually commit, the retry meets
+:class:`~zeroth.governance.audit.errors.DuplicateAuditIdError` and is counted
+once, as delivered.
+
+**One event, one terminal count.** Shutdown can mark an in-flight event
+abandoned while its write is still outstanding, and that write can still
+succeed. Claiming the event's terminal state
+(:class:`~zeroth.governance.audit.delivery_state.TerminalState`) is what keeps
+"abandoned" and "delivered" exclusive; a commit that arrives after the claim is
+counted separately, as a reconciliation, so neither number lies.
 """
 
 from __future__ import annotations
@@ -26,10 +44,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from zeroth.governance.audit import capture_policy as capture_policy_module
-from zeroth.governance.audit.delivery_state import DeliveryFailure, PendingAudit
+from zeroth.governance.audit.delivery_state import (
+    DeliveryFailure,
+    DeliveryOutcome,
+    PendingAudit,
+)
 from zeroth.governance.audit.errors import DuplicateAuditIdError
 
 if TYPE_CHECKING:
@@ -41,6 +64,19 @@ if TYPE_CHECKING:
     from zeroth.governance.audit.models import NodeAuditRecord
 
 logger = logging.getLogger(__name__)
+
+# Long enough that a contended database transaction is not mistaken for a wedge,
+# short enough that a wedge is visible well before a queue of 1024 fills.
+DEFAULT_WRITE_TIMEOUT_SECONDS = 10.0
+
+
+class AttemptOutcome(StrEnum):
+    """How one bounded write attempt ended."""
+
+    WRITTEN = "written"
+    DUPLICATE = "duplicate"
+    TIMED_OUT = "timed_out"
+    FAILED = "failed"
 
 
 class DeliveryWorker:
@@ -55,6 +91,7 @@ class DeliveryWorker:
         max_attempts: Write attempts per event, including the first.
         base_delay: Backoff base for the second attempt onward.
         max_delay: Ceiling the jittered backoff cannot exceed.
+        write_timeout: Finite deadline for one write attempt.
     """
 
     def __init__(
@@ -67,6 +104,7 @@ class DeliveryWorker:
         max_attempts: int,
         base_delay: float,
         max_delay: float,
+        write_timeout: float = DEFAULT_WRITE_TIMEOUT_SECONDS,
     ) -> None:
         self._writer = writer
         self._policy = policy
@@ -75,44 +113,74 @@ class DeliveryWorker:
         self._max_attempts = max_attempts
         self._base_delay = base_delay
         self._max_delay = max_delay
+        self._write_timeout = write_timeout
         self._in_flight: PendingAudit | None = None
+        self._started_at: float | None = None
+        # Attempts that overran their deadline. Owned so they are neither
+        # garbage-collected mid-flight nor waited on.
+        self._orphans: set[asyncio.Task[object]] = set()
 
     @property
     def in_flight(self) -> PendingAudit | None:
         """The event currently being captured or written, if any."""
         return self._in_flight
 
+    @property
+    def in_flight_seconds(self) -> float | None:
+        """How long the current event has been in the worker's hands, if any."""
+        if self._started_at is None:
+            return None
+        return max(0.0, asyncio.get_running_loop().time() - self._started_at)
+
     async def run(self) -> None:
         """Deliver queued events one at a time until cancelled."""
         while True:
             item = await self._queue.get()
             self._in_flight = item
+            self._started_at = asyncio.get_running_loop().time()
             try:
                 captured = self._capture(item)
                 if captured is None:
-                    self.fail(item.audit_id, DeliveryFailure.CAPTURE_FAILED)
+                    self.fail(item, DeliveryFailure.CAPTURE_FAILED)
                 else:
-                    await self._deliver(PendingAudit(audit_id=item.audit_id, record=captured))
+                    await self._deliver(item, captured)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - one event must never take the
                 # only worker with it. A crash escaping here left every later
                 # event queued forever and uncounted, and re-raised out of the
                 # stage's ``aclose`` with the failure recorded nowhere.
-                self.fail(item.audit_id, DeliveryFailure.WORKER_ERROR, exc)
+                self.fail(item, DeliveryFailure.WORKER_ERROR, exc)
             finally:
                 self._in_flight = None
+                self._started_at = None
                 self._queue.task_done()
                 self._counters.publish_depth(self._queue.qsize())
 
-    def fail(self, audit_id: str, code: DeliveryFailure, exc: BaseException | None = None) -> None:
-        """Count one permanently undelivered event and keep its id for the close report."""
-        self._counters.record_failure(audit_id)
+    def fail(
+        self, item: PendingAudit, code: DeliveryFailure, exc: BaseException | None = None
+    ) -> None:
+        """Count one permanently undelivered event, unless shutdown already counted it."""
+        if not item.terminal.claim(DeliveryOutcome.FAILED):
+            return
+        self._counters.record_failure(item.audit_id)
         logger.warning(
             "audit delivery failed code=%s audit_id=%s exception_type=%s",
             code.value,
-            audit_id,
+            item.audit_id,
             "none" if exc is None else type(exc).__name__,
+        )
+
+    def commit(self, item: PendingAudit) -> None:
+        """Count one durable event, or reconcile a write that landed after shutdown gave up."""
+        if item.terminal.claim(DeliveryOutcome.DELIVERED):
+            self._counters.increment("delivered")
+            return
+        self._counters.increment("reconciled")
+        logger.warning(
+            "audit delivery late commit audit_id=%s already counted as %s",
+            item.audit_id,
+            item.terminal.outcome,
         )
 
     def _capture(self, item: PendingAudit) -> NodeAuditRecord | None:
@@ -139,37 +207,65 @@ class DeliveryWorker:
             self._log_degraded(item.audit_id, exc)
             return None
 
-    async def _deliver(self, item: PendingAudit) -> None:
+    async def _deliver(self, item: PendingAudit, record: NodeAuditRecord) -> None:
         """Write one event, retrying the same ``audit_id`` until attempts run out."""
         attempt = 1
         while True:
-            try:
-                await self._writer.write(item.record)
-            except asyncio.CancelledError:
-                raise
-            except DuplicateAuditIdError:
-                # The append-only contract's one benign refusal: this audit_id is
-                # already stored, so an earlier attempt did land. Counting it as
-                # failed would report a loss that never happened, and re-writing
-                # it is impossible by design. Deliberately narrow -- every other
-                # error, plain ``ValueError`` included, means no row was written.
-                self._counters.increment("delivered")
+            outcome, exc = await self._attempt(record)
+            if outcome is AttemptOutcome.WRITTEN or outcome is AttemptOutcome.DUPLICATE:
+                # DUPLICATE is the append-only contract's one benign refusal: this
+                # audit_id is already stored, so an earlier attempt did land.
+                # Deliberately narrow -- every other error, plain ``ValueError``
+                # included, means no row was written.
+                self.commit(item)
                 return
-            except Exception as exc:  # noqa: BLE001 - the writer is injected, so any
-                # non-duplicate failure (locked database, disk, a transport under
-                # a different implementation) is transient until the attempt
-                # budget says otherwise. Narrowing this would let an
-                # unanticipated storage error kill the worker for every later
-                # event, which is a much larger loss than one dropped record.
-                if attempt >= self._max_attempts:
-                    self.fail(item.audit_id, DeliveryFailure.WRITE_FAILED, exc)
-                    return
-                self._counters.increment("retried")
-                await asyncio.sleep(self._backoff_delay(attempt))
-                attempt += 1
-            else:
-                self._counters.increment("delivered")
+            if attempt >= self._max_attempts:
+                code = (
+                    DeliveryFailure.WRITE_TIMEOUT
+                    if outcome is AttemptOutcome.TIMED_OUT
+                    else DeliveryFailure.WRITE_FAILED
+                )
+                self.fail(item, code, exc)
                 return
+            self._counters.increment("retried")
+            await asyncio.sleep(self._backoff_delay(attempt))
+            attempt += 1
+
+    async def _attempt(
+        self, record: NodeAuditRecord
+    ) -> tuple[AttemptOutcome, BaseException | None]:
+        """Run one write under a finite deadline, waiting on nothing past it."""
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        task: asyncio.Task[object] = asyncio.create_task(
+            self._writer.write(record), name="audit-delivery-write"
+        )
+        try:
+            done, _pending = await asyncio.wait({task}, timeout=self._write_timeout)
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        if not done:
+            # Cancelled and released, never awaited: a writer that swallows the
+            # cancellation would otherwise own this worker for as long as it liked.
+            task.cancel()
+            self._orphans.add(task)
+            task.add_done_callback(self._orphans.discard)
+            self._counters.publish_in_flight_age(loop.time() - started)
+            return AttemptOutcome.TIMED_OUT, None
+        if task.cancelled():
+            return AttemptOutcome.FAILED, None
+        exc = task.exception()
+        if exc is None:
+            return AttemptOutcome.WRITTEN, None
+        if isinstance(exc, DuplicateAuditIdError):
+            return AttemptOutcome.DUPLICATE, exc
+        if not isinstance(exc, Exception):  # pragma: no cover - BaseException escape
+            raise exc
+        # The writer is injected, so any non-duplicate failure (locked database,
+        # disk, a transport under a different implementation) is transient until
+        # the attempt budget says otherwise.
+        return AttemptOutcome.FAILED, exc
 
     def _backoff_delay(self, attempt: int) -> float:
         """Full-jitter exponential backoff for a 1-based attempt number."""
@@ -192,4 +288,4 @@ class DeliveryWorker:
         )
 
 
-__all__ = ["DeliveryWorker"]
+__all__ = ["DEFAULT_WRITE_TIMEOUT_SECONDS", "AttemptOutcome", "DeliveryWorker"]

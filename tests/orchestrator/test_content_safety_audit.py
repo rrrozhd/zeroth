@@ -23,6 +23,7 @@ from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, 
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.runs import RunStatus
+from tests.conftest import content_capture
 
 
 class _In(BaseModel):
@@ -63,7 +64,7 @@ async def test_blocked_agent_output_persists_rejected_audit(sqlite_db) -> None:
         edges=[],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
         run_repository=RunRepository(sqlite_db),
         agent_runners={"start": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),

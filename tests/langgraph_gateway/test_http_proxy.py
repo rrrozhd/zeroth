@@ -1245,8 +1245,11 @@ async def test_a_saturated_audit_queue_neither_reorders_nor_delays_the_streamed_
 
     assert chunks == [b"one-", b"two-", b"three"]
     assert queue.counts().rejected == 2
-    # The refused terminal event is counted, not silently dropped.
-    assert proxy.sink_failure_count == 1
+    # The refused terminal event is counted by the delivery stage -- which is
+    # what ``/v1/metrics`` and the readiness probe read -- and no longer raised
+    # into the proxy's generic handler, whose ``logger.exception`` produced one
+    # full traceback per refusal on the response-completion path.
+    assert proxy.sink_failure_count == 0
     assert writer.attempted_ids == ["audit-in-flight"]
     report = await queue.aclose(timeout=0)
     assert report.undelivered_audit_ids == ("audit-in-flight", "audit-queued")

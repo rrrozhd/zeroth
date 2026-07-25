@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.1] - 2026-07-25
+
+### Fixed
+
+- The durable audit write is now the capture boundary. `AuditRepository.write`
+  applies the capture policy itself, so the orchestration runtime, the approvals
+  service and the service API can no longer reach storage around it: node
+  prompts, results, error text, policy denials and approval audits are
+  classified and redacted before the digest is computed, whatever the producer
+  submitted and whether or not a secret resolver was ever injected (R3, R4, R5).
+  A record produced by a capture policy in this process carries a process-local
+  nonce and is written unchanged, so the delivery stage's output is not
+  transformed twice; the nonce is stripped before the write, so it never reaches
+  storage and cannot be replayed. `AuditRepository.configure_capture` installs a
+  deployment's classifier once, at wiring time, for deployments that opt into
+  retaining content.
+- Allowlisted `execution_metadata` keys are now projected per key by declared
+  kind -- number, boolean, digest, bounded lower-case label, or an opaque
+  identifier that is only ever hashed -- instead of accepting any short scalar.
+  A credential pasted into the client-supplied `X-Correlation-ID` header is no
+  longer persisted verbatim (R4, R5).
+- Mapping key text supplied by a producer is never persisted in a dropped-content
+  schema: schema keys are truncated SHA-256 digests, and schema type names come
+  from a closed set. An identifier-shaped credential used as a mapping key was
+  previously stored as a "shape" (R5).
+- The capture redaction chain masks mapping keys as well as values, and the
+  payload sanitizer accepts only exact `str` keys instead of calling `str(key)`.
+  A registered secret used as a mapping key survived content-mode capture (R5).
+- `AuditDeliveryQueue.submit` rejects a whitespace-only tenant and counts a
+  dedicated `invalid_record` rejection before raising, so a refused event is
+  visible on `/v1/metrics` and `/health` instead of disappearing with every
+  counter at zero (R7, R8, R9).
+- Each audit write attempt now runs under a finite deadline; an attempt that
+  overruns it is cancelled, released without being awaited, counted, and retried
+  under the same `audit_id`. One hung write previously owned the stage's only
+  worker indefinitely, with no retry, no failure and no counter movement.
+  `zeroth_audit_delivery_in_flight_seconds` reports the age of an outstanding
+  attempt.
+- Shutdown claims an in-flight event's terminal state before cancelling, so a
+  write that lands after abandonment is recorded under
+  `zeroth_audit_delivery_reconciled_total` rather than counted a second time as
+  delivered. "Abandoned" and "delivered" are mutually exclusive again (R7).
+- The service lifespan bounds the gateway transport's shutdown and drains the
+  audit-delivery queue in an unconditional `finally`. A transport close that
+  raised skipped the drain entirely and one that hung postponed it forever,
+  losing the accepted backlog; the transport error is now preserved and re-raised
+  only after the drain has reported (R10).
+- `AuditGatewayEventSink.emit` counts a refused or unprojectable terminal event
+  through the delivery stage's counters and returns, instead of raising into the
+  gateway proxy's generic handler -- which logged a full traceback per refusal on
+  the response-completion path, exactly under saturation. `GatewayAuditRefusedError`
+  is removed.
+
+### Changed
+
+- Artifact references owned by a run (`{run_id}/...`) are retained as addressing
+  under the capture marker, so retention can still find and destroy a run's
+  artifacts after its content channels are emptied.
+- `AuditRecordSubmitter` documents as a hard requirement that an implementation
+  must be non-blocking and synchronous at the hand-off; the proxy's
+  `asyncio.timeout` around the sink is a cooperative guard and cannot make a
+  blocking or cancellation-swallowing sink safe.
+
 ## [0.12.4] - 2026-07-25
 
 ### Added

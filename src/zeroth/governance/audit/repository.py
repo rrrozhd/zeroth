@@ -2,6 +2,16 @@
 
 Provides the AuditRepository class that handles saving and querying
 NodeAuditRecord objects using an async database.
+
+**This is the capture boundary.** :meth:`AuditRepository.write` is the single
+durable chokepoint -- ``write_many`` delegates to it -- so the classification and
+redaction :mod:`zeroth.governance.audit.capture_policy` owns are applied *here*,
+before the digest is computed. Placing them on the delivery worker left every
+direct caller outside them: the orchestration runtime holds a repository and
+writes node prompts, results, errors and denials straight through it, with a
+``redact`` that is a pass-through whenever no secret resolver was injected. A
+record already carrying this process's capture seal is written unchanged; see
+:mod:`zeroth.governance.audit.capture_seal`.
 """
 
 from __future__ import annotations
@@ -10,6 +20,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from zeroth.governance.audit.capture_policy import AuditCapturePolicy
+from zeroth.governance.audit.capture_seal import capture_for_write
 from zeroth.governance.audit.coordination import (
     advance_audit_chain,
     hydrate_audit_row,
@@ -28,6 +40,7 @@ from zeroth.platform.storage import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.json import to_json_value
 
 if TYPE_CHECKING:
+    from zeroth.governance.audit.capture_policy import CaptureClassifier
     from zeroth.platform.signing import SigningKeyProvider
 
 
@@ -49,21 +62,49 @@ class AuditRepository:
         # atomically. None -> records stay unsigned-legacy (injected post-build
         # by bootstrap once the shared secret provider exists).
         self._signer = signer
+        # Constructed, never accepted: a capture boundary a caller can replace
+        # with a pass-through is not a boundary. Only the classifier is
+        # configurable, via ``configure_capture``.
+        self._capture = AuditCapturePolicy()
+        self._capture_configured = False
+
+    def configure_capture(self, classifier: CaptureClassifier) -> None:
+        """Install the deployment's capture classifier, once, at wiring time.
+
+        The classifier is the *only* replaceable part of the capture boundary:
+        it picks between two fixed outcomes and cannot author either, so a
+        deployment can opt into retaining content without supplying the
+        transform that decides what "retained" means.
+
+        Args:
+            classifier: Decides per record whether content may be retained.
+
+        Raises:
+            ValueError: If a classifier was already installed. Capture posture
+                is wiring, not a runtime switch: a repository whose policy can
+                be swapped mid-flight has no posture at all.
+        """
+        if self._capture_configured:
+            raise ValueError("audit capture classifier is already configured")
+        self._capture = AuditCapturePolicy(classifier=classifier)
+        self._capture_configured = True
 
     async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         """Save an audit record to the database.
 
         Writes are append-only. Duplicate audit IDs are rejected so history
-        cannot be silently rewritten.
+        cannot be silently rewritten. The record is classified and redacted
+        first -- unless it already carries this process's capture seal -- so what
+        is digested and inserted is what the capture policy allows.
 
         Raises:
             DuplicateAuditIdError: If ``record.audit_id`` is already stored --
-                and only then. It subclasses ``ValueError`` so existing callers
-                that catch ``ValueError`` around this write are unaffected,
-                while a caller that treats "already stored" as a successful
-                delivery can narrow to the exact type instead of reading every
-                pre-commit validation failure as a durable record.
+                and only then. It subclasses ``ValueError`` so callers catching
+                ``ValueError`` are unaffected, while one that treats "already
+                stored" as a successful delivery can narrow to the exact type
+                instead of reading every pre-commit failure as a durable record.
         """
+        record = capture_for_write(record, self._capture)
         async with self._database.transaction(write_lock=True) as connection:
             head = await lock_audit_chain(
                 connection,

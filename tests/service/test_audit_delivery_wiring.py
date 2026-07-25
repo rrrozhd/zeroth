@@ -25,6 +25,9 @@ import asyncio
 import logging
 from types import SimpleNamespace
 from typing import Any
+from unittest import mock
+
+import pytest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -39,6 +42,7 @@ from zeroth.service.api.health import (
     audit_delivery_health,
     determine_readiness_status,
 )
+from zeroth.service.bootstrap import lifecycle
 from zeroth.service.bootstrap.lifecycle import service_lifespan
 
 
@@ -408,3 +412,93 @@ async def test_the_lifespan_tolerates_a_deployment_that_wired_no_delivery_stage(
 
     async with service_lifespan(app):
         pass
+
+
+class _CollectingAuditWriter:
+    """Persists whatever the drain hands it, immediately."""
+
+    def __init__(self) -> None:
+        self.written: list[str] = []
+
+    async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
+        """Persist one record."""
+        self.written.append(record.audit_id)
+        return record
+
+
+class _FailingTransport:
+    """A gateway transport whose shutdown raises -- the probe for the skipped drain."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def aclose(self) -> None:
+        """Fail the way a transport with a broken pool does."""
+        self.closed = True
+        raise RuntimeError("transport shutdown failed")
+
+
+class _HangingTransport:
+    """A gateway transport whose shutdown never returns and ignores cancellation."""
+
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def aclose(self) -> None:
+        """Park past any bound the lifespan gives it."""
+        self.entered.set()
+        while not self.release.is_set():
+            try:
+                await self.release.wait()
+            except asyncio.CancelledError:  # noqa: PERF203 - the violation under test
+                continue
+
+
+async def test_a_transport_close_that_raises_does_not_skip_the_drain() -> None:
+    """R10: the reproduction -- the queue was never closed and the backlog vanished.
+
+    ``aclose`` raised out of the lifespan's ``finally`` *before*
+    ``_drain_audit_delivery`` was reached, so every accepted event was dropped
+    with nothing counting it. The error is still surfaced, just not at the cost
+    of the evidence already accepted.
+    """
+    writer = _CollectingAuditWriter()
+    queue = AuditDeliveryQueue(writer, base_delay_seconds=0, max_delay_seconds=0)
+    transport = _FailingTransport()
+    app = _lifespan_app(
+        langgraph_gateway_transport=transport,
+        audit_delivery_queue=queue,
+    )
+
+    with pytest.raises(RuntimeError, match="transport shutdown failed"):
+        async with service_lifespan(app):
+            assert queue.submit(_record("audit-after-transport-failure")) is True
+
+    assert transport.closed is True
+    assert writer.written == ["audit-after-transport-failure"]
+    assert queue.counts().delivered == 1
+
+
+async def test_a_transport_close_that_hangs_does_not_postpone_the_drain_indefinitely() -> None:
+    """R10: an unbounded close put the drain behind something with no deadline."""
+    writer = _CollectingAuditWriter()
+    queue = AuditDeliveryQueue(writer, base_delay_seconds=0, max_delay_seconds=0)
+    transport = _HangingTransport()
+    app = _lifespan_app(
+        langgraph_gateway_transport=transport,
+        audit_delivery_queue=queue,
+    )
+    loop = asyncio.get_running_loop()
+
+    with mock.patch.object(lifecycle, "TRANSPORT_CLOSE_TIMEOUT_SECONDS", 0.01):
+        started = loop.time()
+        async with service_lifespan(app):
+            assert queue.submit(_record("audit-behind-a-hung-close")) is True
+        elapsed = loop.time() - started
+
+    transport.release.set()
+    assert transport.entered.is_set()
+    assert elapsed < 2.0
+    assert writer.written == ["audit-behind-a-hung-close"]
+    assert queue.counts().delivered == 1

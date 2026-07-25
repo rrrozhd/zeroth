@@ -7,6 +7,8 @@ from zeroth.governance.identity import ServiceRole
 from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.core.service.bootstrap import bootstrap_app
 
+from tests.conftest import content_capture
+
 
 def _scoped_auth_config() -> ServiceAuthConfig:
     return ServiceAuthConfig(
@@ -61,6 +63,10 @@ async def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_
         auth_config=auth_config,
     )
     app.state.bootstrap = service
+    # The denial's reason is free-form ``error`` text, which the default
+    # metadata-only capture replaces with a marker; asserting on it is asserting
+    # about a deployment that classifies its audits into content.
+    content_capture(service.audit_repository)
 
     with TestClient(app) as client:
         create_response = client.post(

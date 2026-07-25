@@ -20,7 +20,7 @@ the ids they were handed knows the list is a floor, not a total.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from zeroth.governance.audit.models import NodeAuditRecord
 
 QUEUE_DEPTH_GAUGE = "zeroth_audit_delivery_queue_depth"
+IN_FLIGHT_AGE_GAUGE = "zeroth_audit_delivery_in_flight_seconds"
 
 COUNTER_METRICS = {
     "queued": "zeroth_audit_delivery_queued_total",
@@ -38,6 +39,10 @@ COUNTER_METRICS = {
     "rejected": "zeroth_audit_delivery_rejected_total",
     "failed": "zeroth_audit_delivery_failed_total",
     "abandoned": "zeroth_audit_delivery_abandoned_total",
+    # Not a loss and not a delivery: an event shutdown already counted as
+    # abandoned, whose write turned out to land afterwards. Counted apart so
+    # "delivered" keeps meaning "durable and accounted exactly once".
+    "reconciled": "zeroth_audit_delivery_reconciled_total",
 }
 
 
@@ -64,12 +69,46 @@ class AuditRecordWriter(Protocol):
         ...
 
 
+class DeliveryOutcome(StrEnum):
+    """The mutually exclusive terminal states one accepted event can reach."""
+
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    ABANDONED = "abandoned"
+
+
+@dataclass(slots=True)
+class TerminalState:
+    """The single terminal outcome one accepted event is counted under.
+
+    Shutdown marks an in-flight event abandoned and then cancels the worker, but
+    a writer that swallows :class:`asyncio.CancelledError` can return afterwards
+    and report success -- which counted one event as both abandoned and
+    delivered, and the two counters are supposed to be exclusive. Claiming is
+    what makes them so.
+    """
+
+    outcome: DeliveryOutcome | None = None
+
+    def claim(self, outcome: DeliveryOutcome) -> bool:
+        """Take the event's one terminal outcome, or report that it is already taken.
+
+        Atomic without a lock: there is no ``await`` between the read and the
+        write, so no other coroutine on this loop can interleave between them.
+        """
+        if self.outcome is not None:
+            return False
+        self.outcome = outcome
+        return True
+
+
 @dataclass(frozen=True, slots=True)
 class PendingAudit:
     """One queued event, carrying the identity every retry reuses."""
 
     audit_id: str
     record: NodeAuditRecord
+    terminal: TerminalState = field(default_factory=TerminalState)
 
 
 class DeliveryRejection(StrEnum):
@@ -77,6 +116,12 @@ class DeliveryRejection(StrEnum):
 
     QUEUE_FULL = "queue_full"
     CLOSED = "closed"
+    # A record the stage cannot account for: no tenant, or no audit identity.
+    # Counted before the refusal is raised, because a rejection nobody counted
+    # is an event that vanished while every health surface still read "ok".
+    INVALID_RECORD = "invalid_record"
+    # A terminal event the gateway sink could not even project into a record.
+    PROJECTION_FAILED = "projection_failed"
 
 
 class DeliveryFailure(StrEnum):
@@ -90,6 +135,7 @@ class DeliveryFailure(StrEnum):
 
     CAPTURE_FAILED = "capture_failed"
     WRITE_FAILED = "write_failed"
+    WRITE_TIMEOUT = "write_timeout"
     WORKER_ERROR = "worker_error"
 
 
@@ -103,6 +149,7 @@ class AuditDeliveryCounts:
     rejected: int = 0
     failed: int = 0
     abandoned: int = 0
+    reconciled: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,16 +233,28 @@ class DeliveryCounters:
         """Publish the current queue depth as a gauge."""
         self._metrics.gauge_set(QUEUE_DEPTH_GAUGE, float(depth))
 
+    def publish_in_flight_age(self, seconds: float) -> None:
+        """Publish how long the current write attempt has been outstanding.
+
+        A wedged writer produces no counter movement at all until the queue
+        fills or shutdown begins, so the age is the only signal that the stage
+        is stuck rather than idle.
+        """
+        self._metrics.gauge_set(IN_FLIGHT_AGE_GAUGE, float(seconds))
+
 
 __all__ = [
     "COUNTER_METRICS",
+    "IN_FLIGHT_AGE_GAUGE",
     "QUEUE_DEPTH_GAUGE",
     "AuditDeliveryCounts",
     "AuditDeliveryReport",
     "AuditRecordWriter",
     "DeliveryCounters",
     "DeliveryFailure",
+    "DeliveryOutcome",
     "DeliveryRejection",
     "PendingAudit",
+    "TerminalState",
     "validate_seconds",
 ]

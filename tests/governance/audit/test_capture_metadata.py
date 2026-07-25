@@ -18,6 +18,7 @@ dropped content.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 
 import pytest
@@ -27,7 +28,11 @@ from zeroth.governance.audit.capture_policy import (
     AuditCapturePolicy,
     CaptureDecision,
 )
-from zeroth.governance.audit.capture_projection import ALLOWED_METADATA_KEYS, canonicalize
+from zeroth.governance.audit.capture_projection import (
+    ALLOWED_METADATA_KEYS,
+    canonicalize,
+    key_digest,
+)
 from zeroth.governance.audit.models import (
     ApprovalActionRecord,
     NodeAuditRecord,
@@ -152,7 +157,11 @@ def test_approval_metadata_is_projected_onto_the_allowlist() -> None:
 
     [action] = captured.approval_actions
     assert action.action == "approved"
-    assert action.metadata == {"reviewer": "ops"}
+    # ``reviewer`` is chosen outside this codebase, so it survives as a digest:
+    # the record still correlates two approvals by the same reviewer, and a
+    # credential typed into that field is not persisted as text either.
+    assert set(action.metadata) == {"reviewer"}
+    assert action.metadata["reviewer"]["sha256"] == hashlib.sha256(b'"ops"').hexdigest()
     assert SECRET not in captured.model_dump_json()
 
 
@@ -165,7 +174,7 @@ def test_a_mapping_key_that_renders_as_a_secret_never_reaches_the_persisted_sche
     schema = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]["input_snapshot"][
         "schema"
     ]
-    assert schema == {"outer": {"***REDACTED***": "str"}}
+    assert schema == {key_digest("outer"): {key_digest("***REDACTED***"): "str"}}
 
 
 def test_a_payload_with_an_unrenderable_key_still_produces_a_digest() -> None:
@@ -237,3 +246,143 @@ def test_a_capture_failure_is_logged_as_a_code_and_type_never_as_its_message(
     emitted = " ".join(record.getMessage() for record in caplog.records)
     assert SECRET not in emitted
     assert "capture_failed" in emitted
+
+
+ROOT_KEY = "AKIAIOSFODNN7EXAMPLE"
+
+
+class _RegisteredSecretKey:
+    """A non-string mapping key whose text is a registered secret."""
+
+    def __str__(self) -> str:
+        return SECRET
+
+    def __hash__(self) -> int:
+        return 11
+
+    def __eq__(self, other: object) -> bool:
+        return self is other
+
+
+class _ContentClassifier:
+    """The explicit opt-in: this event may retain content."""
+
+    def classify(self, record: NodeAuditRecord) -> str:
+        """Answer ``content`` whatever the record holds."""
+        del record
+        return CaptureDecision.CONTENT.value
+
+
+def test_a_credential_in_the_client_supplied_correlation_id_is_not_persisted() -> None:
+    # The probe: ``correlation_id`` is filled straight from the gateway's
+    # ``X-Correlation-ID`` request header, and every allowlisted key used to
+    # accept any short string, so a credential pasted into that header was
+    # persisted verbatim under the default policy.
+    captured = _captured(execution_metadata={"correlation_id": ROOT_KEY})
+
+    assert ROOT_KEY not in captured.model_dump_json()
+    summary = captured.execution_metadata["correlation_id"]
+    assert set(summary) == {"sha256", "schema", "count"}
+
+
+@pytest.mark.parametrize("key", sorted(ALLOWED_METADATA_KEYS))
+def test_a_seeded_credential_in_any_allowlisted_field_is_absent_from_the_record(
+    key: str,
+) -> None:
+    # Every allowlisted key, not just the one the probe happened to name: a key
+    # is allowlisted for the *kind* of value it carries, and a credential is not
+    # that kind whatever the key is called.
+    captured = _captured(execution_metadata={key: ROOT_KEY})
+
+    assert ROOT_KEY not in captured.model_dump_json()
+
+
+@pytest.mark.parametrize("key", sorted(ALLOWED_METADATA_KEYS))
+def test_a_seeded_api_key_in_any_allowlisted_field_is_absent_from_the_record(
+    key: str,
+) -> None:
+    captured = _captured(execution_metadata={key: SECRET})
+
+    assert SECRET not in captured.model_dump_json()
+
+
+def test_the_structural_values_an_allowlisted_key_is_for_still_survive() -> None:
+    # The other half: a typed projection that dropped everything would be a
+    # scrub, not an allowlist. Numbers, booleans, digests and lower-case
+    # vocabulary terms are exactly what these keys exist to carry.
+    captured = _captured(
+        execution_metadata={
+            "node_kind": "agent",
+            "operation": "threads.create",
+            "duration_ms": 42.5,
+            "upstream_status_code": 200,
+            "budget_check_degraded": False,
+            "input_sha256": "a" * 64,
+            "compatibility_fingerprint": "sha256:" + "b" * 64,
+        }
+    )
+
+    metadata = captured.execution_metadata
+    assert metadata["node_kind"] == "agent"
+    assert metadata["operation"] == "threads.create"
+    assert metadata["duration_ms"] == 42.5
+    assert metadata["upstream_status_code"] == 200
+    assert metadata["budget_check_degraded"] is False
+    assert metadata["input_sha256"] == "a" * 64
+    assert metadata["compatibility_fingerprint"] == "sha256:" + "b" * 64
+
+
+def test_a_value_of_the_wrong_kind_for_its_key_is_summarized_rather_than_kept() -> None:
+    captured = _captured(execution_metadata={"duration_ms": ROOT_KEY, "input_sha256": ROOT_KEY})
+
+    assert ROOT_KEY not in captured.model_dump_json()
+    assert set(captured.execution_metadata["duration_ms"]) == {"sha256", "schema", "count"}
+    assert set(captured.execution_metadata["input_sha256"]) == {"sha256", "schema", "count"}
+
+
+def test_an_identifier_shaped_credential_used_as_a_mapping_key_never_reaches_the_schema() -> None:
+    # The probe: ``AKIAIOSFODNN7EXAMPLE`` passes every "looks like a name" test
+    # there is, so gating schema keys on shape persisted it verbatim inside the
+    # dropped-content summary. Keys are hashed now, never printed.
+    captured = _captured(input_snapshot={ROOT_KEY: "value"})
+
+    assert ROOT_KEY not in captured.model_dump_json()
+    schema = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]["input_snapshot"][
+        "schema"
+    ]
+    assert schema == {key_digest(ROOT_KEY): "str"}
+
+
+def test_a_dynamically_named_type_cannot_author_a_schema_entry() -> None:
+    # A schema only ever describes canonical values, so its type names come from
+    # a closed set; a class carrying a credential as its ``__name__`` cannot
+    # smuggle it in as "the type this value had".
+    sneaky = type(SECRET, (), {})
+
+    captured = _captured(input_snapshot={"outer": sneaky()})
+
+    assert SECRET not in captured.model_dump_json()
+
+
+def test_a_non_string_key_cannot_persist_a_registered_secret_in_content_mode() -> None:
+    # The content branch is the one place the channel drop does not cover, and
+    # every rung of the redaction chain walked values only: the sanitizer turned
+    # the key into ``str(key)`` and the secret redactor never looked at keys, so
+    # a registered secret used as a mapping key was reproduced verbatim.
+    policy = AuditCapturePolicy(
+        classifier=_ContentClassifier(), known_secrets={"vault_ref": SECRET}
+    )
+
+    captured = policy.apply(_record(input_snapshot={"outer": {_RegisteredSecretKey(): "v"}}))
+
+    assert SECRET not in captured.model_dump_json()
+
+
+def test_a_registered_secret_used_as_a_string_key_is_masked_in_content_mode() -> None:
+    policy = AuditCapturePolicy(
+        classifier=_ContentClassifier(), known_secrets={"vault_ref": SECRET}
+    )
+
+    captured = policy.apply(_record(input_snapshot={SECRET: "value"}))
+
+    assert SECRET not in captured.model_dump_json()

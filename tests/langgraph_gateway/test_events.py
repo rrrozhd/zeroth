@@ -7,7 +7,6 @@ import pytest
 from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
 from zeroth.core.langgraph_gateway.events import (
     AuditGatewayEventSink,
-    GatewayAuditRefusedError,
     TeeObserver,
 )
 from zeroth.core.langgraph_gateway.models import (
@@ -17,7 +16,8 @@ from zeroth.core.langgraph_gateway.models import (
     GovernanceLevel,
     RouteDisposition,
 )
-from zeroth.governance.audit.delivery import AuditDeliveryQueue
+from zeroth.governance.audit.delivery import AuditDeliveryQueue, DeliveryRejection
+from zeroth.governance.audit.models import NodeAuditRecord
 
 
 def test_json_observer_extracts_only_known_identifiers_and_tracks_safe_output_metadata():
@@ -195,13 +195,20 @@ class BlockingAuditRepository(RecordingAuditRepository):
 class RecordingDelivery:
     """Captures what the sink hands off, without any of the delivery machinery."""
 
-    def __init__(self, *, accept=True):
+    def __init__(self, *, accept=True, raises=None):
         self.records = []
         self.accept = accept
+        self.raises = raises
+        self.rejections = []
 
     def submit(self, record):
         self.records.append(record)
+        if self.raises is not None:
+            raise self.raises
         return self.accept
+
+    def reject(self, audit_id, reason):
+        self.rejections.append((audit_id, reason))
 
 
 def gateway_event(started, *, tenant_id="tenant-a", **overrides):
@@ -348,23 +355,90 @@ async def test_a_correlation_without_a_tenant_is_refused_instead_of_landing_on_d
     )
     event = gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC), tenant_id="")
 
-    with pytest.raises(ValueError, match="tenant_id"):
-        await sink.emit(event)
+    await sink.emit(event)
 
     assert delivery.pending == 0
     assert delivery.counts().queued == 0
+    assert delivery.counts().rejected == 1
 
 
-async def test_a_refused_hand_off_is_raised_so_the_producer_can_count_the_loss():
+async def test_a_refused_hand_off_is_counted_by_the_stage_rather_than_raised_at_the_proxy():
+    # The refusal used to be raised, and the proxy's generic handler logged it
+    # with ``logger.exception`` -- one full traceback per refused event, on the
+    # response-completion path, exactly when the queue is saturated. The loss is
+    # already on ``rejected``; the traceback added nothing but a foreign
+    # exception message on an export path and latency under load.
     delivery = RecordingDelivery(accept=False)
     sink = AuditGatewayEventSink(
         RecordingAuditRepository(), actor_for=lambda _event: None, delivery=delivery
     )
 
-    with pytest.raises(GatewayAuditRefusedError, match="langgraph.gateway:"):
-        await sink.emit(gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC)))
+    await sink.emit(gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC)))
 
     assert len(delivery.records) == 1
+
+
+async def test_a_saturated_queue_moves_the_rejected_counter_and_raises_nothing():
+    # The end-to-end shape of the same property, against the real stage: the
+    # producer sees no exception and the loss is visible on the counter the
+    # metrics endpoint and the readiness probe both read.
+    delivery = AuditDeliveryQueue(RecordingAuditRepository(), max_queue_size=1)
+    sink = AuditGatewayEventSink(
+        RecordingAuditRepository(), actor_for=lambda _event: None, delivery=delivery
+    )
+    started = datetime(2026, 7, 22, 12, tzinfo=UTC)
+
+    delivery.submit(
+        NodeAuditRecord(
+            audit_id="filler",
+            run_id="run-1",
+            node_id="node-1",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment-1",
+            tenant_id="tenant-a",
+            status="completed",
+        )
+    )
+    await sink.emit(gateway_event(started))
+
+    assert delivery.counts().rejected == 1
+    await delivery.aclose(timeout=1.0)
+
+
+async def test_a_record_the_stage_will_not_account_for_is_counted_not_raised():
+    # R7/R9: an event whose tenant the stage refuses is counted as an invalid
+    # record by ``submit`` itself, and the sink returns rather than handing the
+    # producer an exception it has no channel to act on.
+    delivery = AuditDeliveryQueue(RecordingAuditRepository())
+    sink = AuditGatewayEventSink(
+        RecordingAuditRepository(), actor_for=lambda _event: None, delivery=delivery
+    )
+
+    await sink.emit(gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC), tenant_id="   "))
+
+    assert delivery.counts().queued == 0
+    assert delivery.counts().rejected == 1
+    await delivery.aclose(timeout=1.0)
+
+
+async def test_an_event_that_cannot_be_projected_is_counted_as_a_projection_failure():
+    # Everything before ``submit`` used to propagate into the proxy's
+    # ``logger.exception``; now it is one counted rejection and no traceback.
+    delivery = RecordingDelivery()
+
+    def _exploding_actor(_event):
+        raise RuntimeError("actor resolution failed")
+
+    sink = AuditGatewayEventSink(
+        RecordingAuditRepository(), actor_for=_exploding_actor, delivery=delivery
+    )
+
+    await sink.emit(gateway_event(datetime(2026, 7, 22, 12, tzinfo=UTC)))
+
+    assert delivery.records == []
+    [(audit_id, reason)] = delivery.rejections
+    assert audit_id.startswith("langgraph.gateway:")
+    assert reason is DeliveryRejection.PROJECTION_FAILED
 
 
 async def test_the_sink_owns_a_bounded_delivery_stage_when_none_is_injected():

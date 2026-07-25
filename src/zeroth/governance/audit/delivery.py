@@ -77,17 +77,22 @@ from typing import TYPE_CHECKING, Any
 from zeroth.governance.audit.capture_policy import AuditCapturePolicy
 from zeroth.governance.audit.delivery_state import (
     COUNTER_METRICS,
+    IN_FLIGHT_AGE_GAUGE,
     QUEUE_DEPTH_GAUGE,
     AuditDeliveryCounts,
     AuditDeliveryReport,
     AuditRecordWriter,
     DeliveryCounters,
     DeliveryFailure,
+    DeliveryOutcome,
     DeliveryRejection,
     PendingAudit,
     validate_seconds,
 )
-from zeroth.governance.audit.delivery_worker import DeliveryWorker
+from zeroth.governance.audit.delivery_worker import (
+    DEFAULT_WRITE_TIMEOUT_SECONDS,
+    DeliveryWorker,
+)
 from zeroth.platform.observability.metrics import MetricsCollector
 
 if TYPE_CHECKING:
@@ -114,6 +119,9 @@ class AuditDeliveryQueue:
         max_attempts: Write attempts per event, including the first.
         base_delay_seconds: Backoff base for the second attempt onward.
         max_delay_seconds: Ceiling the jittered backoff cannot exceed.
+        write_timeout_seconds: Finite deadline for one write attempt. An
+            attempt that overruns it is cancelled, counted, and retried under
+            the same ``audit_id``; it is never waited on past the bound.
         metrics: Where the counters are published.
         classifier: Decides per event whether content may be retained. The one
             replaceable part of the capture boundary, and it chooses between
@@ -131,6 +139,7 @@ class AuditDeliveryQueue:
         max_attempts: int = 3,
         base_delay_seconds: float = 0.5,
         max_delay_seconds: float = 30.0,
+        write_timeout_seconds: float = DEFAULT_WRITE_TIMEOUT_SECONDS,
         metrics: MetricsCollector | None = None,
         classifier: CaptureClassifier | None = None,
         redaction: AuditRedactionConfig | None = None,
@@ -142,8 +151,11 @@ class AuditDeliveryQueue:
             raise ValueError("max_attempts must be a positive int")
         validate_seconds("base_delay_seconds", base_delay_seconds)
         validate_seconds("max_delay_seconds", max_delay_seconds)
+        validate_seconds("write_timeout_seconds", write_timeout_seconds)
         if max_delay_seconds < base_delay_seconds:
             raise ValueError("max_delay_seconds must not be below base_delay_seconds")
+        if write_timeout_seconds <= 0:
+            raise ValueError("write_timeout_seconds must be positive")
         # A private collector rather than None: metrics are always recorded, and
         # an un-wired deployment loses the scrape, not the accounting.
         self._counters = DeliveryCounters(
@@ -163,6 +175,7 @@ class AuditDeliveryQueue:
             max_attempts=max_attempts,
             base_delay=float(base_delay_seconds),
             max_delay=float(max_delay_seconds),
+            write_timeout=float(write_timeout_seconds),
         )
         self._tasks: set[asyncio.Task[Any]] = set()
         self._worker: asyncio.Task[None] | None = None
@@ -173,6 +186,15 @@ class AuditDeliveryQueue:
     def pending(self) -> int:
         """How many events are queued but not yet picked up by the worker."""
         return self._queue.qsize()
+
+    @property
+    def in_flight_seconds(self) -> float | None:
+        """How long the event the worker holds has been outstanding, if any.
+
+        The only signal that distinguishes a wedged stage from an idle one:
+        a hung write moves no counter at all until the queue fills.
+        """
+        return self._loop_worker.in_flight_seconds
 
     def counts(self) -> AuditDeliveryCounts:
         """Return an immutable snapshot of the delivery counters."""
@@ -207,11 +229,18 @@ class AuditDeliveryQueue:
 
         Raises:
             ValueError: If ``record.audit_id`` or ``record.tenant_id`` is not a
-                non-empty string.
+                non-empty string once stripped. Counted as an ``invalid_record``
+                rejection *before* it is raised: the refusal used to move no
+                counter at all, so an event with a blank tenant disappeared while
+                ``/health`` and ``/v1/metrics`` still reported nothing lost. A
+                whitespace-only tenant was accepted outright, and "  " is not a
+                tenant -- it is a record that will be attributed to nobody.
         """
         audit_id = record.audit_id
         for name, value in (("audit_id", audit_id), ("tenant_id", record.tenant_id)):
-            if type(value) is not str or not value:
+            if type(value) is not str or not value.strip():
+                self._counters.increment("rejected", reason=DeliveryRejection.INVALID_RECORD)
+                logger.warning("audit delivery rejected an invalid %s", name)
                 raise ValueError(f"record.{name} must be a non-empty str")
         if self._closed:
             self._counters.increment("rejected", reason=DeliveryRejection.CLOSED)
@@ -226,6 +255,22 @@ class AuditDeliveryQueue:
         self._counters.publish_depth(self._queue.qsize())
         self.start()
         return True
+
+    def reject(self, audit_id: str, reason: DeliveryRejection) -> None:
+        """Count one event that never reached the queue, so the loss is still visible.
+
+        A producer can fail *before* ``submit`` -- a terminal gateway event that
+        cannot be projected into a record at all -- and that loss used to reach
+        nothing but a log line. Routing it through this stage's counters is what
+        puts it on ``/v1/metrics`` and in the readiness probe beside every other
+        way an event fails to become durable.
+
+        Args:
+            audit_id: The identity the producer had minted, for the log line.
+            reason: Why the event never became a queued record.
+        """
+        self._counters.increment("rejected", reason=reason)
+        logger.warning("audit delivery rejected audit_id=%s reason=%s", audit_id, reason.value)
 
     async def aclose(self, *, timeout: float = 5.0) -> AuditDeliveryReport:
         """Stop accepting events, drain what is in flight, and report the rest.
@@ -292,22 +337,34 @@ class AuditDeliveryQueue:
         )
 
     def _abandon_remaining(self) -> tuple[str, ...]:
-        """Count and name every event still undelivered once the drain bound expired."""
-        pending: list[str] = []
+        """Count and name every event still undelivered once the drain bound expired.
+
+        Abandonment is *claimed* on each event, not merely counted: the in-flight
+        write is still outstanding here, and a writer that ignores the coming
+        cancellation can return successfully afterwards. Without the claim that
+        event was counted as abandoned *and* delivered -- one event, two
+        mutually exclusive outcomes. A commit after the claim is counted as a
+        reconciliation instead.
+        """
+        items: list[PendingAudit] = []
         in_flight = self._loop_worker.in_flight
         if in_flight is not None:
-            pending.append(in_flight.audit_id)
+            items.append(in_flight)
         while True:
             try:
                 item = self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-            pending.append(item.audit_id)
+            items.append(item)
             self._queue.task_done()
-        for audit_id in pending:
+        abandoned: list[str] = []
+        for item in items:
+            if not item.terminal.claim(DeliveryOutcome.ABANDONED):
+                continue
+            abandoned.append(item.audit_id)
             self._counters.increment("abandoned")
-            logger.warning("audit delivery abandoned audit_id %s at shutdown", audit_id)
-        return tuple(pending)
+            logger.warning("audit delivery abandoned audit_id %s at shutdown", item.audit_id)
+        return tuple(abandoned)
 
     def _track(self, task: asyncio.Task[Any]) -> None:
         """Own a task for its lifetime, so it is neither collected nor silently lost."""
@@ -331,11 +388,13 @@ class AuditDeliveryQueue:
 
 __all__ = [
     "COUNTER_METRICS",
+    "IN_FLIGHT_AGE_GAUGE",
     "QUEUE_DEPTH_GAUGE",
     "AuditDeliveryCounts",
     "AuditDeliveryQueue",
     "AuditDeliveryReport",
     "AuditRecordWriter",
     "DeliveryFailure",
+    "DeliveryOutcome",
     "DeliveryRejection",
 ]

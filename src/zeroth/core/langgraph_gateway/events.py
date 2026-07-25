@@ -39,20 +39,30 @@ give it the wrong TTL. The sink therefore always threads
 one, which turns "nobody supplied a tenant" into a counted, logged failure
 instead of a silent write against the default tenant.
 
+**Loss is counted here, never raised at the caller.** :meth:`AuditGatewayEventSink.emit`
+returns normally whatever happens: a refused hand-off, a record the projection
+could not build, a record the delivery stage refuses to account for. Each is
+counted through that stage's own counters, which is what puts it on
+``/v1/metrics`` and in the readiness probe. Raising was worse than useless: the
+proxy's generic handler logged it with a full traceback, so *saturation* --
+the moment the process can least afford it -- produced one traceback per refused
+event on the response-completion path, carrying whatever a foreign sink's
+exception message holds. A counter is scraped; a log line is not.
+
 **What the proxy's own guards mean now.** ``GatewayProxy`` still wraps this call
-in ``asyncio.timeout(event_sink_timeout_seconds)``; that bound is no longer the
-backpressure mechanism -- the finite queue is -- but it stays as the boundary
-guard for an *injected* sink that does not honour the non-blocking contract
-above. ``_TerminalEmissionState.attempted`` is still set before the call, and now
-means "this request's terminal event has been handed off", not "it was
-persisted": delivery is the queue's business and has its own counters. That
-ordering is what keeps one request mapped to exactly one ``audit_id``; a refused
-hand-off raises :class:`GatewayAuditRefusedError` so the proxy counts it in
-``sink_failure_count`` rather than silently re-emitting a second record.
+in ``asyncio.timeout(event_sink_timeout_seconds)``, but that is a *cooperative*
+guard and nothing more: synchronous work before the first await, a sink that
+blocks the event loop, or one that swallows cancellation all escape it -- which
+is why the contract is stated as a hard requirement on
+:class:`AuditRecordSubmitter` rather than assumed.
+``_TerminalEmissionState.attempted`` is still set before the call, and means
+"handed off", not "persisted": delivery is the queue's business and has its own
+counters. That ordering keeps one request mapped to exactly one ``audit_id``.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable, Mapping
@@ -62,7 +72,11 @@ from uuid import uuid4
 from zeroth.core.audit import NodeAuditRecord
 from zeroth.core.identity import ActorIdentity
 from zeroth.core.langgraph_gateway.models import GatewayEvent
-from zeroth.governance.audit.delivery import AuditDeliveryQueue, AuditRecordWriter
+from zeroth.governance.audit.delivery import (
+    AuditDeliveryQueue,
+    AuditRecordWriter,
+    DeliveryRejection,
+)
 
 _IDENTIFIER_KEYS = ("run_id", "thread_id", "assistant_id")
 _GATEWAY_NODE_ID = "langgraph.gateway"
@@ -72,21 +86,27 @@ class AuditRecordSubmitter(Protocol):
     """The non-blocking hand-off a terminal gateway event is projected into.
 
     Satisfied by :class:`~zeroth.governance.audit.delivery.AuditDeliveryQueue`.
-    Deliberately synchronous: a coroutine could be made to await a full queue,
-    and this call sits inside a streaming response's ``finally``.
+
+    **An implementation MUST NOT block, suspend, or perform I/O.** Both methods
+    are deliberately synchronous, and every one of them is called from inside a
+    streaming response's ``finally``, between the last upstream chunk and the end
+    of the client's response. The proxy wraps the call in ``asyncio.timeout``,
+    but that is a *cooperative* guard: it can only interrupt an implementation at
+    an ``await`` it actually reaches, so synchronous work before the first await,
+    anything that blocks the event loop (a synchronous socket, a file read, a
+    lock), and anything that swallows :class:`asyncio.CancelledError` all defeat
+    it. The production implementation does one ``put_nowait`` onto a bounded
+    queue and returns; an implementation that cannot promise the same must not
+    be installed here, because no in-process guard can make it safe.
     """
 
     def submit(self, record: NodeAuditRecord) -> bool:
         """Queue one record, returning ``False`` when the stage refuses it."""
         ...
 
-
-class GatewayAuditRefusedError(RuntimeError):
-    """The delivery stage refused a terminal event, so it will not be persisted.
-
-    Raised instead of returning quietly because the sink protocol has no return
-    channel, and a refusal is the only signal that this event is lost.
-    """
+    def reject(self, audit_id: str, reason: DeliveryRejection) -> None:
+        """Count one event that never reached the queue at all."""
+        ...
 
 
 class TeeObserver:
@@ -295,21 +315,32 @@ class AuditGatewayEventSink:
     async def emit(self, event: GatewayEvent) -> None:
         """Hand one terminal gateway event off for durable audit, without awaiting it.
 
+        Never raises. Every way this can fail -- an unprojectable record, one
+        the delivery stage will not account for, a full queue -- is counted
+        through that stage's counters and is visible on ``/v1/metrics`` and the
+        readiness probe. Handing a refusal back as an exception put a full
+        traceback on the response-completion path once per refused event.
+
         Args:
             event: The terminal event to project. Its identity is minted here,
                 once, and every delivery attempt reuses it unchanged.
-
-        Raises:
-            GatewayAuditRefusedError: If the delivery stage refused the record,
-                which is the only signal that this event will not be persisted.
-            ValueError: If the event carries no tenant, raised by the delivery
-                stage rather than allowing a silent write against the reserved
-                ``"default"`` tenant and its fallback retention policy.
         """
         audit_id = f"{_GATEWAY_NODE_ID}:{uuid4().hex}"
-        record = self._project(event, audit_id=audit_id)
-        if not self._delivery.submit(record):
-            raise GatewayAuditRefusedError(f"audit delivery refused {audit_id}")
+        try:
+            record = self._project(event, audit_id=audit_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - the event is foreign input and the
+            # projection validates it; a malformed one must cost this one audit
+            # record, counted, rather than a traceback on the streaming path.
+            self._delivery.reject(audit_id, DeliveryRejection.PROJECTION_FAILED)
+            return
+        try:
+            # A ``False`` return and a ValueError are both already counted by the
+            # stage itself -- as ``queue_full``/``closed`` and ``invalid_record``.
+            self._delivery.submit(record)
+        except ValueError:
+            return
 
     def _project(self, event: GatewayEvent, *, audit_id: str) -> NodeAuditRecord:
         """Build the content-free audit record for one terminal gateway event.
@@ -365,6 +396,5 @@ class AuditGatewayEventSink:
 __all__ = [
     "AuditGatewayEventSink",
     "AuditRecordSubmitter",
-    "GatewayAuditRefusedError",
     "TeeObserver",
 ]

@@ -51,6 +51,7 @@ from zeroth.governance.policy import (
 )
 from zeroth.runtime.runs import Run, RunStatus
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from tests.conftest import content_capture
 
 
 class NumberInput(BaseModel):
@@ -191,7 +192,7 @@ print(json.dumps({"value": payload["value"] * 2}))
         ],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
         run_repository=RunRepository(sqlite_db),
         agent_runners={"start": start_runner, "finish": finish_runner},
         executable_unit_runner=eu_runner,
@@ -377,7 +378,7 @@ async def test_runtime_orchestrator_pauses_on_human_approval(sqlite_db) -> None:
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
     )
     orchestrator = RuntimeOrchestrator(
         approval_service=approval_service,
@@ -401,7 +402,7 @@ async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_d
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
     )
     graph = Graph(
         graph_id="graph-approval",
@@ -428,7 +429,7 @@ async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_d
     )
     orchestrator = RuntimeOrchestrator(
         approval_service=approval_service,
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
         run_repository=RunRepository(sqlite_db),
         agent_runners={
             "finish": _agent_runner(
@@ -493,7 +494,7 @@ async def test_runtime_orchestrator_blocks_policy_violation_and_records_audit(sq
         )
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
         run_repository=RunRepository(sqlite_db),
         agent_runners={
             "agent": _agent_runner(
@@ -539,7 +540,7 @@ async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqli
         edges=[],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
         run_repository=RunRepository(sqlite_db),
         agent_runners={
             "agent": _agent_runner(

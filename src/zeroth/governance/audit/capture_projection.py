@@ -20,29 +20,38 @@ and anything else becomes a bounded type name. Every other function here reads
 the canonical form, so the digest cannot fail and the schema cannot be
 authored.
 
-**Names are gated, not printed.** A key survives into a schema only when it is
-an exact ``str``, is short enough to be a name rather than a credential, and
-matches an identifier-shaped allowlist; anything else is replaced. The same
-gate covers type names, because a dynamically constructed class can carry an
-arbitrary ``__name__``.
+**Names are never printed, only counted and hashed.** Gating a key on
+"identifier-shaped and short" was not enough: ``AKIAIOSFODNN7EXAMPLE`` is a
+perfectly well-formed identifier, so a seeded credential used as a mapping key
+was persisted verbatim inside a dropped-content schema. A schema key is now
+:func:`key_digest` -- a truncated SHA-256 of the key -- so two payloads that
+shared a key still look alike and no producer text survives. Type names in a
+schema come from a closed set (:data:`_SCHEMA_TYPE_NAMES`), because
+:meth:`ContentFreeProjection.schema` only ever reads canonical values and a
+dynamically constructed class can carry any ``__name__`` it likes.
 
-**Metadata is an allowlist, not a scrub.** ``execution_metadata`` and approval
-metadata are free-form ``dict[str, Any]`` that producers fill with whatever
-they were holding -- a prompt under ``execution_metadata["prompt"]``, a
+**Metadata is a typed allowlist, not a scrub.** ``execution_metadata`` and
+approval metadata are free-form ``dict[str, Any]`` that producers fill with
+whatever they were holding -- a prompt under ``execution_metadata["prompt"]``, a
 password nested in a tuple, a raw exception string. Best-effort key-based
-redaction cannot close that: it only masks the key names someone thought of.
-:meth:`ContentFreeProjection.metadata` keeps the keys this module recognises as
-structural, bounds and scrubs their values, and replaces everything else with a
-digest, a schema and a count -- so an unrecognised key contributes evidence,
-never text.
+redaction cannot close that: it only masks the key names someone thought of. An
+allowlist of key *names* did not close it either, because every allowlisted key
+accepted any short string: ``correlation_id`` is filled from a client-supplied
+``X-Correlation-ID`` header, so a credential pasted into that header was
+persisted verbatim. Each allowlisted key therefore declares a
+:class:`MetadataKind` -- a number, a boolean, a digest, a bounded lowercase
+label, or an opaque identifier that is only ever hashed -- and a value that does
+not fit its key's kind is summarized rather than retained.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Callable, Mapping
+from enum import StrEnum
 from typing import Any
 
 REDACTED = "***REDACTED***"
@@ -52,48 +61,84 @@ REDACTED = "***REDACTED***"
 MAX_DEPTH = 6
 # A key name is schema; a string long enough to be a credential is not.
 _MAX_NAME_CHARS = 64
-# An allowlisted metadata value is an identifier, a status or a short label.
-# Anything longer is described rather than retained.
-_MAX_METADATA_TEXT_CHARS = 256
+# An allowlisted label is a status, a route name or a short vocabulary term.
+_MAX_LABEL_CHARS = 64
 # Identifier-shaped: what a key name looks like when it is a name.
 _SAFE_NAME = re.compile(r"\A[A-Za-z_][A-Za-z0-9_.:\-]*\Z")
+# A label this stage retains verbatim: lower-case, punctuated only by the
+# separators a vocabulary term uses. Deliberately narrower than _SAFE_NAME --
+# credentials are overwhelmingly mixed-case or opaque, and a value that fails
+# this shape is summarized rather than lost.
+_SAFE_LABEL = re.compile(r"\A[a-z0-9][a-z0-9._:/\-]*\Z")
+# A hash, optionally prefixed by its algorithm ("sha256:...").
+_SAFE_DIGEST = re.compile(r"\A(?:[a-z0-9]{1,16}:)?[0-9a-f]{16,128}\Z")
+# How much of a key's SHA-256 stands in for the key in a schema.
+_KEY_DIGEST_CHARS = 16
+# The only type names a schema can carry, because schemas read canonical values.
+_SCHEMA_TYPE_NAMES = frozenset({"NoneType", "bool", "int", "float", "str", "dict", "list"})
 
-# The metadata keys this stage recognises as structural. A key outside this set
-# is not retained under a metadata-only capture, whatever it holds: the set is
-# the whole guarantee, so it is deliberately short and lists only keys whose
-# meaning is fixed by this codebase rather than by a payload.
-ALLOWED_METADATA_KEYS = frozenset(
-    {
-        "assistant_id",
-        "attempt",
-        "budget_cap_usd",
-        "budget_check_degraded",
-        "budget_spend_usd",
-        "compatibility_fingerprint",
-        "correlation_id",
-        "cost_event_id",
-        "cost_usd",
-        "decision",
-        "disposition",
-        "duration_ms",
-        "enforcement_applied",
-        "governance_level",
-        "input_sha256",
-        "input_size_bytes",
-        "model_name",
-        "node_kind",
-        "operation",
-        "output_sha256",
-        "output_size_bytes",
-        "policy_version",
-        "provider",
-        "reason_code",
-        "retry_count",
-        "reviewer",
-        "status",
-        "upstream_status_code",
-    }
-)
+
+class MetadataKind(StrEnum):
+    """What one allowlisted metadata key is allowed to hold.
+
+    The kind is the whole of the per-key contract: a value that does not match
+    its key's kind is replaced by a summary, so widening what a key accepts
+    takes a deliberate edit here rather than a producer writing something new
+    into it.
+    """
+
+    NUMBER = "number"
+    BOOLEAN = "boolean"
+    DIGEST = "digest"
+    LABEL = "label"
+    OPAQUE = "opaque"
+
+
+# The metadata keys this stage recognises as structural, each with the kind of
+# value it may carry. A key outside this mapping is not retained under a
+# metadata-only capture, whatever it holds.
+#
+# OPAQUE marks the identifiers whose text is chosen by somebody outside this
+# codebase -- ``correlation_id`` comes straight from a client request header,
+# ``assistant_id`` from a client-supplied path, ``reviewer`` from whoever
+# submitted an approval, ``cost_event_id`` from a producer. None of them is ever
+# retained verbatim; each is replaced by a stable digest, which still correlates
+# two records that shared one while carrying none of the text. ``cost_event_id``
+# and ``cost_usd`` also live in typed :class:`NodeAuditRecord` columns, so the
+# evidence survives the projection either way.
+METADATA_KINDS: Mapping[str, MetadataKind] = {
+    "assistant_id": MetadataKind.OPAQUE,
+    "attempt": MetadataKind.NUMBER,
+    "budget_cap_usd": MetadataKind.NUMBER,
+    "budget_check_degraded": MetadataKind.BOOLEAN,
+    "budget_spend_usd": MetadataKind.NUMBER,
+    "compatibility_fingerprint": MetadataKind.DIGEST,
+    "correlation_id": MetadataKind.OPAQUE,
+    "cost_event_id": MetadataKind.OPAQUE,
+    "cost_usd": MetadataKind.NUMBER,
+    "decision": MetadataKind.LABEL,
+    "disposition": MetadataKind.LABEL,
+    "duration_ms": MetadataKind.NUMBER,
+    "enforcement_applied": MetadataKind.BOOLEAN,
+    "governance_level": MetadataKind.LABEL,
+    "input_sha256": MetadataKind.DIGEST,
+    "input_size_bytes": MetadataKind.NUMBER,
+    "model_name": MetadataKind.LABEL,
+    "node_kind": MetadataKind.LABEL,
+    "operation": MetadataKind.LABEL,
+    "output_sha256": MetadataKind.DIGEST,
+    "output_size_bytes": MetadataKind.NUMBER,
+    "policy_version": MetadataKind.LABEL,
+    "provider": MetadataKind.LABEL,
+    "reason_code": MetadataKind.LABEL,
+    "retry_count": MetadataKind.NUMBER,
+    "reviewer": MetadataKind.OPAQUE,
+    "status": MetadataKind.LABEL,
+    "upstream_status_code": MetadataKind.NUMBER,
+}
+
+# Derived, never maintained alongside: the two cannot drift apart.
+ALLOWED_METADATA_KEYS = frozenset(METADATA_KINDS)
 
 
 def safe_name(name: Any) -> str:
@@ -117,6 +162,24 @@ def type_name(value: Any) -> str:
     return safe_name(type(value).__name__)
 
 
+def key_digest(name: Any) -> str:
+    """Stand a mapping key's text off with a short, stable digest of it.
+
+    Args:
+        name: A canonical mapping key -- always an exact ``str``, because
+            :func:`canonicalize` gates keys before this is reached.
+
+    Returns:
+        A truncated SHA-256 of the key, or :data:`REDACTED` for anything that
+        is not an exact ``str``. Producer-supplied key text never survives into
+        a persisted summary, so a credential used as a key cannot be read back
+        out of a schema.
+    """
+    if type(name) is not str:
+        return REDACTED
+    return hashlib.sha256(name.encode("utf-8")).hexdigest()[:_KEY_DIGEST_CHARS]
+
+
 def canonicalize(value: Any, *, depth: int = 0) -> Any:
     """Render any payload as JSON-safe data, dispatching on type and never on behaviour.
 
@@ -132,8 +195,10 @@ def canonicalize(value: Any, *, depth: int = 0) -> Any:
     if depth >= MAX_DEPTH:
         return "..."
     value_type = type(value)
-    if value is None or value_type is bool or value_type is int or value_type is float:
+    if value is None or value_type is bool or value_type is int:
         return value
+    if value_type is float:
+        return value if math.isfinite(value) else REDACTED
     if value_type is str:
         return value
     if isinstance(value, Mapping):
@@ -171,10 +236,10 @@ class ContentFreeProjection:
     """Describe dropped payloads as digests, schemas and counts.
 
     Args:
-        scrub: The policy's redaction chain, applied to the *names* and short
-            values this projection retains. It is a complement, not the
-            guarantee: what makes the output content-free is that only gated
-            names and allowlisted keys survive at all.
+        scrub: The policy's redaction chain, applied to the bounded labels this
+            projection retains. It is a complement, not the guarantee: what
+            makes the output content-free is that only allowlisted keys with
+            values matching their declared kind survive at all.
     """
 
     def __init__(self, scrub: Callable[[Any], Any]) -> None:
@@ -190,21 +255,22 @@ class ContentFreeProjection:
         }
 
     def schema(self, canonical: Any, *, depth: int = 0) -> Any:
-        """Describe a canonical payload's shape: gated key names and type names only."""
+        """Describe a canonical payload's shape: hashed key names and closed type names."""
         if depth >= MAX_DEPTH:
             return "..."
         if type(canonical) is dict:
             return {
-                self._name(key): self.schema(item, depth=depth + 1)
+                key_digest(key): self.schema(item, depth=depth + 1)
                 for key, item in canonical.items()
             }
         if type(canonical) is list:
             # The first element stands for the list's shape; its length is in ``count``.
             return [self.schema(canonical[0], depth=depth + 1)] if canonical else []
-        return type_name(canonical)
+        name = type(canonical).__name__
+        return name if name in _SCHEMA_TYPE_NAMES else REDACTED
 
     def metadata(self, metadata: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Project free-form metadata onto the allowlist, summarizing what it drops.
+        """Project free-form metadata onto the typed allowlist, summarizing what it drops.
 
         Args:
             metadata: The producer's metadata mapping, arbitrarily shaped.
@@ -217,43 +283,56 @@ class ContentFreeProjection:
         kept: dict[str, Any] = {}
         dropped = 0
         for key, value in metadata.items():
-            if type(key) is not str or key not in ALLOWED_METADATA_KEYS:
+            kind = METADATA_KINDS.get(key) if type(key) is str else None
+            if kind is None:
                 dropped += 1
                 continue
-            kept[key] = self._bounded(value)
+            kept[key] = self.project(kind, value)
         summary = self.summarize(metadata)
         summary["dropped_keys"] = dropped
         return kept, summary
 
-    def _bounded(self, value: Any) -> Any:
-        """Retain one allowlisted value only while it stays a bounded scalar."""
+    def project(self, kind: MetadataKind, value: Any) -> Any:
+        """Retain one allowlisted value only while it matches its key's declared kind."""
         value_type = type(value)
-        if value is None or value_type is bool or value_type is int or value_type is float:
-            return value
-        if isinstance(value, str):
-            text = self._scrub(str.__str__(value))
-            if type(text) is not str:
-                return REDACTED
-            return text if len(text) <= _MAX_METADATA_TEXT_CHARS else self.summarize(value)
+        if kind is MetadataKind.NUMBER:
+            if value_type is int:
+                return value
+            if value_type is float and math.isfinite(value):
+                return value
+            return self.summarize(value)
+        if kind is MetadataKind.BOOLEAN:
+            return value if value_type is bool else self.summarize(value)
+        if kind is MetadataKind.DIGEST:
+            if value_type is str and _SAFE_DIGEST.match(value):
+                return value
+            return self.summarize(value)
+        if kind is MetadataKind.LABEL:
+            return self._label(value)
+        # OPAQUE: chosen outside this codebase, so hashed rather than retained.
         return self.summarize(value)
 
-    def _name(self, name: str) -> str:
-        """Gate a key name, then run the retained name through the redaction chain."""
-        gated = safe_name(name)
-        if gated == REDACTED:
-            return REDACTED
-        scrubbed = self._scrub(gated)
-        return scrubbed if type(scrubbed) is str else REDACTED
+    def _label(self, value: Any) -> Any:
+        """Retain a bounded lower-case vocabulary term, summarizing anything else."""
+        if type(value) is not str or len(value) > _MAX_LABEL_CHARS:
+            return self.summarize(value)
+        text = self._scrub(value)
+        if type(text) is not str or not _SAFE_LABEL.match(text):
+            return self.summarize(value)
+        return text
 
 
 __all__ = [
     "ALLOWED_METADATA_KEYS",
     "MAX_DEPTH",
+    "METADATA_KINDS",
     "REDACTED",
     "ContentFreeProjection",
+    "MetadataKind",
     "canonicalize",
     "digest",
     "entry_count",
+    "key_digest",
     "safe_name",
     "type_name",
 ]

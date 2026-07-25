@@ -161,8 +161,10 @@ async def test_a_later_close_returns_the_report_the_first_close_produced() -> No
 
 
 async def test_close_returns_within_its_bound_when_the_writer_ignores_cancellation() -> None:
-    # R10: the deadline covers the drain *and* the cancellation. A writer that
-    # refuses to be cancelled is left running and reported, never waited on.
+    # R10: the deadline covers the drain *and* the cancellation. A write that
+    # refuses to be cancelled is left running and reported, never waited on --
+    # and it can no longer take the worker with it, because each attempt is its
+    # own task and the worker waits on one only under a finite deadline.
     writer = _CancellationResistantWriter()
     queue = _queue(writer)
     loop = asyncio.get_running_loop()
@@ -177,15 +179,15 @@ async def test_close_returns_within_its_bound_when_the_writer_ignores_cancellati
     assert report.drained is False
     assert report.undelivered_audit_ids == ("audit-stuck",)
 
-    # The stage still owns the task it could not stop, which is what lets a test
-    # -- or an operator's process teardown -- reach it at all.
-    worker = queue._worker
-    assert worker is not None
+    # R7: the abandoned event stays abandoned. The write is still running at
+    # this point; letting it run to completion produced ``abandoned=1`` *and*
+    # ``delivered=1`` for one event, which made the two counters meaningless.
     writer.release.set()
     await asyncio.wait_for(writer.finished.wait(), timeout=1.0)
-    worker.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await worker
+    await asyncio.sleep(0)
+    counts = queue.counts()
+    assert counts.abandoned == 1
+    assert counts.delivered == 0
 
 
 async def test_the_stage_owns_its_worker_task_and_retires_it_when_it_finishes() -> None:

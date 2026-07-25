@@ -9,6 +9,8 @@ from zeroth.governance.audit import MemoryAccessRecord, NodeAuditRecord, ToolCal
 from zeroth.runtime.runs import Run
 from zeroth.core.service.bootstrap import bootstrap_app
 
+from tests.conftest import content_capture
+
 
 async def _seed_run_evidence(service) -> Run:
     run = await service.run_repository.create(
@@ -26,7 +28,7 @@ async def _seed_run_evidence(service) -> Run:
         node=service.graph.nodes[0],
         input_payload={"secret": "hidden", "value": 7},
     )
-    await service.audit_repository.write(
+    await content_capture(service.audit_repository).write(
         NodeAuditRecord(
             audit_id="audit:evidence:1",
             run_id=run.run_id,

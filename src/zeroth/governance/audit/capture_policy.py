@@ -25,15 +25,21 @@ payloads of arbitrary shape, so it can meet a mapping that cycles or a
 ``__len__`` that throws, and when it does the output is :func:`blank_record` --
 a record stripped of every content channel -- never the record that came in.
 
-**Metadata-only is an allowlist, not a scrub.** ``execution_metadata``,
+**Metadata-only is a typed allowlist, not a scrub.** ``execution_metadata``,
 approval metadata and the free-form ``error`` strings are the channels a
 producer fills with whatever it happened to be holding, and key-based redaction
 over them only masks the key names somebody thought of: a prompt filed under
 ``execution_metadata["prompt"]``, a password nested inside a tuple, or an
 exception message pasted into ``error`` all survived it. Those channels now go
 through :class:`~zeroth.governance.audit.capture_projection.ContentFreeProjection`,
-which keeps an allowlisted, bounded projection and replaces everything else --
-error text included -- with a digest, a schema and a count.
+which keeps a projection typed per key and replaces everything else -- error
+text included -- with a digest, a schema and a count.
+
+**The boundary is the durable write, not this stage.** Applying the transform
+where the delivery worker happens to sit would leave every direct
+``AuditRepository.write`` caller outside it, so ``write`` applies the policy
+itself and :mod:`~zeroth.governance.audit.capture_seal` is how it recognises a
+record that has already been through one.
 
 **What is removed and what is kept are equally load-bearing.** Under
 ``metadata_only`` every content channel (``input_snapshot``, ``output_snapshot``,
@@ -67,45 +73,27 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from zeroth.governance.audit.capture_projection import (
-    MAX_DEPTH,
     REDACTED,
     ContentFreeProjection,
+    canonicalize,
 )
+from zeroth.governance.audit.capture_scrub import DEFAULT_REDACT_KEYS, RedactionChain
+from zeroth.governance.audit.capture_seal import CAPTURE_METADATA_KEY, seal_metadata
 from zeroth.governance.audit.models import (
     AuditRedactionConfig,
     MemoryAccessRecord,
     NodeAuditRecord,
     ToolCallRecord,
 )
-from zeroth.governance.audit.sanitizer import PayloadSanitizer
-from zeroth.governance.guardrails.content import PIIFilter
-from zeroth.platform.secrets.redaction import SecretRedactor
+from zeroth.platform.artifacts.helpers import extract_artifact_refs
 
 logger = logging.getLogger(__name__)
-
-CAPTURE_METADATA_KEY = "audit_capture"
-
-# Exact-match keys, because PayloadSanitizer compares key names literally. This
-# set is a floor a caller may widen and cannot narrow; it is the complement to
-# the channel drop, not the mechanism the guarantee rests on.
-DEFAULT_REDACT_KEYS = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "authorization",
-        "client_secret",
-        "credentials",
-        "password",
-        "private_key",
-        "refresh_token",
-        "secret",
-        "token",
-    }
-)
 
 _EMPTIED_MAPPING_FIELDS = ("input_snapshot", "output_snapshot", "validation_results")
 _EMPTIED_LIST_FIELDS = ("condition_results",)
 _EMPTIED_TEXT_FIELDS = ("stdout", "stderr")
+# A record names the artifacts it produced; it is not an artifact index.
+_MAX_RETAINED_ARTIFACT_REFS = 64
 
 
 class CaptureDecision(StrEnum):
@@ -146,6 +134,43 @@ class MetadataOnlyCaptureClassifier:
         return CaptureDecision.METADATA_ONLY.value
 
 
+def retained_artifact_refs(record: NodeAuditRecord) -> list[dict[str, Any]]:
+    """Keep the addressing of the artifacts a run owns, never their contents.
+
+    An artifact reference is a storage key, a MIME type and a byte count -- the
+    same kind of evidence as a memory interaction's ``key``, which this stage
+    already keeps while dropping its ``value``. Emptying the channels these
+    refs live in without keeping them would orphan every blob an erased run
+    produced: :class:`~zeroth.governance.retention.erasure_service.RetentionErasureService`
+    harvests them straight out of the persisted record, so a record that no
+    longer names them is a record whose artifacts can never be destroyed.
+
+    Args:
+        record: The record about to lose its content channels.
+
+    Returns:
+        Up to :data:`_MAX_RETAINED_ARTIFACT_REFS` deduplicated references, each
+        in the exact four-field shape the harvester re-validates. Only keys
+        inside the run's own ``{run_id}/`` namespace are kept, so a producer
+        cannot use this channel to file arbitrary text: the prefix is fixed by
+        the record's identity, not by the payload.
+    """
+    payloads = canonicalize(
+        {name: getattr(record, name) for name in (*_EMPTIED_MAPPING_FIELDS, "execution_metadata")}
+    )
+    prefix = f"{record.run_id}/"
+    kept: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in extract_artifact_refs({"payload": payloads}):
+        if not ref.key.startswith(prefix) or ref.key in seen:
+            continue
+        seen.add(ref.key)
+        kept.append(ref.model_dump(mode="json"))
+        if len(kept) >= _MAX_RETAINED_ARTIFACT_REFS:
+            break
+    return kept
+
+
 def blank_record(record: NodeAuditRecord) -> NodeAuditRecord:
     """Return a copy of ``record`` carrying identity, lineage, timing and outcome only.
 
@@ -164,11 +189,13 @@ def blank_record(record: NodeAuditRecord) -> NodeAuditRecord:
         "memory_interactions": [],
         "approval_actions": [],
         "execution_metadata": {
-            CAPTURE_METADATA_KEY: {
-                "classification": CaptureDecision.METADATA_ONLY.value,
-                "content_retained": False,
-                "capture_failed": True,
-            }
+            CAPTURE_METADATA_KEY: seal_metadata(
+                {
+                    "classification": CaptureDecision.METADATA_ONLY.value,
+                    "content_retained": False,
+                    "capture_failed": True,
+                }
+            )
         },
     }
     return record.model_copy(update=update)
@@ -194,16 +221,8 @@ class AuditCapturePolicy:
         known_secrets: Mapping[str, str] | None = None,
     ) -> None:
         self._classifier = MetadataOnlyCaptureClassifier() if classifier is None else classifier
-        config = AuditRedactionConfig() if redaction is None else redaction
-        self._sanitizer = PayloadSanitizer(
-            AuditRedactionConfig(
-                redact_keys=set(DEFAULT_REDACT_KEYS) | set(config.redact_keys),
-                omit_paths=set(config.omit_paths),
-            )
-        )
-        self._secrets = SecretRedactor(known_secrets)
-        self._pii = PIIFilter(("email", "ssn", "credit_card"))
-        self._projection = ContentFreeProjection(self._scrub)
+        self._chain = RedactionChain(redaction=redaction, known_secrets=known_secrets)
+        self._projection = ContentFreeProjection(self._chain.scrub)
 
     def apply(self, record: NodeAuditRecord) -> NodeAuditRecord:
         """Return the only version of ``record`` this stage is allowed to persist.
@@ -228,7 +247,7 @@ class AuditCapturePolicy:
         summaries: dict[str, Any] = {}
         if decision is CaptureDecision.CONTENT:
             update = self._scrubbed_content(record)
-            update["error"] = self._scrub(record.error)
+            update["error"] = self._chain.scrub(record.error)
         else:
             update, summaries = self._dropped_content(record)
             # Free-form failure text is content: an exception message carries
@@ -275,18 +294,23 @@ class AuditCapturePolicy:
     ) -> dict[str, Any]:
         """Project the producer's metadata and stamp the capture decision onto it."""
         if decision is CaptureDecision.CONTENT:
-            metadata = self._scrub(dict(record.execution_metadata))
+            metadata = self._chain.scrub(dict(record.execution_metadata))
             if type(metadata) is not dict:
                 metadata = {}
         else:
             metadata, summaries["execution_metadata"] = self._projection.metadata(
                 record.execution_metadata
             )
-        metadata[CAPTURE_METADATA_KEY] = {
+        marker: dict[str, Any] = {
             "classification": decision.value,
             "content_retained": decision is CaptureDecision.CONTENT,
             "dropped_fields": summaries,
         }
+        if decision is not CaptureDecision.CONTENT:
+            refs = retained_artifact_refs(record)
+            if refs:
+                marker["artifact_refs"] = refs
+        metadata[CAPTURE_METADATA_KEY] = seal_metadata(marker)
         return metadata
 
     def _dropped_content(self, record: NodeAuditRecord) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -328,23 +352,23 @@ class AuditCapturePolicy:
     def _scrubbed_content(self, record: NodeAuditRecord) -> dict[str, Any]:
         """Retain every content channel, scrubbed -- the explicitly classified branch."""
         names = (*_EMPTIED_MAPPING_FIELDS, *_EMPTIED_LIST_FIELDS, *_EMPTIED_TEXT_FIELDS)
-        update: dict[str, Any] = {name: self._scrub(getattr(record, name)) for name in names}
+        update: dict[str, Any] = {name: self._chain.scrub(getattr(record, name)) for name in names}
         update["tool_calls"] = [
             call.model_copy(
                 update={
-                    "arguments": self._scrub(call.arguments),
-                    "outcome": self._scrub(call.outcome),
-                    "error": self._scrub(call.error),
+                    "arguments": self._chain.scrub(call.arguments),
+                    "outcome": self._chain.scrub(call.outcome),
+                    "error": self._chain.scrub(call.error),
                 }
             )
             for call in record.tool_calls
         ]
         update["memory_interactions"] = [
-            item.model_copy(update={"value": self._scrub(item.value)})
+            item.model_copy(update={"value": self._chain.scrub(item.value)})
             for item in record.memory_interactions
         ]
         update["approval_actions"] = [
-            action.model_copy(update={"metadata": self._scrub(action.metadata)})
+            action.model_copy(update={"metadata": self._chain.scrub(action.metadata)})
             for action in record.approval_actions
         ]
         return update
@@ -361,29 +385,7 @@ class AuditCapturePolicy:
 
     def _strip_memory(self, item: MemoryAccessRecord) -> MemoryAccessRecord:
         """Keep a memory interaction's addressing, drop the value it moved."""
-        return item.model_copy(update={"value": None, "key": self._scrub(item.key)})
-
-    def _scrub(self, value: Any) -> Any:
-        """Apply key redaction, then registered-secret masking, then PII filtering."""
-        return self._filter_pii(self._secrets.redact(self._sanitizer.sanitize(value)))
-
-    def _filter_pii(self, value: Any, *, depth: int = 0) -> Any:
-        """Walk string leaves through the PII filter, normalizing them to plain ``str``.
-
-        ``isinstance``, not the house exact-type check: here the widened branch
-        filters *more*, and ``re.sub`` returns a plain ``str``, so no ``str``
-        subclass survives into the persisted record.
-        """
-        if depth >= MAX_DEPTH:
-            return REDACTED
-        if isinstance(value, str):
-            filtered, _ = self._pii.apply(value)
-            return filtered
-        if isinstance(value, Mapping):
-            return {key: self._filter_pii(item, depth=depth + 1) for key, item in value.items()}
-        if isinstance(value, list):
-            return [self._filter_pii(item, depth=depth + 1) for item in value]
-        return value
+        return item.model_copy(update={"value": None, "key": self._chain.scrub(item.key)})
 
 
 __all__ = [

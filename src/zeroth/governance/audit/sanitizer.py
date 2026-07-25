@@ -39,7 +39,11 @@ class PayloadSanitizer:
         if isinstance(payload, Mapping):
             result: dict[str, Any] = {}
             for key, value in payload.items():
-                key_str = str(key)
+                # Exact ``str`` only. ``str(key)`` dispatched to the key's own
+                # ``__str__``, so a producer-supplied object -- or a ``str``
+                # subclass -- could author the persisted key text, and a key
+                # holding a credential was reproduced verbatim in the output.
+                key_str = key if type(key) is str else "***REDACTED***"
                 child_path = (*path, key_str)
                 if child_path in self._config.omit_paths:
                     continue
