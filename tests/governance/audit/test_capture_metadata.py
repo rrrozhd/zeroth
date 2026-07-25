@@ -19,6 +19,7 @@ dropped content.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 
 import pytest
@@ -30,6 +31,7 @@ from zeroth.governance.audit.capture_policy import (
 )
 from zeroth.governance.audit.capture_projection import (
     ALLOWED_METADATA_KEYS,
+    ENTRIES_KEY,
     canonicalize,
     key_digest,
 )
@@ -167,14 +169,16 @@ def test_approval_metadata_is_projected_onto_the_allowlist() -> None:
 
 def test_a_mapping_key_that_renders_as_a_secret_never_reaches_the_persisted_schema() -> None:
     # R5: the key's __str__ authored the schema entry, so the secret was
-    # persisted as a "shape". Keys are gated by type now, never printed.
+    # persisted as a "shape". Keys are gated by type now, never printed: an
+    # exact ``str`` key becomes its digest, and anything else -- this key
+    # included -- becomes a marker naming only the type it had.
     captured = _captured(input_snapshot={"outer": {_LeakingKey(): "value"}})
 
     assert SECRET not in captured.model_dump_json()
     schema = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]["input_snapshot"][
         "schema"
     ]
-    assert schema == {key_digest("outer"): {key_digest("***REDACTED***"): "str"}}
+    assert schema == {ENTRIES_KEY: [[key_digest("outer"), {ENTRIES_KEY: [["<key:other>", "str"]]}]]}
 
 
 def test_a_payload_with_an_unrenderable_key_still_produces_a_digest() -> None:
@@ -191,7 +195,13 @@ def test_a_string_subclass_key_is_canonicalized_without_calling_its_own_str() ->
         def __str__(self) -> str:
             return SECRET
 
-    assert canonicalize({_Sneaky("plain"): _Sneaky("value")}) == {"***REDACTED***": "value"}
+    canonical = canonicalize({_Sneaky("plain"): _Sneaky("value")})
+
+    # A ``str`` subclass is not an exact ``str``, so as a key it renders as the
+    # closed marker rather than through its own ``__str__``; as a value its
+    # characters come through ``str``'s implementation, not the subclass's.
+    assert canonical == {ENTRIES_KEY: [["<key:other>", "value"]]}
+    assert SECRET not in json.dumps(canonical)
 
 
 def test_the_metadata_allowlist_is_a_closed_set_of_structural_keys() -> None:
@@ -308,11 +318,19 @@ def test_a_seeded_api_key_in_any_allowlisted_field_is_absent_from_the_record(
 
 def test_the_structural_values_an_allowlisted_key_is_for_still_survive() -> None:
     # The other half: a typed projection that dropped everything would be a
-    # scrub, not an allowlist. Numbers, booleans, digests and lower-case
-    # vocabulary terms are exactly what these keys exist to carry.
+    # scrub, not an allowlist. Numbers, booleans, digests, vocabulary terms and
+    # the identifiers this codebase mints are exactly what these keys exist to
+    # carry, and each survives verbatim.
+    #
+    # ``operation`` is the counterweight, and the reason it moved out of the
+    # verbatim set: it is filled partly from a client-supplied protocol method,
+    # so its text has no provenance this module can check. It is not lost -- it
+    # is replaced by a stable digest, which still correlates two records that
+    # shared an operation without persisting a syllable a client chose.
     captured = _captured(
         execution_metadata={
             "node_kind": "agent",
+            "branch_id": "run-1:branch:0",
             "operation": "threads.create",
             "duration_ms": 42.5,
             "upstream_status_code": 200,
@@ -324,12 +342,17 @@ def test_the_structural_values_an_allowlisted_key_is_for_still_survive() -> None
 
     metadata = captured.execution_metadata
     assert metadata["node_kind"] == "agent"
-    assert metadata["operation"] == "threads.create"
+    assert metadata["branch_id"] == "run-1:branch:0"
     assert metadata["duration_ms"] == 42.5
     assert metadata["upstream_status_code"] == 200
     assert metadata["budget_check_degraded"] is False
     assert metadata["input_sha256"] == "a" * 64
     assert metadata["compatibility_fingerprint"] == "sha256:" + "b" * 64
+    assert metadata["operation"] == {
+        "sha256": hashlib.sha256(b'"threads.create"').hexdigest(),
+        "schema": "str",
+        "count": len("threads.create"),
+    }
 
 
 def test_the_decision_metadata_a_denial_producer_promotes_survives() -> None:
@@ -390,7 +413,7 @@ def test_an_identifier_shaped_credential_used_as_a_mapping_key_never_reaches_the
     schema = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]["input_snapshot"][
         "schema"
     ]
-    assert schema == {key_digest(ROOT_KEY): "str"}
+    assert schema == {ENTRIES_KEY: [[key_digest(ROOT_KEY), "str"]]}
 
 
 def test_a_dynamically_named_type_cannot_author_a_schema_entry() -> None:

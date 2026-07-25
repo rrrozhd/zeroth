@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.4] - 2026-07-25
+
+### Fixed
+
+- Realigned the audit-capture suites with the collision-free canonical mapping.
+  A canonical mapping is now an entry *sequence* (`{"<entries>": [[key, value],
+  …]}`) rather than a flat `{hashed_key: type_name}` dict, because unsafe and
+  non-string keys all rendered to the same `***REDACTED***` marker and therefore
+  overwrote one another: two submitted entries were persisted as a count of one
+  and a schema missing a branch, which broke R4's promise that the hashes and
+  counts of dropped content are retained. Five assertions still described the old
+  flat shape and were updated to the new one; each still fails if the property it
+  was written for breaks. The `operation` assertion moved with the metadata
+  vocabulary — its text is filled partly from a client-supplied protocol method,
+  so it is now replaced by a stable correlating digest rather than retained.
+
+### Added
+
+- Failing-before probes for the three capture gaps that shipped without one:
+  a registered secret nested inside a `set` (the container type none of the three
+  stacked walkers traversed), a label-shaped credential filed under `reason_code`
+  / `decision` / `status` (a shape check is not a provenance check), and an
+  artifact reference whose `store`, `content_type` and nested `metadata` used to
+  ride into a metadata-only capture alongside the one key retention needs. Each
+  probe leaks its seeded value against the pre-fix source and is clean against
+  the current one. A collision probe pins the entry-sequence fix directly: two
+  entries whose keys both canonicalize unsafely must count as two, and must
+  digest differently from one of them alone.
+
 ## [0.12.4.3.1] - 2026-07-25
 
 ### Fixed

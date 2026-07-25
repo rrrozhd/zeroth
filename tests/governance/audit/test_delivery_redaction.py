@@ -29,7 +29,12 @@ from zeroth.governance.audit.capture_policy import (
     AuditCapturePolicy,
     CaptureDecision,
 )
-from zeroth.governance.audit.capture_projection import key_digest
+from zeroth.governance.audit.capture_projection import (
+    canonical_entries,
+    canonicalize,
+    entry_count,
+    key_digest,
+)
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.audit.models import (
     ApprovalActionRecord,
@@ -132,9 +137,29 @@ class _PassThroughCapturePolicy:
         return record
 
 
-def _seeded_record(audit_id: str = "audit-seeded") -> NodeAuditRecord:
+class _UnsafeKey:
+    """A mapping key the projection refuses to print, and refuses to merge with its peers."""
+
+    def __init__(self, secret: str) -> None:
+        self._secret = secret
+
+    def __str__(self) -> str:
+        return self._secret
+
+    def __repr__(self) -> str:
+        return self._secret
+
+    def __hash__(self) -> int:
+        return hash(id(self))
+
+    def __eq__(self, other: object) -> bool:
+        return self is other
+
+
+def _seeded_record(audit_id: str = "audit-seeded", **overrides: Any) -> NodeAuditRecord:
     """Build a record with secrets planted at several depths in every content channel."""
-    return NodeAuditRecord(
+    # Keyword form rather than a literal: the call reads as the record's shape.
+    fields: dict[str, Any] = dict(
         audit_id=audit_id,
         run_id="run-1",
         node_id="node-1",
@@ -182,6 +207,8 @@ def _seeded_record(audit_id: str = "audit-seeded") -> NodeAuditRecord:
         token_usage=TokenUsage(input_tokens=11, output_tokens=7, total_tokens=18, model_name="m"),
         cost_usd=0.25,
     )
+    fields.update(overrides)
+    return NodeAuditRecord(**fields)
 
 
 def _repository(sqlite_db: Any, classifier: Any = None) -> AuditRepository:
@@ -341,7 +368,11 @@ async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained
     sqlite_db: Any,
 ) -> None:
     # R4: what replaces the content still answers "was it the same payload?".
-    submitted = _seeded_record()
+    # ``validation_results`` carries the collision case: two entries whose keys
+    # are both unprintable, so both canonicalize to the same marker.
+    submitted = _seeded_record(
+        validation_results={"schema": {_UnsafeKey(API_KEY): 1, _UnsafeKey(PASSWORD): "two"}}
+    )
 
     stored = await _store_one(sqlite_db, submitted)
     capture = stored.execution_metadata[CAPTURE_METADATA_KEY]
@@ -366,12 +397,30 @@ async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained
     assert dropped["input_snapshot"]["sha256"] != dropped["output_snapshot"]["sha256"]
     assert dropped["input_snapshot"]["count"] == len(submitted.input_snapshot)
     # Key names are hashed, never printed: a credential used as a mapping key
-    # would otherwise be persisted verbatim inside the schema of what was dropped.
-    schema = dropped["input_snapshot"]["schema"]
-    assert set(schema) == {key_digest("prompt"), key_digest("context")}
-    assert schema[key_digest("prompt")] == "str"
+    # would otherwise be persisted verbatim inside the schema of what was
+    # dropped. A canonical mapping is an entry *sequence*, so a hashed key is a
+    # list element rather than a dict key.
+    entries = canonical_entries(dropped["input_snapshot"]["schema"])
+    assert entries is not None
+    assert sorted(key for key, _value in entries) == sorted(
+        (key_digest("prompt"), key_digest("context"))
+    )
+    assert dict(entries)[key_digest("prompt")] == "str"
     assert dropped["stdout"]["count"] == len(submitted.stdout or "")
     assert dropped["tool_calls"]["count"] == 1
+    # The collision the entry sequence exists to remove: both keys render to the
+    # same marker, so as dict keys the second overwrote the first and the
+    # retained schema and count described a payload with one entry instead of
+    # two. R4's retained counts have to hold for keys the projection refuses to
+    # print, not only for the ones it can hash.
+    outer = canonical_entries(dropped["validation_results"]["schema"])
+    assert outer is not None
+    assert [key for key, _value in outer] == [key_digest("schema")]
+    assert sorted(canonical_entries(outer[0][1]) or []) == [
+        ["<key:other>", "int"],
+        ["<key:other>", "str"],
+    ]
+    assert entry_count(canonicalize(submitted.validation_results["schema"])) == 2
 
 
 async def test_seeded_secrets_at_every_nesting_depth_are_absent_from_the_stored_record(
