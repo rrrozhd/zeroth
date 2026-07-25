@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.5] - 2026-07-25
+
+### Fixed
+
+- `AuditDeliveryQueue` no longer accepts a `capture_policy`. The stage constructs
+  its own `AuditCapturePolicy` and applies it before every write; callers may
+  still inject a `classifier` and widen `redaction`/`known_secrets`, but they
+  cannot substitute a pass-through for the redaction transform (R3).
+- A capture transform that raises no longer kills the delivery worker. The worker
+  falls back to `blank_record()` and, if even that fails, counts and names the
+  event as failed before continuing (R3, R7).
+- Metadata-only capture now projects `execution_metadata`, approval metadata and
+  every free-form error string through an allowlist
+  (`capture_projection.ContentFreeProjection`). Unrecognised keys, containers and
+  error text are replaced by a digest, a schema and a count instead of surviving
+  best-effort key redaction (R4).
+- Dropped-content schemas no longer render mapping keys with `str(key)`. Keys are
+  gated by exact type, length and shape, and digests are computed from a
+  canonical form that never invokes user `__str__`/`__repr__`, so a payload that
+  previously produced `sha256=None` now always produces a digest (R4, R5).
+- Capture, classifier and writer failures are logged as a fixed error code plus
+  the exception type. Exception messages, which can carry the value that caused
+  them, no longer reach the log stream (R5).
+- `AuditRepository.write` raises `DuplicateAuditIdError` (a `ValueError`
+  subclass, so existing callers are unaffected) and the delivery queue counts
+  only that type as "already delivered". A pre-commit validation `ValueError` is
+  now retried and then failed rather than reported as a durable write (R8).
+- `aclose()` retains the ids of events that exhausted their retries, includes
+  them in the close report with `drained=False`, and keeps `failed` distinct from
+  `abandoned` (R7, R10).
+- `aclose()` applies one absolute deadline to the drain *and* the worker
+  cancellation, so a writer that swallows `CancelledError` is reported instead of
+  awaited past the bound; the writer contract now requires cancellability (R10).
+- Concurrent `aclose()` calls share one close task and one cached report, so an
+  in-flight event can no longer be abandoned and counted twice (R7).
+- Retry delays and the shutdown timeout reject `NaN` and infinity.
+- The delivery stage's task set is now a real supervised registry with a done
+  callback that retrieves task exceptions.
+
+### Changed
+
+- Extracted `zeroth.governance.audit.capture_projection`, `delivery_state`,
+  `delivery_worker` and `errors` from `capture_policy.py` and `delivery.py`.
+
 ## [0.12.3.4] - 2026-07-25
 
 ### Changed

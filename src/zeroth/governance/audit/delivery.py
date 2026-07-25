@@ -23,44 +23,44 @@ an investigation reads first) and tells nobody: the producer of the discarded
 event returned successfully long ago. Reject-newest hands the loss back to the
 only caller still on the stack, which can log, degrade, or refuse.
 
-**Retries reuse the ``audit_id`` minted at submit time; they never mint a new
-one.** The identity is fixed by the producer before ``submit`` and is carried
-unchanged on the frozen queue item, so every attempt writes the same identity.
-That is what makes a retry idempotent here. ``AuditRepository.write`` is
-append-only and raises :class:`ValueError` when an ``audit_id`` already exists,
-so a retry that follows a partially-succeeded write finds the record already
-durable -- and this stage counts that as **delivered**, not as an error.
-Re-minting an id per attempt (what a naive retry wrapped around the existing
-gateway sink would do, since it calls ``uuid4()`` on every emit) would persist
-one logical event as two records.
+**Retries reuse the ``audit_id`` minted at submit time.** The identity is fixed
+by the producer before ``submit`` and carried unchanged on the frozen queue
+item, so every attempt writes the same one -- which is what makes a retry
+idempotent. ``AuditRepository.write`` raises
+:class:`~zeroth.governance.audit.errors.DuplicateAuditIdError` when that id is
+already stored, so a retry following a partially-succeeded write finds the
+record durable, and this stage counts *that specific type* as **delivered**.
+Nothing wider: the same method raises plain ``ValueError`` for a record it
+rejected before the commit, and reading every ``ValueError`` as "already
+stored" reported a record as delivered that was never written at all.
 
-**A queued event carries its own tenant.** The worker runs long after the
-producer's request context is gone, so the tenant must ride on the record --
-and ``NodeAuditRecord.tenant_id`` defaults to ``"default"``, the reserved tenant
-owning the fallback retention policy, so an absent one is misattributed *and*
-given the wrong TTL, silently on both counts. ``submit`` therefore rejects a
-blank tenant: the one shape of that omission pydantic has not already erased.
+**Redaction is owned here and cannot be swapped.** The queue constructs its own
+:class:`~zeroth.governance.audit.capture_policy.AuditCapturePolicy` and applies
+it between the dequeue and the first write attempt; no parameter accepts a
+policy object. A caller may inject a *classifier* -- which picks between two
+fixed outcomes -- and may widen the redaction rules, but it cannot supply the
+transform, because a boundary a caller can replace with a pass-through is not a
+boundary: the previous shape accepted one and wrote the producer's prompt
+verbatim. If the policy fails while failing closed the worker falls back to
+:func:`~zeroth.governance.audit.capture_policy.blank_record`, and failing even
+that it drops the event as ``failed`` rather than letting one exception take
+the only worker with it. Running the transform once, ahead of the retry loop,
+is what makes "no attempt can reach the writer with what the producer
+submitted" true without walking the same payload per attempt.
 
-**Capture classification and redaction run on the worker, once per event, ahead
-of the first attempt.** The transform is
-:class:`~zeroth.governance.audit.capture_policy.AuditCapturePolicy`, and this
-stage applies it *itself* rather than trusting a producer to have done so.
-``_consume`` runs it between the dequeue and ``_deliver``, so ``_deliver`` --
-the only code here that touches the writer -- holds nothing but the captured
-record. Producer-side application was the alternative: it would keep an
-unredacted record out of the in-process buffer, but it would also put an
-O(payload) walk on the latency-sensitive path that ``submit`` exists to keep
-O(1), and the buffer holds an object the producer was already holding, whereas
-the writer is durable storage. Running it once, ahead of the retry loop, is what
-makes "no attempt -- including the one after a partial success -- can reach the
-writer with what the producer submitted" true without walking the same payload
-once per attempt and risking a doubly-escaped value.
+**Exhaustion is failure, not delivery, and failure keeps its name.** After the
+final attempt an event is counted as ``failed`` and its ``audit_id`` retained,
+so :meth:`AuditDeliveryQueue.aclose` can report it: a shutdown returning
+``drained=True`` while a record had been dropped hours earlier told an operator
+the stage had lost nothing.
 
-**Exhaustion is failure, not delivery.** After the final attempt an event is
-counted as ``failed`` and dropped. ``failed``, ``rejected`` and ``delivered``
-are distinct counters precisely so an operator can tell "the writer is broken"
-from "the producer outran the writer" -- collapsing them would make the
-delivery stage look healthy in exactly the two cases where it is not.
+**Shutdown runs once, under one absolute deadline.** Concurrent ``aclose``
+callers share a single close task and its single report; independent snapshots
+let two callers abandon and count the same in-flight event twice. The deadline
+spans the drain *and* the worker cancellation, because a writer that swallows
+:class:`asyncio.CancelledError` otherwise keeps the close running for as long
+as it likes -- such a worker is left running and reported as an undrained
+close, never waited on past the bound.
 
 Delivery state lives on the queue item, never on ``NodeAuditRecord``: that
 model is ``extra="forbid"`` and every one of its fields feeds the per-run
@@ -71,105 +71,56 @@ every record ever written.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
-import random
-from dataclasses import dataclass
-from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any
 
 from zeroth.governance.audit.capture_policy import AuditCapturePolicy
+from zeroth.governance.audit.delivery_state import (
+    COUNTER_METRICS,
+    QUEUE_DEPTH_GAUGE,
+    AuditDeliveryCounts,
+    AuditDeliveryReport,
+    AuditRecordWriter,
+    DeliveryCounters,
+    DeliveryFailure,
+    DeliveryRejection,
+    PendingAudit,
+    validate_seconds,
+)
+from zeroth.governance.audit.delivery_worker import DeliveryWorker
 from zeroth.platform.observability.metrics import MetricsCollector
 
 if TYPE_CHECKING:
-    from zeroth.governance.audit.models import NodeAuditRecord
+    from collections.abc import Mapping
+
+    from zeroth.governance.audit.capture_policy import CaptureClassifier
+    from zeroth.governance.audit.models import AuditRedactionConfig, NodeAuditRecord
 
 logger = logging.getLogger(__name__)
-
-QUEUE_DEPTH_GAUGE = "zeroth_audit_delivery_queue_depth"
-
-_COUNTER_METRICS = {
-    "queued": "zeroth_audit_delivery_queued_total",
-    "delivered": "zeroth_audit_delivery_delivered_total",
-    "retried": "zeroth_audit_delivery_retried_total",
-    "rejected": "zeroth_audit_delivery_rejected_total",
-    "failed": "zeroth_audit_delivery_failed_total",
-    "abandoned": "zeroth_audit_delivery_abandoned_total",
-}
-
-
-class AuditRecordWriter(Protocol):
-    """The durable audit write this stage delivers into.
-
-    Satisfied by :class:`~zeroth.governance.audit.repository.AuditRepository`.
-    One contract term matters to this module: the write is append-only and
-    raises :class:`ValueError` *only* when the record's ``audit_id`` is already
-    stored, which this stage reads as "already durable".
-    """
-
-    async def write(self, record: NodeAuditRecord) -> object:
-        """Persist one audit record, raising ``ValueError`` on a duplicate id."""
-        ...
-
-
-class DeliveryRejection(StrEnum):
-    """Why :meth:`AuditDeliveryQueue.submit` refused an event."""
-
-    QUEUE_FULL = "queue_full"
-    CLOSED = "closed"
-
-
-@dataclass(frozen=True, slots=True)
-class _PendingAudit:
-    """One queued event, carrying the identity every retry reuses."""
-
-    audit_id: str
-    record: NodeAuditRecord
-
-
-@dataclass(frozen=True, slots=True)
-class AuditDeliveryCounts:
-    """Immutable snapshot of the delivery counters."""
-
-    queued: int = 0
-    delivered: int = 0
-    retried: int = 0
-    rejected: int = 0
-    failed: int = 0
-    abandoned: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class AuditDeliveryReport:
-    """Outcome of a graceful shutdown.
-
-    Attributes:
-        drained: ``True`` when every queued event was resolved within the
-            shutdown bound.
-        undelivered_audit_ids: The ids this stage could not persist. Empty
-            whenever ``drained`` is ``True``.
-        counts: The counter snapshot taken after the drain.
-    """
-
-    drained: bool
-    undelivered_audit_ids: tuple[str, ...]
-    counts: AuditDeliveryCounts
-
-
-def _validate_seconds(name: str, value: float) -> None:
-    """Reject a delay that is not a non-negative real number of seconds."""
-    if type(value) is not float and type(value) is not int:
-        raise ValueError(f"{name} must be a real number of seconds")
-    if value < 0:
-        raise ValueError(f"{name} must not be negative")
 
 
 class AuditDeliveryQueue:
     """Bounded delivery stage between an audit producer and the durable write.
 
-    A single worker task consumes the queue and writes one event at a time,
-    retrying the *same* record -- and therefore the same ``audit_id`` -- with
-    jittered exponential backoff until it lands or the attempt budget runs out.
+    A single worker task consumes the queue, applies this stage's own capture
+    policy, and writes one event at a time -- retrying the *same* record, and
+    therefore the same ``audit_id``, with jittered exponential backoff until it
+    lands or the attempt budget runs out.
+
+    Args:
+        writer: The durable append-only write. Must be cancellable; see
+            :class:`~zeroth.governance.audit.delivery_state.AuditRecordWriter`.
+        max_queue_size: How many events may wait before ``submit`` rejects.
+        max_attempts: Write attempts per event, including the first.
+        base_delay_seconds: Backoff base for the second attempt onward.
+        max_delay_seconds: Ceiling the jittered backoff cannot exceed.
+        metrics: Where the counters are published.
+        classifier: Decides per event whether content may be retained. The one
+            replaceable part of the capture boundary, and it chooses between
+            two fixed outcomes rather than authoring the record.
+        redaction: Extra key-redaction and path-omission rules. Widens the
+            stage's defaults; cannot narrow them.
+        known_secrets: Resolved secret values to mask wherever they appear.
     """
 
     def __init__(
@@ -181,32 +132,42 @@ class AuditDeliveryQueue:
         base_delay_seconds: float = 0.5,
         max_delay_seconds: float = 30.0,
         metrics: MetricsCollector | None = None,
-        capture_policy: AuditCapturePolicy | None = None,
+        classifier: CaptureClassifier | None = None,
+        redaction: AuditRedactionConfig | None = None,
+        known_secrets: Mapping[str, str] | None = None,
     ) -> None:
         if type(max_queue_size) is not int or max_queue_size < 1:
             raise ValueError("max_queue_size must be a positive int")
         if type(max_attempts) is not int or max_attempts < 1:
             raise ValueError("max_attempts must be a positive int")
-        _validate_seconds("base_delay_seconds", base_delay_seconds)
-        _validate_seconds("max_delay_seconds", max_delay_seconds)
+        validate_seconds("base_delay_seconds", base_delay_seconds)
+        validate_seconds("max_delay_seconds", max_delay_seconds)
         if max_delay_seconds < base_delay_seconds:
             raise ValueError("max_delay_seconds must not be below base_delay_seconds")
-        self._writer = writer
-        self._max_attempts = max_attempts
-        self._base_delay = float(base_delay_seconds)
-        self._max_delay = float(max_delay_seconds)
         # A private collector rather than None: metrics are always recorded, and
         # an un-wired deployment loses the scrape, not the accounting.
-        self._metrics = MetricsCollector() if metrics is None else metrics
-        # Never None, for the same reason the collector is not: "no policy was
-        # supplied" must not resolve to "persist what the producer sent".
-        self._policy = AuditCapturePolicy() if capture_policy is None else capture_policy
-        self._queue: asyncio.Queue[_PendingAudit] = asyncio.Queue(maxsize=max_queue_size)
-        self._tasks: set[asyncio.Task[None]] = set()
+        self._counters = DeliveryCounters(
+            MetricsCollector() if metrics is None else metrics,
+            max_retained_ids=max_queue_size,
+        )
+        self._queue: asyncio.Queue[PendingAudit] = asyncio.Queue(maxsize=max_queue_size)
+        self._loop_worker = DeliveryWorker(
+            writer=writer,
+            # Constructed, never accepted: see the module docstring. Only the
+            # classifier and the redaction inputs cross this boundary.
+            policy=AuditCapturePolicy(
+                classifier=classifier, redaction=redaction, known_secrets=known_secrets
+            ),
+            counters=self._counters,
+            queue=self._queue,
+            max_attempts=max_attempts,
+            base_delay=float(base_delay_seconds),
+            max_delay=float(max_delay_seconds),
+        )
+        self._tasks: set[asyncio.Task[Any]] = set()
         self._worker: asyncio.Task[None] | None = None
-        self._in_flight: _PendingAudit | None = None
+        self._close_task: asyncio.Task[AuditDeliveryReport] | None = None
         self._closed = False
-        self._counts = dict.fromkeys(_COUNTER_METRICS, 0)
 
     @property
     def pending(self) -> int:
@@ -215,7 +176,7 @@ class AuditDeliveryQueue:
 
     def counts(self) -> AuditDeliveryCounts:
         """Return an immutable snapshot of the delivery counters."""
-        return AuditDeliveryCounts(**self._counts)
+        return self._counters.snapshot()
 
     def start(self) -> None:
         """Ensure the single delivery worker task is running.
@@ -227,10 +188,9 @@ class AuditDeliveryQueue:
             return
         if self._worker is not None and not self._worker.done():
             return
-        worker = asyncio.create_task(self._consume(), name="audit-delivery")
+        worker = asyncio.create_task(self._loop_worker.run(), name="audit-delivery")
         self._worker = worker
-        self._tasks.add(worker)
-        worker.add_done_callback(self._tasks.discard)
+        self._track(worker)
 
     def submit(self, record: NodeAuditRecord) -> bool:
         """Hand one audit record to the delivery stage without ever blocking.
@@ -254,32 +214,51 @@ class AuditDeliveryQueue:
             if type(value) is not str or not value:
                 raise ValueError(f"record.{name} must be a non-empty str")
         if self._closed:
-            self._count("rejected", reason=DeliveryRejection.CLOSED)
+            self._counters.increment("rejected", reason=DeliveryRejection.CLOSED)
             return False
         try:
-            self._queue.put_nowait(_PendingAudit(audit_id=audit_id, record=record))
+            self._queue.put_nowait(PendingAudit(audit_id=audit_id, record=record))
         except asyncio.QueueFull:
-            self._count("rejected", reason=DeliveryRejection.QUEUE_FULL)
+            self._counters.increment("rejected", reason=DeliveryRejection.QUEUE_FULL)
             logger.warning("audit delivery queue full; rejected audit_id %s", audit_id)
             return False
-        self._count("queued")
-        self._publish_depth()
+        self._counters.increment("queued")
+        self._counters.publish_depth(self._queue.qsize())
         self.start()
         return True
 
     async def aclose(self, *, timeout: float = 5.0) -> AuditDeliveryReport:
         """Stop accepting events, drain what is in flight, and report the rest.
 
+        Runs at most once. Concurrent and later callers await the same close
+        task and receive the same report, because two independent closes would
+        each abandon -- and each count -- the one event that was mid-write.
+
         Args:
-            timeout: Seconds to spend draining before abandoning the remainder.
+            timeout: Seconds the whole shutdown may take, spanning the drain
+                and the worker's cancellation. Honoured from the first caller;
+                a later caller waits for the close already in progress.
 
         Returns:
-            A report naming every event that could not be persisted before the
-            bound expired. Nothing is lost silently: those same events are
-            counted as abandoned.
+            A report naming every event that could not be persisted, whether it
+            exhausted its retries or was abandoned at the bound. Nothing is lost
+            silently: those same events are counted.
         """
-        _validate_seconds("timeout", timeout)
+        validate_seconds("timeout", timeout)
         self._closed = True
+        if self._close_task is None:
+            # There is no await between the check and the assignment, so this is
+            # the whole of the mutual exclusion a lock would buy here.
+            self._close_task = asyncio.create_task(
+                self._drain(timeout), name="audit-delivery-close"
+            )
+            self._track(self._close_task)
+        return await asyncio.shield(self._close_task)
+
+    async def _drain(self, timeout: float) -> AuditDeliveryReport:
+        """Resolve every outstanding event, or name it, within one absolute deadline."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
         worker = self._worker
         drained = True
         if worker is not None and not worker.done():
@@ -292,81 +271,32 @@ class AuditDeliveryQueue:
         # identity of the one event that was mid-write.
         undelivered = self._abandon_remaining()
         if worker is not None:
-            worker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await worker
-        self._worker = None
-        self._publish_depth()
+            if not worker.done():
+                worker.cancel()
+                done, _pending = await asyncio.wait(
+                    {worker}, timeout=max(0.0, deadline - loop.time())
+                )
+                if not done:
+                    # A writer that swallowed the cancellation. The task stays
+                    # owned by ``_tasks`` and is reported, never waited on past
+                    # the bound the caller asked for.
+                    drained = False
+            if worker.done():
+                self._worker = None
+        self._counters.publish_depth(self._queue.qsize())
+        failed = self._counters.failed_audit_ids
         return AuditDeliveryReport(
-            drained=drained,
-            undelivered_audit_ids=undelivered,
+            drained=drained and not failed,
+            undelivered_audit_ids=(*failed, *undelivered),
             counts=self.counts(),
         )
-
-    async def _consume(self) -> None:
-        """Deliver queued events one at a time until cancelled."""
-        while True:
-            item = await self._queue.get()
-            self._in_flight = item
-            try:
-                # The single application point of the capture policy: everything
-                # downstream of here, retries included, sees only its output.
-                captured = _PendingAudit(
-                    audit_id=item.audit_id, record=self._policy.apply(item.record)
-                )
-                await self._deliver(captured)
-            finally:
-                self._in_flight = None
-                self._queue.task_done()
-                self._publish_depth()
-
-    async def _deliver(self, item: _PendingAudit) -> None:
-        """Write one event, retrying the same ``audit_id`` until attempts run out."""
-        attempt = 1
-        while True:
-            try:
-                await self._writer.write(item.record)
-            except asyncio.CancelledError:
-                raise
-            except ValueError:
-                # Append-only contract: a ValueError means this audit_id is
-                # already stored, so an earlier attempt did land. The event is
-                # durable -- counting it as failed would report a loss that
-                # never happened, and re-writing it is impossible by design.
-                self._count("delivered")
-                return
-            except Exception as exc:  # noqa: BLE001 - the writer is injected, so any
-                # non-duplicate failure (locked database, disk, a transport under
-                # a different implementation) is transient until the attempt
-                # budget says otherwise. Narrowing this would let an
-                # unanticipated storage error kill the worker for every later
-                # event, which is a much larger loss than one dropped record.
-                if attempt >= self._max_attempts:
-                    self._count("failed")
-                    logger.warning(
-                        "audit delivery failed after %d attempts for audit_id %s: %s",
-                        attempt,
-                        item.audit_id,
-                        exc,
-                    )
-                    return
-                self._count("retried")
-                await asyncio.sleep(self._backoff_delay(attempt))
-                attempt += 1
-            else:
-                self._count("delivered")
-                return
-
-    def _backoff_delay(self, attempt: int) -> float:
-        """Full-jitter exponential backoff for a 1-based attempt number."""
-        ceiling = min(self._base_delay * (2 ** (attempt - 1)), self._max_delay)
-        return random.uniform(0.0, ceiling)  # noqa: S311 - backoff jitter, not crypto
 
     def _abandon_remaining(self) -> tuple[str, ...]:
         """Count and name every event still undelivered once the drain bound expired."""
         pending: list[str] = []
-        if self._in_flight is not None:
-            pending.append(self._in_flight.audit_id)
+        in_flight = self._loop_worker.in_flight
+        if in_flight is not None:
+            pending.append(in_flight.audit_id)
         while True:
             try:
                 item = self._queue.get_nowait()
@@ -375,26 +305,37 @@ class AuditDeliveryQueue:
             pending.append(item.audit_id)
             self._queue.task_done()
         for audit_id in pending:
-            self._count("abandoned")
+            self._counters.increment("abandoned")
             logger.warning("audit delivery abandoned audit_id %s at shutdown", audit_id)
         return tuple(pending)
 
-    def _count(self, field: str, *, reason: DeliveryRejection | None = None) -> None:
-        """Increment one counter locally and on the injected metrics collector."""
-        self._counts[field] += 1
-        labels = None if reason is None else {"reason": reason.value}
-        self._metrics.increment(_COUNTER_METRICS[field], labels)
+    def _track(self, task: asyncio.Task[Any]) -> None:
+        """Own a task for its lifetime, so it is neither collected nor silently lost."""
+        self._tasks.add(task)
+        task.add_done_callback(self._on_task_done)
 
-    def _publish_depth(self) -> None:
-        """Publish the current queue depth as a gauge."""
-        self._metrics.gauge_set(QUEUE_DEPTH_GAUGE, float(self._queue.qsize()))
+    def _on_task_done(self, task: asyncio.Task[Any]) -> None:
+        """Retire a supervised task, retrieving the exception the set would have swallowed."""
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "audit delivery task error code=%s task=%s exception_type=%s",
+                DeliveryFailure.WORKER_ERROR.value,
+                task.get_name(),
+                type(exc).__name__,
+            )
 
 
 __all__ = [
+    "COUNTER_METRICS",
     "QUEUE_DEPTH_GAUGE",
     "AuditDeliveryCounts",
     "AuditDeliveryQueue",
     "AuditDeliveryReport",
     "AuditRecordWriter",
+    "DeliveryFailure",
     "DeliveryRejection",
 ]

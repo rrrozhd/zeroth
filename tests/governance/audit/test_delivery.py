@@ -7,22 +7,27 @@ event persists exactly once (R2), every outcome is counted (R7), and shutdown
 drains within a bound and names what it could not deliver (R10).
 
 The writer stubs below imitate the real repository contract deliberately: a
-duplicate ``audit_id`` raises ``ValueError``, which is what makes the
-idempotency of a retry observable rather than assumed.
+duplicate ``audit_id`` raises ``DuplicateAuditIdError`` -- and *only* a
+duplicate does -- which is what makes the idempotency of a retry observable
+rather than assumed, and what makes "a validation failure is not a delivery"
+testable at all.
 """
 
 from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from typing import Any
 
 import pytest
 
+from zeroth.governance.audit import delivery_worker as delivery_module
 from zeroth.governance.audit.delivery import (
     QUEUE_DEPTH_GAUGE,
     AuditDeliveryQueue,
 )
+from zeroth.governance.audit.errors import DuplicateAuditIdError
 from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.platform.observability.metrics import MetricsCollector
 
@@ -37,9 +42,24 @@ class _CollectingAuditWriter:
     async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         self.attempted_ids.append(record.audit_id)
         if any(stored.audit_id == record.audit_id for stored in self.records):
-            raise ValueError(f"audit_id {record.audit_id!r} already exists")
+            raise DuplicateAuditIdError(f"audit_id {record.audit_id!r} already exists")
         self.records.append(record)
         return record
+
+
+class _ValidationRejectingWriter(_CollectingAuditWriter):
+    """Raises a plain ``ValueError`` before the commit -- nothing is ever stored."""
+
+    async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
+        self.attempted_ids.append(record.audit_id)
+        raise ValueError("record failed pre-commit validation")
+
+
+class _ExplodingCapturePolicy:
+    """Stands in for a capture transform that fails while failing closed."""
+
+    def apply(self, record: NodeAuditRecord) -> NodeAuditRecord:
+        raise RuntimeError(f"transform failed on {record.audit_id}")
 
 
 class _FlakyAuditWriter(_CollectingAuditWriter):
@@ -310,7 +330,8 @@ async def test_backoff_stays_within_the_configured_ceiling() -> None:
         max_delay_seconds=4.0,
     )
 
-    delays = [queue._backoff_delay(attempt) for attempt in range(1, 8) for _ in range(20)]
+    worker = queue._loop_worker
+    delays = [worker._backoff_delay(attempt) for attempt in range(1, 8) for _ in range(20)]
 
     assert all(0.0 <= delay <= 4.0 for delay in delays)
     assert len(set(delays)) > 1  # jittered, not a fixed schedule
@@ -326,6 +347,14 @@ async def test_backoff_stays_within_the_configured_ceiling() -> None:
         {"base_delay_seconds": -1.0},
         {"max_delay_seconds": "5"},
         {"base_delay_seconds": 10.0, "max_delay_seconds": 1.0},
+        # A non-finite delay is not a bound: NaN compares false against every
+        # comparison a later check could make, and infinity passes them all.
+        {"base_delay_seconds": float("nan")},
+        {"base_delay_seconds": float("inf")},
+        {"base_delay_seconds": float("-inf")},
+        {"max_delay_seconds": float("nan")},
+        {"max_delay_seconds": float("inf")},
+        {"max_delay_seconds": float("-inf")},
     ],
 )
 async def test_invalid_configuration_is_rejected_at_construction(kwargs: dict[str, Any]) -> None:

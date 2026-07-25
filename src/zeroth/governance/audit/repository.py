@@ -21,6 +21,7 @@ from zeroth.governance.audit.erasure_schema import (
     LATEST_DIGEST_VERSION,
     pii_commitment_fields,
 )
+from zeroth.governance.audit.errors import DuplicateAuditIdError
 from zeroth.governance.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.governance.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.platform.storage import AsyncConnection, AsyncDatabase
@@ -54,6 +55,14 @@ class AuditRepository:
 
         Writes are append-only. Duplicate audit IDs are rejected so history
         cannot be silently rewritten.
+
+        Raises:
+            DuplicateAuditIdError: If ``record.audit_id`` is already stored --
+                and only then. It subclasses ``ValueError`` so existing callers
+                that catch ``ValueError`` around this write are unaffected,
+                while a caller that treats "already stored" as a successful
+                delivery can narrow to the exact type instead of reading every
+                pre-commit validation failure as a durable record.
         """
         async with self._database.transaction(write_lock=True) as connection:
             head = await lock_audit_chain(
@@ -83,7 +92,7 @@ class AuditRepository:
                 (chained.audit_id,),
             )
             if existing is not None:
-                raise ValueError(f"audit_id {record.audit_id!r} already exists")
+                raise DuplicateAuditIdError(f"audit_id {record.audit_id!r} already exists")
             created_at = datetime.now(UTC)
             await connection.execute(
                 """
