@@ -13,7 +13,6 @@ from typing import Any
 
 from zeroth.governance.approvals import ApprovalRecord, ApprovalRepository
 from zeroth.governance.audit.capture_policy import AuditCapturePolicy
-from zeroth.governance.audit.capture_seal import strip_seal
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.contracts.registry import ContractNotFoundError, ContractRegistryError
 from zeroth.contracts.graph.validation_errors import (
@@ -294,7 +293,7 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
     # what the capture policy produced -- not what the producer submitted. The
     # comparison stays byte-for-byte: storage adds nothing and drops nothing of
     # its own beyond the chain fields excluded below.
-    expected = strip_seal(AuditCapturePolicy().apply(audit))
+    expected = AuditCapturePolicy().apply(audit)
     assert persisted_audit.model_dump(
         mode="json",
         exclude={"chain_sequence", "digest_version", "pii_commitments", "record_digest"},

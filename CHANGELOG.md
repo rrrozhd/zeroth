@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.2] - 2026-07-25
+
+### Fixed
+
+- Collapsed audit capture to a single point. `AuditRepository.write` is now the
+  sole, unconditional capture boundary: it always applies the capture policy and
+  reads nothing off the record it is handed. Capture previously ran twice — once
+  on the delivery worker and once on the durable write — which forced the second
+  pass to recognise the first pass's work through a marker on producer-supplied
+  `execution_metadata`. A caller could obtain a genuine marker, alter the content
+  around it, and have the repository skip capture entirely, bypassing R3/R5.
+
+### Removed
+
+- `zeroth.governance.audit.capture_seal` in full — the per-process nonce,
+  `seal_metadata`, `is_sealed`, `strip_seal`, `capture_for_write` and
+  `CAPTURE_SEAL_KEY`. With one capture point there is nothing to attest and
+  nothing to forge. `CAPTURE_METADATA_KEY` moved to
+  `zeroth.governance.audit.capture_policy`.
+- The delivery worker no longer classifies or redacts; `AuditDeliveryQueue` no
+  longer accepts `classifier`, `redaction` or `known_secrets`, and
+  `DeliveryFailure.CAPTURE_FAILED` is gone. `AuditRepository.configure_capture`
+  gained the `redaction` and `known_secrets` keywords in their place, so the
+  deployment's capture posture is configured where capture happens.
+  `AuditRecordWriter` implementations are now required to be capture-applying
+  durable sinks; production injects only `AuditRepository`.
+
 ## [0.12.4.1.1] - 2026-07-25
 
 ### Fixed

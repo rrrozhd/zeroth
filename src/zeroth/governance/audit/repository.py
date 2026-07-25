@@ -3,15 +3,23 @@
 Provides the AuditRepository class that handles saving and querying
 NodeAuditRecord objects using an async database.
 
-**This is the capture boundary.** :meth:`AuditRepository.write` is the single
-durable chokepoint -- ``write_many`` delegates to it -- so the classification and
-redaction :mod:`zeroth.governance.audit.capture_policy` owns are applied *here*,
-before the digest is computed. Placing them on the delivery worker left every
-direct caller outside them: the orchestration runtime holds a repository and
-writes node prompts, results, errors and denials straight through it, with a
-``redact`` that is a pass-through whenever no secret resolver was injected. A
-record already carrying this process's capture seal is written unchanged; see
-:mod:`zeroth.governance.audit.capture_seal`.
+**This is the capture boundary, and it is the only one.**
+:meth:`AuditRepository.write` is the single durable chokepoint -- ``write_many``
+delegates to it -- so :mod:`zeroth.governance.audit.capture_policy` is applied
+*here*, on every record, unconditionally, before the digest is computed. The
+delivery worker used to apply it too, which left the second pass needing to
+recognise the first pass's work or destroy it; the only channel for that was a
+marker in producer-supplied ``execution_metadata``, forgeable by hand and
+detachable from the content it described. Nothing on the record is consulted
+now, so nothing on it can be forged.
+
+**The trade-off, stated plainly:** capture protects every *producer* -- all
+thirteen audit call sites reach this repository, including the orchestration
+runtime writing node prompts, results, errors and denials -- but not a
+hypothetical non-repository :class:`AuditRecordWriter` injected into
+:class:`~zeroth.governance.audit.delivery.AuditDeliveryQueue`. Production injects
+only this class (``core/langgraph_gateway/events.py``), and that Protocol now
+requires an implementation to be a capture-applying durable sink.
 """
 
 from __future__ import annotations
@@ -21,7 +29,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from zeroth.governance.audit.capture_policy import AuditCapturePolicy
-from zeroth.governance.audit.capture_seal import capture_for_write
 from zeroth.governance.audit.coordination import (
     advance_audit_chain,
     hydrate_audit_row,
@@ -94,7 +101,7 @@ class AuditRepository:
 
         Writes are append-only. Duplicate audit IDs are rejected so history
         cannot be silently rewritten. The record is classified and redacted
-        first -- unless it already carries this process's capture seal -- so what
+        first -- always, with no way for a caller to signal otherwise -- so what
         is digested and inserted is what the capture policy allows.
 
         Raises:
@@ -104,7 +111,8 @@ class AuditRepository:
                 stored" as a successful delivery can narrow to the exact type
                 instead of reading every pre-commit failure as a durable record.
         """
-        record = capture_for_write(record, self._capture)
+        # First, so the digest below covers the captured object.
+        record = self._capture.apply(record)
         async with self._database.transaction(write_lock=True) as connection:
             head = await lock_audit_chain(
                 connection,

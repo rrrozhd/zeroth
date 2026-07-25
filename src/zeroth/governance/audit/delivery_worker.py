@@ -1,4 +1,4 @@
-"""The delivery stage's consume-capture-write loop.
+"""The delivery stage's consume-write-retry loop.
 
 Split from :mod:`zeroth.governance.audit.delivery` along the seam that matters
 operationally: that module is what a *producer* touches -- a bounded, synchronous
@@ -13,12 +13,16 @@ only worker, which stranded every later event in the queue *and* left the one
 that caused it counted nowhere; the broad guard below is what makes "one bad
 event" cost one record instead of the whole stage.
 
-**Capture is a ladder, not a call.** The policy already fails closed
-internally, so an exception reaching :meth:`DeliveryWorker._capture` means it
-failed *while* failing closed. The fallback is the queue-owned
-:func:`~zeroth.governance.audit.capture_policy.blank_record`, and if even that
-raises, the event is dropped and counted -- because the one output that is
-never an option is the record the producer submitted.
+**This loop does not classify, and deliberately so.** It used to apply the
+capture policy between the dequeue and the first write, which meant capture ran
+twice -- here and again inside
+:meth:`~zeroth.governance.audit.repository.AuditRepository.write` -- and the
+second pass had to be told the first had happened. The only channel available
+for telling it was producer-supplied metadata, so "already captured" was
+forgeable and capture was skippable. Classification now belongs to the durable
+sink alone; the writer this loop holds must be one (see
+:class:`~zeroth.governance.audit.delivery_state.AuditRecordWriter`). What is
+left here is delivery and retry.
 
 **Every attempt is bounded, and the bound does not depend on the writer's
 manners.** ``await writer.write(...)`` was unbounded, so a single hung write
@@ -47,7 +51,6 @@ import random
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from zeroth.governance.audit import capture_policy as capture_policy_module
 from zeroth.governance.audit.delivery_state import (
     DeliveryFailure,
     DeliveryOutcome,
@@ -56,7 +59,6 @@ from zeroth.governance.audit.delivery_state import (
 from zeroth.governance.audit.errors import DuplicateAuditIdError
 
 if TYPE_CHECKING:
-    from zeroth.governance.audit.capture_policy import AuditCapturePolicy
     from zeroth.governance.audit.delivery_state import (
         AuditRecordWriter,
         DeliveryCounters,
@@ -80,12 +82,11 @@ class AttemptOutcome(StrEnum):
 
 
 class DeliveryWorker:
-    """Consume one bounded queue, capture each event, and write it with retries.
+    """Consume one bounded queue and write each event with retries.
 
     Args:
-        writer: The durable append-only write.
-        policy: The stage's own capture transform. Constructed by the queue and
-            never supplied by a caller.
+        writer: The durable append-only write. Must be a capture-applying sink;
+            this loop hands it the record exactly as the producer built it.
         counters: Where every outcome is recorded.
         queue: The bounded hand-off this loop drains.
         max_attempts: Write attempts per event, including the first.
@@ -98,7 +99,6 @@ class DeliveryWorker:
         self,
         *,
         writer: AuditRecordWriter,
-        policy: AuditCapturePolicy,
         counters: DeliveryCounters,
         queue: asyncio.Queue[PendingAudit],
         max_attempts: int,
@@ -107,7 +107,6 @@ class DeliveryWorker:
         write_timeout: float = DEFAULT_WRITE_TIMEOUT_SECONDS,
     ) -> None:
         self._writer = writer
-        self._policy = policy
         self._counters = counters
         self._queue = queue
         self._max_attempts = max_attempts
@@ -139,11 +138,7 @@ class DeliveryWorker:
             self._in_flight = item
             self._started_at = asyncio.get_running_loop().time()
             try:
-                captured = self._capture(item)
-                if captured is None:
-                    self.fail(item, DeliveryFailure.CAPTURE_FAILED)
-                else:
-                    await self._deliver(item, captured)
+                await self._deliver(item, item.record)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - one event must never take the
@@ -182,30 +177,6 @@ class DeliveryWorker:
             item.audit_id,
             item.terminal.outcome,
         )
-
-    def _capture(self, item: PendingAudit) -> NodeAuditRecord | None:
-        """Apply the stage's own capture policy, degrading to blank, then to nothing.
-
-        Returns:
-            The record to write, or ``None`` when even the blank fallback
-            failed -- in which case the event is dropped rather than persisted
-            as the producer submitted it.
-        """
-        try:
-            return self._policy.apply(item.record)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - the policy already fails closed
-            # internally, so reaching here means it failed while doing so.
-            self._log_degraded(item.audit_id, exc)
-        try:
-            return capture_policy_module.blank_record(item.record)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - the last rung; a record that
-            # cannot even be emptied is given up on, counted and named.
-            self._log_degraded(item.audit_id, exc)
-            return None
 
     async def _deliver(self, item: PendingAudit, record: NodeAuditRecord) -> None:
         """Write one event, retrying the same ``audit_id`` until attempts run out."""
@@ -271,21 +242,6 @@ class DeliveryWorker:
         """Full-jitter exponential backoff for a 1-based attempt number."""
         ceiling = min(self._base_delay * (2 ** (attempt - 1)), self._max_delay)
         return random.uniform(0.0, ceiling)  # noqa: S311 - backoff jitter, not crypto
-
-    def _log_degraded(self, audit_id: str, exc: BaseException) -> None:
-        """Note a capture degradation by code and exception type, never by message.
-
-        ``str(exc)`` is attacker-reachable here: the capture transform walks
-        producer-supplied payloads and calls an injected classifier, either of
-        which can put the value it was holding into the message it raises. The
-        log stream is an export path none of the record-level checks cover.
-        """
-        logger.warning(
-            "audit delivery capture degraded code=%s audit_id=%s exception_type=%s",
-            DeliveryFailure.CAPTURE_FAILED.value,
-            audit_id,
-            type(exc).__name__,
-        )
 
 
 __all__ = ["DEFAULT_WRITE_TIMEOUT_SECONDS", "AttemptOutcome", "DeliveryWorker"]

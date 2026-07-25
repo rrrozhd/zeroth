@@ -41,14 +41,6 @@ from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.platform.observability.metrics import MetricsCollector
 
 
-class _UnusedPolicy:
-    """Never reached: the accounting tests drive the worker's counters directly."""
-
-    def apply(self, record: NodeAuditRecord) -> NodeAuditRecord:
-        """Return the record untouched."""
-        return record
-
-
 class _CollectingWriter:
     """Stores whatever it is handed, immediately."""
 
@@ -233,7 +225,6 @@ async def test_a_commit_after_abandonment_is_reconciled_rather_than_delivered() 
     counters = DeliveryCounters(MetricsCollector(), max_retained_ids=8)
     worker = DeliveryWorker(
         writer=_CollectingWriter(),
-        policy=_UnusedPolicy(),  # the accounting seam is what is under test
         counters=counters,
         queue=asyncio.Queue(),
         max_attempts=1,
@@ -256,7 +247,6 @@ async def test_a_failure_after_abandonment_is_not_counted_a_second_time() -> Non
     counters = DeliveryCounters(MetricsCollector(), max_retained_ids=8)
     worker = DeliveryWorker(
         writer=_CollectingWriter(),
-        policy=_UnusedPolicy(),
         counters=counters,
         queue=asyncio.Queue(),
         max_attempts=1,

@@ -5,8 +5,8 @@ to decide what may be kept: the producer is holding the prompt, the tool
 arguments and the model's answer, and a content channel that is closed only
 because every caller remembered to clear it is open the first time one caller
 forgets. This module owns that decision instead, and
-:class:`~zeroth.governance.audit.delivery.AuditDeliveryQueue` constructs one of
-these itself for every event it dequeues.
+:class:`~zeroth.governance.audit.repository.AuditRepository` constructs one of
+these itself and applies it to every record it writes.
 
 **The invariant: an event retains content only when it is classified into
 content, and anything this stage cannot classify retains none.**
@@ -35,11 +35,13 @@ through :class:`~zeroth.governance.audit.capture_projection.ContentFreeProjectio
 which keeps a projection typed per key and replaces everything else -- error
 text included -- with a digest, a schema and a count.
 
-**The boundary is the durable write, not this stage.** Applying the transform
-where the delivery worker happens to sit would leave every direct
-``AuditRepository.write`` caller outside it, so ``write`` applies the policy
-itself and :mod:`~zeroth.governance.audit.capture_seal` is how it recognises a
-record that has already been through one.
+**The boundary is the durable write, and it is the only one.** Applying the
+transform where the delivery worker happens to sit left every direct
+``AuditRepository.write`` caller outside it, so ``write`` applies the policy --
+unconditionally, on every record, trusting nothing the record carries. Capturing
+in two places once required proof that a record had already been through one,
+and that proof lived in producer-supplied ``execution_metadata``, where its
+shape was forgeable. One capture point: nothing to prove, nothing to forge.
 
 **What is removed and what is kept are equally load-bearing.** Under
 ``metadata_only`` every content channel (``input_snapshot``, ``output_snapshot``,
@@ -78,7 +80,6 @@ from zeroth.governance.audit.capture_projection import (
     canonicalize,
 )
 from zeroth.governance.audit.capture_scrub import DEFAULT_REDACT_KEYS, RedactionChain
-from zeroth.governance.audit.capture_seal import CAPTURE_METADATA_KEY, seal_metadata
 from zeroth.governance.audit.models import (
     AuditRedactionConfig,
     MemoryAccessRecord,
@@ -88,6 +89,11 @@ from zeroth.governance.audit.models import (
 from zeroth.platform.artifacts.helpers import extract_artifact_refs
 
 logger = logging.getLogger(__name__)
+
+# Where the capture decision is filed. Evidence written by the transform, never
+# read back as permission to skip it: ``AuditRepository.write`` captures
+# unconditionally and does not consult this key.
+CAPTURE_METADATA_KEY = "audit_capture"
 
 _EMPTIED_MAPPING_FIELDS = ("input_snapshot", "output_snapshot", "validation_results")
 _EMPTIED_LIST_FIELDS = ("condition_results",)
@@ -113,11 +119,11 @@ class CaptureClassifier(Protocol):
     """Decide what a single audit event allows to be retained.
 
     Mirrors the repository's ``classify(payload) -> str`` classifier shape, but
-    synchronously: this runs on the delivery worker between the dequeue and the
-    durable write, and an awaited classifier would put an unbounded wait in
-    front of every audit write. This is the *only* replaceable part of the
-    capture boundary: it picks between two fixed outcomes and cannot author
-    either, because a security boundary a caller can swap out is not a boundary.
+    synchronously: this runs inside the durable write, and an awaited classifier
+    would put an unbounded wait in front of it. This is the *only* replaceable
+    part of the capture boundary: it picks between two fixed outcomes and cannot
+    author either, because a security boundary a caller can swap out is not a
+    boundary.
     """
 
     def classify(self, record: NodeAuditRecord) -> str:
@@ -189,13 +195,11 @@ def blank_record(record: NodeAuditRecord) -> NodeAuditRecord:
         "memory_interactions": [],
         "approval_actions": [],
         "execution_metadata": {
-            CAPTURE_METADATA_KEY: seal_metadata(
-                {
-                    "classification": CaptureDecision.METADATA_ONLY.value,
-                    "content_retained": False,
-                    "capture_failed": True,
-                }
-            )
+            CAPTURE_METADATA_KEY: {
+                "classification": CaptureDecision.METADATA_ONLY.value,
+                "content_retained": False,
+                "capture_failed": True,
+            }
         },
     }
     return record.model_copy(update=update)
@@ -310,7 +314,7 @@ class AuditCapturePolicy:
             refs = retained_artifact_refs(record)
             if refs:
                 marker["artifact_refs"] = refs
-        metadata[CAPTURE_METADATA_KEY] = seal_metadata(marker)
+        metadata[CAPTURE_METADATA_KEY] = marker
         return metadata
 
     def _dropped_content(self, record: NodeAuditRecord) -> tuple[dict[str, Any], dict[str, Any]]:

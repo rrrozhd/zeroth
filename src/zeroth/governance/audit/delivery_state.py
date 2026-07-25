@@ -49,9 +49,17 @@ COUNTER_METRICS = {
 class AuditRecordWriter(Protocol):
     """The durable audit write this stage delivers into.
 
-    Satisfied by :class:`~zeroth.governance.audit.repository.AuditRepository`.
-    Two contract terms matter to the delivery stage:
+    Satisfied by :class:`~zeroth.governance.audit.repository.AuditRepository`,
+    which is the only implementation production wires in. Three contract terms
+    matter, and the first is a security obligation:
 
+    * **The write MUST be a capture-applying durable sink.** It is handed the
+      record exactly as its producer built it -- prompts, tool arguments, model
+      output and all -- because the delivery stage deliberately no longer
+      classifies. An implementation that persists what it receives without
+      applying
+      :class:`~zeroth.governance.audit.capture_policy.AuditCapturePolicy` (or an
+      equivalent that fails closed) writes the producer's content verbatim.
     * The write is append-only and raises
       :class:`~zeroth.governance.audit.errors.DuplicateAuditIdError` -- and
       *only* that type -- when the record's ``audit_id`` is already stored,
@@ -128,12 +136,10 @@ class DeliveryFailure(StrEnum):
     """Why the delivery stage could not persist an event it had accepted.
 
     Logged as a fixed code rather than an exception message: the failing code
-    is a producer-supplied classifier, an arbitrary payload walker or an
-    injected writer, and every one of them can put the value it was holding
-    into the text it raises.
+    is an injected writer, which walks producer-supplied payloads and can put
+    the value it was holding into the text it raises.
     """
 
-    CAPTURE_FAILED = "capture_failed"
     WRITE_FAILED = "write_failed"
     WRITE_TIMEOUT = "write_timeout"
     WORKER_ERROR = "worker_error"
@@ -214,7 +220,7 @@ class DeliveryCounters:
 
     @property
     def failed_audit_ids(self) -> tuple[str, ...]:
-        """The retained ids of events that exhausted their attempts or could not be captured."""
+        """The retained ids of events that exhausted their write attempts."""
         return tuple(self._failed_ids)
 
     def increment(self, field: str, *, reason: DeliveryRejection | None = None) -> None:
