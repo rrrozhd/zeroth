@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-07-25
+
+### Added
+
+- Versioned mapper from the neutral LangGraph causal-span records to standard
+  OpenTelemetry GenAI spans (ZER-4). `map_causal_span` is pure and imports no
+  OpenTelemetry: it resolves `gen_ai.operation.name` from the record's kind
+  (`tool` → `execute_tool`, `llm`/`chat_model` → `chat`, root `chain` →
+  `invoke_workflow`, nested `chain` → `invoke_agent`), names the span
+  `"{operation} {target}"`, and emits three disjoint namespaces — standard
+  `gen_ai.*` identifiers only, `langgraph.*` ancestry and structure, and
+  `zeroth.*` governance metadata that keeps the unverified gateway correlation id
+  out of `gen_ai.*`. Every span is stamped with the mapping's
+  `zeroth.convention_version`, so consumers pin the attribute shape by that value
+  alone and a bump never touches the collection contract.
+- `emit_genai_spans` rebuilds the real parent/child span tree on the OpenTelemetry
+  SDK, starting each child with its parent's context and treating a parent absent
+  from the batch as a root. Batch topology is validated before the first span is
+  started (empty or duplicate run ids and parent cycles are rejected) and
+  emission order is computed in one iterative pass, so a deeply nested or
+  reverse-ordered batch cannot recurse. Timestamps are never fabricated: mapped
+  spans expose only a `perf_counter`-derived `duration_ns`, and absolute times
+  are derived solely from an explicit caller-supplied clock anchor. Exported
+  lazily, so importing the integration package still works without the `otel`
+  extra.
+- Privacy is structural rather than configurable: the records carry no prompts,
+  tool arguments or results, so the mapper has no content channel and
+  deliberately no `capture_content` switch. Golden fixtures and exporter
+  integration tests pin the emitted attribute sets, the allowlisted-metadata type
+  gates (`bool` and `str` subclasses rejected), and the absence of any content
+  channel; a drift test compares the vendored `gen_ai.*` constants against
+  `opentelemetry.semconv` whenever it is importable.
+
 ## [0.12.2.4] - 2026-07-23
 
 ### Fixed
