@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-07-25
+
+### Added
+
+- The gateway's audit-delivery stage is now built by the service factory with the
+  application `MetricsCollector`, so `zeroth_audit_delivery_queued_total`,
+  `_retried_total`, `_rejected_total`, `_failed_total`, `_abandoned_total` and the
+  `zeroth_audit_delivery_queue_depth` gauge are rendered by `GET /v1/metrics`
+  instead of accumulating on a private collector nothing scrapes (R7).
+- `GET /health` carries an `audit_delivery` block (queue depth, the per-outcome
+  counts and `losing_events`), and `GET /health/ready` carries a matching
+  `audit_delivery` dependency check that degrades readiness when the stage has
+  lost an event. A loss is never rendered as a delivery (R8).
+- `ServiceBootstrap.audit_delivery_queue` exposes the stage the gateway event
+  sink submits into, giving it a lifecycle owner outside the sink.
+
+### Changed
+
+- `service_lifespan` now drains the audit-delivery queue during teardown, after
+  the gateway transport has stopped and while the audit repository is still
+  open, and logs every `audit_id` the bounded drain could not persist rather
+  than abandoning it silently (R10).
+
 ## [0.12.3.5.1] - 2026-07-25
 
 ### Fixed

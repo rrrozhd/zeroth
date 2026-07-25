@@ -23,7 +23,11 @@ from zeroth.service.api.contracts_api import register_contract_routes
 from zeroth.service.api.cost_api import register_cost_routes
 from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
 from zeroth.service.api.econ_dashboard_api import register_econ_dashboard_routes
-from zeroth.service.api.health import HealthResponse, langgraph_gateway_health
+from zeroth.service.api.health import (
+    HealthResponse,
+    audit_delivery_health,
+    langgraph_gateway_health,
+)
 from zeroth.service.api.regulus_proxy_api import register_regulus_proxy_routes
 from zeroth.service.api.retention_api import register_retention_routes
 from zeroth.service.api.rightsizing_api import register_rightsizing_routes
@@ -164,6 +168,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             deployment_version=deployment.version,
             graph_version_ref=deployment.graph_version_ref,
             langgraph_gateway=langgraph_gateway_health(app.state.bootstrap),
+            audit_delivery=audit_delivery_health(app.state.bootstrap),
         )
 
     # Primary: versioned routes under /v1/ (per D-06)

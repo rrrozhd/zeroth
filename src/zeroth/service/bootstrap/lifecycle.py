@@ -205,9 +205,44 @@ async def _service_runtime_lifespan(app: FastAPI):
             await close_result
 
 
+async def _drain_audit_delivery(app: FastAPI, *, timeout: float = 5.0) -> None:
+    """Drain the bounded audit-delivery stage and log whatever it could not persist.
+
+    Runs after the gateway transport has stopped -- so no further terminal
+    event can be submitted -- and while the audit repository is still open,
+    because the delivery worker writes through it. Skipping the drain would
+    abandon every event still queued when the process stopped; discarding the
+    report would lose the one list naming them.
+
+    Args:
+        app: The application whose ``state.bootstrap`` owns the delivery stage.
+        timeout: Seconds the bounded shutdown may take, in total.
+    """
+    queue = getattr(app.state.bootstrap, "audit_delivery_queue", None)
+    aclose = getattr(queue, "aclose", None)
+    if not callable(aclose):
+        return
+    try:
+        report = await aclose(timeout=timeout)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- the rest of teardown must still run
+        # Type only, never the message: the delivery stage deliberately logs
+        # failure codes rather than exception text, which can carry a payload.
+        logger.error("audit delivery drain failed exception_type=%s", type(exc).__name__)
+        return
+    undelivered = getattr(report, "undelivered_audit_ids", ())
+    if undelivered:
+        logger.error(
+            "audit delivery shutdown left %d event(s) undelivered: %s",
+            len(undelivered),
+            ", ".join(undelivered),
+        )
+
+
 @asynccontextmanager
 async def service_lifespan(app: FastAPI):
-    """Own the gateway transport around the existing service lifecycle."""
+    """Own the gateway transport and the audit drain around the service lifecycle."""
     try:
         async with _service_runtime_lifespan(app):
             yield
@@ -218,3 +253,6 @@ async def service_lifespan(app: FastAPI):
             close_result = gateway_aclose()
             if inspect.isawaitable(close_result):
                 await close_result
+        # Strictly after the transport: a still-serving gateway would keep
+        # submitting terminal events into a queue that is already draining.
+        await _drain_audit_delivery(app)

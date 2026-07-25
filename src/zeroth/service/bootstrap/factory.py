@@ -23,6 +23,7 @@ from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.approvals.notifications import build_approval_notifier
 from zeroth.governance.audit import AuditRepository
+from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.governance.guardrails.dead_letter import DeadLetterManager
 from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
@@ -491,6 +492,7 @@ async def bootstrap_service(
     gateway_compatibility: CompatibilityResult | None = None
     gateway_capability_reporter: object | None = None
     gateway_websocket_handler: object | None = None
+    audit_delivery_queue: AuditDeliveryQueue | None = None
     gateway_settings = settings.langgraph_gateway
     if gateway_settings.enabled:
         if signer is None or isinstance(signer, NullSigner):
@@ -528,6 +530,13 @@ async def bootstrap_service(
                 stale_after_seconds=gateway_settings.stale_threshold_seconds,
                 expected_graph_version=deployment.graph_version_ref,
             )
+            # Constructed here rather than left to the sink's private fallback:
+            # that fallback builds its own MetricsCollector, so every delivery
+            # counter -- queued, retried, rejected, failed -- would increment
+            # onto a registry nothing scrapes, and the delivery stage would be
+            # invisible on /v1/metrics. The same instance is what the lifespan
+            # drains and what the health surface reports.
+            audit_delivery_queue = AuditDeliveryQueue(audit_repository, metrics=metrics_collector)
             event_sink = AuditGatewayEventSink(
                 audit_repository,
                 actor_for=lambda event: ActorIdentity(
@@ -535,6 +544,7 @@ async def bootstrap_service(
                     auth_method=AuthMethod.API_KEY,
                     tenant_id=event.correlation.tenant_id,
                 ),
+                delivery=audit_delivery_queue,
             )
             gateway_proxy = GatewayProxy(
                 settings=gateway_settings,
@@ -604,6 +614,7 @@ async def bootstrap_service(
             langgraph_gateway_compatibility=gateway_compatibility,
             langgraph_gateway_capability_reporter=gateway_capability_reporter,
             langgraph_gateway_websocket_handler=gateway_websocket_handler,
+            audit_delivery_queue=audit_delivery_queue,
             retention_policy_repository=retention_policy_repository,
             legal_hold_repository=legal_hold_repository,
             retention_log_repository=retention_log_repository,
