@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3.1.1] - 2026-07-25
+
+### Fixed
+
+- The GenAI mapper now gates the `tags` *container* type, not just its entries: a
+  `tuple` subclass could override `__iter__` and yield entries it never stored,
+  injecting them into `langgraph.tags`. `CausalSpan` normalises only `metadata`,
+  so such a container reaches the mapper intact; anything but an exact `tuple`
+  is now omitted.
+
 ## [0.12.3.1] - 2026-07-25
 
 ### Fixed

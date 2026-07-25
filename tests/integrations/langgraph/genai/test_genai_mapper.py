@@ -49,6 +49,8 @@ from zeroth.integrations.langgraph._genai import (
     map_causal_span,
 )
 
+from zeroth.integrations.langgraph._spans import CausalSpan
+
 from ._causal import BLANKS, CONTENT_SENTINEL, HostileStr, causal_span, golden_tree
 
 FIXTURES = Path(__file__).with_name("fixtures")
@@ -347,6 +349,45 @@ def test_non_string_tags_are_dropped_so_the_sequence_stays_homogeneous() -> None
     mapped = map_causal_span(causal_span("r1", tags=("keep", 7, None, _SneakyStr("drop"))))
 
     assert mapped.attributes[LANGGRAPH_TAGS] == ("keep",)
+
+
+class _SneakyTags(tuple):  # noqa: SLOT001 - the point is to subclass tuple
+    """A ``tuple`` subclass whose ``__iter__`` yields entries it never stored."""
+
+    def __iter__(self):  # type: ignore[override]
+        return iter(("injected",))
+
+
+def test_a_hostile_tag_container_is_omitted_not_iterated() -> None:
+    """Per-entry gates cannot help if the container itself lies.
+
+    A ``tuple`` subclass may override ``__iter__`` to yield entries it never
+    stored, so the container is gated on ``type(...) is tuple`` and anything
+    else is omitted entirely. ``CausalSpan.__post_init__`` normalises only
+    ``metadata``, so such a container really does survive to the mapper --
+    hence the span is built directly here rather than through
+    :func:`causal_span`, whose ``tuple(tags)`` would materialise the lie first.
+    """
+    span = CausalSpan(
+        run_id="r1",
+        parent_run_id=None,
+        kind="chain",
+        name=None,
+        start=1000.0,
+        end=1000.5,
+        status="ok",
+        tags=_SneakyTags(("safe",)),
+        metadata={},
+        correlation_id=None,
+        error_type=None,
+    )
+    assert type(span.tags) is not tuple  # the subclass reaches the mapper intact
+
+    mapped = map_causal_span(span)
+
+    assert LANGGRAPH_TAGS not in mapped.attributes
+    assert "injected" not in repr(mapped)
+    assert "injected" not in json.dumps(mapped.to_dict())
 
 
 # -- a blank string is ABSENT, never an empty attribute value ------------------

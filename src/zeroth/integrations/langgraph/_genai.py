@@ -318,10 +318,13 @@ def _langgraph_attributes(
     if step is not None:
         attributes[LANGGRAPH_STEP] = step
     # OTel rejects a heterogeneous sequence and callbacks may hand the handler
-    # non-string tags, so every entry goes through the same gate.
-    tags = tuple(tag for tag in map(_plain_str, span.tags) if tag is not None)
-    if tags:
-        attributes[LANGGRAPH_TAGS] = tags
+    # non-string tags, so every entry goes through the same gate. The container
+    # itself is gated too: a tuple subclass may override ``__iter__`` and yield
+    # entries it never stored, so anything but an exact tuple is omitted.
+    if type(span.tags) is tuple:
+        tags = tuple(tag for tag in map(_plain_str, span.tags) if tag is not None)
+        if tags:
+            attributes[LANGGRAPH_TAGS] = tags
     return attributes
 
 
