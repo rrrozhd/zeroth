@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4.5.1] - 2026-07-25
+
+### Fixed
+
+- `capture_vocabulary` claimed that `tests/governance/audit/test_capture_vocabulary.py`
+  "pins each mirror against the enum it mirrors so the two cannot drift". That file
+  did not exist, so the hand-transcribed vocabularies were unpinned. A drift here
+  fails *open* in the direction that matters: a new enum member is summarized away,
+  so a real decision silently stops being retained and the audit row loses evidence
+  it is meant to keep. The test now exists and imports both sides — tests are not
+  bound by the layering rule that forces the transcription in the first place.
+  The comment's reasoning was also wrong for two of the mirrors: `PolicyDecision`
+  lives in `governance` itself and `ApprovalDecisionType` in `contracts`, both
+  importable; only `SandboxStrictnessMode` (`integrations`) and `GovernanceLevel`
+  (gateway package) genuinely have to be copied. Corrected to say so.
+
 ## [0.12.4.5] - 2026-07-25
 
 ### Fixed

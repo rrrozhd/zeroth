@@ -331,10 +331,15 @@ REASON_CODES: frozenset[str] = (
 )
 
 # Every key the projection retains as readable text, with the closed set of
-# terms it may hold. Mirrors of enums defined outside ``governance`` are
-# transcribed rather than imported, because ``governance`` may import only
-# ``contracts`` and ``platform``; ``tests/governance/audit/test_capture_vocabulary.py``
-# pins each mirror against the enum it mirrors so the two cannot drift.
+# terms it may hold. Some sets mirror enums this module cannot import:
+# ``SandboxStrictnessMode`` lives in ``integrations`` and ``GovernanceLevel`` in
+# the gateway package, and ``governance`` may import only ``contracts`` and
+# ``platform`` (``zeroth/_architecture.py``). Those are transcribed by hand.
+# A transcription that drifts fails *open* in the direction that matters -- a new
+# enum member is summarized away, so a real decision silently stops being
+# retained -- so ``tests/governance/audit/test_capture_vocabulary.py`` imports
+# both sides (tests are not bound by the layering rule) and pins each mirror
+# against its source.
 METADATA_VOCABULARIES: Mapping[str, frozenset[str]] = {
     # PolicyDecision plus the approval verdicts ApprovalDecisionType mints.
     "decision": frozenset({"allow", "deny", "approve", "reject"}),
