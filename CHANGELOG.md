@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-07-26
+
+### Added
+
+- Tool-governance vocabulary for the LangGraph integration:
+  `_tool_types.py` declares `SideEffectClass`, `ToolDecisionKind`,
+  `InventoryCoverage`, `ToolIdentity`, `ToolAction`, `ToolDecision`,
+  `ToolGovernanceContext`, `ToolInventoryEntry` and `ToolInventory` as frozen
+  dataclasses and `StrEnum`s. `ToolDecisionKind` carries the third verdict
+  (`require_approval`) *locally*, so the platform-wide `PolicyDecision` stays
+  ALLOW/DENY and no `is PolicyDecision.ALLOW` branch turns a pending approval
+  into a hard failure.
+- `_tool_errors.py` with `ToolGovernanceError` and its four subclasses
+  (`PolicyViolation`, `GovernanceContextError`, `ApprovalRequiresThreadError`,
+  `UnstableToolIdentityError`), each carrying a `zeroth.`-namespaced caller
+  facing `code`.
+- Audit reason codes for those failures, without which a tool denial writes a
+  record whose reason is summarized away rather than retained: `policy_violation`
+  joins the denial reason codes (a verdict a governance stage returned), and
+  `tool_governance_error`, `governance_context_error`,
+  `approval_requires_thread_error` and `unstable_tool_identity_error` join the
+  package failure codes.
+- `tests/integrations/langgraph/tools/test_tool_reason_codes.py` drives each of
+  those exceptions through `AuditRepository.write` and asserts the reason code
+  survives into storage, with an unregistered probe as the negative control. The
+  registration check walks `_tool_errors.__all__`, so an exception added later
+  fails the suite until its code is registered too.
+
 ## [0.13] - 2026-07-26
 
 ### Added
