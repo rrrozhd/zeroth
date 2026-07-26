@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-07-26
+
+### Added
+
+- `_tool_guard.py`: the shared tool-enforcement core both governance surfaces
+  call, so the fail-closed rules cannot diverge between them. `guard_tool_call`
+  is the entry point — it invokes the downstream tool exactly once on an allow,
+  outside any `try` and any loop, so a tool's own failure propagates unchanged
+  and is never retried. A denial raises `PolicyViolation` and an approval
+  suspends the run, both *before* the tool body, which runs zero times either
+  way. `authorize_tool_call` is the same enforcement without the invocation, for
+  a surface whose downstream call is awaited.
+- LangGraph's `interrupt` is an injected parameter defaulting to a lazy import,
+  the same seam shape as the decision client: an import inside the enforcement
+  function would leave nothing for a test to substitute, so the approval branch
+  would be untestable without the dependency. The interrupt payload is versioned
+  and carries only plain `str`/`int`/`None` values, so it survives a checkpoint's
+  JSON round trip; the call's arguments are represented by their fingerprint
+  rather than their content. Requesting an approval is all this stage does —
+  resume-time revalidation is ZER-10's, and an `interrupt` that returns instead
+  of suspending is refused rather than followed by the invocation.
+- Two further fail-closed rules: a tool with no stable identity raises
+  `UnstableToolIdentityError`, and an approval on a run with no thread to resume
+  into raises `ApprovalRequiresThreadError` rather than quietly becoming an
+  allow. Both refusals happen before anything is recorded or interrupted.
+- An action normalized against one governance context can no longer be enforced
+  against another: the principal is checked and a mismatch raises
+  `GovernanceContextError`. Not attacker-reachable, but it is attribution an
+  auditor could not unpick afterwards.
+
+### Changed
+
+- The decision record travels the typed `tool_calls` and `approval_actions`
+  fields, never a new `execution_metadata` key: the metadata allowlist has no key
+  for a tool name, tool reference or approval id, and drops unrecognized keys
+  silently, so writing one produces a record that looks audited and carries no
+  evidence. Only `decision` and `reason_code` — both long-standing allowlisted
+  keys — go into the metadata, and `reason_code` only for a denial. Emission
+  never raises: a projection that will not validate and a submitter that fails
+  each cost one record, not the call.
+- `capture_vocabulary`: added `require_approval` to
+  `METADATA_VOCABULARIES["decision"]`. `allow` and `deny` were already retained,
+  and the existing `approve`/`reject` are `ApprovalDecisionType` *resolutions* —
+  what a human answered — so neither could stand in for "waiting on a human".
+  Without a term of its own, the one verdict that pauses a run is the one whose
+  record loses it.
+
 ## [0.13.2] - 2026-07-26
 
 ### Added

@@ -346,8 +346,13 @@ REASON_CODES: frozenset[str] = (
 # both sides (tests are not bound by the layering rule) and pins each mirror
 # against its source.
 METADATA_VOCABULARIES: Mapping[str, frozenset[str]] = {
-    # PolicyDecision plus the approval verdicts ApprovalDecisionType mints.
-    "decision": frozenset({"allow", "deny", "approve", "reject"}),
+    # PolicyDecision plus the approval verdicts ApprovalDecisionType mints, plus
+    # ``require_approval``: the tool-enforcement verdict for "this call is
+    # waiting on a human". ``approve``/``reject`` are ApprovalDecisionType
+    # *resolutions* -- what somebody answered -- so neither can stand in for a
+    # pending request, and without a term of its own the one verdict that pauses
+    # a run is the one whose record loses it.
+    "decision": frozenset({"allow", "deny", "approve", "reject", "require_approval"}),
     # RouteDisposition (gateway routing) plus the provider-cache outcomes the
     # agent serializer promotes and the econ waste analyzer reads back.
     "disposition": frozenset({"governed", "transparent", "unsupported", "cache_hit", "cache_miss"}),
