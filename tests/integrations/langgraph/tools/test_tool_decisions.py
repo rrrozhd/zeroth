@@ -258,6 +258,92 @@ def test_the_opt_in_does_not_survive_a_client_that_cannot_answer() -> None:
     assert decision.kind is ToolDecisionKind.DENY
 
 
+def hostile_action(side_effect: object) -> ToolAction:
+    """Build an exactly-typed action carrying a classification nobody minted.
+
+    ``resolve_tool_decision`` gates the action with ``type(action) is ToolAction``
+    and then trusts its fields, and ``ToolAction`` is a plain dataclass anyone can
+    construct: only ``normalize_tool_action`` runs the classification through
+    ``classify_side_effect``. So this is the shape a caller that skipped
+    normalization -- or a future surface that builds the descriptor itself --
+    hands the gate.
+    """
+    return ToolAction(
+        identity=UNCLASSIFIED.identity,
+        arguments={},
+        contract_ref=None,
+        principal_id=CONTEXT.principal_id,
+        side_effect=side_effect,  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize(
+    "side_effect",
+    [
+        "unknown",
+        "read_only",
+        "side_effecting",
+        HostileStr("read_only"),
+        None,
+        True,
+        1,
+        object(),
+    ],
+    ids=[
+        "bare_unknown",
+        "bare_read_only",
+        "bare_side_effecting",
+        "hostile_str",
+        "none",
+        "true",
+        "one",
+        "object",
+    ],
+)
+def test_a_classification_that_is_not_an_enum_member_is_unknown_and_therefore_denied(
+    side_effect: object,
+) -> None:
+    # ``SideEffectClass`` is a StrEnum, so ``"read_only"`` compares equal to the
+    # member and ``"unknown"`` compares equal to UNKNOWN. A ``!= UNKNOWN`` gate
+    # therefore reads every value here except ``"unknown"`` as *classified* and
+    # hands it to the client, which is an unclassified tool reaching an allow.
+    client = StubClient()
+
+    decision = resolve_tool_decision(hostile_action(side_effect), CONTEXT, client)
+
+    assert decision.kind is ToolDecisionKind.DENY
+    assert decision.reason_code == "policy_violation"
+    assert client.calls == 0
+
+
+def test_the_named_opt_in_treats_a_non_member_classification_as_the_unclassified_it_is() -> None:
+    # The opt-in's meaning is unchanged by the tighter gate: it still admits a
+    # tool nobody classified, and an unusable classification *is* nobody having
+    # classified it. It reaches a client and never itself allows.
+    client = StubClient()
+
+    decision = resolve_tool_decision(
+        hostile_action("read_only"),
+        CONTEXT,
+        client,
+        unknown_side_effect=UnknownSideEffectPolicy.ALLOW_UNCLASSIFIED_TOOLS,
+    )
+
+    assert client.calls == 1
+    assert decision.kind is ToolDecisionKind.ALLOW
+
+
+def test_a_real_member_still_classifies_the_tool_and_reaches_the_client() -> None:
+    # The positive control for the gate above: tightening it must not turn a
+    # genuine classification into an unclassified denial.
+    client = StubClient()
+
+    decision = resolve_tool_decision(hostile_action(SideEffectClass.READ_ONLY), CONTEXT, client)
+
+    assert client.calls == 1
+    assert decision.kind is ToolDecisionKind.ALLOW
+
+
 # --- a real verdict passes through, and its reason code is repaired not rewritten
 
 

@@ -317,6 +317,40 @@ def test_an_argument_that_is_not_exactly_a_json_type_is_refused(arguments: dict)
 
 
 @pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=["nan", "inf", "negative_inf"],
+)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        lambda value: {"threshold": value},
+        lambda value: {"limits": [value]},
+        lambda value: {"limits": {"upper": value}},
+    ],
+    ids=["scalar", "in_sequence", "nested"],
+)
+def test_a_non_finite_float_is_not_canonical_json_and_is_refused(shape, value: float) -> None:
+    # ``json.dumps`` spells these ``NaN`` / ``Infinity``, which no other parser
+    # reads back, so the fingerprint and the audit record stop round-tripping.
+    # ``NaN`` also compares unequal to itself, so a policy cannot decide an
+    # argument carrying one by comparison and a replay cannot match it.
+    with pytest.raises(ToolGovernanceError):
+        canonical_arguments(shape(value))
+
+    with pytest.raises(ToolGovernanceError):
+        argument_fingerprint(shape(value))
+
+
+def test_a_finite_float_still_survives_the_projection() -> None:
+    # The positive control: the gate rejects the three non-finite values and
+    # nothing else, including the ones that sit near a float's limits.
+    arguments = {"small": 1.5e-308, "large": 1.7e308, "zero": -0.0}
+
+    assert dict(canonical_arguments(arguments)) == arguments
+
+
+@pytest.mark.parametrize(
     "source",
     [HostileDict(query="weather"), None, [("query", "weather")], "query=weather"],
     ids=["hostile_dict", "none", "pairs", "string"],

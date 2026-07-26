@@ -163,9 +163,32 @@ def _client_decision(
     return _accepted(decision)
 
 
+def _classified(value: object) -> bool:
+    """Return whether *value* is a positive side-effect classification.
+
+    Exact-typed, because the ``ToolAction`` this reads is only *usually* the one
+    :func:`~zeroth.integrations.langgraph._tool_normalize.normalize_tool_action`
+    built. A caller that constructs the dataclass directly -- and this module's
+    own gate admits an exactly-typed ``ToolAction`` from anywhere -- can put the
+    bare string ``"unknown"``, ``None``, or any other value in the field, and
+    ``StrEnum`` members compare equal to their own strings. A ``!= UNKNOWN`` test
+    therefore reads every one of those as *classified* and lets it through to the
+    client, which is an unclassified tool reaching an allow. Anything that is not
+    an actual member of the enum is unknown here, and unknown is what the default
+    policy refuses.
+
+    Args:
+        value: The action's side-effect field.
+
+    Returns:
+        Whether somebody positively classified this tool.
+    """
+    return type(value) is SideEffectClass and value is not SideEffectClass.UNKNOWN
+
+
 def _denies_unclassified(action: ToolAction, policy: object) -> bool:
     """Return whether an unclassified tool must be refused under *policy*."""
-    if action.side_effect is not SideEffectClass.UNKNOWN:
+    if _classified(action.side_effect):
         return False
     return policy is not UnknownSideEffectPolicy.ALLOW_UNCLASSIFIED_TOOLS
 

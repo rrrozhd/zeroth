@@ -36,6 +36,7 @@ import subprocess
 import sys
 from typing import Any
 
+import pydantic
 import pytest
 from langchain_core.tools import BaseTool, StructuredTool, ToolException
 from pydantic import BaseModel, ConfigDict
@@ -984,6 +985,181 @@ def test_the_delegates_own_error_handling_is_not_duplicated_onto_the_wrapper() -
     # the delegate had already dealt with.
     assert governed.handle_tool_error is False
     assert governed.invoke({"table": "t"}) == original.invoke({"table": "t"}) == "handled"
+
+
+# --------------------------------------------------------------------------- #
+# One validation path: the arguments policy authorized are the arguments the
+# body receives.
+# --------------------------------------------------------------------------- #
+
+
+def drifting_schema(passes: list[int]) -> type[BaseModel]:
+    """Build a schema whose validator answers differently on its second pass.
+
+    Not pathological: any validator that reads the clock, consumes a nonce,
+    decrypts with a rotating key or normalizes against mutable state behaves this
+    way. It is the general shape of "validation is not idempotent", written down
+    so the property can be asserted rather than assumed. The counter lives in the
+    caller's list rather than on the class so that two tests using this schema
+    cannot see each other's passes.
+
+    Args:
+        passes: Appended to once per validation, so the test can count them.
+
+    Returns:
+        A single-field schema.
+    """
+
+    class Drifting(BaseModel):
+        """A single-field schema whose validator is stateful."""
+
+        query: str
+
+        @pydantic.field_validator("query")
+        @classmethod
+        def _drift(cls, _value: str) -> str:
+            passes.append(1)
+            return "safe" if len(passes) == 1 else "danger"
+
+    return Drifting
+
+
+def test_a_stateful_validator_cannot_make_the_body_run_arguments_policy_never_saw() -> None:
+    passes: list[int] = []
+    ran: list[str] = []
+
+    def search(query: str) -> str:
+        """Record what the body was actually handed."""
+        ran.append(query)
+        return "body-result"
+
+    original = StructuredTool.from_function(
+        func=search, name="search", description="d", args_schema=drifting_schema(passes)
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    assert governed.invoke({"query": "original"}) == "body-result"
+
+    # The authorization property, stated as the equality it is: the values the
+    # decision was made about and the values the body received are the same. A
+    # second validation -- which invoking the delegate itself performs -- makes
+    # policy see ``safe`` while the body runs ``danger``.
+    [decided] = client.seen
+    assert dict(decided.arguments) == {"query": "safe"}
+    assert ran == ["safe"]
+    assert len(passes) == 1
+
+
+def test_a_stateful_validator_cannot_slip_past_the_async_surface_either() -> None:
+    passes: list[int] = []
+    ran: list[str] = []
+
+    async def asearch(query: str) -> str:
+        """Record what the body was actually handed."""
+        ran.append(query)
+        return "body-result"
+
+    original = StructuredTool.from_function(
+        coroutine=asearch, name="asearch", description="d", args_schema=drifting_schema(passes)
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    assert asyncio.run(governed.ainvoke({"query": "original"})) == "body-result"
+
+    [decided] = client.seen
+    assert dict(decided.arguments) == {"query": "safe"}
+    assert ran == ["safe"]
+    assert len(passes) == 1
+
+
+def test_running_the_delegate_unvalidated_does_not_strip_the_delegates_own_validation() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    governed = wrap(original, client=CountingClient())
+
+    # The wrapper carries the delegate's schema, so it is the wrapper's parse
+    # that validates -- and it still refuses a call the schema rejects, before
+    # any decision is asked for.
+    with pytest.raises(Exception, match="row"):
+        governed.invoke({"table": "invoices", "row": "not-an-int"})
+    assert body.calls == 0
+
+    # And the original is untouched: pass-through execution is arranged on a
+    # twin, so every other holder of this tool still validates.
+    assert original.args_schema is Args
+    assert original.invoke({"table": "invoices", "row": 3}) == "body-result"
+
+
+# --------------------------------------------------------------------------- #
+# Authorization facts are resolved per call, exactly as the middleware resolves
+# them: a fact pinned before the tool changed is the one that permits.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_classification_is_resolved_per_call_not_pinned_at_wrap_time() -> None:
+    body = Body()
+    client = CountingClient()
+    live = {"class": SideEffectClass.READ_ONLY}
+    governed = govern_tools(
+        [sync_tool_with_schema(body)],
+        context=THREADED,
+        client=client,
+        side_effect=lambda _target: live["class"],
+    )[0]
+
+    live["class"] = SideEffectClass.SIDE_EFFECTING
+    governed.invoke({"table": "invoices", "row": 3})
+
+    # Pinned at wrap time, the policy would be asked about a read-only tool that
+    # has since become side-effecting -- and a stale classification is always the
+    # one that permits.
+    [decided] = client.seen
+    assert decided.side_effect is SideEffectClass.SIDE_EFFECTING
+    # The wrap-time reading survives as the inventory's observation, and nothing
+    # decides against it.
+    assert governed.zeroth_binding.side_effect is SideEffectClass.READ_ONLY
+
+
+def test_the_contract_binding_is_resolved_per_call_not_pinned_at_wrap_time() -> None:
+    body = Body()
+    client = CountingClient()
+    live = {"ref": "contract:v1"}
+    governed = govern_tools(
+        [sync_tool_with_schema(body)],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        contract_ref=lambda _target: live["ref"],
+    )[0]
+
+    live["ref"] = "contract:v2"
+    governed.invoke({"table": "invoices", "row": 3})
+
+    [decided] = client.seen
+    assert decided.contract_ref == "contract:v2"
+    assert governed.zeroth_binding.contract_ref == "contract:v1"
+
+
+def test_the_async_surface_resolves_the_same_facts_at_the_same_time() -> None:
+    body = Body()
+    client = CountingClient()
+    live = {"class": SideEffectClass.READ_ONLY, "ref": "contract:v1"}
+    governed = govern_tools(
+        [async_tool_with_schema(body)],
+        context=THREADED,
+        client=client,
+        side_effect=lambda _target: live["class"],
+        contract_ref=lambda _target: live["ref"],
+    )[0]
+
+    live["class"], live["ref"] = SideEffectClass.SIDE_EFFECTING, "contract:v2"
+    asyncio.run(governed.ainvoke({"table": "invoices", "row": 3}))
+
+    [decided] = client.seen
+    assert decided.side_effect is SideEffectClass.SIDE_EFFECTING
+    assert decided.contract_ref == "contract:v2"
 
 
 # --------------------------------------------------------------------------- #

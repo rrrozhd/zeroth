@@ -23,6 +23,19 @@ cannot see.
 point at once. ``BaseTool`` exposes no instance ``__call__`` in ``langchain-core``
 1.x, so there is no fifth door.
 
+**One validation, so the authorized call is the executed call.** ``BaseTool``
+validates its input against ``args_schema`` before it reaches ``_run``, and the
+wrapper carries the delegate's schema, so the wrapper's own parse is where that
+validation happens. Handing the *parsed* arguments back through the delegate's
+public ``invoke`` would validate them a second time, and a validator that is
+stateful or otherwise non-idempotent answers differently on the second pass -- so
+policy would authorize the first answer while the body ran on the second. The
+delegate is therefore driven through :func:`_executing_delegate`, a twin of it
+whose validation stage is a pass-through, and the values the body receives are
+exactly the values the decision was made about. See that function for why a twin
+rather than the delegate itself, and :func:`_delegate_input` for why the twin is
+still driven through ``invoke``.
+
 **Identity is pinned at wrap time and re-derived at every call.** A tool whose
 name or declared schema moves between the wrapping and the call cannot carry a
 reproducible decision, so the mismatch raises
@@ -119,16 +132,25 @@ things to write a policy against.
 
 @dataclass(frozen=True, slots=True)
 class GovernedToolBinding:
-    """What ``govern_tools`` pinned about one tool before any call was made.
+    """What ``govern_tools`` observed about one tool before any call was made.
 
     Attached to every wrapper as ``zeroth_binding`` so the inventory stage can
     report what was governed without re-deriving any of it.
 
+    **Only ``identity`` is an authorization fact.** It is pinned here and
+    re-derived on every call, and a call whose identity no longer matches is
+    refused. ``side_effect`` and ``contract_ref`` are the *inventory's* reading of
+    the tool at wrap time and nothing decides against them:
+    :func:`_governed_action` re-runs the resolvers per call, so a tool that
+    becomes side-effecting after it was wrapped is decided as what it is now, not
+    as what it was.
+
     Attributes:
         identity: The name and fingerprint the tool is decided under.
-        side_effect: How the classifier rated the tool, defaulting to unknown --
-            which the default policy denies.
-        contract_ref: The contract the tool is bound to, when one was declared.
+        side_effect: How the classifier rated the tool when it was wrapped,
+            defaulting to unknown -- which the default policy denies.
+        contract_ref: The contract the tool was bound to when it was wrapped,
+            when one was declared.
         coverage: What this wrapping can support.
             ``govern_tools`` never sets it to
             :attr:`~zeroth.integrations.langgraph._tool_types.InventoryCoverage.COMPLETE`,
@@ -364,7 +386,12 @@ def _resolved(resolver: Callable[[Any], Any] | None, target: Any) -> object:
 
 
 def _pin(target: Any, facts: _ToolFacts, seams: _Seams) -> GovernedToolBinding:
-    """Fix the identity, classification and contract this tool will be decided under.
+    """Fix the identity this tool is decided under, and observe the rest for the inventory.
+
+    The identity is the pin: every call re-derives it and refuses if it moved.
+    The classification and the contract are read once here for reporting only --
+    :func:`_governed_action` resolves both again on every call, so a change
+    between the wrapping and the call reaches the policy.
 
     Args:
         target: The tool being wrapped.
@@ -372,7 +399,8 @@ def _pin(target: Any, facts: _ToolFacts, seams: _Seams) -> GovernedToolBinding:
         seams: The wrapping seams, including the optional resolvers.
 
     Returns:
-        The binding every call through the wrapper is checked against.
+        The binding whose identity every call through the wrapper is checked
+        against.
 
     Raises:
         UnstableToolIdentityError: If the tool carries no usable name, or its
@@ -458,8 +486,23 @@ def _governed_action(
 ) -> tuple[ToolAction, object]:
     """Rebuild the decided descriptor from the live tool, refusing an identity that moved.
 
+    **Every authorization fact is resolved now, not at wrap time.** The
+    classification and the contract binding are re-read from the live resolvers
+    on each call, exactly as
+    :meth:`~zeroth.integrations.langgraph._middleware.ZerothMiddleware._describe`
+    reads them, for two reasons that point the same way. The first is R8: two
+    surfaces that resolve the same fact at different *times* decide the same tool
+    differently the moment the fact moves, and a fact pinned before the tool
+    became side-effecting is the one that permits. The second is that staleness
+    here is always the unsafe direction -- a classification cached from when the
+    tool was read-only outlives the change that made it dangerous.
+
+    The wrap-time values on :class:`GovernedToolBinding` survive as the
+    inventory's *observation* of the tool and are deliberately not consulted
+    here.
+
     Args:
-        plan: The wrapper's pinned binding and seams.
+        plan: The wrapper's pinned identity and live seams.
         arguments: The named call arguments.
 
     Returns:
@@ -479,8 +522,8 @@ def _governed_action(
         arguments=arguments,
         context=context,
         identity_material=facts.material,
-        contract_ref=plan.binding.contract_ref,
-        side_effect=plan.binding.side_effect,
+        contract_ref=_resolved(plan.seams.contract_ref, plan.target),
+        side_effect=_resolved(plan.seams.side_effect, plan.target),
     )
     if action.identity != plan.binding.identity:
         raise UnstableToolIdentityError("the tool's identity changed after it was governed")
@@ -538,6 +581,52 @@ def _delegate_input(
     return {"name": name, "args": arguments, "id": tool_call_id, "type": "tool_call"}
 
 
+def _executing_delegate(delegate: Any) -> Any:
+    """Return a twin of *delegate* that runs the arguments it is handed, unvalidated.
+
+    The wrapper has already parsed the call against the delegate's own
+    ``args_schema`` -- it carries that schema -- and the policy was asked about
+    the result. Invoking the delegate itself would run ``_parse_input`` over
+    those values a second time, and only a *pure* validator is guaranteed to
+    answer the same thing twice: a stateful one, a validator that reads the
+    clock, or one that consumes a nonce returns something else, and the tool then
+    executes arguments no policy ever saw. Clearing ``args_schema`` on the twin
+    makes ``BaseTool._parse_input`` a pass-through (``langchain_core/tools/base.py``
+    returns its input untouched when there is no schema), so exactly one
+    validation happens per governed call and the body receives exactly the values
+    the decision was made about.
+
+    A *twin* rather than the delegate, because governing a tool must not change
+    it: rebinding ``args_schema`` on the original would strip validation from
+    every other holder of that tool. A twin *per call* rather than one pinned at
+    wrap time, because the pinned copy would stop tracking a delegate whose
+    ``func`` moved, which is the behaviour invoking the delegate directly has
+    today.
+
+    The twin keeps everything else -- ``name``, ``response_format``,
+    ``callbacks``, ``handle_tool_error`` -- so it still builds its own
+    ``ToolMessage`` and a ``content_and_artifact`` tool's artifact still survives
+    the wrapping.
+
+    Args:
+        delegate: The wrapped tool.
+
+    Returns:
+        The tool object to invoke for this call.
+
+    Raises:
+        ToolGovernanceError: If the delegate cannot be copied. Refusing is the
+            only outcome that does not run the tool against arguments the guard
+            could not pin, and it happens after the decision was recorded.
+    """
+    try:
+        return delegate.model_copy(update={"args_schema": None})
+    except Exception as error:
+        raise ToolGovernanceError(
+            "this tool cannot be driven with the arguments its call was authorized under"
+        ) from error
+
+
 class GovernedTool(BaseTool):
     """A ``BaseTool`` that decides before it delegates, and mutates nothing.
 
@@ -550,8 +639,9 @@ class GovernedTool(BaseTool):
     error-handling ones are not among them.
 
     Attributes:
-        zeroth_delegate: The original tool, invoked through its own public entry
-            point exactly once on an allow.
+        zeroth_delegate: The original tool. On an allow it is driven exactly once,
+            through the pass-through twin :func:`_executing_delegate` builds, and
+            through that twin's own public entry point.
         zeroth_plan: The pinned binding and the seams a call is decided through.
         zeroth_binding: What ``govern_tools`` pinned about the wrapped tool.
     """
@@ -597,7 +687,9 @@ class GovernedTool(BaseTool):
         return guard_tool_call(
             action,
             context,
-            lambda: delegate.invoke(_delegate_input(args, kwargs, call_id, name)),
+            lambda: _executing_delegate(delegate).invoke(
+                _delegate_input(args, kwargs, call_id, name)
+            ),
             **_enforcement_seams(plan),
         )
 
@@ -613,7 +705,7 @@ class GovernedTool(BaseTool):
         action, context = _governed_action(plan, _call_arguments(args, kwargs))
         payload = _delegate_input(args, kwargs, call_id, self.name)
         authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await self.zeroth_delegate.ainvoke(payload)
+        return await _executing_delegate(self.zeroth_delegate).ainvoke(payload)
 
 
 def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) -> GovernedTool:
@@ -756,11 +848,13 @@ def govern_tools(
             without recording.
         actor: The authenticated actor to attribute records to, when there is one.
         interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
-        side_effect: An optional per-tool classifier. Only a real
-            :class:`~zeroth.integrations.langgraph._tool_types.SideEffectClass`
+        side_effect: An optional per-tool classifier, re-run on every call so a
+            tool that becomes side-effecting is decided as what it is now. Only a
+            real :class:`~zeroth.integrations.langgraph._tool_types.SideEffectClass`
             member classifies a tool; anything else leaves it unknown, and
             unknown is denied unless *unknown_side_effect* says otherwise.
-        contract_ref: An optional per-tool contract resolver.
+        contract_ref: An optional per-tool contract resolver, also re-run on
+            every call.
 
     Returns:
         A new list of governed wrappers, in the order the tools were supplied.

@@ -19,9 +19,19 @@ field is precisely what this test exists to catch, so the fix for a failure here
 is the code, never the exclude set.
 
 **Each surface is driven through its own doubles.** The scenario carries a
-*factory* for its decision client, and each driver builds its own interrupt seam
-and audit sink, so a consultation count or a recorded payload from one surface
-can never leak into the other's outcome.
+*factory* for its decision client, and each driver builds its own interrupt seam,
+audit sink and resolver cell, so a consultation count, a recorded payload or a
+mutated fact from one surface can never leak into the other's outcome.
+
+**Two scenarios are about *when* a fact is resolved, not what it is.** A
+governance fact that a surface reads once at install time and another reads per
+call makes the two decide the same tool differently the moment the fact moves --
+and the stale reading is always the permissive one. Those scenarios supply a live
+resolver through :attr:`Scenario.resolvers` and change what it answers through
+:attr:`Scenario.mutate`, in the window between installing the tool and calling
+it. They need a decision client whose *verdict* turns on the fact, because the
+audit projection of an allow carries neither the side-effect class nor the
+contract ref; see :class:`SideEffectSensitiveClient` for the shape.
 
 **Why this is tractable at all.** Both surfaces derive tool identity through
 ``_tool_wrappers._describe_base_tool``, so one tool fingerprints identically
@@ -189,12 +199,93 @@ class Handler:
 def read_only(_target: object) -> SideEffectClass:
     """Classify every tool as read-only, so the allow path needs no blanket opt-in.
 
-    Stateless on purpose. The wrapper surface pins the classification once, at
-    wrap time, while the middleware re-runs the classifier per call -- so a
-    classifier that answered differently on successive calls would manufacture a
-    divergence that is not a governance defect.
+    Stateless, because most scenarios are about the *verdict* and want nothing
+    else moving. The two scenarios that are about resolution *timing* install
+    their own resolvers instead -- see :func:`drifting_classification` and
+    :func:`drifting_contract`, and :attr:`Scenario.mutate` for how the change is
+    staged.
+
+    An earlier revision of this file said resolvers here must be stateless
+    because the wrapper pinned the classification at wrap time while the
+    middleware re-ran it per call. That asymmetry was the bug (a tool that turned
+    side-effecting after wrapping was still decided as read-only on the wrapper
+    surface), and the note that excused it from the table is exactly why nothing
+    caught it. Both surfaces now resolve every authorization fact per call, and
+    the table asserts it.
     """
     return SideEffectClass.READ_ONLY
+
+
+PERMITTED_CONTRACT = "contract:v1"
+REVOKED_CONTRACT = "contract:v2"
+"""One contract a policy is bound to, and the one it is not."""
+
+
+@dataclasses.dataclass
+class SideEffectSensitiveClient:
+    """A policy that permits a read-only tool and refuses a side-effecting one.
+
+    The classification has to *change the verdict* for a resolution-timing
+    divergence to be observable at all: neither the audit projection nor the
+    interrupt payload of an allow carries the side-effect class, so a surface
+    deciding on a stale classification and allowing would otherwise compare equal
+    to a surface deciding on the current one and allowing.
+    """
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Refuse a side-effecting call, permit anything else."""
+        return DENY if action.side_effect is SideEffectClass.SIDE_EFFECTING else ALLOW
+
+
+@dataclasses.dataclass
+class ContractSensitiveClient:
+    """A policy bound to one contract, refusing a call that carries any other."""
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Permit only the contract this policy was written against."""
+        return ALLOW if action.contract_ref == PERMITTED_CONTRACT else DENY
+
+
+def drifting_classification(live: dict[str, Any]) -> dict[str, Any]:
+    """Install a classifier that reads a cell, starting the tool out read-only.
+
+    An externally flipped cell rather than a counter that advances per call: the
+    two surfaces do not consult their resolvers the same number of times (the
+    wrapper also reads them once at wrap time, for the inventory binding), so a
+    counter would manufacture a difference that is about call counts rather than
+    about *when* the fact is resolved.
+
+    Args:
+        live: The cell this scenario's resolvers read, mutated in place.
+
+    Returns:
+        The seam overrides this scenario installs on both surfaces.
+    """
+    live["side_effect"] = SideEffectClass.READ_ONLY
+    return {"side_effect": lambda _target: live["side_effect"]}
+
+
+def reclassify(live: dict[str, Any]) -> None:
+    """Turn the tool side-effecting, after it is installed and before it is called."""
+    live["side_effect"] = SideEffectClass.SIDE_EFFECTING
+
+
+def drifting_contract(live: dict[str, Any]) -> dict[str, Any]:
+    """Install a contract resolver that reads a cell, starting on the permitted contract.
+
+    Args:
+        live: The cell this scenario's resolvers read, mutated in place.
+
+    Returns:
+        The seam overrides this scenario installs on both surfaces.
+    """
+    live["contract"] = PERMITTED_CONTRACT
+    return {"side_effect": read_only, "contract_ref": lambda _target: live["contract"]}
+
+
+def rebind_contract(live: dict[str, Any]) -> None:
+    """Move the tool onto a contract the policy does not permit."""
+    live["contract"] = REVOKED_CONTRACT
 
 
 def build_tool(body: Body) -> StructuredTool:
@@ -251,6 +342,15 @@ class Scenario:
         decision: The ``decision`` term the emitted record carries, or ``None``
             when nothing is recorded.
         interrupts: How many approval payloads the pause seam must receive.
+        resolvers: Given a fresh cell of this scenario's own, returns the seam
+            overrides it installs -- the hook a scenario about *when* a fact is
+            resolved uses to supply a live resolver. ``None`` leaves the seams as
+            *classify* declared them.
+        mutate: Called with the same cell after the surface is built and before
+            it is invoked, so the change lands in the window between installing a
+            tool and calling it. That window is the whole subject: a surface that
+            resolves at install time decides the old fact, and the old fact is
+            always the permissive one.
     """
 
     label: str
@@ -263,6 +363,8 @@ class Scenario:
     records: int
     decision: str | None
     interrupts: int
+    resolvers: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    mutate: Callable[[dict[str, Any]], None] | None = None
 
 
 SCENARIOS = (
@@ -362,6 +464,34 @@ SCENARIOS = (
         decision="deny",
         interrupts=0,
     ),
+    Scenario(
+        label="a-classification-that-changes-after-the-tool-is-installed",
+        client=SideEffectSensitiveClient,
+        context=THREADED,
+        classify=None,
+        unknown_side_effect=UnknownSideEffectPolicy.DENY,
+        error=PolicyViolation,
+        downstream_calls=0,
+        records=1,
+        decision="deny",
+        interrupts=0,
+        resolvers=drifting_classification,
+        mutate=reclassify,
+    ),
+    Scenario(
+        label="a-contract-binding-that-changes-after-the-tool-is-installed",
+        client=ContractSensitiveClient,
+        context=THREADED,
+        classify=None,
+        unknown_side_effect=UnknownSideEffectPolicy.DENY,
+        error=PolicyViolation,
+        downstream_calls=0,
+        records=1,
+        decision="deny",
+        interrupts=0,
+        resolvers=drifting_contract,
+        mutate=rebind_contract,
+    ),
 )
 """The one scenario table. Both drivers below consume exactly this structure."""
 
@@ -416,14 +546,22 @@ def _outcome(
     )
 
 
-def _seams(scenario: Scenario, audit: RecordingSubmitter, interrupt: RecordingInterrupt) -> dict:
+def _seams(
+    scenario: Scenario,
+    audit: RecordingSubmitter,
+    interrupt: RecordingInterrupt,
+    live: dict[str, Any],
+) -> dict:
     """Render one scenario as the keyword arguments both install surfaces take.
 
     The two surfaces accept the same seam names deliberately, so a scenario is
     installed identically on each and nothing about the *installation* can
     account for a difference in outcome.
+
+    *live* is this driver's own cell, so a resolver one surface reads can never
+    be the one the other surface mutated.
     """
-    return {
+    seams = {
         "context": scenario.context,
         "client": scenario.client(),
         "unknown_side_effect": scenario.unknown_side_effect,
@@ -431,19 +569,30 @@ def _seams(scenario: Scenario, audit: RecordingSubmitter, interrupt: RecordingIn
         "interrupt": interrupt,
         "side_effect": scenario.classify,
     }
+    if scenario.resolvers is not None:
+        seams.update(scenario.resolvers(live))
+    return seams
+
+
+def _staged(scenario: Scenario, live: dict[str, Any]) -> None:
+    """Apply the scenario's change to *live*, between installing the tool and calling it."""
+    if scenario.mutate is not None:
+        scenario.mutate(live)
 
 
 def drive_wrapper(scenario: Scenario, tool: Any, body: Body) -> Outcome:
     """Drive *scenario* through ``govern_tools``, invoking the governed twin."""
-    audit, interrupt = RecordingSubmitter(), RecordingInterrupt()
-    [governed] = govern_tools([tool], **_seams(scenario, audit, interrupt))
+    audit, interrupt, live = RecordingSubmitter(), RecordingInterrupt(), {}
+    [governed] = govern_tools([tool], **_seams(scenario, audit, interrupt, live))
+    _staged(scenario, live)
     return _outcome(lambda: governed.invoke({"query": "cats"}), body, audit, interrupt)
 
 
 def drive_middleware(scenario: Scenario, tool: Any) -> Outcome:
     """Drive *scenario* through ``ZerothMiddleware.wrap_tool_call``."""
-    audit, interrupt = RecordingSubmitter(), RecordingInterrupt()
-    guard = ZerothMiddleware(**_seams(scenario, audit, interrupt))
+    audit, interrupt, live = RecordingSubmitter(), RecordingInterrupt(), {}
+    guard = ZerothMiddleware(**_seams(scenario, audit, interrupt, live))
+    _staged(scenario, live)
     handler = Handler()
     request = build_request(tool)
     return _outcome(lambda: guard.wrap_tool_call(request, handler), handler, audit, interrupt)
@@ -451,8 +600,9 @@ def drive_middleware(scenario: Scenario, tool: Any) -> Outcome:
 
 def drive_wrapper_async(scenario: Scenario, tool: Any, body: Body) -> Outcome:
     """Drive *scenario* through ``govern_tools``, awaiting the governed twin."""
-    audit, interrupt = RecordingSubmitter(), RecordingInterrupt()
-    [governed] = govern_tools([tool], **_seams(scenario, audit, interrupt))
+    audit, interrupt, live = RecordingSubmitter(), RecordingInterrupt(), {}
+    [governed] = govern_tools([tool], **_seams(scenario, audit, interrupt, live))
+    _staged(scenario, live)
     return _outcome(
         lambda: asyncio.run(governed.ainvoke({"query": "cats"})), body, audit, interrupt
     )
@@ -460,8 +610,9 @@ def drive_wrapper_async(scenario: Scenario, tool: Any, body: Body) -> Outcome:
 
 def drive_middleware_async(scenario: Scenario, tool: Any) -> Outcome:
     """Drive *scenario* through ``ZerothMiddleware.awrap_tool_call``."""
-    audit, interrupt = RecordingSubmitter(), RecordingInterrupt()
-    guard = ZerothMiddleware(**_seams(scenario, audit, interrupt))
+    audit, interrupt, live = RecordingSubmitter(), RecordingInterrupt(), {}
+    guard = ZerothMiddleware(**_seams(scenario, audit, interrupt, live))
+    _staged(scenario, live)
     handler = Handler()
     request = build_request(tool)
     return _outcome(
@@ -558,6 +709,8 @@ def test_the_parity_table_covers_every_required_scenario() -> None:
         "unknown-side-effect-admitted-by-the-named-opt-in",
         "absent-governance-context",
         "a-client-that-raises",
+        "a-classification-that-changes-after-the-tool-is-installed",
+        "a-contract-binding-that-changes-after-the-tool-is-installed",
     }
 
 

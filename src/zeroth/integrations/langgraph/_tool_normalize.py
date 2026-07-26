@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
@@ -102,6 +103,33 @@ def _canonical_scalar(value: Any, _depth: int, _budget: _CopyBudget) -> Any:
     return value
 
 
+def _canonical_float(value: Any, _depth: int, _budget: _CopyBudget) -> float:
+    """Return an exact ``float`` only when it is finite, refusing it otherwise.
+
+    ``NaN`` and the infinities are exact ``float`` values that this module cannot
+    keep its promises about. ``json.dumps`` spells them ``NaN`` / ``Infinity``,
+    which is not JSON any other parser accepts, so the fingerprint and every
+    audit record built from it stop round-tripping. Worse for a policy: ``NaN``
+    compares unequal to itself, so an argument carrying one is an argument a
+    policy cannot decide by comparison and a replay cannot match. Refusing is the
+    same answer this module gives every other unrepresentable value.
+
+    Args:
+        value: The float to project.
+        _depth: Unused; floats are leaves.
+        _budget: Unused; the caller already charged this value.
+
+    Returns:
+        The float, unchanged.
+
+    Raises:
+        ToolGovernanceError: If the float is ``NaN`` or an infinity.
+    """
+    if not math.isfinite(value):
+        raise ToolGovernanceError("tool argument float is not representable as canonical JSON")
+    return value
+
+
 def _canonical_sequence(value: Any, depth: int, budget: _CopyBudget) -> list[Any]:
     """Copy an exact ``list`` or ``tuple`` into a canonical list of canonical values."""
     return [_canonical_value(item, depth + 1, budget) for item in value]
@@ -121,7 +149,7 @@ _CANONICAL_HANDLERS: tuple[tuple[type, Callable[[Any, int, _CopyBudget], Any]], 
     (str, _canonical_scalar),
     (bool, _canonical_scalar),
     (int, _canonical_scalar),
-    (float, _canonical_scalar),
+    (float, _canonical_float),
     (type(None), _canonical_scalar),
     (dict, _canonical_dict),
     (MappingProxyType, _canonical_dict),

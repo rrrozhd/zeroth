@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.8] - 2026-07-26
+
+### Fixed
+
+- **Tool enforcement authorized arguments the tool body did not receive.**
+  `GovernedTool._run` / `._arun` built the policy action from the arguments
+  `BaseTool` had already parsed and then handed them back through
+  `delegate.invoke`, which validated them a *second* time. A validator that is
+  stateful or otherwise non-idempotent answers differently on the second pass,
+  so policy authorized one value while the body executed another. The delegate
+  is now driven through a per-call pass-through twin
+  (`_tool_wrappers._executing_delegate`), so exactly one validation happens per
+  governed call and the values the body receives are the values the decision was
+  made about. The delegate is still driven through its own `invoke`, so it keeps
+  building its own `ToolMessage` and a `content_and_artifact` tool's artifact
+  still survives the wrapping. The original tool is not mutated: the
+  pass-through is arranged on a copy.
+- **The two install surfaces resolved authorization facts at different times.**
+  `govern_tools` pinned both the side-effect classification and the contract
+  binding at wrap time, while `ZerothMiddleware` resolved both per call, so a
+  tool that became `SIDE_EFFECTING` (or moved onto another contract) after it
+  was wrapped was still decided as what it used to be on the wrapper surface —
+  and the stale reading is always the permissive one. Both surfaces now resolve
+  every authorization fact per call. `GovernedToolBinding.side_effect` /
+  `.contract_ref` survive as the inventory's wrap-time *observation* and nothing
+  decides against them.
+- **The unclassified gate was not exact-type safe.** `_denies_unclassified`
+  treated every value other than the `UNKNOWN` member as classified. Because
+  `SideEffectClass` is a `StrEnum`, an exactly-typed `ToolAction` carrying the
+  bare string `"read_only"`, `None`, or any other non-member reached the
+  decision client as a *classified* tool. Anything that is not an actual enum
+  member is now unknown, and unknown is denied unless the named opt-in says
+  otherwise.
+- **Non-finite floats broke the canonical-JSON promise.** `NaN` and the
+  infinities passed the argument projection although `json.dumps` spells them
+  `NaN` / `Infinity`, which no other parser reads back — so the argument
+  fingerprint and every audit record built from it stopped round-tripping, and
+  `NaN` compares unequal to itself, which no policy can decide by comparison.
+  They are now refused like every other unrepresentable value.
+
+### Added
+
+- Cross-surface parity scenarios for stateful resolvers:
+  `a-classification-that-changes-after-the-tool-is-installed` and
+  `a-contract-binding-that-changes-after-the-tool-is-installed`. The table
+  previously avoided stateful resolvers by design, and that exclusion is what
+  hid the resolution-timing divergence; `Scenario` now carries `resolvers` /
+  `mutate` hooks so a fact can be changed in the window between installing a
+  tool and calling it.
+
 ## [0.13.7] - 2026-07-26
 
 ### Added
