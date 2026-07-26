@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.11] - 2026-07-26
+
+### Added
+
+- **The LangGraph tool-governance vocabulary is now public API.** The
+  enforcement path gates on *exact type* — a verdict counts only when it is
+  exactly a `ToolDecision` carrying exactly a `ToolDecisionKind` — so the types
+  needed to call the enforcement surfaces were mandatory, not optional
+  implementation details, yet only `govern_tools` / `GovernedTool` /
+  `ZerothMiddleware` were exported. A user could not construct an *allowing*
+  decision client through supported imports at all. `zeroth.integrations.langgraph`
+  now exports the vocabulary a caller provably needs: `ToolGovernanceContext`,
+  `ToolIdentity`, `ToolAction`, `ToolDecision`, `ToolDecisionKind`,
+  `SideEffectClass`, `ToolDecisionClient`, `FailClosedToolDecisionClient`,
+  `UnknownSideEffectPolicy`, `ToolAuditSubmitter`, the five typed refusals
+  (`ToolGovernanceError`, `PolicyViolation`, `GovernanceContextError`,
+  `UnstableToolIdentityError`, `ApprovalRequiresThreadError`) and the inventory
+  reporting surface (`ToolInventory`, `ToolInventoryEntry`, `InventoryCoverage`,
+  `ToolInventoryMatch`, `ToolEnforcementReport`, `record_tool_inventory`,
+  `report_tool_enforcement`, `match_tool_inventory`,
+  `attest_complete_inventory`). The normalizers, the fingerprint digests and the
+  enforcement entry points stay private: normalization is done *for* a client
+  before it is asked, identities are derived rather than caller-asserted, and
+  enforcement lives in exactly one place. All of it is imported **eagerly** —
+  none of it touches `langchain` at module scope — so the guarantee that
+  importing the package pulls in neither `langgraph` nor `langchain` is
+  unchanged.
+- **`zeroth-core[langgraph]` extra.** `langchain` and `langgraph` existed only in
+  the `gateway-conformance` *dependency group*, so the documented middleware
+  capability was not installable from the published package. They are now a real
+  project extra (`pip install "zeroth-core[langgraph]"`), ranged rather than
+  pinned to the Agent Server conformance versions, and deliberately not part of
+  `[all]` (the headless runtime bundle). The imports stay lazy: the extra is how
+  a user opts in, not a licence to import eagerly.
+
+### Fixed
+
+- **The default-interrupt test could not fail.** It only inspected
+  `_langgraph_interrupt.__code__.co_names`, so it passed even if the approval
+  path never selected that function. The approval branch now patches the module
+  seam, invokes the guard with no `interrupt` argument, and asserts the
+  substitute received the real payload before a zero-count downstream; the
+  bytecode check survives as a separate, genuinely different claim (that the
+  default *is* LangGraph's `interrupt`). Both stay Tier B — making the seam
+  injectable is precisely what freed the approval branch from needing
+  `langgraph`.
+- **The cookbook misstated which tier the compatibility matrix runs in.** It
+  said all matrix tests were conformance-tier; the eight `test_cell_*` wrapper
+  cases deliberately run in the default (base) tier, and only the cross-surface
+  parity table is Tier A. Operators following the page ran the wrong suite. The
+  recipe also now uses only public imports and documents the install extra.
+
 ## [0.13.10] - 2026-07-26
 
 ### Fixed

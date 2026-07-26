@@ -381,9 +381,41 @@ def test_an_approval_with_no_reference_is_refused_rather_than_requested() -> Non
     assert downstream.calls == 0
 
 
-def test_the_default_pause_seam_is_the_lazy_langgraph_import() -> None:
-    # The seam's default has to be LangGraph's own interrupt, or every injected
-    # test above would be exercising a path production never takes.
+def test_omitting_the_interrupt_selects_the_module_default_and_pauses_through_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The property that matters: with no ``interrupt`` argument the approval
+    # branch *selects* the module-level default. Inspecting
+    # ``_langgraph_interrupt``'s bytecode cannot show that -- it passes even if
+    # nothing ever calls the function -- so the default is substituted at the
+    # module attribute ``_suspend_for_approval`` reads at call time, and the
+    # substitute is asserted to have received the real payload before a
+    # zero-count downstream. Still Tier B: patching the seam is exactly why the
+    # parameter exists, so no ``langgraph`` is installed or imported here.
+    seam = FakeInterrupt()
+    monkeypatch.setattr(_tool_guard, "_langgraph_interrupt", seam)
+    downstream = Downstream()
+
+    # The substitute returns rather than suspending, so the guard refuses the
+    # call on the fall-through -- which is itself the proof it went through the
+    # seam and did not sail past it.
+    with pytest.raises(ToolGovernanceError):
+        guard(invoke=downstream, client=StubClient(APPROVE))
+
+    assert seam.calls == 1
+    assert seam.payload["kind"] == "tool_approval"
+    assert seam.payload["approval_ref"] == "approval-7"
+    assert seam.payload["tool_name"] == "delete_record"
+    assert downstream.calls == 0
+
+
+def test_the_default_pause_seam_resolves_langgraphs_own_interrupt() -> None:
+    # The second half of the same property, and a genuinely different claim from
+    # the test above: that one proves the approval branch reaches the module
+    # default, this one proves the module default is LangGraph's ``interrupt``
+    # rather than some other callable. Read off the bytecode because calling it
+    # for real would need ``langgraph`` installed, which is the dependency this
+    # tier does not have.
     source = _tool_guard._langgraph_interrupt.__code__.co_names
 
     assert "interrupt" in source

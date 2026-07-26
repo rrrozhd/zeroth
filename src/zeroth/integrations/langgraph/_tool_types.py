@@ -17,9 +17,13 @@ this integration, and leaves the platform-wide one alone.
 
 **Why frozen dataclasses rather than pydantic models.** Every peer integration
 puts its models in a ``models.py`` that ``tests/architecture/test_library_surface.py``
-imports and pins against the immutable backend surface fixtures. These types are
-internal to the tool-enforcement path and are not part of that surface, so they
-live in private modules and stay out of pydantic entirely.
+imports and pins against the *immutable* backend surface fixtures. These types
+are public -- ``zeroth.integrations.langgraph`` re-exports them, because the
+enforcement path's exact-type gates make them mandatory rather than optional --
+but they are published from this private module and stay out of pydantic
+entirely, so they never enter a ``models.py`` the fixture would freeze. Public
+API and pinned schema surface are two different things; only the second is
+irreversible.
 
 Container fields are snapshotted on construction rather than validated: a caller
 that keeps a reference to the mapping it passed in cannot mutate the action a

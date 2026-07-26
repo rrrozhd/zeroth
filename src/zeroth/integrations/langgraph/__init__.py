@@ -49,9 +49,28 @@ supported mechanism detects the position. Like ``govern_tools`` it declares
 only in the optional ``gateway-conformance`` group, and that import drags in the
 OpenTelemetry SDK.
 
-Importing this package never imports ``langgraph`` or ``langchain`` (optional,
-test-only dependencies): all langgraph use lives in the compiled graph the caller
-passes in, and the middleware surface is resolved on demand.
+**The tool-governance vocabulary is part of this surface, not an implementation
+detail.** Every gate on the enforcement path is an *exact-type* gate: a verdict
+is recognized only when it is exactly a :class:`ToolDecision` carrying exactly a
+:class:`ToolDecisionKind`, and an action only when it is exactly a
+:class:`ToolAction`. A caller cannot therefore duck-type its way to an allowing
+:class:`ToolDecisionClient` -- the types are mandatory, so they are exported.
+What is exported is what a caller provably needs: build a
+:class:`ToolGovernanceContext`, implement a :class:`ToolDecisionClient`, return a
+:class:`ToolDecision`, classify a tool with :class:`SideEffectClass`, catch the
+typed refusals, and read a :class:`ToolEnforcementReport`. The normalizers, the
+fingerprint digests and the enforcement entry points stay private: normalization
+is done *for* a client before it is asked, identities are derived rather than
+caller-asserted, and enforcement lives in exactly one place that no supported
+caller re-enters.
+
+Importing this package never imports ``langgraph`` or ``langchain`` (optional
+dependencies, installed through the ``langgraph`` extra --
+``pip install "zeroth-core[langgraph]"``): all langgraph use lives in the
+compiled graph the caller passes in, and the middleware surface is resolved on
+demand. The vocabulary above is imported eagerly because none of it touches
+``langchain`` at module scope; only ``govern_tools`` / ``GovernedTool`` /
+``ZerothMiddleware`` / ``emit_genai_spans`` do, and those alone stay lazy.
 """
 
 from __future__ import annotations
@@ -67,6 +86,38 @@ from zeroth.integrations.langgraph._genai import (
 )
 from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
 from zeroth.integrations.langgraph._spans import CausalSpan, SpanKind, SpanStatus
+from zeroth.integrations.langgraph._tool_decisions import (
+    FailClosedToolDecisionClient,
+    ToolDecisionClient,
+    UnknownSideEffectPolicy,
+)
+from zeroth.integrations.langgraph._tool_errors import (
+    ApprovalRequiresThreadError,
+    GovernanceContextError,
+    PolicyViolation,
+    ToolGovernanceError,
+    UnstableToolIdentityError,
+)
+from zeroth.integrations.langgraph._tool_guard import ToolAuditSubmitter
+from zeroth.integrations.langgraph._tool_inventory import (
+    ToolEnforcementReport,
+    ToolInventoryMatch,
+    attest_complete_inventory,
+    match_tool_inventory,
+    record_tool_inventory,
+    report_tool_enforcement,
+)
+from zeroth.integrations.langgraph._tool_types import (
+    InventoryCoverage,
+    SideEffectClass,
+    ToolAction,
+    ToolDecision,
+    ToolDecisionKind,
+    ToolGovernanceContext,
+    ToolIdentity,
+    ToolInventory,
+    ToolInventoryEntry,
+)
 from zeroth.integrations.langgraph._wrapper import (
     GovernedGraph,
     OnRunStart,
@@ -130,4 +181,31 @@ __all__ = [
     "PerfCounterAnchor",
     "map_causal_span",
     "emit_genai_spans",
+    # --- tool governance: the vocabulary a decision is made and read in -------
+    "ToolGovernanceContext",
+    "ToolIdentity",
+    "ToolAction",
+    "ToolDecision",
+    "ToolDecisionKind",
+    "SideEffectClass",
+    "ToolDecisionClient",
+    "FailClosedToolDecisionClient",
+    "UnknownSideEffectPolicy",
+    "ToolAuditSubmitter",
+    # --- tool governance: the typed refusals a governed call can raise --------
+    "ToolGovernanceError",
+    "PolicyViolation",
+    "GovernanceContextError",
+    "UnstableToolIdentityError",
+    "ApprovalRequiresThreadError",
+    # --- tool governance: what the governed surface holds and may claim -------
+    "ToolInventory",
+    "ToolInventoryEntry",
+    "InventoryCoverage",
+    "ToolInventoryMatch",
+    "ToolEnforcementReport",
+    "record_tool_inventory",
+    "report_tool_enforcement",
+    "match_tool_inventory",
+    "attest_complete_inventory",
 ]

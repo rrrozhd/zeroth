@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.13.10"
+version = "0.13.11"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -56,6 +56,20 @@ zeroth-core = "zeroth.core.cli:main"
 langgraph-gateway = [
     "httpx[http2]>=0.27",
     "websockets>=15,<16",
+]
+# The governed LangGraph integration (src/zeroth/integrations/langgraph):
+# govern_graph, govern_tools and ZerothMiddleware. `langchain` is what
+# `langchain.agents` (the middleware base class) ships in; `langgraph` is what
+# `langgraph.types.interrupt` (the approval pause seam) ships in. Ranged, not
+# pinned: the exact `langgraph==1.2.9` in the `gateway-conformance` dev group is
+# the Agent Server *conformance* pin and is not what a user of the middleware
+# has to run. Deliberately NOT part of [all] — [all] is the headless runtime
+# bundle, and this integration only matters to callers who already brought their
+# own LangGraph app. The integration's imports stay lazy either way: this extra
+# is how a user opts in, not a licence to import eagerly.
+langgraph = [
+    "langchain>=1.0,<2",
+    "langgraph>=1.0,<2",
 ]
 memory-pg = [
     "psycopg[binary]>=3.3",

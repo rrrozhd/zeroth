@@ -31,15 +31,32 @@ There are two install surfaces and they share one enforcement core:
 - You want cumulative graph-level enforcement. Tool enforcement is not that — see
   [What this does not claim](#what-this-does-not-claim).
 
+## Install
+
+The integration's dependencies are an opt-in extra:
+
+```bash
+pip install "zeroth-core[langgraph]"
+```
+
+That brings `langchain` (which ships `langchain.agents`, the middleware base
+class) and `langgraph` (which ships `langgraph.types.interrupt`, the approval
+pause seam). Both are still imported **lazily** — `import
+zeroth.integrations.langgraph` pulls in neither, so installing without the extra
+leaves the rest of the package working and only `govern_tools`, `GovernedTool`
+and `ZerothMiddleware` unavailable. The extra is how you opt in, not a licence to
+import eagerly. (It is deliberately not part of `zeroth-core[all]`, which is the
+headless runtime bundle.)
+
 ## Recipe
 
 ### Surface 1 — govern a raw tool list
 
 ```python
-from zeroth.integrations.langgraph import govern_tools
-from zeroth.integrations.langgraph._tool_types import (
+from zeroth.integrations.langgraph import (
     SideEffectClass,
     ToolGovernanceContext,
+    govern_tools,
 )
 
 context = ToolGovernanceContext(
@@ -62,10 +79,51 @@ governed = govern_tools(
 The returned wrappers go wherever the originals went — a `ToolNode`, a
 `StateGraph`, a `bind_tools` call — and answer to the same interfaces.
 
-`govern_tools` and `ZerothMiddleware` are exported from
-`zeroth.integrations.langgraph`. The tool vocabulary types
-(`ToolGovernanceContext`, `SideEffectClass`, `ToolDecision`) are still internal
-to the integration, so they are imported from their private module for now.
+Everything in this recipe imports from `zeroth.integrations.langgraph` — the
+install surfaces *and* the vocabulary. The types are public because the
+enforcement path gates on **exact type**: a verdict counts only when it is
+exactly a `ToolDecision` carrying exactly a `ToolDecisionKind`, so there is no
+duck-typed way to write a decision client and the types are mandatory rather
+than optional. The public surface is:
+
+| Group | Names |
+| --- | --- |
+| Install surfaces | `govern_graph`, `govern_tools`, `GovernedTool`, `ZerothMiddleware` |
+| Describe a call | `ToolGovernanceContext`, `ToolIdentity`, `ToolAction`, `SideEffectClass` |
+| Decide a call | `ToolDecisionClient`, `ToolDecision`, `ToolDecisionKind`, `FailClosedToolDecisionClient`, `UnknownSideEffectPolicy`, `ToolAuditSubmitter` |
+| Typed refusals | `ToolGovernanceError`, `PolicyViolation`, `GovernanceContextError`, `UnstableToolIdentityError`, `ApprovalRequiresThreadError` |
+| Read the surface | `ToolInventory`, `ToolInventoryEntry`, `InventoryCoverage`, `ToolInventoryMatch`, `ToolEnforcementReport`, `record_tool_inventory`, `report_tool_enforcement`, `match_tool_inventory`, `attest_complete_inventory` |
+
+Writing a decision client needs nothing beyond that group:
+
+```python
+from zeroth.integrations.langgraph import (
+    ToolAction,
+    ToolDecision,
+    ToolDecisionKind,
+    ToolGovernanceContext,
+)
+
+
+class MyDecisionClient:
+    """Structurally satisfies ToolDecisionClient — no base class to inherit."""
+
+    def decide(
+        self, action: ToolAction, context: ToolGovernanceContext
+    ) -> ToolDecision:
+        if action.identity.name == "search":
+            return ToolDecision(kind=ToolDecisionKind.ALLOW, reason_code="unknown_error")
+        return ToolDecision(kind=ToolDecisionKind.DENY, reason_code="policy_violation")
+```
+
+The action arrives already normalized — identity pinned, arguments canonical,
+principal injected — so a client never normalizes, never fingerprints, and is
+never handed raw call material. That is why the normalizers and the fingerprint
+digests stay private: identities are *derived*, not caller-asserted, and a
+fingerprint the caller supplies is a claim the substituting party is best placed
+to make. `guard_tool_call` / `authorize_tool_call` are private for a different
+reason — enforcement lives in exactly one place, and a supported way to re-enter
+it is a second surface for the fail-closed rules to drift in.
 
 ### Surface 2 — govern an agent's tool calls
 
@@ -166,9 +224,10 @@ The mechanics:
   exists on `RunCapabilityEvidence` with a default of `False`
   (`src/zeroth/core/langgraph_gateway/models.py:132`) and the only other
   references are the capability check above and this package's own docstrings.
-- This integration documents in four places that it never promotes a run above
-  `admission` (FA5): `_wrapper.py:79`, `_wrapper.py:331`, `__init__.py:15` and
-  `__init__.py:35`.
+- This integration documents in five places that it never promotes a run above
+  `admission` (FA5) — once per surface: `_wrapper.py:79` and `_wrapper.py:331`
+  (`govern_graph`), `__init__.py:15` (`govern_graph`), `__init__.py:35`
+  (`govern_tools`) and `__init__.py:47` (`ZerothMiddleware`).
 
 So a tool-only run reports `observed` with `partial` coverage, plus an explicit
 list of the tools actually governed —
@@ -244,9 +303,28 @@ decision client, one typed-exception set, one audit projection and one interrupt
 schema — is driven from a single shared scenario table in
 `tests/integrations/langgraph/tools/test_surface_parity.py`.
 
-All of these are Tier A: they need the optional `gateway-conformance`
-dependency group and are deselected by default. Run them with
-`uv run pytest -o addopts= -m langgraph_conformance tests/integrations/langgraph`.
+**The eight matrix cells and the parity table run in different tiers.** Get this
+wrong and you run the wrong suite:
+
+- **The eight `test_cell_*` cases run in the default (base) tier.** They are in
+  `test_tool_wrappers.py`, which carries no `langgraph_conformance` marker and no
+  `importorskip`: `langchain-core` is a *core* dependency, and the pause seam is
+  injected, so nothing there needs `langchain.agents` or `langgraph`. A marker
+  would only have got them deselected. Run them with the ordinary suite:
+  ```bash
+  uv run pytest tests/integrations/langgraph/tools/test_tool_wrappers.py
+  ```
+- **The cross-surface parity table is Tier A.** `test_surface_parity.py` (like
+  `test_middleware.py`) drives `create_agent`, so it `importorskip`s
+  `langchain.agents` and is marked `langgraph_conformance`, which the default
+  `addopts` deselects. It needs the `gateway-conformance` dependency group — or
+  the `langgraph` extra — and an explicit run:
+  ```bash
+  uv run pytest -o addopts= -m langgraph_conformance tests/integrations/langgraph
+  ```
+
+A conformance run that reports everything skipped means the dependencies are
+absent, not that the tier passed.
 
 ## Known divergences
 

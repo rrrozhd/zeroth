@@ -4044,7 +4044,7 @@ source = { directory = "packaging/console" }
 
 [[package]]
 name = "zeroth-core"
-version = "0.13.10"
+version = "0.13.11"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -4098,6 +4098,10 @@ docs = [
     { name = "mkdocs-section-index" },
     { name = "mkdocstrings", extra = ["python"] },
     { name = "pymdown-extensions" },
+]
+langgraph = [
+    { name = "langchain" },
+    { name = "langgraph" },
 ]
 langgraph-gateway = [
     { name = "httpx", extra = ["http2"] },
@@ -4158,7 +4162,9 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx", extras = ["http2"], marker = "extra == 'langgraph-gateway'", specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.22" },
+    { name = "langchain", marker = "extra == 'langgraph'", specifier = ">=1.0,<2" },
     { name = "langchain-litellm", specifier = ">=0.3.4" },
+    { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=1.0,<2" },
     { name = "litellm", specifier = ">=1.83,<2.0" },
     { name = "mcp", specifier = ">=1.7,<2.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6,<2.0" },
@@ -4194,7 +4200,7 @@ requires-dist = [
     { name = "zeroth-core", extras = ["regulus"], marker = "extra == 'all'" },
     { name = "zeroth-core", extras = ["sandbox"], marker = "extra == 'all'" },
 ]
-provides-extras = ["langgraph-gateway", "memory-pg", "memory-chroma", "memory-es", "dispatch", "sandbox", "otel", "regulus", "console", "all", "docs"]
+provides-extras = ["langgraph-gateway", "langgraph", "memory-pg", "memory-chroma", "memory-es", "dispatch", "sandbox", "otel", "regulus", "console", "all", "docs"]
 
 [package.metadata.requires-dev]
 dev = [
