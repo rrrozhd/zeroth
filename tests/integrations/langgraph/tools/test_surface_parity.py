@@ -314,6 +314,28 @@ def build_async_tool(body: Body) -> StructuredTool:
     )
 
 
+def build_dual_tool(body: Body) -> StructuredTool:
+    """Build one tool that carries both bodies, for driving *one* tool down both paths.
+
+    A tool's identity is bound to the code it will run, so a sync-only tool and an
+    async-only tool are two different tools with two different fingerprints -- and
+    the fingerprint is recorded in every audit record. Comparing the sync and
+    async halves of a surface therefore has to compare one tool driven twice, not
+    two tools driven once each; otherwise the difference the comparison finds is
+    the tools', not the surface's.
+    """
+
+    def _run(query: str) -> str:
+        return body.run(query=query)
+
+    async def _arun(query: str) -> str:
+        return body.run(query=query)
+
+    return StructuredTool.from_function(
+        func=_run, coroutine=_arun, name="search", description="search for things."
+    )
+
+
 def build_request(tool: Any) -> ToolCallRequest:
     """Build the middleware request LangChain would hand in for one tool call."""
     return ToolCallRequest(
@@ -693,12 +715,19 @@ def test_the_sync_and_async_paths_of_one_surface_agree_too() -> None:
     between their own sync and async halves together. This pins the fourth edge
     of the square on the wrapper surface, where the two halves are separate
     methods (``_run`` and ``_arun``) rather than one shared call.
+
+    Both halves are driven against the *same* tool -- one built with both a
+    ``func`` and a ``coroutine`` -- because identity is bound to the code a tool
+    runs, so a sync-only and an async-only tool differ by construction and would
+    make this compare the tools rather than the paths. The two constructions get
+    their own ``Body`` so a call count cannot leak between them; the
+    implementation is identical, which is why their identities are.
     """
     scenario = next(item for item in SCENARIOS if item.label == "deny")
     sync_body, async_body = Body(), Body()
 
-    sync = drive_wrapper(scenario, build_tool(sync_body), sync_body)
-    asynchronous = drive_wrapper_async(scenario, build_async_tool(async_body), async_body)
+    sync = drive_wrapper(scenario, build_dual_tool(sync_body), sync_body)
+    asynchronous = drive_wrapper_async(scenario, build_dual_tool(async_body), async_body)
 
     assert sync == asynchronous
 

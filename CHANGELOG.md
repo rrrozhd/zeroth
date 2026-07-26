@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.10] - 2026-07-26
+
+### Fixed
+
+- **Tool identity was too weak to detect substitution.** A governed tool's
+  fingerprint covered only its *surface* — name, description and argument
+  *names* — so two functions returning different results, bound under one name
+  with one description and one schema, received the same identity. A substituted
+  tool therefore passed inventory matching and inherited the authorization
+  granted to the original. Identity is now bound to the code the tool will
+  actually run (`_tool_fingerprint.py`): a SHA-256 digest over the callable's
+  own code object — bytecode, constants, names and parameter shape, recursing
+  through closures, bound methods, `functools.partial` and decorators — plus a
+  digest of the *complete* declared schema, field types and constraints
+  included, rather than field names. Derived rather than caller-asserted,
+  because a fingerprint the caller supplies is a claim the substituting party is
+  best placed to make. A tool whose implementation cannot be fingerprinted
+  stably — a builtin, a C extension function, a tool whose body slot raises
+  rather than answering — now raises `UnstableToolIdentityError` instead of
+  falling back to the weak surface identity.
+- **The substitution test proved the wrong thing.** The R11
+  "same-name-different-fingerprint" case varied the tool's *description*, which
+  is metadata a real substitution simply copies. It now varies the
+  implementation with name, description and declared schema held identical and
+  asserted identical first.
+
 ## [0.13.9] - 2026-07-26
 
 ### Fixed

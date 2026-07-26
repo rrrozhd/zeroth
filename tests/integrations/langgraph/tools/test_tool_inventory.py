@@ -5,7 +5,10 @@ A missing tool and an extra tool are what any comparison catches. A tool *swappe
 for another under the same name* is what a name-keyed comparison calls a match --
 so the substitution case below asserts not only that the match fails, but that
 the two tools' fingerprints differ while their names are identical, which is the
-only reason it can fail.
+only reason it can fail. The swap varies the tool's **implementation** with its
+whole surface -- name, description, declared schema -- held identical and asserted
+identical first: a substitution that changed the description would be caught by a
+weaker identity than the one this suite has to pin.
 
 **R13 is asserted as an absence.** ``enforced`` needs signed, fresh,
 ``tool_manifest_complete`` run evidence that nothing in this package mints, so the
@@ -65,9 +68,23 @@ def _body(text: str) -> str:
     return text
 
 
-def _tool(name: str, description: str = "the declared body") -> StructuredTool:
-    """Build a real ``BaseTool`` whose fingerprint follows its description."""
-    return StructuredTool.from_function(func=_body, name=name, description=description)
+def _substituted_body(text: str) -> str:
+    """Stand in for whatever a real tool does."""
+    return text.upper()
+
+
+# The substituted body is made indistinguishable from the declared one on every
+# axis a tool's *surface* exposes: ``StructuredTool`` derives the argument
+# schema's title from the function's name, and the description is passed
+# explicitly, so aligning the two dunders leaves the bodies as the only
+# difference between the two tools.
+_substituted_body.__name__ = _body.__name__
+_substituted_body.__qualname__ = _body.__qualname__
+
+
+def _tool(name: str, description: str = "the declared body", body: Any = _body) -> StructuredTool:
+    """Build a real ``BaseTool`` whose fingerprint follows its body and its surface."""
+    return StructuredTool.from_function(func=body, name=name, description=description)
 
 
 def _governed(*tools: Any) -> list[Any]:
@@ -125,11 +142,30 @@ def test_an_extra_tool_fails_the_match() -> None:
 
 
 def test_a_same_name_different_fingerprint_substitution_fails_the_match() -> None:
-    """The direction a name-keyed inventory would wave through."""
-    declared = _governed(_tool("search", "the declared body"))
-    installed = _governed(_tool("search", "a substituted body"))
+    """The direction a name-keyed inventory would wave through.
+
+    The substitution varies the tool's *implementation* and nothing else: name,
+    description and declared schema are asserted identical before the identities
+    are compared. An earlier version of this test swapped the description
+    instead, which is metadata a real substitution simply copies -- so it proved
+    the inventory notices a relabelled tool, not a replaced one.
+    """
+    declared_tool = _tool("search", "the declared body")
+    installed_tool = _tool("search", "the declared body", body=_substituted_body)
+    declared = _governed(declared_tool)
+    installed = _governed(installed_tool)
     declared_identity = _identities(declared)[0]
     installed_identity = _identities(installed)[0]
+
+    # Every surface a substituted tool can copy has been copied.
+    assert declared_tool.name == installed_tool.name
+    assert declared_tool.description == installed_tool.description
+    assert (
+        declared_tool.args_schema.model_json_schema()
+        == installed_tool.args_schema.model_json_schema()
+    )
+    # And the two genuinely run different code.
+    assert declared_tool.invoke({"text": "cats"}) != installed_tool.invoke({"text": "cats"})
 
     # The two are indistinguishable by name and distinguishable only by fingerprint.
     assert declared_identity.name == installed_identity.name == "search"
@@ -287,7 +323,7 @@ def test_completeness_is_minted_only_by_an_exact_match() -> None:
         attest_complete_inventory(inventory, declared[:1])
     with pytest.raises(ToolGovernanceError):
         attest_complete_inventory(
-            record_tool_inventory(_governed(_tool("search", "a substituted body"))),
+            record_tool_inventory(_governed(_tool("search", body=_substituted_body))),
             [declared[0]],
         )
 

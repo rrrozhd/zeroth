@@ -36,9 +36,18 @@ exactly the values the decision was made about. See that function for why a twin
 rather than the delegate itself, and :func:`_delegate_input` for why the twin is
 still driven through ``invoke``.
 
+**Identity is the tool's body, not the label on it.** Name, description and
+argument names are metadata a substituted tool reproduces exactly, so identity
+also carries a digest of the code the tool will actually run and a digest of its
+complete declared schema -- types and constraints, not field names. A tool whose
+implementation cannot be fingerprinted stably is refused rather than pinned to
+the weaker surface it presents; see
+:mod:`~zeroth.integrations.langgraph._tool_fingerprint` for what is derived, what
+it deliberately leaves out, and why deriving beats a fingerprint a caller asserts.
+
 **Identity is pinned at wrap time and re-derived at every call.** A tool whose
-name or declared schema moves between the wrapping and the call cannot carry a
-reproducible decision, so the mismatch raises
+name, body or declared schema moves between the wrapping and the call cannot
+carry a reproducible decision, so the mismatch raises
 :class:`~zeroth.integrations.langgraph._tool_errors.UnstableToolIdentityError`
 rather than being decided against an identity that will not hold. That is also
 what stops a hostile ``__getattr__`` from presenting one identity to the wrapper
@@ -78,6 +87,11 @@ from zeroth.integrations.langgraph._tool_errors import (
     GovernanceContextError,
     ToolGovernanceError,
     UnstableToolIdentityError,
+)
+from zeroth.integrations.langgraph._tool_fingerprint import (
+    callable_implementation_digest,
+    schema_digest,
+    tool_implementation_digest,
 )
 from zeroth.integrations.langgraph._tool_guard import (
     ToolAuditSubmitter,
@@ -330,7 +344,27 @@ def _signature_argument_names(target: object) -> list[str]:
 
 
 def _describe_base_tool(tool: Any) -> _ToolFacts:
-    """Read a ``BaseTool``'s identifying surface without trusting any of it."""
+    """Read a ``BaseTool``'s identity: its surface, its whole schema, and its body.
+
+    The surface -- name, description, argument names -- is what a substituted tool
+    reproduces exactly, so it is the *weakest* part of what goes in here. The two
+    that a substitution cannot reproduce without being the same tool are the
+    digest of the code the tool will run and the digest of its complete declared
+    schema, types and constraints included. See
+    :mod:`~zeroth.integrations.langgraph._tool_fingerprint`.
+
+    Args:
+        tool: The tool being described.
+
+    Returns:
+        Its identifying surface and the material its identity is built from.
+
+    Raises:
+        UnstableToolIdentityError: If the tool's implementation cannot be
+            fingerprinted stably, or it declares a schema that cannot be pinned.
+            Both fail closed: a surface-only identity is one a substituted tool
+            inherits authorization through.
+    """
     description = _text(_peek(tool, "description"))
     args_schema = _peek(tool, "args_schema")
     return _ToolFacts(
@@ -341,6 +375,8 @@ def _describe_base_tool(tool: Any) -> _ToolFacts:
             "surface": _BASE_TOOL_SURFACE,
             "description": description,
             "arguments": _schema_argument_names(args_schema),
+            "schema": schema_digest(args_schema),
+            "implementation": tool_implementation_digest(tool),
         },
     )
 
@@ -351,6 +387,22 @@ def _describe_callable(target: Any) -> _ToolFacts:
     A callable may carry an explicit ``name`` / ``description`` / ``args_schema``
     -- a partially decorated function does -- so those are preferred, and the
     dunders stand in only where they are absent.
+
+    Identity is bound to the callable's own code and complete declared schema,
+    exactly as it is for a ``BaseTool``: a bare function is the surface easiest of
+    all to imitate, since two functions with the same signature and docstring are
+    the same tool to every gate but this one.
+
+    Args:
+        target: The callable being described.
+
+    Returns:
+        Its identifying surface and the material its identity is built from.
+
+    Raises:
+        UnstableToolIdentityError: If the callable's implementation cannot be
+            fingerprinted stably -- a builtin, a C extension function -- or it
+            declares a schema that cannot be pinned.
     """
     description = _text(_peek(target, "description")) or _text(_peek(target, "__doc__"))
     args_schema = _peek(target, "args_schema")
@@ -366,6 +418,8 @@ def _describe_callable(target: Any) -> _ToolFacts:
             "surface": _CALLABLE_SURFACE,
             "description": description,
             "arguments": arguments,
+            "schema": schema_digest(args_schema),
+            "implementation": callable_implementation_digest(target),
         },
     )
 
