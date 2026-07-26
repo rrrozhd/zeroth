@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.5] - 2026-07-26
+
+### Added
+
+- `_tool_inventory.py`: records the governed tool inventory from what
+  `govern_tools` pinned, and reports the enforcement level that honestly
+  supports. `record_tool_inventory` reads each wrapper's binding structurally —
+  no `langchain_core` import, so the module pulls in neither `langsmith` nor the
+  OpenTelemetry SDK — and refuses a tool that carries no governed binding rather
+  than skipping it, because a tool that cannot be read must not become a tool
+  that cannot be seen.
+- `match_tool_inventory` compares an inventory against the tool list an operator
+  declared on name **and** fingerprint, order-insensitively, and reports the three
+  ways it can differ as three separate findings: a missing tool, an unexpected
+  tool, and a *substituted* one — same name, different fingerprint. The third is
+  the direction a name-keyed inventory waves through, so it is kept apart from
+  the other two rather than folded into them. `inventory_fingerprint` digests the
+  sorted name/fingerprint pairs through the existing canonical projection, so it
+  inherits that projection's exact-type refusals.
+- A repeated tool name is refused on both sides: a name two tools answer to
+  identifies neither, and makes "extra or substitution?" ambiguous.
+- `attest_complete_inventory` is the only place `InventoryCoverage.COMPLETE` is
+  minted, and it mints it only against a declared list that matched exactly.
+- `report_tool_enforcement` returns `observed` with the names of the tools
+  actually governed, and `admission` when there are none. It has no branch that
+  can return `enforced`: that needs signed, fresh, `tool_manifest_complete` run
+  evidence, this package mints none, and an inventory's coverage is not a
+  substitute for it — an attested `COMPLETE` inventory reports exactly what a
+  partial one does. The report is a description of the tool surface, not a run
+  attestation, and is not fed to a `CapabilityReporter`.
+- `ToolEnforcementReport.level_term` is the plain `str` an audit writer must use:
+  `execution_metadata["governance_level"]` is vocabulary-gated with
+  `type(value) is str`, and a `StrEnum` member's type is the enum class, so
+  writing the member itself passes the membership test and is then summarized
+  away at capture time.
+- Every identity is rebuilt from fields that passed `normalize_identifier`, on
+  the recorded side and the declared side alike, so a `str` subclass smuggled
+  into a caller-constructed `ToolIdentity` cannot forge a match, and a hostile
+  container that injects a value through `__iter__` refuses the recording.
+
 ## [0.13.4] - 2026-07-26
 
 ### Added
