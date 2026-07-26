@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-07-26
+
+### Added
+
+- `_tool_wrappers.py`: `govern_tools`, the install surface for a raw tool list.
+  It returns governed twins of sync and async `BaseTool` instances and of plain
+  callables, each invocable through exactly the interfaces its original was —
+  `invoke` / `ainvoke` / `run` / `arun` for a tool, a direct call for a callable —
+  and each preserving `name`, `description` and `args_schema`. A wrapper also
+  reports the wrapped tool's own input schema rather than one inferred from the
+  wrapper's signature, so a schema-less tool stays schema-less through the
+  wrapping. `return_direct`, `tags`, `metadata` and `handle_validation_error` are
+  carried too — the caller reads those off the wrapper and never off the delegate
+  behind it — while `callbacks`, `handle_tool_error` and `response_format` stay
+  with the delegate, which is the layer that runs, formats and therefore fails.
+- A governed call that arrived as a tool call is handed on as a tool call, id
+  included, so a `content_and_artifact` tool builds its own `ToolMessage` and its
+  artifact survives the wrapping instead of being dropped for want of a call id.
+- The wrappers are adapters, not a second enforcement path: the sync surfaces
+  call `guard_tool_call` and the async surfaces call `authorize_tool_call` and
+  then await their own downstream, so every allow, deny and approval branch stays
+  in the one shared core. `_run` / `_arun` are the choke point, which is what
+  makes every `BaseTool` entry point governed at once.
+- Wrapping mutates nothing: the original tool object is never written to, its
+  `.func` / `.coroutine` are never rebound, and the supplied container is copied
+  rather than governed in place, so any other holder of a wrapped tool keeps the
+  behaviour it had.
+- Identity is pinned at wrap time and re-derived from the live tool on every
+  call; a name or declared schema that moved refuses the call with
+  `UnstableToolIdentityError` rather than deciding against an identity that will
+  not hold.
+- Optional per-tool `side_effect` and `contract_ref` resolvers. Only a real
+  `SideEffectClass` member classifies a tool, and a resolver that raises leaves
+  the tool unclassified — which the default policy denies.
+- `govern_tools` declares `partial` coverage and takes no coverage parameter:
+  claiming a complete inventory needs an expected tool list whose fingerprints
+  match at startup, and a parameter would let a caller assert completeness
+  nothing verified.
+
+### Changed
+
+- `govern_tools` / `GovernedTool` are exported from
+  `zeroth.integrations.langgraph` **lazily**, alongside `emit_genai_spans`:
+  `from langchain_core.tools import BaseTool` pulls `langsmith`, which imports
+  the OpenTelemetry SDK at module scope, so an eager export would drag
+  OpenTelemetry into every `import zeroth.integrations.langgraph`.
+
 ## [0.13.3] - 2026-07-26
 
 ### Added

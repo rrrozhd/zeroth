@@ -1,0 +1,1159 @@
+"""Proof that ``govern_tools`` governs every surface and mutates none of them.
+
+**The compatibility matrix is the spine of this file.** Eight cells --
+``BaseTool`` x plain callable, sync x async, ``args_schema`` present x absent --
+each get one ``test_cell_*`` named after the cell it covers, so the documented
+matrix maps onto tests mechanically rather than by reading prose.
+
+**Non-mutation is asserted by behaviour, never by ``is``.** A wrapper that
+reassigned ``tool.func`` to a *governed* function would leave every identity
+assertion intact, still execute, and still return the right answer on an allow.
+The assertion that discriminates is that a second name bound to the original --
+the tool object, its ``.func``, its ``.coroutine`` -- still runs **and the
+decision client is never consulted**. A client call count of zero is what proves
+the second reference reaches the original body and not a governed one.
+
+**Every enforcement assertion counts invocations.** "Denied" is not "raised": it
+is "raised *and* the body ran zero times". A wrapper that invoked first and
+raised afterwards satisfies every ``pytest.raises`` in a suite that does not
+count.
+
+``langchain-core`` is a core dependency of this package and is already imported
+eagerly by ``_wrapper.py`` / ``_handler.py``, so real ``BaseTool`` objects are
+used here. Nothing imports ``langchain.agents`` (the new optional dependency,
+which is the middleware suite's), nothing needs ``langgraph`` -- the pause seam is
+injected -- and so nothing here carries the ``langgraph_conformance`` marker:
+``addopts`` deselects it and a marked test would never run.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import dataclasses
+import inspect
+import json
+import subprocess
+import sys
+from typing import Any
+
+import pytest
+from langchain_core.tools import BaseTool, StructuredTool, ToolException
+from pydantic import BaseModel, ConfigDict
+
+from tests.integrations.langgraph.tools._hostile import (
+    CONTENT_SENTINEL,
+    HostileDict,
+    HostileList,
+    HostileStr,
+)
+from zeroth.governance.audit import NodeAuditRecord
+from zeroth.governance.identity import ActorIdentity, AuthMethod
+from zeroth.integrations.langgraph._tool_decisions import UnknownSideEffectPolicy
+from zeroth.integrations.langgraph._tool_errors import (
+    GovernanceContextError,
+    PolicyViolation,
+    ToolGovernanceError,
+    UnstableToolIdentityError,
+)
+from zeroth.integrations.langgraph._tool_types import (
+    InventoryCoverage,
+    SideEffectClass,
+    ToolAction,
+    ToolDecision,
+    ToolDecisionKind,
+    ToolGovernanceContext,
+)
+from zeroth.integrations.langgraph._tool_wrappers import GovernedTool, govern_tools
+
+THREADED = ToolGovernanceContext(
+    tenant_id="tenant-a",
+    principal_id="principal-1",
+    run_id="run-1",
+    thread_id="thread-1",
+    correlation_id="corr-1",
+)
+"""A run that can be paused: approval needs a thread to resume into."""
+
+THREADLESS = ToolGovernanceContext(tenant_id="tenant-a", principal_id="principal-1", run_id="run-1")
+
+ALLOW = ToolDecision(kind=ToolDecisionKind.ALLOW, reason_code="unknown_error")
+DENY = ToolDecision(kind=ToolDecisionKind.DENY, reason_code="policy_violation")
+APPROVE = ToolDecision(
+    kind=ToolDecisionKind.REQUIRE_APPROVAL,
+    reason_code="policy_violation",
+    approval_ref="approval-7",
+)
+
+
+@dataclasses.dataclass
+class CountingClient:
+    """A decision client that returns a fixed verdict and counts every consultation."""
+
+    verdict: object = ALLOW
+    calls: int = 0
+    seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Record the consultation and return the configured verdict."""
+        self.calls += 1
+        self.seen.append(action)
+        return self.verdict  # type: ignore[return-value]
+
+
+@dataclasses.dataclass
+class RecordingInterrupt:
+    """A pause seam that records the payload and suspends by raising, as LangGraph does."""
+
+    payloads: list[Any] = dataclasses.field(default_factory=list)
+
+    def __call__(self, payload: Any) -> Any:
+        """Record *payload* and suspend."""
+        self.payloads.append(payload)
+        raise Suspended
+
+
+class Suspended(Exception):  # noqa: N818 - a pause, not a malfunction.
+    """Stands in for LangGraph's ``GraphInterrupt``, which is what a real pause raises."""
+
+
+@dataclasses.dataclass
+class RecordingSubmitter:
+    """An audit sink that keeps every record the enforcement core handed it."""
+
+    records: list[NodeAuditRecord] = dataclasses.field(default_factory=list)
+
+    def submit(self, record: NodeAuditRecord) -> None:
+        """Keep *record*, as the delivery queue's non-blocking hand-off does."""
+        self.records.append(record)
+
+
+def read_only(_target: object) -> SideEffectClass:
+    """Classify every tool as read-only, so the allow path needs no blanket opt-in."""
+    return SideEffectClass.READ_ONLY
+
+
+class Body:
+    """A tool body that counts every execution and can be reached by a second name."""
+
+    def __init__(self, result: str = "body-result") -> None:
+        self.calls = 0
+        self.result = result
+
+    def run(self, **kwargs: Any) -> str:
+        """Count this execution and return the configured result."""
+        self.calls += 1
+        return self.result
+
+
+class Args(BaseModel):
+    """The declared schema for the tools whose cell has ``args_schema`` present."""
+
+    table: str
+    row: int
+
+
+# --------------------------------------------------------------------------- #
+# Tool builders, one per compatibility-matrix surface.
+# --------------------------------------------------------------------------- #
+
+
+def sync_tool_with_schema(body: Body) -> StructuredTool:
+    """Build a sync ``BaseTool`` that declares an ``args_schema``."""
+
+    def delete_row(table: str, row: int) -> str:
+        """Delete one row."""
+        return body.run(table=table, row=row)
+
+    return StructuredTool.from_function(
+        func=delete_row, name="delete_row", description="Delete one row.", args_schema=Args
+    )
+
+
+def async_tool_with_schema(body: Body) -> StructuredTool:
+    """Build an async ``BaseTool`` that declares an ``args_schema``."""
+
+    async def adelete_row(table: str, row: int) -> str:
+        """Delete one row, asynchronously."""
+        return body.run(table=table, row=row)
+
+    return StructuredTool.from_function(
+        coroutine=adelete_row,
+        name="adelete_row",
+        description="Delete one row, asynchronously.",
+        args_schema=Args,
+    )
+
+
+class SchemalessTool(BaseTool):
+    """A hand-built ``BaseTool`` with no ``args_schema``: the framework's string-input shape."""
+
+    name: str = "schemaless"
+    description: str = "Takes one bare string."
+    args_schema: Any = None
+    body: Any = None
+
+    def _run(self, *args: Any, **kwargs: Any) -> Any:
+        """Count this execution and echo the single positional input."""
+        self.body.calls += 1
+        return f"sync:{args[0]}"
+
+
+class AsyncSchemalessTool(BaseTool):
+    """A hand-built async ``BaseTool`` with no ``args_schema``."""
+
+    name: str = "aschemaless"
+    description: str = "Takes one bare string, asynchronously."
+    args_schema: Any = None
+    body: Any = None
+
+    def _run(self, *args: Any, **kwargs: Any) -> Any:
+        """Refuse the sync path, exactly as an async-only tool does."""
+        raise NotImplementedError("async only")
+
+    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
+        """Count this execution and echo the single positional input."""
+        self.body.calls += 1
+        return f"async:{args[0]}"
+
+
+def sync_callable_with_schema(body: Body) -> Any:
+    """Build a plain sync callable that carries an ``args_schema`` attribute."""
+
+    def delete_row(table: str, row: int) -> str:
+        """Delete one row."""
+        return body.run(table=table, row=row)
+
+    delete_row.args_schema = Args  # type: ignore[attr-defined]
+    return delete_row
+
+
+def sync_callable_without_schema(body: Body) -> Any:
+    """Build a plain sync callable that declares no schema at all."""
+
+    def search(query: str) -> str:
+        """Search for something."""
+        return body.run(query=query)
+
+    return search
+
+
+def async_callable_with_schema(body: Body) -> Any:
+    """Build a plain async callable that carries an ``args_schema`` attribute."""
+
+    async def adelete_row(table: str, row: int) -> str:
+        """Delete one row, asynchronously."""
+        return body.run(table=table, row=row)
+
+    adelete_row.args_schema = Args  # type: ignore[attr-defined]
+    return adelete_row
+
+
+def async_callable_without_schema(body: Body) -> Any:
+    """Build a plain async callable that declares no schema at all."""
+
+    async def asearch(query: str) -> str:
+        """Search for something, asynchronously."""
+        return body.run(query=query)
+
+    return asearch
+
+
+def wrap(target: Any, *, client: CountingClient, context: object = THREADED, **kwargs: Any) -> Any:
+    """Govern one tool with a read-only classification, so an allow can be reached."""
+    return govern_tools([target], context=context, client=client, side_effect=read_only, **kwargs)[
+        0
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# The compatibility matrix: BaseTool x callable, sync x async, schema x none.
+# --------------------------------------------------------------------------- #
+
+
+def test_cell_base_tool_sync_with_args_schema_preserves_interface_and_invokes_once() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    client = CountingClient()
+
+    governed = wrap(original, client=client)
+
+    assert isinstance(governed, GovernedTool)
+    assert governed.name == original.name
+    assert governed.description == original.description
+    assert governed.args_schema is original.args_schema
+    assert governed.args == original.args
+    assert governed.invoke({"table": "invoices", "row": 3}) == "body-result"
+    assert body.calls == 1
+    assert client.calls == 1
+
+
+def test_cell_base_tool_sync_without_args_schema_preserves_interface_and_invokes_once() -> None:
+    body = Body()
+    original = SchemalessTool(body=body)
+    client = CountingClient()
+
+    governed = wrap(original, client=client)
+
+    assert governed.name == original.name
+    assert governed.description == original.description
+    assert governed.args_schema is None and original.args_schema is None
+    # The delegate's own input schema is reported, not one inferred from the
+    # wrapper's ``*args`` / ``**kwargs`` signature.
+    assert governed.args == original.args
+    assert governed.invoke("hello") == "sync:hello"
+    assert body.calls == 1
+    assert client.calls == 1
+    # The bare positional input is decided under langchain-core's own name for it.
+    assert dict(client.seen[0].arguments) == {"__arg1": "hello"}
+
+
+def test_cell_base_tool_async_with_args_schema_preserves_interface_and_invokes_once() -> None:
+    body = Body()
+    original = async_tool_with_schema(body)
+    client = CountingClient()
+
+    governed = wrap(original, client=client)
+
+    assert governed.name == original.name
+    assert governed.description == original.description
+    assert governed.args_schema is original.args_schema
+    assert asyncio.run(governed.ainvoke({"table": "invoices", "row": 3})) == "body-result"
+    assert body.calls == 1
+    assert client.calls == 1
+
+
+def test_cell_base_tool_async_without_args_schema_preserves_interface_and_invokes_once() -> None:
+    body = Body()
+    original = AsyncSchemalessTool(body=body)
+    client = CountingClient()
+
+    governed = wrap(original, client=client)
+
+    assert governed.name == original.name
+    assert governed.description == original.description
+    assert governed.args_schema is None
+    assert governed.args == original.args
+    assert asyncio.run(governed.ainvoke("hello")) == "async:hello"
+    assert body.calls == 1
+    assert client.calls == 1
+
+
+def test_cell_plain_callable_sync_with_args_schema_preserves_interface_and_invokes_once() -> None:
+    body = Body()
+    original = sync_callable_with_schema(body)
+    client = CountingClient()
+
+    governed = wrap(original, client=client)
+
+    assert governed.name == "delete_row"
+    assert governed.description == original.__doc__
+    assert governed.args_schema is Args
+    assert governed(table="invoices", row=3) == "body-result"
+    assert body.calls == 1
+    assert client.calls == 1
+
+
+def test_cell_plain_callable_sync_without_args_schema_preserves_interface_and_invokes_once() -> (
+    None
+):
+    body = Body()
+    original = sync_callable_without_schema(body)
+    client = CountingClient()
+
+    governed = wrap(original, client=client)
+
+    assert governed.name == "search"
+    assert governed.description == original.__doc__
+    assert governed.args_schema is None
+    # A bare callable's whole interface is the direct call, and a positional
+    # argument is decided under its real parameter name, not ``__arg1``.
+    assert governed("cats") == "body-result"
+    assert dict(client.seen[0].arguments) == {"query": "cats"}
+    assert body.calls == 1
+    assert client.calls == 1
+    assert inspect.signature(governed) == inspect.signature(original)
+
+
+def test_cell_plain_callable_async_with_args_schema_preserves_interface_and_invokes_once() -> None:
+    body = Body()
+    original = async_callable_with_schema(body)
+    client = CountingClient()
+
+    governed = wrap(original, client=client)
+
+    assert governed.name == "adelete_row"
+    assert governed.args_schema is Args
+    assert inspect.iscoroutinefunction(governed)
+    assert asyncio.run(governed(table="invoices", row=3)) == "body-result"
+    assert body.calls == 1
+    assert client.calls == 1
+
+
+def test_cell_plain_callable_async_without_args_schema_preserves_interface_and_invokes_once() -> (
+    None
+):
+    body = Body()
+    original = async_callable_without_schema(body)
+    client = CountingClient()
+
+    governed = wrap(original, client=client)
+
+    assert governed.name == "asearch"
+    assert governed.description == original.__doc__
+    assert governed.args_schema is None
+    assert inspect.iscoroutinefunction(governed)
+    assert asyncio.run(governed("cats")) == "body-result"
+    assert body.calls == 1
+    assert client.calls == 1
+
+
+# --------------------------------------------------------------------------- #
+# R2 -- wrapping mutates neither the tool, its callables, nor the container.
+# --------------------------------------------------------------------------- #
+
+
+def test_wrapping_leaves_the_original_sync_tool_and_its_func_ungoverned() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    # Second names, bound BEFORE wrapping: identity assertions alone would not
+    # notice a wrapper that rebound ``.func`` to a governed function.
+    tool_reference = original
+    func_reference = original.func
+    client = CountingClient(verdict=DENY)
+
+    governed = wrap(original, client=client)
+
+    assert governed is not original
+    assert original.func is func_reference
+    assert original.coroutine is None
+    # Both second references still execute the ungoverned body...
+    assert func_reference(table="t", row=1) == "body-result"
+    assert tool_reference.invoke({"table": "t", "row": 2}) == "body-result"
+    assert body.calls == 2
+    # ...and the decision client was never consulted through either of them,
+    # which is what proves they reach the original body and not a governed one.
+    assert client.calls == 0
+
+
+def test_wrapping_leaves_the_original_async_tool_and_its_coroutine_ungoverned() -> None:
+    body = Body()
+    original = async_tool_with_schema(body)
+    tool_reference = original
+    coroutine_reference = original.coroutine
+    client = CountingClient(verdict=DENY)
+
+    wrap(original, client=client)
+
+    assert original.coroutine is coroutine_reference
+    assert original.func is None
+    assert asyncio.run(coroutine_reference(table="t", row=1)) == "body-result"
+    assert asyncio.run(tool_reference.ainvoke({"table": "t", "row": 2})) == "body-result"
+    assert body.calls == 2
+    assert client.calls == 0
+
+
+def test_wrapping_leaves_the_original_plain_callable_ungoverned() -> None:
+    body = Body()
+    original = sync_callable_without_schema(body)
+    callable_reference = original
+    client = CountingClient(verdict=DENY)
+
+    governed = wrap(original, client=client)
+
+    assert governed is not original
+    assert callable_reference("cats") == "body-result"
+    assert body.calls == 1
+    assert client.calls == 0
+
+
+def test_wrapping_copies_the_supplied_container_instead_of_governing_it_in_place() -> None:
+    body = Body()
+    first = sync_tool_with_schema(body)
+    second = sync_callable_without_schema(body)
+    supplied = [first, second]
+
+    governed = govern_tools(supplied, context=THREADED, client=CountingClient())
+
+    assert governed is not supplied
+    assert supplied == [first, second]
+    assert governed[0] is not first
+    assert governed[1] is not second
+
+
+# --------------------------------------------------------------------------- #
+# R4 / R5 / R6 -- the three outcomes, counted at the body.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("builder", [sync_tool_with_schema, sync_callable_with_schema])
+def test_denied_sync_call_raises_policy_violation_and_the_body_runs_zero_times(
+    builder: Any,
+) -> None:
+    body = Body()
+    client = CountingClient(verdict=DENY)
+    governed = wrap(builder(body), client=client)
+
+    with pytest.raises(PolicyViolation):
+        _invoke(governed, {"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert client.calls == 1
+
+
+@pytest.mark.parametrize("builder", [async_tool_with_schema, async_callable_with_schema])
+def test_denied_async_call_raises_policy_violation_and_the_body_runs_zero_times(
+    builder: Any,
+) -> None:
+    body = Body()
+    client = CountingClient(verdict=DENY)
+    governed = wrap(builder(body), client=client)
+
+    with pytest.raises(PolicyViolation):
+        asyncio.run(_ainvoke(governed, {"table": "t", "row": 1}))
+
+    assert body.calls == 0
+    assert client.calls == 1
+
+
+@pytest.mark.parametrize("builder", [sync_tool_with_schema, sync_callable_with_schema])
+def test_approval_suspends_the_sync_call_before_the_body_with_a_versioned_payload(
+    builder: Any,
+) -> None:
+    body = Body()
+    client = CountingClient(verdict=APPROVE)
+    pause = RecordingInterrupt()
+    governed = wrap(builder(body), client=client, interrupt=pause)
+
+    with pytest.raises(Suspended):
+        _invoke(governed, {"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert len(pause.payloads) == 1
+    payload = pause.payloads[0]
+    assert payload["version"] == 1
+    assert payload["kind"] == "tool_approval"
+    assert payload["approval_ref"] == "approval-7"
+    # The payload is written into graph state that outlives the run, so it has to
+    # survive a checkpoint's serialization round trip byte-identically.
+    assert json.loads(json.dumps(payload)) == payload
+
+
+@pytest.mark.parametrize("builder", [async_tool_with_schema, async_callable_with_schema])
+def test_approval_suspends_the_async_call_before_the_body_with_a_versioned_payload(
+    builder: Any,
+) -> None:
+    body = Body()
+    client = CountingClient(verdict=APPROVE)
+    pause = RecordingInterrupt()
+    governed = wrap(builder(body), client=client, interrupt=pause)
+
+    with pytest.raises(Suspended):
+        asyncio.run(_ainvoke(governed, {"table": "t", "row": 1}))
+
+    assert body.calls == 0
+    assert len(pause.payloads) == 1
+    assert json.loads(json.dumps(pause.payloads[0])) == pause.payloads[0]
+
+
+def test_allowed_call_reaches_the_body_exactly_once_per_invocation() -> None:
+    body = Body()
+    client = CountingClient()
+    governed = wrap(sync_tool_with_schema(body), client=client)
+
+    # Three invocations in a row: the identity is re-derived from the live tool
+    # on every call, so a non-deterministic derivation would allow the first and
+    # refuse every one after it.
+    for row in (1, 2, 3):
+        assert governed.invoke({"table": "t", "row": row}) == "body-result"
+
+    assert body.calls == 3
+    assert client.calls == 3
+
+
+def test_an_exception_from_an_allowed_body_propagates_unchanged_and_is_never_retried() -> None:
+    body = Body()
+    client = CountingClient()
+    governed = wrap(AsyncSchemalessTool(body=body), client=client)
+
+    # An async-only tool refuses the sync path. The wrapper decides FIRST and
+    # then propagates that refusal untouched: no swallow, no retry, no
+    # substituted result.
+    with pytest.raises(NotImplementedError):
+        governed.invoke("hello")
+
+    assert client.calls == 1
+    assert body.calls == 0
+
+
+# --------------------------------------------------------------------------- #
+# Fail-closed: no context, no classification, no verdict.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_tool_list_wrapped_without_a_context_refuses_every_call() -> None:
+    body = Body()
+    client = CountingClient()
+    governed = govern_tools([sync_tool_with_schema(body)], client=client, side_effect=read_only)[0]
+
+    with pytest.raises(GovernanceContextError):
+        governed.invoke({"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert client.calls == 0
+
+
+def test_a_context_provider_that_fails_refuses_the_call_instead_of_attributing_it() -> None:
+    body = Body()
+    client = CountingClient()
+
+    def broken_provider() -> ToolGovernanceContext:
+        """Fail the way a context source that lost its request scope would."""
+        raise RuntimeError("no request scope")
+
+    governed = wrap(sync_tool_with_schema(body), client=client, context=broken_provider)
+
+    with pytest.raises(GovernanceContextError):
+        governed.invoke({"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert client.calls == 0
+
+
+def test_a_context_provider_is_consulted_per_call_rather_than_pinned_at_wrap_time() -> None:
+    body = Body()
+    client = CountingClient()
+    contexts = [THREADED, THREADLESS]
+
+    def provider() -> ToolGovernanceContext:
+        """Return a different context on each call, as a per-run source would."""
+        return contexts.pop(0)
+
+    governed = wrap(sync_tool_with_schema(body), client=client, context=provider)
+
+    assert governed.invoke({"table": "t", "row": 1}) == "body-result"
+    assert governed.invoke({"table": "t", "row": 2}) == "body-result"
+    assert contexts == []
+    assert body.calls == 2
+
+
+def test_an_unclassified_tool_is_denied_before_the_client_is_ever_consulted() -> None:
+    body = Body()
+    client = CountingClient()
+    # No ``side_effect`` resolver: the tool stays UNKNOWN, which the default
+    # policy refuses.
+    governed = govern_tools([sync_tool_with_schema(body)], context=THREADED, client=client)[0]
+
+    with pytest.raises(PolicyViolation):
+        governed.invoke({"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert client.calls == 0
+
+
+def test_the_named_opt_in_is_what_lets_an_unclassified_tool_through() -> None:
+    body = Body()
+    client = CountingClient()
+    governed = govern_tools(
+        [sync_tool_with_schema(body)],
+        context=THREADED,
+        client=client,
+        unknown_side_effect=UnknownSideEffectPolicy.ALLOW_UNCLASSIFIED_TOOLS,
+    )[0]
+
+    assert governed.invoke({"table": "t", "row": 1}) == "body-result"
+    assert body.calls == 1
+
+
+def test_a_classifier_returning_the_bare_string_does_not_classify_the_tool() -> None:
+    body = Body()
+    client = CountingClient()
+
+    def bare_string(_target: object) -> Any:
+        """Return the StrEnum's *value*, which equals the member but is not one."""
+        return SideEffectClass.READ_ONLY.value
+
+    governed = govern_tools(
+        [sync_tool_with_schema(body)], context=THREADED, client=client, side_effect=bare_string
+    )[0]
+
+    # ``SideEffectClass`` is a StrEnum, so ``"read_only" == SideEffectClass.READ_ONLY``.
+    # The exact-type gate is what stops a classification nobody made from looking
+    # like one somebody did -- so the tool stays unknown and is denied.
+    with pytest.raises(PolicyViolation):
+        governed.invoke({"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert client.calls == 0
+
+
+def test_a_classifier_that_raises_leaves_the_tool_unclassified_rather_than_failing_the_wrap() -> (
+    None
+):
+    body = Body()
+
+    def broken(_target: object) -> SideEffectClass:
+        """Fail the way a classifier that lost its registry would."""
+        raise RuntimeError("classifier down")
+
+    governed = govern_tools([sync_tool_with_schema(body)], context=THREADED, side_effect=broken)[0]
+
+    assert governed.zeroth_binding.side_effect is SideEffectClass.UNKNOWN
+    with pytest.raises(PolicyViolation):
+        governed.invoke({"table": "t", "row": 1})
+    assert body.calls == 0
+
+
+def test_no_decision_client_denies_every_call() -> None:
+    body = Body()
+    governed = govern_tools([sync_tool_with_schema(body)], context=THREADED, side_effect=read_only)[
+        0
+    ]
+
+    with pytest.raises(PolicyViolation):
+        governed.invoke({"table": "t", "row": 1})
+
+    assert body.calls == 0
+
+
+# --------------------------------------------------------------------------- #
+# Hostile inputs: subtypes, moving identities, raising properties.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_tool_whose_name_is_a_str_subclass_is_refused_at_wrapping() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    object.__setattr__(original, "name", HostileStr("delete_row"))
+
+    with pytest.raises(UnstableToolIdentityError):
+        govern_tools([original], context=THREADED)
+
+    assert body.calls == 0
+
+
+def test_a_tool_whose_description_is_a_str_subclass_never_carries_it_into_the_wrapper() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    object.__setattr__(original, "description", HostileStr("Delete one row."))
+
+    governed = wrap(original, client=CountingClient())
+
+    assert governed.description == ""
+    assert CONTENT_SENTINEL not in f"{governed.description}"
+
+
+def test_a_tool_whose_identity_moves_after_wrapping_refuses_the_call() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    object.__setattr__(original, "name", "something_else")
+
+    with pytest.raises(UnstableToolIdentityError):
+        governed.invoke({"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert client.calls == 0
+
+
+def test_a_tool_whose_declared_schema_moves_after_wrapping_refuses_the_call() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    class Widened(BaseModel):
+        """A schema with a field the governed identity never saw."""
+
+        table: str
+        row: int
+        force: bool = False
+
+    object.__setattr__(original, "args_schema", Widened)
+
+    with pytest.raises(UnstableToolIdentityError):
+        governed.invoke({"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert client.calls == 0
+
+
+def test_a_tool_whose_args_schema_property_raises_is_still_governed_as_schemaless() -> None:
+    body = Body()
+
+    class Exploding:
+        """A callable tool whose declared schema cannot be read at all."""
+
+        name = "exploding"
+        description = "Its schema raises."
+
+        @property
+        def args_schema(self) -> Any:
+            """Raise, as a misconfigured lazily built schema would."""
+            raise RuntimeError("schema unavailable")
+
+        def __call__(self, query: str) -> str:
+            """Count this execution."""
+            return body.run(query=query)
+
+    governed = wrap(Exploding(), client=CountingClient())
+
+    # A raising property means "this tool declared nothing", never a traceback
+    # out of the wrapping and never an ungoverned tool in the returned list.
+    assert governed.args_schema is None
+    assert governed.name == "exploding"
+    assert governed("cats") == "body-result"
+    assert body.calls == 1
+
+
+def test_a_tool_whose_declared_schema_cannot_build_a_wrapper_is_refused() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    object.__setattr__(original, "args_schema", object())
+
+    # Refusing is the only outcome that cannot leave an ungoverned tool in the
+    # list the caller is about to hand to a graph.
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([original], context=THREADED)
+
+
+def test_a_hostile_container_of_tools_cannot_smuggle_a_non_tool_into_the_governed_list() -> None:
+    body = Body()
+    hostile = HostileList([sync_tool_with_schema(body)])
+
+    # The list's ``__iter__`` yields a bare string instead of the tool it holds.
+    with pytest.raises(ToolGovernanceError):
+        govern_tools(hostile, context=THREADED)
+
+
+def test_a_hostile_mapping_argument_is_refused_before_the_client_is_consulted() -> None:
+    body = Body()
+    client = CountingClient()
+    governed = wrap(sync_callable_with_schema(body), client=client)
+
+    with pytest.raises(ToolGovernanceError):
+        governed(table="t", row=HostileDict({"nested": 1}))
+
+    assert body.calls == 0
+    assert client.calls == 0
+
+
+def test_an_item_that_is_neither_a_tool_nor_callable_is_refused() -> None:
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([object()], context=THREADED)
+
+
+def test_a_non_iterable_tool_list_is_refused_as_a_governance_failure() -> None:
+    with pytest.raises(ToolGovernanceError):
+        govern_tools(object(), context=THREADED)  # type: ignore[arg-type]
+
+
+# --------------------------------------------------------------------------- #
+# The production call shape: a ToolCall, as ``ToolNode`` sends it.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_tool_call_round_trips_through_the_wrapper_identically() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    governed = wrap(sync_tool_with_schema(body), client=CountingClient())
+    call = {"name": "delete_row", "args": {"table": "t", "row": 1}, "id": "c1", "type": "tool_call"}
+
+    # ``ToolNode`` invokes with a ToolCall, not a bare argument dict, and expects
+    # a ``ToolMessage`` back carrying the call id.
+    assert governed.invoke(call) == original.invoke(call)
+    assert body.calls == 2
+
+
+def test_return_direct_survives_the_wrapping_because_the_agent_loop_reads_it() -> None:
+    body = Body()
+
+    def delete_row(table: str, row: int) -> str:
+        """Delete one row."""
+        return body.run(table=table, row=row)
+
+    original = StructuredTool.from_function(
+        func=delete_row, name="delete_row", description="d", args_schema=Args, return_direct=True
+    )
+
+    governed = wrap(original, client=CountingClient())
+
+    # The loop reads this off the tool object it was handed -- the wrapper -- and
+    # never off the delegate it cannot see, so a default here changes control flow.
+    assert governed.return_direct is True
+
+
+def test_content_and_artifact_survives_the_wrapping_and_the_artifact_is_not_dropped() -> None:
+    def measure(table: str) -> Any:
+        """Return content plus an artifact."""
+        return "content", {"rows": 3}
+
+    class OneArg(BaseModel):
+        """A single-field schema."""
+
+        table: str
+
+    original = StructuredTool.from_function(
+        func=measure,
+        name="measure",
+        description="d",
+        args_schema=OneArg,
+        response_format="content_and_artifact",
+    )
+    governed = wrap(original, client=CountingClient())
+    call = {"name": "measure", "args": {"table": "t"}, "id": "c1", "type": "tool_call"}
+
+    # The delegate is handed the whole tool call, so it builds the ToolMessage --
+    # artifact included -- and the wrapper's own formatting stage passes a
+    # ToolMessage straight through. The wrapper therefore keeps the default
+    # ``response_format``: carrying the delegate's would make it re-format an
+    # already-formatted output and reject the ToolMessage for not being a
+    # two-tuple.
+    assert governed.response_format == "content"
+    assert governed.invoke(call) == original.invoke(call)
+    assert governed.invoke(call).artifact == {"rows": 3}
+
+
+def test_a_tool_argument_colliding_with_the_call_id_carrier_is_refused() -> None:
+    class Colliding(BaseModel):
+        """A schema loose enough to let the reserved carrier name through as an argument."""
+
+        model_config = ConfigDict(extra="allow")
+
+        table: str = "t"
+
+    def echo(**kwargs: Any) -> str:
+        """Echo."""
+        return "echoed"
+
+    original = StructuredTool.from_function(
+        func=echo, name="colliding", description="d", args_schema=Colliding
+    )
+    governed = wrap(original, client=CountingClient())
+
+    # An argument named like the carrier would otherwise be overwritten by the
+    # call id -- the policy would decide one call and the tool would run another.
+    with pytest.raises(ToolGovernanceError):
+        governed.invoke({"table": "t", "__zeroth_tool_call_id__": "spoofed"})
+
+
+def test_tags_and_metadata_a_caller_reads_off_the_tool_survive_the_wrapping() -> None:
+    body = Body()
+
+    def delete_row(table: str, row: int) -> str:
+        """Delete one row."""
+        return body.run(table=table, row=row)
+
+    original = StructuredTool.from_function(
+        func=delete_row,
+        name="delete_row",
+        description="d",
+        args_schema=Args,
+        tags=["billing"],
+        metadata={"team": "payments"},
+    )
+
+    governed = wrap(original, client=CountingClient())
+
+    assert governed.tags == ["billing"]
+    assert governed.metadata == {"team": "payments"}
+
+
+def test_the_delegates_own_error_handling_is_not_duplicated_onto_the_wrapper() -> None:
+    def explode(table: str) -> str:
+        """Fail the way a tool whose backend is down does."""
+        raise ToolException("backend down")
+
+    class OneArg(BaseModel):
+        """A single-field schema."""
+
+        table: str
+
+    original = StructuredTool.from_function(
+        func=explode,
+        name="explode",
+        description="d",
+        args_schema=OneArg,
+        handle_tool_error="handled",
+    )
+    governed = wrap(original, client=CountingClient())
+
+    # The delegate is the layer that runs and therefore fails, so it is the layer
+    # that handles -- copying the setting onto the wrapper would mask a failure
+    # the delegate had already dealt with.
+    assert governed.handle_tool_error is False
+    assert governed.invoke({"table": "t"}) == original.invoke({"table": "t"}) == "handled"
+
+
+# --------------------------------------------------------------------------- #
+# The audit seam, threaded through to the enforcement core.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_denied_call_is_projected_through_the_audit_seam_with_the_tool_it_denied() -> None:
+    body = Body()
+    submitter = RecordingSubmitter()
+    actor = ActorIdentity(
+        subject="principal-1", auth_method=AuthMethod.API_KEY, tenant_id="tenant-a"
+    )
+    governed = wrap(
+        sync_tool_with_schema(body),
+        client=CountingClient(verdict=DENY),
+        audit=submitter,
+        actor=actor,
+    )
+
+    with pytest.raises(PolicyViolation):
+        governed.invoke({"table": "invoices", "row": 1})
+
+    # The wrapper threads five explicit seams into the enforcement core; a
+    # dropped ``audit`` or ``actor`` key would compile and pass every other test
+    # in this file while producing a governed call with no record.
+    assert len(submitter.records) == 1
+    record = submitter.records[0]
+    assert record.status == "rejected"
+    assert record.execution_metadata["decision"] == "deny"
+    assert record.actor == actor
+    assert [call.alias for call in record.tool_calls] == ["delete_row"]
+    assert record.tool_calls[0].tool_ref == governed.zeroth_binding.identity.fingerprint
+    assert body.calls == 0
+
+
+# --------------------------------------------------------------------------- #
+# Coverage and binding.
+# --------------------------------------------------------------------------- #
+
+
+def test_govern_tools_declares_partial_coverage_for_every_wrapper_it_returns() -> None:
+    body = Body()
+    governed = govern_tools(
+        [sync_tool_with_schema(body), sync_callable_without_schema(body)],
+        context=THREADED,
+        side_effect=read_only,
+    )
+
+    for wrapper in governed:
+        assert wrapper.zeroth_binding.coverage is InventoryCoverage.PARTIAL
+
+
+def test_every_wrapper_carries_the_identity_and_contract_it_was_pinned_under() -> None:
+    body = Body()
+    governed = wrap(
+        sync_tool_with_schema(body),
+        client=CountingClient(),
+        contract_ref=lambda _target: "contract:records",
+    )
+
+    binding = governed.zeroth_binding
+    assert binding.identity.name == "delete_row"
+    assert len(binding.identity.fingerprint) == 64
+    assert binding.contract_ref == "contract:records"
+    assert binding.side_effect is SideEffectClass.READ_ONLY
+
+
+def test_two_wrappings_of_the_same_tool_pin_the_same_fingerprint() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+
+    first = wrap(original, client=CountingClient())
+    second = wrap(original, client=CountingClient())
+
+    assert first.zeroth_binding.identity == second.zeroth_binding.identity
+
+
+def test_the_same_function_governed_as_a_tool_and_as_a_callable_is_not_one_identity() -> None:
+    body = Body()
+    as_tool = wrap(sync_tool_with_schema(body), client=CountingClient())
+    as_callable = wrap(sync_callable_with_schema(body), client=CountingClient())
+
+    assert as_tool.zeroth_binding.identity.name == as_callable.zeroth_binding.identity.name
+    assert (
+        as_tool.zeroth_binding.identity.fingerprint
+        != as_callable.zeroth_binding.identity.fingerprint
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Entry-point coverage: every BaseTool door funnels through the guard.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("entry", ["invoke", "run"])
+def test_every_sync_base_tool_entry_point_is_governed(entry: str) -> None:
+    body = Body()
+    client = CountingClient(verdict=DENY)
+    governed = wrap(sync_tool_with_schema(body), client=client)
+
+    with pytest.raises(PolicyViolation):
+        getattr(governed, entry)({"table": "t", "row": 1})
+
+    assert body.calls == 0
+    assert client.calls == 1
+
+
+@pytest.mark.parametrize("entry", ["ainvoke", "arun"])
+def test_every_async_base_tool_entry_point_is_governed(entry: str) -> None:
+    body = Body()
+    client = CountingClient(verdict=DENY)
+    governed = wrap(async_tool_with_schema(body), client=client)
+
+    with pytest.raises(PolicyViolation):
+        asyncio.run(getattr(governed, entry)({"table": "t", "row": 1}))
+
+    assert body.calls == 0
+    assert client.calls == 1
+
+
+def test_a_governed_base_tool_is_not_directly_callable_just_as_the_original_is_not() -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    governed = wrap(original, client=CountingClient())
+
+    assert not callable(original)
+    assert not callable(governed)
+
+
+def test_the_governed_wrapper_is_exported_from_the_package() -> None:
+    import zeroth.integrations.langgraph as package
+
+    assert "govern_tools" in package.__all__
+    assert package.govern_tools is govern_tools
+
+
+def test_importing_the_package_does_not_import_the_tool_surface_or_opentelemetry() -> None:
+    """The tool surface is exported lazily, so the package stays install-safe.
+
+    ``from langchain_core.tools import BaseTool`` pulls ``langsmith``, which
+    imports the OpenTelemetry SDK at module scope. An eager export of
+    ``govern_tools`` would therefore make ``import zeroth.integrations.langgraph``
+    drag in OpenTelemetry -- which ships only in the optional ``otel`` extra --
+    for every caller who only wanted ``govern_graph``. Checked in a clean
+    subprocess so the result does not depend on what this session imported.
+    """
+    code = (
+        "import sys, zeroth.integrations.langgraph as pkg; "
+        "leaked = sorted(k for k in sys.modules "
+        "if k == 'opentelemetry' or k.startswith('opentelemetry.')); "
+        "assert not leaked, leaked; "
+        "assert 'zeroth.integrations.langgraph._tool_wrappers' not in sys.modules; "
+        "assert 'govern_tools' in pkg.__all__; "
+        "assert callable(pkg.govern_tools)"
+    )
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def _invoke(governed: Any, arguments: dict[str, Any]) -> Any:
+    """Call a governed wrapper through whichever sync interface it exposes."""
+    if isinstance(governed, BaseTool):
+        return governed.invoke(arguments)
+    return governed(**arguments)
+
+
+async def _ainvoke(governed: Any, arguments: dict[str, Any]) -> Any:
+    """Call a governed wrapper through whichever async interface it exposes."""
+    if isinstance(governed, BaseTool):
+        return await governed.ainvoke(arguments)
+    return await governed(**arguments)

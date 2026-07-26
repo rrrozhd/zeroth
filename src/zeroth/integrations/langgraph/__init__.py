@@ -6,6 +6,7 @@ Public API::
 
     graph = govern_graph(graph)                      # one-line install
     graph = govern_graph(graph, on_run_start=hook)   # optional stability seam
+    tools = govern_tools(tools, context=context)     # raw tool lists (ZER-6)
 
 The wrapper is transparent and observed-mode only: it preserves results,
 streamed chunks and exceptions, reuses the econ instrumentation delegation for
@@ -25,6 +26,15 @@ without OpenTelemetry. :func:`emit_genai_spans` turns a batch into a real span
 tree and is therefore exported **lazily**: it needs the optional ``otel`` extra,
 so it is resolved on first attribute access and importing this package never
 pulls in OpenTelemetry.
+
+:func:`govern_tools` is the second install surface (ZER-6): it returns governed
+twins of a raw tool list -- sync and async ``BaseTool`` instances and plain
+callables alike -- without mutating any original or its ``.func`` / ``.coroutine``.
+Every wrapper decides through the one shared enforcement core, so allow, deny and
+approval mean exactly what they mean on the middleware surface. Wrapping declares
+``partial`` coverage; it never promotes a run above ``admission``. It is exported
+**lazily**, for the same reason ``emit_genai_spans`` is: it needs ``BaseTool``,
+and importing that pulls ``langsmith`` and with it the OpenTelemetry SDK.
 
 Importing this package never imports ``langgraph`` (an optional, test-only
 dependency): all langgraph use lives in the compiled graph the caller passes in.
@@ -50,8 +60,21 @@ from zeroth.integrations.langgraph._wrapper import (
     govern_graph,
 )
 
-_LAZY_EXPORTS = {"emit_genai_spans": "zeroth.integrations.langgraph._genai_emit"}
-"""Names resolved on first access because their module imports OpenTelemetry."""
+_LAZY_EXPORTS = {
+    "emit_genai_spans": "zeroth.integrations.langgraph._genai_emit",
+    "govern_tools": "zeroth.integrations.langgraph._tool_wrappers",
+    "GovernedTool": "zeroth.integrations.langgraph._tool_wrappers",
+}
+"""Names resolved on first access because importing their module imports OpenTelemetry.
+
+``_genai_emit`` needs it directly. The tool wrappers reach it by a longer road:
+they need ``BaseTool``, and ``from langchain_core.tools import BaseTool`` pulls
+``langsmith``, which imports the OpenTelemetry SDK at module scope. The rest of
+this package only ever touches ``langchain_core.runnables`` /
+``langchain_core.callbacks``, which do not, so ``import
+zeroth.integrations.langgraph`` stays OpenTelemetry-free exactly as long as the
+tool surface is resolved on demand.
+"""
 
 
 def __getattr__(name: str) -> Any:
@@ -72,6 +95,8 @@ def __dir__() -> list[str]:
 __all__ = [
     "govern_graph",
     "GovernedGraph",
+    "govern_tools",
+    "GovernedTool",
     "RunStartContext",
     "OnRunStart",
     "ZerothGovernanceCallbackHandler",
