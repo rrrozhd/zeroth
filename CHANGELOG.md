@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.6] - 2026-07-26
+
+### Added
+
+- `_middleware.py`: `ZerothMiddleware`, the `create_agent` install surface for
+  tool enforcement. It implements both `wrap_tool_call` and `awrap_tool_call`,
+  and carries no enforcement branch of its own — the sync path calls
+  `guard_tool_call`, the async path calls `authorize_tool_call` and then awaits
+  its own downstream, exactly as the `govern_tools` wrappers do. LangChain hands
+  the tool's execution in as a `handler` callback, so a denial and an approval
+  are literally "the handler was never called" rather than a verdict inferred
+  from a return value.
+- A denial propagates as `PolicyViolation` and is never rendered as an error
+  `ToolMessage`. Governance decides whether a call happens, not what it means; a
+  second representation of the verdict is exactly the drift that lets two
+  surfaces disagree.
+- Identity is read off the *resolved* tool through the same `_describe_base_tool`
+  the wrapper surface uses, so one tool fingerprints identically on both install
+  surfaces, and a request naming one tool while carrying another is refused. A
+  call the agent could not resolve to a tool (`request.tool is None`) is refused
+  rather than decided against a bare name.
+- The supported nesting order is documented on the class: LangChain composes
+  `wrap_tool_call` middleware first-defined-outermost, so governance sees every
+  call the middleware ahead of it let through, and everything nested inside it
+  only ever runs on a call governance allowed.
+- `ZerothMiddleware` is exported lazily from `zeroth.integrations.langgraph`, for
+  two independent reasons: it needs `langchain.agents`, which ships only in the
+  optional `gateway-conformance` group, and importing that drags in the
+  OpenTelemetry SDK by way of `langsmith`.
+
+### Fixed
+
+- The eager-import guard now forbids `langchain` as well as `langgraph`. It
+  previously checked only the latter, so a module-scope `langchain.agents` import
+  in the package's `__init__.py` would have sailed past it and instead
+  hard-`ImportError`ed the package for every caller installed without the
+  optional group. The match is `== "langchain"` / `startswith("langchain.")`:
+  `langchain_core` is a *core* dependency imported eagerly on purpose, and a bare
+  `startswith("langchain")` would fail on the 54 modules it already pulls in — a
+  second test pins that distinction rather than leaving it to a comment.
+- `test_tool_inventory.py`: replaced a vacuous assertion in
+  `test_the_module_mints_no_capability_evidence`. It checked that
+  `"tool_manifest_complete"` was not a *key* in the module namespace, which no
+  module-level binding could ever be; it now checks the namespace's values, which
+  is where such a claim could actually be minted.
+
 ## [0.13.5] - 2026-07-26
 
 ### Added

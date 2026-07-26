@@ -300,7 +300,11 @@ def test_the_module_mints_no_capability_evidence() -> None:
     namespace = vars(module)
     assert "RunCapabilityEvidence" not in namespace
     assert "CapabilityReporter" not in namespace
-    assert "tool_manifest_complete" not in namespace
+    # Checked over the namespace's *values*: ``tool_manifest_complete`` is the
+    # evidence claim's wire name, so the way this module could mint one is as a
+    # module-level string constant, never as a binding named after it. (Asserting
+    # it is not a *key* passed for free and therefore proved nothing.)
+    assert not any(value == "tool_manifest_complete" for value in namespace.values())
     for value in namespace.values():
         assert not (not isinstance(value, type) and hasattr(value, "evidence_for_run"))
 

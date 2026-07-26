@@ -36,8 +36,16 @@ approval mean exactly what they mean on the middleware surface. Wrapping declare
 **lazily**, for the same reason ``emit_genai_spans`` is: it needs ``BaseTool``,
 and importing that pulls ``langsmith`` and with it the OpenTelemetry SDK.
 
-Importing this package never imports ``langgraph`` (an optional, test-only
-dependency): all langgraph use lives in the compiled graph the caller passes in.
+:class:`ZerothMiddleware` is the third install surface (ZER-6): an
+``AgentMiddleware`` for ``create_agent`` that decides every tool call through the
+same shared core the wrappers use, refusing or suspending *without* invoking the
+downstream handler. It is exported **lazily** for two reasons: importing it needs
+``langchain.agents``, which ships only in the optional ``gateway-conformance``
+group, and that import drags in the OpenTelemetry SDK.
+
+Importing this package never imports ``langgraph`` or ``langchain`` (optional,
+test-only dependencies): all langgraph use lives in the compiled graph the caller
+passes in, and the middleware surface is resolved on demand.
 """
 
 from __future__ import annotations
@@ -64,6 +72,7 @@ _LAZY_EXPORTS = {
     "emit_genai_spans": "zeroth.integrations.langgraph._genai_emit",
     "govern_tools": "zeroth.integrations.langgraph._tool_wrappers",
     "GovernedTool": "zeroth.integrations.langgraph._tool_wrappers",
+    "ZerothMiddleware": "zeroth.integrations.langgraph._middleware",
 }
 """Names resolved on first access because importing their module imports OpenTelemetry.
 
@@ -74,6 +83,12 @@ this package only ever touches ``langchain_core.runnables`` /
 ``langchain_core.callbacks``, which do not, so ``import
 zeroth.integrations.langgraph`` stays OpenTelemetry-free exactly as long as the
 tool surface is resolved on demand.
+
+``ZerothMiddleware`` is lazy for that reason *and* for a second, harder one: it
+needs ``langchain.agents``, which ships only in the optional
+``gateway-conformance`` group. A module-scope import of it here would turn
+``import zeroth.integrations.langgraph`` into an ``ImportError`` for every
+existing caller who installed the package without that group.
 """
 
 
@@ -97,6 +112,7 @@ __all__ = [
     "GovernedGraph",
     "govern_tools",
     "GovernedTool",
+    "ZerothMiddleware",
     "RunStartContext",
     "OnRunStart",
     "ZerothGovernanceCallbackHandler",
