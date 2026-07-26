@@ -39,9 +39,15 @@ and importing that pulls ``langsmith`` and with it the OpenTelemetry SDK.
 :class:`ZerothMiddleware` is the third install surface (ZER-6): an
 ``AgentMiddleware`` for ``create_agent`` that decides every tool call through the
 same shared core the wrappers use, refusing or suspending *without* invoking the
-downstream handler. It is exported **lazily** for two reasons: importing it needs
-``langchain.agents``, which ships only in the optional ``gateway-conformance``
-group, and that import drags in the OpenTelemetry SDK.
+downstream handler. **It must be installed last** -- LangChain nests
+first-defined-outermost, and only the innermost layer is re-entered for every
+physical tool execution, so a retry declared after it would run the tool N times
+against one decision; see ``_middleware.py``'s module docstring for why no
+supported mechanism detects the position. Like ``govern_tools`` it declares
+``partial`` coverage and never promotes a run above ``admission``. It is exported
+**lazily** for two reasons: importing it needs ``langchain.agents``, which ships
+only in the optional ``gateway-conformance`` group, and that import drags in the
+OpenTelemetry SDK.
 
 Importing this package never imports ``langgraph`` or ``langchain`` (optional,
 test-only dependencies): all langgraph use lives in the compiled graph the caller

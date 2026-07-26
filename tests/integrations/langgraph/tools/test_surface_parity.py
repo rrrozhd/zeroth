@@ -46,6 +46,12 @@ optional ``gateway-conformance`` group, so it carries both guards: an
 marker. ``addopts`` deselects that marker, so these tests do **not** run in the
 default suite (or in the pre-commit hook); run them with
 ``-o addopts= -m langgraph_conformance``.
+
+**The guard names the module this file actually imports.** A marked module is
+imported at *collection*, so skipping on ``langgraph`` while importing
+``langchain.agents`` errors instead of skipping in an environment that has the
+first and not the second. Guarding ``langchain.agents`` covers both, because
+importing it pulls ``langgraph`` in and ``importorskip`` skips on either failure.
 """
 
 from __future__ import annotations
@@ -57,7 +63,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("langgraph", reason="requires the gateway-conformance dependency group")
+pytest.importorskip("langchain.agents", reason="requires the gateway-conformance dependency group")
 
 from langchain.agents.middleware import ToolCallRequest
 from langchain_core.tools import StructuredTool

@@ -7,11 +7,21 @@ so every enforcement assertion below counts handler invocations: a denial is
 truthy. A middleware that invoked first and raised afterwards satisfies every
 ``pytest.raises`` in a suite that does not count.
 
+**Two different layers are counted here, and the distinction is load-bearing.**
+A handler count answers "did this middleware call its downstream", which is the
+right measurement for allow/deny/approval. It is the *wrong* measurement for how
+many times the tool ran: a middleware nested inside governance calls its own
+handler as often as it likes, so one handler call can be any number of
+executions. The sections marked as counting ``Body.calls`` count a counter inside
+the function ``StructuredTool`` invokes -- below ``ToolNode``, below every
+middleware -- and that is the only number that says how often the tool body
+physically ran.
+
 **Nesting order is asserted, not assumed (R12).** Three middleware each append an
 entry *and* an exit marker, and the test pins the exact six-element sequence.
 Entry-only markers would observe dispatch, not nesting -- and nesting is the
 property that decides whether an inner middleware can see a call governance
-refused.
+refused, and whether a retry gets its own decision.
 
 **Tier A.** This suite needs ``langchain.agents``, which ships only in the
 optional ``gateway-conformance`` group, so it carries both guards: an
@@ -19,6 +29,12 @@ optional ``gateway-conformance`` group, so it carries both guards: an
 marker. ``addopts`` deselects that marker, so these tests do **not** run in the
 default suite (or in the pre-commit hook); run them with
 ``-o addopts= -m langgraph_conformance``.
+
+**The guard names the module this file actually imports.** A marked module is
+imported at *collection*, so skipping on ``langgraph`` while importing
+``langchain.agents`` errors instead of skipping in an environment that has the
+first and not the second. Guarding ``langchain.agents`` covers both, because
+importing it pulls ``langgraph`` in and ``importorskip`` skips on either failure.
 """
 
 from __future__ import annotations
@@ -29,7 +45,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("langgraph", reason="requires the gateway-conformance dependency group")
+pytest.importorskip("langchain.agents", reason="requires the gateway-conformance dependency group")
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ToolCallRequest
@@ -39,6 +55,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 
 from tests.integrations.langgraph.genai._causal import HostileStr
 from tests.integrations.langgraph.tools._hostile import HostileDict, HostileKey
+from zeroth.core.langgraph_gateway.models import GovernanceLevel
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.integrations.langgraph._middleware import ZerothMiddleware
 from zeroth.integrations.langgraph._tool_errors import (
@@ -49,6 +66,7 @@ from zeroth.integrations.langgraph._tool_errors import (
     UnstableToolIdentityError,
 )
 from zeroth.integrations.langgraph._tool_types import (
+    InventoryCoverage,
     SideEffectClass,
     ToolAction,
     ToolDecision,
@@ -742,6 +760,265 @@ def test_r16_a_parallel_tool_failure_leaves_every_other_decision_intact() -> Non
         "completed",
     ]
     assert client.seen == names
+
+
+# --------------------------------------------------------------------------- #
+# R4 / R10 -- one decision and one audit record per *physical body execution*.
+#
+# Everything above this line counts ``Handler`` invocations, which is the wrong
+# layer for this property: a middleware nested inside governance calls its own
+# handler as often as it likes, and each of those runs the tool. So every
+# assertion in this section counts ``Body.calls`` -- a counter inside the
+# function ``StructuredTool`` actually invokes, below ``ToolNode`` and below
+# every middleware -- and compares it against the number of policy consultations
+# and audit records. Nothing here is driven through a hand-built request: the
+# agent is a real ``create_agent`` with a real retrying middleware, because the
+# defect is a property of the composed chain and cannot appear in a single
+# direct call.
+# --------------------------------------------------------------------------- #
+
+
+class Retrying(AgentMiddleware):
+    """A middleware that runs its downstream several times for one tool call.
+
+    Not a contrivance. LangChain's own composition says a wrapper "can call
+    call_inner multiple times" (``_chain_tool_call_wrappers.compose_two`` in
+    ``langchain/agents/factory.py``) and its shipped ``ToolRetryMiddleware``
+    calls ``handler(request)`` in a retry loop. This stands in for it because it
+    retries unconditionally, which makes the count deterministic. It is the shape
+    that separates "the handler was called once" from "the tool ran once".
+    """
+
+    tools: tuple[BaseTool, ...] = ()
+
+    def __init__(self, attempts: int) -> None:
+        """Run every downstream call *attempts* times."""
+        super().__init__()
+        self.attempts = attempts
+
+    @property
+    def name(self) -> str:
+        """Name it after the retry count, so it never collides with another layer."""
+        return f"retry-{self.attempts}"
+
+    def wrap_tool_call(self, request: Any, handler: Any) -> Any:
+        """Execute the downstream *attempts* times, keeping the last result."""
+        result: Any = None
+        for _ in range(self.attempts):
+            result = handler(request)
+        return result
+
+    async def awrap_tool_call(self, request: Any, handler: Any) -> Any:
+        """The awaitable form of the same repetition."""
+        result: Any = None
+        for _ in range(self.attempts):
+            result = await handler(request)
+        return result
+
+
+def test_an_outer_retry_gets_a_decision_and_a_record_per_physical_execution() -> None:
+    """Governance installed last: three tool executions, three decisions, three records.
+
+    ``Retrying`` is *outside* governance, so each of its attempts re-enters
+    ``wrap_tool_call``. The assertion is on ``body.calls`` -- how many times the
+    tool function itself ran -- not on a handler count, because a handler count
+    is what made this hole invisible.
+    """
+    body = Body()
+    audit = RecordingSubmitter()
+    client = CountingClient()
+    agent = create_agent(
+        scripted_model("search", {"query": "cats"}),
+        tools=[build_tool(body=body)],
+        middleware=[Retrying(3), middleware(client=client, audit=audit)],
+    )
+
+    agent.invoke({"messages": [HumanMessage("hi")]})
+
+    assert body.calls == 3
+    assert client.calls == 3
+    assert len(audit.records) == 3
+    # None lost, none double-counted: three distinct records, each naming the
+    # tool that actually ran.
+    assert len({record.audit_id for record in audit.records}) == 3
+    assert [record.tool_calls[0].alias for record in audit.records] == ["search"] * 3
+    assert [record.status for record in audit.records] == ["completed"] * 3
+
+
+def test_an_outer_async_retry_gets_a_decision_and_a_record_per_physical_execution() -> None:
+    """The async chain composes identically, so the same accounting has to hold.
+
+    ``awrap_tool_call`` is a separate body from ``wrap_tool_call`` -- it calls
+    ``authorize_tool_call`` and awaits its own downstream -- so a regression
+    could land on one path and not the other.
+    """
+    body = Body()
+    audit = RecordingSubmitter()
+    client = CountingClient()
+    agent = create_agent(
+        scripted_model("asearch", {"query": "cats"}),
+        tools=[build_async_tool(body=body)],
+        middleware=[Retrying(3), middleware(client=client, audit=audit)],
+    )
+
+    asyncio.run(agent.ainvoke({"messages": [HumanMessage("hi")]}))
+
+    assert body.calls == 3
+    assert client.calls == 3
+    assert len(audit.records) == 3
+    assert len({record.audit_id for record in audit.records}) == 3
+    assert [record.status for record in audit.records] == ["completed"] * 3
+
+
+def test_a_retry_nested_inside_governance_runs_the_body_undecided() -> None:
+    """The documented limitation, pinned so it can never quietly become a claim.
+
+    Declared *after* ``ZerothMiddleware``, the retry nests inside it and calls
+    LangChain's executor directly. Governance is not re-entered, so three
+    executions share one decision and one record. Nothing detects this from
+    inside a middleware -- see ``_middleware.py``'s module docstring -- which is
+    why ``ZerothMiddleware`` must be installed last, and why this test asserts
+    the real numbers rather than the ones the ordering contract promises.
+    """
+    body = Body()
+    audit = RecordingSubmitter()
+    client = CountingClient()
+    agent = create_agent(
+        scripted_model("search", {"query": "cats"}),
+        tools=[build_tool(body=body)],
+        middleware=[middleware(client=client, audit=audit), Retrying(3)],
+    )
+
+    agent.invoke({"messages": [HumanMessage("hi")]})
+
+    assert body.calls == 3
+    assert client.calls == 1
+    assert len(audit.records) == 1
+
+
+def test_a_retry_nested_inside_governance_still_never_runs_a_denied_call() -> None:
+    """The limitation is about accounting for allowed executions, not about denial.
+
+    A wrong install order multiplies executions of a call governance *allowed*;
+    it never turns a refusal into an execution, because the refusal raises before
+    the nested layer is reached at all.
+    """
+    body = Body()
+    agent = create_agent(
+        scripted_model("search", {"query": "cats"}),
+        tools=[build_tool(body=body)],
+        middleware=[middleware(client=CountingClient(verdict=DENY)), Retrying(3)],
+    )
+
+    with pytest.raises(PolicyViolation):
+        agent.invoke({"messages": [HumanMessage("hi")]})
+
+    assert body.calls == 0
+
+
+# --------------------------------------------------------------------------- #
+# R13 -- the middleware's own inventory and its own enforcement report.
+#
+# The wrapper surface's report is proved in ``test_tool_inventory.py`` over
+# ``record_tool_inventory(govern_tools(...))``. That proves nothing about this
+# surface: ``ZerothMiddleware`` wraps no tool, so there is no ``zeroth_binding``
+# to read, and until it recorded one it had no inventory and no report at all.
+# Everything below drives the middleware's own accessors.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_middleware_reports_the_tools_it_was_declared_to_govern() -> None:
+    guard = middleware(expected_tools=[build_tool("search"), build_tool("write_row")])
+
+    report = guard.enforcement_report()
+
+    assert report.level is GovernanceLevel.OBSERVED
+    assert report.coverage is InventoryCoverage.PARTIAL
+    assert list(report.enforced_tools) == ["search", "write_row"]
+    # The plain term audit metadata has to carry: a ``StrEnum`` member is
+    # summarized away by the capture projection.
+    assert report.level_term == "observed"
+    assert type(report.level_term) is str
+
+
+def test_the_middleware_reports_admission_when_nothing_was_declared() -> None:
+    """An empty surface observes nothing, so it may not claim to have observed."""
+    report = middleware().enforcement_report()
+
+    assert report.level is GovernanceLevel.ADMISSION
+    assert tuple(report.enforced_tools) == ()
+
+
+def test_the_middleware_report_can_never_be_enforced() -> None:
+    """R13 on this surface: no branch reaches ``ENFORCED``, populated or empty.
+
+    ``ENFORCED`` needs signed, fresh, ``tool_manifest_complete`` run evidence.
+    This middleware mints no capability evidence of any kind, and a declared tool
+    list is not a substitute for evidence it never produced.
+    """
+    for guard in (middleware(), middleware(expected_tools=[build_tool()])):
+        report = guard.enforcement_report()
+        assert report.level is not GovernanceLevel.ENFORCED
+        assert report.level in (GovernanceLevel.OBSERVED, GovernanceLevel.ADMISSION)
+        assert report.coverage is InventoryCoverage.PARTIAL
+
+
+def test_the_declared_tools_are_never_injected_into_the_agent() -> None:
+    """``expected_tools`` records; it does not widen what the agent can reach."""
+    assert tuple(middleware(expected_tools=[build_tool()]).tools) == ()
+
+
+def test_the_declared_inventory_fingerprints_a_tool_as_the_decision_does() -> None:
+    """The inventory has to name the tool the guard would recognize, or it names nothing."""
+    tool = build_tool()
+    client = CountingClient()
+    guard = middleware(client=client, expected_tools=[tool])
+
+    guard.wrap_tool_call(build_request(tool), Handler())
+
+    [action] = client.seen
+    [entry] = guard.tool_inventory.entries
+    assert entry.identity == action.identity
+
+
+def test_an_undeclared_tool_is_still_decided_and_the_inventory_gates_nothing() -> None:
+    """The report is a description of the surface, never a second refusal on it."""
+    client = CountingClient()
+    handler = Handler()
+    guard = middleware(client=client, expected_tools=[build_tool("search")])
+
+    result = guard.wrap_tool_call(build_request(build_tool("write_row")), handler)
+
+    assert result == "handler-result"
+    assert handler.calls == 1
+    assert client.calls == 1
+    assert list(guard.enforcement_report().enforced_tools) == ["search"]
+
+
+def test_a_declared_tool_list_naming_one_tool_twice_is_refused_at_install() -> None:
+    """A name shared by two tools identifies neither, on this surface as on the other."""
+    with pytest.raises(UnstableToolIdentityError):
+        middleware(expected_tools=[build_tool("search"), build_tool("search")])
+
+
+def test_a_declared_entry_that_is_not_a_tool_is_refused_at_install() -> None:
+    """The declared list passes the gate a live call passes, so it cannot hold a non-tool."""
+    with pytest.raises(UnstableToolIdentityError):
+        middleware(expected_tools=[object()])
+
+
+def test_a_declared_tool_with_a_hostile_name_is_refused_at_install() -> None:
+    """A ``str`` subclass cannot enter the inventory and answer differently later."""
+    tool = build_tool()
+    tool.name = HostileStr("search")
+
+    with pytest.raises(UnstableToolIdentityError):
+        middleware(expected_tools=[tool])
+
+
+def test_a_declared_tool_list_that_is_not_iterable_is_refused_at_install() -> None:
+    with pytest.raises(ToolGovernanceError):
+        middleware(expected_tools=object())
 
 
 # --------------------------------------------------------------------------- #

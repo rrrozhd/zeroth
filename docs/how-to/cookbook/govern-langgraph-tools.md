@@ -13,7 +13,8 @@ There are two install surfaces and they share one enforcement core:
   `.coroutine` are never rebound, and the supplied container is copied.
 - `ZerothMiddleware(...)` — an `AgentMiddleware` for `create_agent`. LangChain
   hands the tool's execution in as a `handler` callback, so a denial or an
-  approval is literally "the handler was never called".
+  approval is literally "the handler was never called". **Install it last** — see
+  [Middleware nesting order](#middleware-nesting-order).
 
 ## When to use
 - You already have a LangGraph app or a `create_agent` agent and want tool calls
@@ -91,21 +92,64 @@ working install.
 
 ## Middleware nesting order
 
+**`ZerothMiddleware` must be the LAST `wrap_tool_call` middleware in the list.**
+This is a requirement, not a style preference.
+
+```python
+create_agent(model, tools=tools, middleware=[retry, tracing, ZerothMiddleware(context=context)])
+#                                             everything else first ─┘  governance last ─┘
+```
+
 LangChain composes `wrap_tool_call` middleware **first-defined-outermost**. For
 `create_agent(..., middleware=[A, ZerothMiddleware(...), B])` a tool call enters
 `A`, then governance, then `B`, and unwinds in reverse. Pinned by
 `test_three_middleware_nest_first_defined_outermost`, which asserts the exact
 sequence `["a:enter", "z:decide", "b:enter", "b:exit", "a:exit"]`.
 
-Two consequences:
+Two failures follow from nesting a middleware *inside* governance:
 
-- Put `ZerothMiddleware` **ahead of** anything that must not observe a refused
-  call, and **behind** anything that legitimately rewrites the request first.
-- Governance should be the innermost layer that touches the request. A
-  middleware nested *inside* it can still call
-  `handler(request.override(tool_call=modified))`, and the tool would then run
-  with arguments the decision was never made about. Nothing in LangChain
-  prevents that; the ordering is the control.
+- **Rewritten arguments.** An inner middleware can call
+  `handler(request.override(tool_call=modified))`, and the tool then runs with
+  arguments the decision was never made about.
+- **Undecided executions.** LangChain hands each layer a handler its own body may
+  call as many times as it likes — `_chain_tool_call_wrappers.compose_two` in
+  `langchain/agents/factory.py` says so in a comment ("Outer can call call_inner
+  multiple times"), and LangChain's shipped `ToolRetryMiddleware` does exactly
+  that (`langchain/agents/middleware/tool_retry.py`). A retry nested inside
+  governance therefore runs the tool body N times against **one** decision and
+  **one** audit record.
+
+Installed last, the same retry re-enters `wrap_tool_call` on every attempt, so
+**every physical tool execution gets its own decision and its own audit record**.
+Pinned by `test_an_outer_retry_gets_a_decision_and_a_record_per_physical_execution`
+and its async twin, which count executions of the tool function itself — not
+handler calls.
+
+### "Exactly once" means the handler, not the body
+
+`wrap_tool_call` runs its downstream exactly once per decision, outside any loop,
+and never retries. That is a statement about the *handler*. How many times the
+tool body runs beneath the handler is whatever the layers nested inside
+governance do, and the two numbers coincide only when governance is innermost.
+
+### Why this is a contract and not a check
+
+Nothing in the middleware validates its own position, because nothing supported
+can. `AgentMiddleware` exposes no hook that receives the middleware list,
+`create_agent` composes the chain into a closure the middleware never sees, and
+the only observable difference between an innermost install and a nested one is
+whether the handler is the tool executor or LangChain's private
+`compose_two.<locals>.call_inner`. Distinguishing those means reading another
+library's local closures — it would break silently when LangChain refactors, and
+a position guard that silently stops guarding is worse than a documented contract
+with tests behind it. The limitation is pinned by
+`test_a_retry_nested_inside_governance_runs_the_body_undecided`, so it can never
+quietly turn back into a claim.
+
+A wrong order does **not** weaken denial: a refused call raises before the nested
+layer is reached, so it executes zero times either way
+(`test_a_retry_nested_inside_governance_still_never_runs_a_denied_call`). What a
+wrong order loses is the per-execution decision and the per-execution record.
 
 ## What this does not claim
 
@@ -137,10 +181,51 @@ explicit expected tool list whose fingerprints match, which is
 `attest_complete_inventory`'s job, and even a complete inventory is not the
 signed run evidence `ENFORCED` needs.
 
+### The same report from a middleware-only install
+
+`ZerothMiddleware` wraps no tool — the agent keeps the originals and hands one in
+per call — so there is no governed wrapper to record an inventory from. Declare
+the tools instead:
+
+```python
+guard = ZerothMiddleware(context=context, expected_tools=tools)
+agent = create_agent(model, tools=tools, middleware=[guard])
+
+report = guard.enforcement_report()
+report.level           # GovernanceLevel.OBSERVED  (ADMISSION when none declared)
+report.coverage        # InventoryCoverage.PARTIAL (always)
+report.enforced_tools  # ("search", "write_row")
+report.level_term      # "observed" — the plain str audit metadata must carry
+```
+
+`expected_tools` is **not injected**: it is not added to `middleware.tools`, not
+handed to the agent, and not wrapped. It is pinned through the same
+`_describe_base_tool` a live call is described through, so an inventory entry
+carries the fingerprint the decision is actually made under; `guard.tool_inventory`
+exposes it for `match_tool_inventory` against a declared identity list.
+
+Two properties this report has by construction:
+
+- **It can never be `enforced`.** There is one `report_tool_enforcement` with no
+  `ENFORCED` branch, and the middleware mints no capability evidence of any kind
+  (`test_the_middleware_report_can_never_be_enforced`). Coverage stays `partial`:
+  a middleware never sees the agent's tool list, and a declaration is not a
+  discovery.
+- **The inventory gates nothing.** A call naming an undeclared tool is decided
+  exactly as any other call is — the enforcement core is the only thing that
+  refuses a call
+  (`test_an_undeclared_tool_is_still_decided_and_the_inventory_gates_nothing`).
+
+An unusable declaration fails at construction rather than at report time: a
+non-`BaseTool` entry, an unusable name, or two tools sharing one name all raise
+`UnstableToolIdentityError` from `ZerothMiddleware(...)`.
+
 ## Compatibility matrix
 
 Both wrapping surfaces preserve the tool's interface and invoke the underlying
-body exactly once on an allow. Every documented cell has a named test in
+body exactly once per allowed call. (Per *call* — a layer above may make several
+calls; see [Middleware nesting order](#middleware-nesting-order).) Every
+documented cell has a named test in
 `tests/integrations/langgraph/tools/test_tool_wrappers.py`:
 
 | Target | Sync/async | `args_schema` | Test |
@@ -193,7 +278,8 @@ The split is by *who reads the field*:
 The wrapper's `run()` and the delegate's `run()` each emit `on_tool_start` /
 `on_tool_end`, so a callback-based observer sees two tool spans for one governed
 call. This is telemetry divergence, not a governance gap: the tool body still
-executes exactly once, and the decision is still recorded exactly once.
+executes exactly once per governed call, and that call is still recorded exactly
+once.
 
 ## See also
 - [Block a tool call via policy](policy-block.md)

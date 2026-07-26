@@ -1,10 +1,23 @@
 """What the governed tool surface actually holds, and what it may honestly claim.
 
 Two questions, one module. *Which tools can this run reach* -- recorded from what
-:func:`~zeroth.integrations.langgraph._tool_wrappers.govern_tools` pinned, matched
-against the list an operator declared -- and *what governance level may be
-reported on the strength of that*. The second answer is deliberately capped below
+the pinning stage observed, matched against the list an operator declared -- and
+*what governance level may be reported on the strength of that*. The second
+answer is deliberately capped below
 :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ENFORCED`.
+
+**Two recorders, because the two install surfaces hold their bindings
+differently, and exactly one reporter.**
+:func:`record_tool_inventory` reads the binding
+:func:`~zeroth.integrations.langgraph._tool_wrappers.govern_tools` left on each
+wrapper; :func:`record_binding_inventory` takes bindings a surface holds itself,
+which is the only shape available to
+:class:`~zeroth.integrations.langgraph._middleware.ZerothMiddleware` -- it wraps
+no tool, so there is no object to hang a binding on. They differ in where a
+binding comes from and in nothing else: the same gates, the same repeated-name
+refusal, the same ``PARTIAL`` coverage, and the one
+:func:`report_tool_enforcement` over the result. A second reporter is what would
+let one surface over-claim.
 
 **A match is on name *and* fingerprint, and a mismatch has three shapes.** An
 inventory keyed on names alone calls a swapped implementation a match: same
@@ -232,6 +245,31 @@ def _declared_identities(expected: object) -> tuple[ToolIdentity, ...]:
     return identities
 
 
+def _entry_from_binding(binding: object) -> ToolInventoryEntry:
+    """Record one tool from what the pinning stage observed about it.
+
+    Read structurally and re-gated field by field, for the reason the module
+    docstring gives: the binding is a plain dataclass any caller can build, so
+    what makes an entry trustworthy is the gates, not the type it arrived as.
+
+    Args:
+        binding: What
+            :class:`~zeroth.integrations.langgraph._tool_wrappers.GovernedToolBinding`
+            pinned about one tool.
+
+    Returns:
+        The tool, as the inventory saw it.
+
+    Raises:
+        UnstableToolIdentityError: If the binding carries no usable identity.
+    """
+    return ToolInventoryEntry(
+        identity=_gated_identity(_peek(binding, "identity")),
+        side_effect=classify_side_effect(_peek(binding, "side_effect")),
+        contract_ref=normalize_contract_ref(_peek(binding, "contract_ref")),
+    )
+
+
 def _entry_for(tool: object) -> ToolInventoryEntry:
     """Record one governed tool from the binding ``govern_tools`` left on it.
 
@@ -249,11 +287,18 @@ def _entry_for(tool: object) -> ToolInventoryEntry:
     binding = _peek(tool, _BINDING_ATTRIBUTE)
     if binding is None:
         raise UnstableToolIdentityError("this tool carries no governed binding to record")
-    return ToolInventoryEntry(
-        identity=_gated_identity(_peek(binding, "identity")),
-        side_effect=classify_side_effect(_peek(binding, "side_effect")),
-        contract_ref=normalize_contract_ref(_peek(binding, "contract_ref")),
-    )
+    return _entry_from_binding(binding)
+
+
+def _partial_inventory(entries: tuple[ToolInventoryEntry, ...], subject: str) -> ToolInventory:
+    """Return the entries as a ``PARTIAL`` inventory, refusing a repeated tool name.
+
+    The one place either recorder mints an inventory, so the name refusal and the
+    coverage claim cannot come out differently depending on which surface
+    recorded it.
+    """
+    _refuse_repeated_names([entry.identity for entry in entries], subject)
+    return ToolInventory(entries=entries, coverage=InventoryCoverage.PARTIAL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,9 +393,47 @@ def record_tool_inventory(tools: Iterable[object]) -> ToolInventory:
         supplied = list(tools)
     except TypeError as error:
         raise ToolGovernanceError("recording an inventory needs an iterable of tools") from error
-    entries = tuple(_entry_for(tool) for tool in supplied)
-    _refuse_repeated_names([entry.identity for entry in entries], "the governed tool list")
-    return ToolInventory(entries=entries, coverage=InventoryCoverage.PARTIAL)
+    return _partial_inventory(
+        tuple(_entry_for(tool) for tool in supplied), "the governed tool list"
+    )
+
+
+def record_binding_inventory(bindings: Iterable[object]) -> ToolInventory:
+    """Record an inventory from bindings held directly, rather than read off wrappers.
+
+    The recorder for a surface that governs tools it does not wrap.
+    :class:`~zeroth.integrations.langgraph._middleware.ZerothMiddleware` never
+    replaces a tool object -- the agent holds the originals and hands each one in
+    per call -- so there is no wrapper to carry a ``zeroth_binding``, and the
+    bindings it pinned are passed here instead. Everything downstream is the same
+    code: the same field gates, the same repeated-name refusal, the same
+    ``PARTIAL`` coverage, and the same
+    :func:`report_tool_enforcement` over the result.
+
+    Reports :attr:`~zeroth.integrations.langgraph._tool_types.InventoryCoverage.PARTIAL`
+    for the same reason :func:`record_tool_inventory` does, and one more: these
+    bindings are what an operator *declared*, and a declaration is not a
+    discovery of what the agent actually holds.
+
+    Args:
+        bindings: What the pinning stage observed about each tool. The iterable
+            is consumed once, into a private list.
+
+    Returns:
+        The inventory, in the order the bindings were supplied.
+
+    Raises:
+        ToolGovernanceError: If *bindings* is not iterable.
+        UnstableToolIdentityError: If a binding carries no usable identity, or
+            two of them share a tool name.
+    """
+    try:
+        supplied = list(bindings)
+    except TypeError as error:
+        raise ToolGovernanceError("recording an inventory needs an iterable of bindings") from error
+    return _partial_inventory(
+        tuple(_entry_from_binding(binding) for binding in supplied), "the declared tool list"
+    )
 
 
 def inventory_fingerprint(inventory: object) -> str:
@@ -482,6 +565,7 @@ __all__ = [
     "attest_complete_inventory",
     "inventory_fingerprint",
     "match_tool_inventory",
+    "record_binding_inventory",
     "record_tool_inventory",
     "report_tool_enforcement",
 ]

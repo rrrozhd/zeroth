@@ -44,6 +44,7 @@ from zeroth.integrations.langgraph._tool_inventory import (
     attest_complete_inventory,
     inventory_fingerprint,
     match_tool_inventory,
+    record_binding_inventory,
     record_tool_inventory,
     report_tool_enforcement,
 )
@@ -53,7 +54,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolInventory,
     ToolInventoryEntry,
 )
-from zeroth.integrations.langgraph._tool_wrappers import govern_tools
+from zeroth.integrations.langgraph._tool_wrappers import GovernedToolBinding, govern_tools
 
 FINGERPRINT_SHAPE = 64
 """How long a hex SHA-256 digest is, so a fabricated one is recognisably shaped."""
@@ -218,6 +219,56 @@ def test_a_repeated_tool_name_is_refused_on_both_sides() -> None:
     declared = _identities(_governed(_tool("search")))
     with pytest.raises(UnstableToolIdentityError):
         match_tool_inventory(inventory, [declared[0], declared[0]])
+
+
+# -- R13: the second recorder, for a surface that governs tools it never wraps -
+#
+# ``ZerothMiddleware`` holds its bindings itself -- it wraps no tool, so no
+# object carries a ``zeroth_binding`` to read -- and ``record_binding_inventory``
+# is the recorder it uses. Driven here rather than only through the middleware
+# because the middleware suite is Tier A and deselected by default: this is the
+# tier that runs on every commit.
+
+
+def _binding(name: str, description: str = "the declared body") -> GovernedToolBinding:
+    """Pin a tool the way either install surface pins it."""
+    [governed] = _governed(_tool(name, description))
+    return governed.zeroth_binding
+
+
+def test_a_binding_inventory_records_exactly_what_was_pinned() -> None:
+    bindings = [_binding("search"), _binding("write")]
+
+    inventory = record_binding_inventory(bindings)
+
+    assert inventory.coverage is InventoryCoverage.PARTIAL
+    assert [entry.identity for entry in inventory.entries] == [b.identity for b in bindings]
+
+
+def test_a_binding_inventory_reports_the_same_levels_a_wrapper_inventory_does() -> None:
+    """One reporter, so the surface that recorded an inventory cannot change its level."""
+    populated = report_tool_enforcement(record_binding_inventory([_binding("search")]))
+    empty = report_tool_enforcement(record_binding_inventory([]))
+
+    assert populated.level is GovernanceLevel.OBSERVED
+    assert list(populated.enforced_tools) == ["search"]
+    assert populated.coverage is InventoryCoverage.PARTIAL
+    assert empty.level is GovernanceLevel.ADMISSION
+    assert populated.level is not GovernanceLevel.ENFORCED
+    assert empty.level is not GovernanceLevel.ENFORCED
+
+
+def test_a_binding_inventory_refuses_a_repeated_name_and_an_unusable_binding() -> None:
+    with pytest.raises(UnstableToolIdentityError):
+        record_binding_inventory([_binding("search", "one"), _binding("search", "two")])
+    with pytest.raises(UnstableToolIdentityError):
+        record_binding_inventory([object()])
+    with pytest.raises(UnstableToolIdentityError):
+        record_binding_inventory(
+            [GovernedToolBinding(identity=ToolIdentity(name=HostileStr("s"), fingerprint="f"))]
+        )
+    with pytest.raises(ToolGovernanceError):
+        record_binding_inventory(object())  # type: ignore[arg-type]
 
 
 # -- R11: completeness is claimed only against a list that matched exactly ----

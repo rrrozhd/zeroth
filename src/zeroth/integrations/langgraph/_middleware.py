@@ -36,13 +36,44 @@ Governance therefore sees every call that middleware *before* it let through, an
 allowed. Put ``ZerothMiddleware`` ahead of any middleware that must not observe a
 refused call, and behind any that legitimately rewrites the request first.
 
-**The converse constrains it from the other side: governance should be the
-innermost layer that touches the request.** A middleware nested *inside* it can
-still call ``handler(request.override(tool_call=modified))``, and the tool then
-runs with arguments the decision was never made about. Nothing in LangChain
-prevents that and nothing here can detect it, so the ordering is the control:
-anything that rewrites a tool call belongs *outside* ``ZerothMiddleware``, where
-governance sees its output, not inside it, where governance sees only its input.
+**The converse is a hard requirement, not a preference: ``ZerothMiddleware`` must
+be the LAST ``wrap_tool_call`` middleware in the list.** Two distinct failures
+follow from nesting anything inside it, and neither is detectable from here.
+
+*Rewritten arguments.* A middleware nested inside can call
+``handler(request.override(tool_call=modified))``, and the tool then runs with
+arguments the decision was never made about. Anything that rewrites a tool call
+belongs *outside*, where governance sees its output rather than its input.
+
+*Undecided executions.* LangChain hands each layer a handler its own body may
+call **as many times as it likes** -- ``_chain_tool_call_wrappers.compose_two``
+in ``langchain/agents/factory.py`` says so in as many words ("Outer can call
+call_inner multiple times"), and the shipped ``ToolRetryMiddleware`` does exactly
+that. So a retrying middleware nested inside governance runs the tool body N
+times against **one** decision and **one** audit record.
+Innermost, the same retry re-enters ``wrap_tool_call`` per attempt, and every
+physical execution gets its own decision and its own record -- which is the
+property the guarantee is actually about.
+
+**"Exactly once" here is a statement about the handler, and the handler is not
+the body.** :meth:`ZerothMiddleware.wrap_tool_call` calls its downstream once per
+decision; how many times the tool body runs underneath that downstream is
+whatever the layers below it do. The two coincide only when governance is
+innermost, which is why the ordering is the contract rather than a suggestion.
+
+**No supported mechanism detects the position, so nothing here tries.**
+:class:`~langchain.agents.middleware.AgentMiddleware` exposes no hook that
+receives the middleware list, ``create_agent`` composes the chain into a closure
+the middleware never sees, and the only difference between an innermost install
+and a nested one is whether ``handler`` is the tool executor or LangChain's
+private ``compose_two.<locals>.call_inner``. Telling those apart means reading
+another library's local closures: it would break silently on a refactor there,
+and a guard that silently stops guarding is worse than a documented contract with
+tests behind it. The contract is pinned instead by
+``test_an_outer_retry_gets_a_decision_and_a_record_per_physical_execution`` and
+its async twin, with the nested-retry limitation pinned by
+``test_a_retry_nested_inside_governance_runs_the_body_undecided`` so it can never
+quietly become a claim.
 
 **Identity is read off the registered tool, not off the model's request.**
 :class:`~langchain.agents.middleware.ToolCallRequest` carries both a ``tool_call``
@@ -74,7 +105,7 @@ Importing this module imports ``langchain.agents``, which is an optional
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, ToolCallRequest
@@ -85,22 +116,33 @@ from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
     UnknownSideEffectPolicy,
 )
-from zeroth.integrations.langgraph._tool_errors import UnstableToolIdentityError
+from zeroth.integrations.langgraph._tool_errors import (
+    ToolGovernanceError,
+    UnstableToolIdentityError,
+)
 from zeroth.integrations.langgraph._tool_guard import (
     ToolAuditSubmitter,
     authorize_tool_call,
     guard_tool_call,
 )
+from zeroth.integrations.langgraph._tool_inventory import (
+    ToolEnforcementReport,
+    record_binding_inventory,
+    report_tool_enforcement,
+)
 from zeroth.integrations.langgraph._tool_normalize import (
     normalize_identifier,
     normalize_tool_action,
 )
-from zeroth.integrations.langgraph._tool_types import ToolAction
+from zeroth.integrations.langgraph._tool_types import ToolAction, ToolInventory
 from zeroth.integrations.langgraph._tool_wrappers import (
+    GovernedToolBinding,
     _describe_base_tool,
     _peek,
+    _pin,
     _resolve_context,
     _resolved,
+    _Seams,
 )
 
 _TOOL_CALL_NAME = "name"
@@ -166,6 +208,37 @@ def _requested_tool(request: object) -> BaseTool:
     return tool
 
 
+def _declared_binding(
+    tool: object,
+    side_effect: Callable[[Any], Any] | None,
+    contract_ref: Callable[[Any], Any] | None,
+) -> GovernedToolBinding:
+    """Pin one declared tool the way a call through it will be described.
+
+    Through ``_pin`` and ``_describe_base_tool``, which is what makes the
+    inventory's fingerprint the fingerprint the *decision* is made under: an
+    inventory derived any other way could name a tool the guard would refuse to
+    recognize, and the report would be about tools nothing actually governs.
+
+    Args:
+        tool: The declared tool, which is not trusted to be one.
+        side_effect: The optional per-tool classifier, read once here.
+        contract_ref: The optional per-tool contract resolver, read once here.
+
+    Returns:
+        What was pinned about the tool, for the inventory only.
+
+    Raises:
+        UnstableToolIdentityError: If *tool* is not a ``BaseTool`` -- the same
+            gate a live call passes, so a declared list cannot hold something the
+            middleware could never be handed -- or carries no usable identity.
+    """
+    if not isinstance(tool, BaseTool):
+        raise UnstableToolIdentityError("a declared tool must be a resolved BaseTool")
+    seams = _Seams(side_effect=side_effect, contract_ref=contract_ref)
+    return _pin(tool, _describe_base_tool(tool), seams)
+
+
 def _matched_name(requested: object, resolved: object) -> str:
     """Return the name a call is decided under, refusing a request that renames it.
 
@@ -197,10 +270,19 @@ class ZerothMiddleware(AgentMiddleware):
     injected and never discovered, so an agent governed without one is governed
     fail-closed rather than governed unattributed.
 
+    **Install it LAST.** ``middleware=[...everything else..., ZerothMiddleware()]``
+    makes it the innermost ``wrap_tool_call`` layer, which is what makes every
+    physical tool execution -- including each attempt of an outer retry -- its own
+    decision and its own audit record. See the module docstring for the two
+    failures that follow from nesting a middleware inside it, and for why no
+    supported mechanism detects the position.
+
     Attributes:
         tools: Declared empty and never populated. A middleware's ``tools`` are
             *injected into* the agent, and a governance layer that added tools
-            would be widening the surface it exists to narrow.
+            would be widening the surface it exists to narrow. ``expected_tools``
+            is not this: it is recorded for the inventory and never handed to the
+            agent.
     """
 
     tools: Sequence[BaseTool] = ()
@@ -216,6 +298,7 @@ class ZerothMiddleware(AgentMiddleware):
         interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
         side_effect: Callable[[Any], Any] | None = None,
         contract_ref: Callable[[Any], Any] | None = None,
+        expected_tools: Iterable[object] = (),
     ) -> None:
         """Pin the seams every call through this middleware is decided through.
 
@@ -235,6 +318,18 @@ class ZerothMiddleware(AgentMiddleware):
                 member classifies a tool; anything else leaves it unknown, and
                 unknown is denied unless *unknown_side_effect* says otherwise.
             contract_ref: An optional per-tool contract resolver.
+            expected_tools: The tools this installation is declared to govern,
+                recorded into :attr:`tool_inventory` and reported by
+                :meth:`enforcement_report`. **Not injected**: they are not added
+                to :attr:`tools`, not handed to the agent, and not wrapped.
+                Declaring none reports an empty surface.
+
+        Raises:
+            UnstableToolIdentityError: If a declared tool is not a ``BaseTool``,
+                carries no usable identity, or two of them share a name. The
+                recording happens here so an unusable declaration fails at
+                install rather than at the moment somebody asks for the report.
+            ToolGovernanceError: If *expected_tools* is not iterable.
         """
         super().__init__()
         self._context = context
@@ -245,6 +340,58 @@ class ZerothMiddleware(AgentMiddleware):
         self._interrupt = interrupt
         self._side_effect = side_effect
         self._contract_ref = contract_ref
+        # Materialized before anything is pinned, so a ``TypeError`` raised
+        # *inside* the pinning cannot be reported as "the list was not iterable".
+        try:
+            declared = list(expected_tools)
+        except TypeError as error:
+            raise ToolGovernanceError("an expected tool list must be iterable") from error
+        self._inventory = record_binding_inventory(
+            [_declared_binding(tool, side_effect, contract_ref) for tool in declared]
+        )
+
+    @property
+    def tool_inventory(self) -> ToolInventory:
+        """The tools this installation was declared to govern, as it recorded them.
+
+        Always
+        :attr:`~zeroth.integrations.langgraph._tool_types.InventoryCoverage.PARTIAL`.
+        A middleware is handed one tool at a time, per call, and never sees the
+        agent's tool list, so it cannot know it saw everything -- and a
+        declaration is not a discovery. Pass it and a declared identity list to
+        :func:`~zeroth.integrations.langgraph._tool_inventory.match_tool_inventory`
+        to compare the two.
+        """
+        return self._inventory
+
+    def enforcement_report(self) -> ToolEnforcementReport:
+        """Report what this installation governs, and the level that honestly supports.
+
+        The middleware's own report, through the one
+        :func:`~zeroth.integrations.langgraph._tool_inventory.report_tool_enforcement`
+        the wrapper surface reports through -- so neither surface can claim a
+        level the other could not.
+
+        **It can never be
+        :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ENFORCED`.**
+        That level needs signed, fresh, ``tool_manifest_complete`` run evidence;
+        nothing in this package mints any, and this middleware mints none either.
+        A tool-only run reports
+        :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.OBSERVED`
+        with ``partial`` coverage and an explicit list of the tools declared
+        governed, or
+        :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ADMISSION`
+        when none were.
+
+        **The inventory is a description, never a gate.** A call naming a tool
+        nobody declared is decided exactly as any other call is: the enforcement
+        core is the only thing that refuses a call, and adding a second refusal
+        here would be the second implementation this package exists without.
+
+        Returns:
+            What this installation enforces, and the level that supports.
+        """
+        return report_tool_enforcement(self._inventory)
 
     def _seams(self) -> dict[str, Any]:
         """Render the pinned seams as the keyword arguments the enforcement core takes."""
@@ -302,7 +449,14 @@ class ZerothMiddleware(AgentMiddleware):
         ``handler`` is passed to the enforcement core as the invocation, so it is
         called once on an allow, outside any ``try`` and any loop, and not at all
         on any other verdict. An exception the tool raises propagates unchanged
-        and a failed call is never retried.
+        and this method never retries a call.
+
+        **That is a claim about the handler, not about the tool body.** How many
+        times the body runs beneath the handler is decided by whatever layers are
+        nested inside this one: a retrying middleware declared *after*
+        ``ZerothMiddleware`` executes the tool repeatedly against this single
+        decision. Installed last, as required, this method is re-entered per
+        physical execution and each one is decided and recorded on its own.
 
         Args:
             request: The tool call the agent is about to make.
@@ -328,7 +482,10 @@ class ZerothMiddleware(AgentMiddleware):
 
         Authorization is the same synchronous core the sync path runs; only the
         downstream is awaited. There is no async enforcement branch to drift out
-        of step with the sync one.
+        of step with the sync one -- including the ordering contract: the async
+        chain composes identically (``_chain_async_tool_call_wrappers`` mirrors
+        the sync ``compose_two``), so an awaited handler is one decision too, and
+        the tool body underneath it is whatever the inner layers run.
 
         Args:
             request: The tool call the agent is about to make.

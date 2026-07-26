@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.9] - 2026-07-26
+
+### Fixed
+
+- **"Exactly once" was asserted on the handler, not on the tool body.**
+  `ZerothMiddleware.wrap_tool_call` calls its downstream once per decision, and
+  every test counted that downstream — the same layer the assertion was about.
+  But LangChain hands each middleware a handler its own body may call repeatedly
+  (`_chain_tool_call_wrappers.compose_two`: "Outer can call call_inner multiple
+  times"), so a retrying middleware declared *after* `ZerothMiddleware` nests
+  inside it and runs the tool body N times against one decision and one audit
+  record. `ZerothMiddleware` is now documented as a hard **install-last**
+  requirement: innermost, every attempt re-enters `wrap_tool_call`, so every
+  physical tool execution gets its own decision and its own audit record. The
+  contract is pinned by tests that count executions of the tool function itself
+  — below `ToolNode` and below every middleware — driven through a real
+  `create_agent` with a real retrying middleware, sync and async. The
+  nested-retry limitation is pinned by its own test so it can never silently
+  become a claim, and no unqualified "exactly once" about the *body* remains in
+  the docs or docstrings. No position check is attempted: `AgentMiddleware`
+  exposes no hook carrying the middleware list, and the only observable
+  difference between the two arrangements is whether the handler is the tool
+  executor or LangChain's private `compose_two.<locals>.call_inner` — a guard
+  built on another library's local closures would stop guarding silently.
+- **The middleware had no inventory and no enforcement report.** The R13 report
+  was only ever exercised through `record_tool_inventory(govern_tools(...))` —
+  the wrapper path — which proves nothing about a middleware-only install, where
+  no tool is wrapped and no `zeroth_binding` exists to read.
+  `ZerothMiddleware(expected_tools=...)` now records a declared inventory,
+  exposed as `tool_inventory` and reported by `enforcement_report()`. The tools
+  are **not injected**: they are not added to `middleware.tools`, not handed to
+  the agent, and not wrapped. They are pinned through the same
+  `_describe_base_tool` a live call is described through, so an entry carries the
+  fingerprint the decision is actually made under. The report goes through the
+  one `report_tool_enforcement` the wrapper surface uses, so it can never be
+  `enforced` and mints no capability evidence: a tool-only install reports
+  `observed` (or `admission` when nothing was declared) with `partial` coverage
+  and an explicit enforced-tool list. The inventory gates nothing — an
+  undeclared tool is decided exactly as any other call is.
+- **The optional-dependency guard named the wrong module.** The middleware and
+  surface-parity suites called `importorskip("langgraph")` and then imported
+  `langchain.agents`. Marked modules are imported at collection, so an
+  environment with `langgraph` but without `langchain` errored instead of
+  skipping. Both suites now guard `langchain.agents` directly, which covers both
+  dependencies.
+
 ## [0.13.8] - 2026-07-26
 
 ### Fixed
