@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13] - 2026-07-26
+
+### Added
+
+- `langchain` (`>=1,<2`) joins the `gateway-conformance` dependency group. The
+  LangGraph tool-enforcement surfaces are built on the agent middleware that
+  ships in `langchain` proper — `AgentMiddleware`, `wrap_tool_call`, and
+  `ToolCallRequest` — which the already-pinned `langgraph` packages do not
+  provide. The resolution moves nothing else: `langchain-core` stays where it
+  was, so the existing gateway conformance pins are untouched.
+- `tests/integrations/langgraph/tools/` test package, the home for the
+  tool-enforcement suites that land on top of this dependency.
+
 ## [0.12.4.5.1] - 2026-07-25
 
 ### Fixed

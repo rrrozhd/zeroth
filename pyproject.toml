@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.12.4.5.1"
+version = "0.13"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -155,6 +155,7 @@ dev = [
     "websockets>=15,<16",
 ]
 gateway-conformance = [
+    "langchain>=1.0,<2",
     "langgraph==1.2.9",
     "langgraph-api==0.11.1",
     "langgraph-sdk==0.4.2",
