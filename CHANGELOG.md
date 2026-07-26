@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.7] - 2026-07-26
+
+### Added
+
+- `tests/integrations/langgraph/tools/test_surface_parity.py`: a cross-surface
+  parity suite built on one shared scenario table. Every scenario is driven
+  through `govern_tools` **and** `ZerothMiddleware` inside the same test body,
+  and the first assertion is that the two outcomes are equal — exception class,
+  returned value, downstream call count, every audit projection, and every
+  interrupt payload. The table covers allow, deny, require-approval,
+  require-approval-without-a-thread, unknown-side-effect denied, unknown
+  side-effect admitted by the named opt-in, absent governance context, and a
+  decision client that raises. Sync and async halves of both surfaces are held
+  to the same equality, and one surface's own sync/async pair is compared too,
+  so the four edges of the square are pinned rather than three.
+- `docs/how-to/cookbook/govern-langgraph-tools.md`: the tool enforcement
+  documentation page, nested under the existing How-to Guides / Cookbook nav
+  section. It carries the `govern_graph(create_agent(..., middleware=[...]))`
+  composition example, the supported middleware nesting order
+  (first-defined-outermost), the compatibility matrix with each documented cell
+  mapped to its named test, and the two known divergences.
+
+### Documented
+
+- Tool-level enforcement is **not** graph-level or cumulative enforcement.
+  `ENFORCED` requires capability evidence that is both `ENFORCED` and
+  `tool_manifest_complete`; nothing in `src/` mints evidence with
+  `tool_manifest_complete=True`, and this integration states in four places that
+  it never promotes a run above `admission` (FA5). A tool-only run therefore
+  reports `observed` with `partial` coverage plus an explicit enforced-tool list.
+- `response_format` is deliberately not carried onto a governed wrapper: an
+  attribute divergence with behavioral equivalence, because the delegate is
+  handed the whole tool call and builds its own `ToolMessage`. Carried fields are
+  `return_direct`, `tags`, `metadata`, `handle_validation_error`; not carried are
+  `callbacks`, `handle_tool_error`, `response_format` — split by who reads them.
+- Two callback trees fire per governed call: the wrapper's `run()` and the
+  delegate's `run()` each emit `on_tool_start` / `on_tool_end`. Telemetry
+  divergence, not a governance gap — the body still runs once and the decision is
+  still recorded once.
+
+### Fixed
+
+- The parity suite's first run surfaced `ApprovalActionRecord.occurred_at` as a
+  nested per-record wall clock, so the audit projection excludes it alongside
+  `audit_id` and `started_at`. Those three — two timestamps and a nonce — are the
+  only excluded fields; every other field is compared.
+
 ## [0.13.6] - 2026-07-26
 
 ### Added

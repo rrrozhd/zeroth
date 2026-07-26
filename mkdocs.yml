@@ -118,6 +118,7 @@ nav:
       - Hand off between agents: how-to/cookbook/agent-handoff.md
       - Branch on a condition: how-to/cookbook/condition-branch.md
       - Inject a secret: how-to/cookbook/secret-injection.md
+      - Govern LangGraph tool calls: how-to/cookbook/govern-langgraph-tools.md
     - Deployment:
       - how-to/deployment/index.md
       - Local development: how-to/deployment/local-dev.md

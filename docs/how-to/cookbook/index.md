@@ -34,3 +34,6 @@ already know the pieces and want to see them snapped together.
   edge conditions with `BranchResolver` + `ConditionContext`.
 - [Inject a secret into an execution unit](secret-injection.md) —
   resolve secret refs into env vars and redact them from audit.
+- [Govern LangGraph tool calls](govern-langgraph-tools.md) — decide
+  every tool call with `govern_tools` or `ZerothMiddleware`, plus the
+  compatibility matrix and what tool enforcement does not claim.
