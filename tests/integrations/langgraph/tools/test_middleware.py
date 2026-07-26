@@ -1021,6 +1021,89 @@ def test_a_declared_tool_list_that_is_not_iterable_is_refused_at_install() -> No
         middleware(expected_tools=object())
 
 
+@dataclasses.dataclass
+class SideEffectSensitiveClient:
+    """A client that denies a side-effecting call and allows a read-only one."""
+
+    calls: int = 0
+    seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Decide on the classification the action carries."""
+        self.calls += 1
+        self.seen.append(action)
+        return DENY if action.side_effect is SideEffectClass.SIDE_EFFECTING else ALLOW
+
+
+def _consuming_resolvers() -> tuple[Any, Any, list[int], list[int]]:
+    """Build a classifier and a contract resolver whose answers are consumed as asked.
+
+    A live resolver is the normal case, not a hostile one: a classifier that
+    reads a feature flag, a queue or a counter answers differently each time it
+    is asked. Asking one to *record* an inventory therefore spends an answer the
+    first real call should have been decided under.
+    """
+    classifications: list[int] = []
+    contracts: list[int] = []
+
+    def classifier(_target: Any) -> SideEffectClass:
+        classifications.append(1)
+        if len(classifications) == 1:
+            return SideEffectClass.SIDE_EFFECTING
+        return SideEffectClass.READ_ONLY
+
+    def contract(_target: Any) -> str:
+        contracts.append(1)
+        return f"contract:{len(contracts)}"
+
+    return classifier, contract, classifications, contracts
+
+
+def test_recording_the_declared_inventory_consults_no_authorization_resolver() -> None:
+    """Construction resolves nothing: the counts are exactly zero, not merely small."""
+    classifier, contract, classifications, contracts = _consuming_resolvers()
+
+    ZerothMiddleware(
+        context=THREADED,
+        client=SideEffectSensitiveClient(),
+        side_effect=classifier,
+        contract_ref=contract,
+        expected_tools=[build_tool()],
+    )
+
+    assert classifications == []
+    assert contracts == []
+
+
+def test_declaring_an_inventory_cannot_change_how_the_next_call_is_decided() -> None:
+    """The auditor's probe: the same installation, differing only in ``expected_tools``.
+
+    With the resolvers read at construction, the declared installation spent the
+    classifier's denying answer on the inventory and decided the first real call
+    under the allowing one -- so adding a *description* of the surface flipped a
+    denial into an allow.
+    """
+    verdicts = []
+    for declared in ((), (build_tool(),)):
+        classifier, contract, _, _ = _consuming_resolvers()
+        handler = Handler()
+        guard = ZerothMiddleware(
+            context=THREADED,
+            client=SideEffectSensitiveClient(),
+            side_effect=classifier,
+            contract_ref=contract,
+            expected_tools=declared,
+        )
+        try:
+            guard.wrap_tool_call(build_request(build_tool()), handler)
+        except PolicyViolation:
+            verdicts.append(("denied", handler.calls))
+        else:
+            verdicts.append(("allowed", handler.calls))
+
+    assert verdicts == [("denied", 0), ("denied", 0)]
+
+
 # --------------------------------------------------------------------------- #
 # R15 / R17 -- composition with govern_graph, and the lazy package export.
 # --------------------------------------------------------------------------- #

@@ -326,6 +326,44 @@ wrong and you run the wrong suite:
 A conformance run that reports everything skipped means the dependencies are
 absent, not that the tier passed.
 
+## What `govern_tools` refuses to wrap
+
+**A tool that overrides a pre-body entry point is refused, not governed.** This
+is a deliberate narrowing, and it will reject some tools that wrapped fine
+before `0.13.12`.
+
+`govern_tools` guarantees that the arguments policy was asked about are the
+arguments the body receives. It gets that by parsing the call once, against the
+delegate's own `args_schema`, and then driving the delegate through a twin whose
+validation stage is a pass-through. That guarantee holds only when the delegate
+reaches its body through `BaseTool`'s own machinery. A subclass that overrides
+any of
+
+`_parse_input`, `_to_args_and_kwargs`, `invoke`, `ainvoke`, `run`, `arun`
+
+re-derives the call *after* the decision, inside a hook the wrapper cannot see
+past — policy authorizes `{"query": "safe"}` and the body runs `"danger"`. Those
+tools now raise `UnstableToolIdentityError` at `govern_tools`, and again before
+any execution if the class gains an override afterwards.
+
+`langchain-core`'s own `BaseTool` and `StructuredTool` implementations are
+permitted, and `StructuredTool` is what the `@tool` decorator produces for both
+single- and multi-argument functions — so the ordinary way of writing a tool is
+unaffected. What is affected:
+
+- a hand-written `BaseTool` subclass that overrides one of those six hooks
+  (overriding `_run` / `_arun` is the normal case and stays fine);
+- `langchain_core.tools.Tool`, the legacy single-input class, which overrides
+  `_to_args_and_kwargs`;
+- a governed tool passed back through `govern_tools` a second time.
+
+If you hit this, move the logic out of the entry hook and into `_run` / `_arun`,
+or wrap the underlying function as a plain callable. The refusal is the
+fail-closed direction on purpose: it can be lifted once there is a neutral
+execution adapter that bypasses those hooks, and until then a tool whose entry
+path is unreadable is a tool whose authorized call and executed call cannot be
+shown to be the same call.
+
 ## Known divergences
 
 Two things are deliberately *not* identical between a governed wrapper and the

@@ -45,6 +45,32 @@ the weaker surface it presents; see
 :mod:`~zeroth.integrations.langgraph._tool_fingerprint` for what is derived, what
 it deliberately leaves out, and why deriving beats a fingerprint a caller asserts.
 
+**The authorized tool is the executed tool, and nothing can rebind it.** The
+wrapper holds exactly one reference to the tool it governs -- the ``target`` on
+its sealed, private :class:`_GovernedPlan` -- and executes *that*. A second,
+publicly assignable handle to the delegate would be a confused deputy: identity
+is re-derived from the plan, so policy would authorize the plan's target's
+fingerprint while a delegate somebody assigned afterwards ran instead. The plan
+is therefore written once, into pydantic's private store, and
+:meth:`GovernedTool.__setattr__` refuses every later assignment to it, to the
+binding, and to the names the mutable handles used to carry.
+
+**A delegate that overrides a pre-body entry point is refused, not governed.**
+One validation per governed call is arranged by handing the delegate a
+pass-through twin (:func:`_executing_delegate`), and that arrangement holds only
+for a delegate whose ``_parse_input`` / ``_to_args_and_kwargs`` / ``invoke`` /
+``ainvoke`` / ``run`` / ``arun`` are the framework's own. A subclass that
+overrides any of them re-derives the arguments *after* the decision, inside a
+hook the wrapper cannot see past -- policy authorizes ``{"query": "safe"}`` and
+the body receives ``"danger"``. ``langchain_core``'s own ``BaseTool`` and
+``StructuredTool`` implementations are permitted, because ``StructuredTool`` is
+what ``@tool`` produces and is therefore the normal case; anything else raises
+:class:`~zeroth.integrations.langgraph._tool_errors.UnstableToolIdentityError`
+at wrapping and again before every execution. This is a narrowing, and it is
+deliberately the fail-closed direction: a neutral execution adapter that bypassed
+those hooks would let the ban be lifted, and until one exists a tool whose entry
+path is unreadable cannot be governed.
+
 **Identity is pinned at wrap time and re-derived at every call.** A tool whose
 name, body or declared schema moves between the wrapping and the call cannot
 carry a reproducible decision, so the mismatch raises
@@ -76,7 +102,8 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, StructuredTool
+from pydantic import PrivateAttr
 
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.langgraph._tool_decisions import (
@@ -99,8 +126,6 @@ from zeroth.integrations.langgraph._tool_guard import (
     guard_tool_call,
 )
 from zeroth.integrations.langgraph._tool_normalize import (
-    classify_side_effect,
-    normalize_contract_ref,
     normalize_identifier,
     normalize_tool_action,
     normalize_tool_identity,
@@ -133,6 +158,30 @@ argument under this exact name has its call refused rather than silently
 overwritten.
 """
 
+_PLAN_ATTRIBUTE = "_zeroth_plan"
+"""Where a governed ``BaseTool`` keeps the one plan it executes through."""
+
+_SEALED_ATTRIBUTES = (_PLAN_ATTRIBUTE, "zeroth_plan", "zeroth_delegate", "zeroth_binding")
+"""Names :meth:`GovernedTool.__setattr__` refuses, whether or not they are fields.
+
+The first three are the execution path: rebinding any of them is the
+confused-deputy substitution the sealing exists to stop. ``zeroth_binding`` is
+sealed too because it is what the inventory reports this wrapper governs, and a
+report somebody rewrote after the wrapping describes tools nothing governs.
+``zeroth_plan`` and ``zeroth_delegate`` are no longer fields at all -- pydantic
+already refuses an unknown one under ``extra="ignore"`` -- and are listed so the
+refusal is a typed governance failure rather than a bare ``ValueError``.
+"""
+
+_ENTRY_HOOKS = ("_parse_input", "_to_args_and_kwargs", "invoke", "ainvoke", "run", "arun")
+"""Every ``BaseTool`` hook that runs *before* the body and can rewrite its input.
+
+``_parse_input`` is the one the finding was about -- clearing ``args_schema`` on
+the executing twin makes ``BaseTool``'s implementation a pass-through, but not an
+override of it -- and the other five reach the body without passing through the
+twin's parse at all.
+"""
+
 _BASE_TOOL_SURFACE = "base_tool"
 _CALLABLE_SURFACE = "callable"
 """Which wrapping surface an identity was derived through.
@@ -153,18 +202,24 @@ class GovernedToolBinding:
 
     **Only ``identity`` is an authorization fact.** It is pinned here and
     re-derived on every call, and a call whose identity no longer matches is
-    refused. ``side_effect`` and ``contract_ref`` are the *inventory's* reading of
-    the tool at wrap time and nothing decides against them:
-    :func:`_governed_action` re-runs the resolvers per call, so a tool that
-    becomes side-effecting after it was wrapped is decided as what it is now, not
-    as what it was.
+    refused. ``side_effect`` and ``contract_ref`` are inventory description and
+    nothing decides against them: :func:`_governed_action` runs the resolvers
+    live on every call, so a tool that becomes side-effecting after it was
+    wrapped is decided as what it is now, not as what it was.
+
+    **The wrapping never fills them in.** ``govern_tools`` leaves both at their
+    defaults rather than asking the caller's resolvers, because a live resolver
+    is *consumed* by being asked and every later call would then be decided under
+    the following answer -- see :func:`_pin`. A caller with its own classification
+    to report constructs these values itself and hands them to
+    :func:`~zeroth.integrations.langgraph._tool_inventory.record_binding_inventory`.
 
     Attributes:
         identity: The name and fingerprint the tool is decided under.
-        side_effect: How the classifier rated the tool when it was wrapped,
-            defaulting to unknown -- which the default policy denies.
-        contract_ref: The contract the tool was bound to when it was wrapped,
-            when one was declared.
+        side_effect: How this tool is described in an inventory, defaulting to
+            unknown -- which the default policy denies.
+        contract_ref: The contract this tool is described as bound to, when a
+            caller declared one.
         coverage: What this wrapping can support.
             ``govern_tools`` never sets it to
             :attr:`~zeroth.integrations.langgraph._tool_types.InventoryCoverage.COMPLETE`,
@@ -439,18 +494,25 @@ def _resolved(resolver: Callable[[Any], Any] | None, target: Any) -> object:
         return None
 
 
-def _pin(target: Any, facts: _ToolFacts, seams: _Seams) -> GovernedToolBinding:
-    """Fix the identity this tool is decided under, and observe the rest for the inventory.
+def _pin(facts: _ToolFacts) -> GovernedToolBinding:
+    """Fix the identity this tool is decided under, and consult nothing to do it.
 
     The identity is the pin: every call re-derives it and refuses if it moved.
-    The classification and the contract are read once here for reporting only --
-    :func:`_governed_action` resolves both again on every call, so a change
-    between the wrapping and the call reaches the policy.
+
+    **No authorization resolver is invoked here.** Recording an inventory used to
+    ask the caller's classifier and contract resolver for their reading of the
+    tool, and a resolver is allowed to be *live*: one that answers from a queue,
+    a feature flag or a counter is consumed by the recording, so every later call
+    is decided under the answer *after* the one it should have had. That is not a
+    reporting defect -- it shifts the classification a policy denies on. The
+    binding therefore carries the unknown classification and no contract, and
+    :func:`_governed_action` resolves both, live, on every call. A caller who
+    wants a classified inventory builds
+    :class:`GovernedToolBinding` values from observations it made itself and
+    records those.
 
     Args:
-        target: The tool being wrapped.
-        facts: Its already-gated identifying surface.
-        seams: The wrapping seams, including the optional resolvers.
+        facts: The tool's already-gated identifying surface.
 
     Returns:
         The binding whose identity every call through the wrapper is checked
@@ -460,11 +522,7 @@ def _pin(target: Any, facts: _ToolFacts, seams: _Seams) -> GovernedToolBinding:
         UnstableToolIdentityError: If the tool carries no usable name, or its
             identifying material is not canonically representable.
     """
-    return GovernedToolBinding(
-        identity=normalize_tool_identity(facts.name, facts.material),
-        side_effect=classify_side_effect(_resolved(seams.side_effect, target)),
-        contract_ref=normalize_contract_ref(_resolved(seams.contract_ref, target)),
-    )
+    return GovernedToolBinding(identity=normalize_tool_identity(facts.name, facts.material))
 
 
 def _resolve_context(source: object) -> object:
@@ -635,6 +693,63 @@ def _delegate_input(
     return {"name": name, "args": arguments, "id": tool_call_id, "type": "tool_call"}
 
 
+def _permitted_entry_hooks() -> dict[str, tuple[Any, ...]]:
+    """Table the framework's own implementations of each pre-body entry hook.
+
+    Built once, from ``langchain_core``'s ``BaseTool`` and ``StructuredTool``
+    only. ``StructuredTool`` is what the ``@tool`` decorator produces for a
+    single-argument and a multi-argument function alike, so permitting its own
+    overrides is what keeps the normal case working; ``langchain_core``'s
+    single-input ``Tool`` is deliberately *not* here, because nothing in this
+    package or its tests produces one and admitting a class on the strength of
+    an unread override is the direction that fails open.
+
+    Returns:
+        Each hook name mapped to the implementations that may appear under it.
+    """
+    table: dict[str, tuple[Any, ...]] = {}
+    for hook in _ENTRY_HOOKS:
+        permitted = []
+        for source in (BaseTool, StructuredTool):
+            implementation = getattr(source, hook, None)
+            if implementation is not None:
+                permitted.append(implementation)
+        table[hook] = tuple(permitted)
+    return table
+
+
+_PERMITTED_ENTRY_HOOKS = _permitted_entry_hooks()
+"""What may appear under each name in :data:`_ENTRY_HOOKS`, by identity."""
+
+
+def _refuse_overridden_entry_hooks(delegate: Any) -> None:
+    """Refuse a delegate that reaches its body through a hook governance cannot see past.
+
+    Compared by *identity* against the framework's own implementations, read off
+    ``type(delegate)`` rather than off the instance: a bound method is rebuilt
+    per access and an instance attribute shadowing a method is not what actually
+    runs. An implementation this table does not hold -- including one that is
+    absent, and one a hostile metaclass answered with -- refuses the tool.
+
+    Args:
+        delegate: The tool whose execution path is being checked.
+
+    Raises:
+        UnstableToolIdentityError: If any pre-body entry point is overridden.
+            Fail-closed rather than governed: the decision is made about the
+            arguments the wrapper parsed, and an override re-derives them after
+            it.
+    """
+    kind = type(delegate)
+    for hook, permitted in _PERMITTED_ENTRY_HOOKS.items():
+        implementation = _peek(kind, hook)
+        if not any(implementation is candidate for candidate in permitted):
+            raise UnstableToolIdentityError(
+                "this tool overrides a tool entry point governance cannot execute past: "
+                f"{hook}"
+            )
+
+
 def _executing_delegate(delegate: Any) -> Any:
     """Return a twin of *delegate* that runs the arguments it is handed, unvalidated.
 
@@ -662,6 +777,13 @@ def _executing_delegate(delegate: Any) -> Any:
     ``ToolMessage`` and a ``content_and_artifact`` tool's artifact still survives
     the wrapping.
 
+    **Clearing the schema is not enough on its own.** It makes ``BaseTool``'s
+    ``_parse_input`` a pass-through; it does nothing about a subclass that
+    *overrode* ``_parse_input`` -- or ``invoke``, or any other pre-body entry
+    point -- and re-derives the arguments there. The ban is therefore re-checked
+    here, per call, so a class that gained an override after its instance was
+    wrapped is refused before it executes rather than at the next wrapping.
+
     Args:
         delegate: The wrapped tool.
 
@@ -669,10 +791,13 @@ def _executing_delegate(delegate: Any) -> Any:
         The tool object to invoke for this call.
 
     Raises:
+        UnstableToolIdentityError: If the delegate overrides a pre-body entry
+            point. See :func:`_refuse_overridden_entry_hooks`.
         ToolGovernanceError: If the delegate cannot be copied. Refusing is the
             only outcome that does not run the tool against arguments the guard
             could not pin, and it happens after the decision was recorded.
     """
+    _refuse_overridden_entry_hooks(delegate)
     try:
         return delegate.model_copy(update={"args_schema": None})
     except Exception as error:
@@ -692,21 +817,76 @@ class GovernedTool(BaseTool):
     the body behind it -- see :func:`_carried_fields` for which, and why the
     error-handling ones are not among them.
 
+    **One reference, sealed.** The tool that runs is the ``target`` on the plan
+    the identity was pinned against, held in pydantic's private store and
+    unreachable as a field. There is deliberately no second, assignable handle to
+    the delegate: identity is re-derived from the plan, so a delegate somebody
+    assigned after the wrapping would execute under the plan target's
+    authorization. :meth:`__setattr__` refuses every name in
+    :data:`_SEALED_ATTRIBUTES`, so neither the delegate nor the plan nor the
+    reported binding can be swapped for another.
+
     Attributes:
-        zeroth_delegate: The original tool. On an allow it is driven exactly once,
-            through the pass-through twin :func:`_executing_delegate` builds, and
-            through that twin's own public entry point.
-        zeroth_plan: The pinned binding and the seams a call is decided through.
-        zeroth_binding: What ``govern_tools`` pinned about the wrapped tool.
+        zeroth_binding: What ``govern_tools`` pinned about the wrapped tool. Read
+            by the inventory stage; refused as an assignment target.
     """
 
-    zeroth_delegate: Any = None
-    zeroth_plan: Any = None
     zeroth_binding: Any = None
+    _zeroth_plan: Any = PrivateAttr(default=None)
+
+    def __init__(self, *, zeroth_plan: Any = None, **data: Any) -> None:
+        """Build the wrapper and seal the plan it will execute through.
+
+        The plan is written straight into pydantic's private store rather than
+        through ``setattr``, which is what lets :meth:`__setattr__` refuse
+        *every* assignment to the sealed names instead of having to tell the
+        first one apart from a later substitution.
+
+        Args:
+            zeroth_plan: The pinned binding and the live seams a call is decided
+                through, including the one tool this wrapper executes.
+            data: The ``BaseTool`` fields the wrapper carries.
+
+        Raises:
+            ToolGovernanceError: If the plan could not be sealed, which leaves a
+                wrapper that refuses every call rather than one that executes
+                something unpinned.
+        """
+        super().__init__(**data)
+        private = self.__pydantic_private__
+        if private is None:
+            raise ToolGovernanceError("a governed tool could not seal its authorized target")
+        private[_PLAN_ATTRIBUTE] = zeroth_plan
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Refuse to rebind anything a call is executed through or reported as.
+
+        Raises:
+            ToolGovernanceError: If *name* is one of :data:`_SEALED_ATTRIBUTES`.
+        """
+        if any(name == sealed for sealed in _SEALED_ATTRIBUTES):
+            raise ToolGovernanceError("a governed tool's authorized target cannot be reassigned")
+        super().__setattr__(name, value)
+
+    def _plan(self) -> _GovernedPlan:
+        """Return the sealed plan, refusing a wrapper that carries none.
+
+        An exact-type gate, as everywhere else in this package: a wrapper built
+        without a plan -- or one whose private store somebody reached into --
+        refuses its calls rather than executing something no identity was pinned
+        against.
+
+        Raises:
+            ToolGovernanceError: If no plan was sealed into this wrapper.
+        """
+        plan = self._zeroth_plan
+        if type(plan) is not _GovernedPlan:
+            raise ToolGovernanceError("this governed tool carries no authorization plan")
+        return plan
 
     def get_input_schema(self, config: Any = None) -> Any:
-        """Report the delegate's own input schema, not this wrapper's signature."""
-        return self.zeroth_delegate.get_input_schema(config)
+        """Report the governed tool's own input schema, not this wrapper's signature."""
+        return self._plan().target.get_input_schema(config)
 
     def _to_args_and_kwargs(
         self, tool_input: Any, tool_call_id: str | None
@@ -734,14 +914,14 @@ class GovernedTool(BaseTool):
         ``_arun`` fallback -- funnels through here, so there is no way to reach
         the delegate without passing the guard.
         """
-        plan = self.zeroth_plan
+        plan = self._plan()
         call_id = kwargs.pop(_TOOL_CALL_ID_KEY, None)
         action, context = _governed_action(plan, _call_arguments(args, kwargs))
-        delegate, name = self.zeroth_delegate, self.name
+        target, name = plan.target, self.name
         return guard_tool_call(
             action,
             context,
-            lambda: _executing_delegate(delegate).invoke(
+            lambda: _executing_delegate(target).invoke(
                 _delegate_input(args, kwargs, call_id, name)
             ),
             **_enforcement_seams(plan),
@@ -754,29 +934,34 @@ class GovernedTool(BaseTool):
         downstream invocation is awaited. There is no async enforcement branch to
         drift out of step with the sync one.
         """
-        plan = self.zeroth_plan
+        plan = self._plan()
         call_id = kwargs.pop(_TOOL_CALL_ID_KEY, None)
         action, context = _governed_action(plan, _call_arguments(args, kwargs))
         payload = _delegate_input(args, kwargs, call_id, self.name)
         authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await _executing_delegate(self.zeroth_delegate).ainvoke(payload)
+        return await _executing_delegate(plan.target).ainvoke(payload)
 
 
 def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) -> GovernedTool:
     """Build the governed twin of a ``BaseTool``, leaving the original untouched.
 
+    The entry-hook ban is checked here as well as before every execution, so a
+    tool governance could never execute faithfully is refused at ``govern_tools``
+    rather than at its first call.
+
     Raises:
+        UnstableToolIdentityError: If the tool overrides a pre-body entry point.
         ToolGovernanceError: If the tool's declared surface will not build a
             wrapper -- an ``args_schema`` of a shape ``BaseTool`` rejects, say.
             Refusing is the only outcome that cannot leave an ungoverned tool in
             the returned list.
     """
+    _refuse_overridden_entry_hooks(target)
     try:
         return GovernedTool(
             name=plan.binding.identity.name,
             description=facts.description,
             args_schema=facts.args_schema,
-            zeroth_delegate=target,
             zeroth_plan=plan,
             zeroth_binding=plan.binding,
             **_carried_fields(target),
@@ -821,6 +1006,12 @@ def _govern_callable(target: Any, facts: _ToolFacts, plan: _GovernedPlan) -> Any
     interface -- and carries the tool-shaped attributes alongside, so a caller
     that reads ``name`` / ``description`` / ``args_schema`` off a tool list sees
     the same values it saw before.
+
+    **No handle to the target or the plan is published.** Both are closed over by
+    the governed function and nothing else, so there is no attribute an attacker
+    can rebind to have something other than the authorized callable executed. The
+    binding is published, because the inventory stage reads it, and nothing is
+    executed through it.
     """
     if inspect.iscoroutinefunction(target):
         governed = _async_callable_wrapper(target, plan)
@@ -829,8 +1020,6 @@ def _govern_callable(target: Any, facts: _ToolFacts, plan: _GovernedPlan) -> Any
     governed.name = plan.binding.identity.name
     governed.description = facts.description
     governed.args_schema = facts.args_schema
-    governed.zeroth_delegate = target
-    governed.zeroth_plan = plan
     governed.zeroth_binding = plan.binding
     return governed
 
@@ -854,9 +1043,7 @@ def _govern_one(target: Any, seams: _Seams) -> Any:
         raise ToolGovernanceError("govern_tools accepts BaseTool instances and plain callables")
     describe = _describe_base_tool if is_tool else _describe_callable
     facts = describe(target)
-    plan = _GovernedPlan(
-        target=target, describe=describe, binding=_pin(target, facts, seams), seams=seams
-    )
+    plan = _GovernedPlan(target=target, describe=describe, binding=_pin(facts), seams=seams)
     if is_tool:
         return _govern_base_tool(target, facts, plan)
     return _govern_callable(target, facts, plan)

@@ -34,11 +34,24 @@ code object can carry is a ``frozenset`` constant, which is what ``x in {"a",
 members for exactly that reason. ``repr`` is used only where it cannot embed an
 address, and :func:`_stable_repr` refuses one that does.
 
-**``co_filename`` and ``co_firstlineno`` are deliberately excluded.** Identity is
-a claim about what the code does, and a blank line inserted above a tool changes
-neither. ``__module__`` and ``__qualname__`` already separate two same-bodied
-functions that live in different places, without making an edit elsewhere in the
-file read as a substitution.
+**Every ``co_*`` attribute is either projected or excluded on the record.**
+Projected: ``co_name``, ``co_argcount``, ``co_posonlyargcount``,
+``co_kwonlyargcount``, ``co_flags``, ``co_nlocals``, ``co_code``,
+``co_exceptiontable``, ``co_names``, ``co_varnames``, ``co_freevars``,
+``co_cellvars`` and ``co_consts``. Excluded, with the reason:
+
+* ``co_filename``, ``co_firstlineno``, ``co_linetable``, ``co_lnotab``,
+  ``co_lines`` and ``co_positions`` are *where the code is*, not what it does. A
+  blank line inserted above a tool changes all of them and changes nothing about
+  its behaviour, so treating them as identity would read an edit elsewhere in the
+  file as a substitution. ``__module__`` and ``__qualname__`` already separate two
+  same-bodied functions that live in different places.
+* ``co_stacksize`` is computed by the compiler *from* the bytecode that is
+  already digested, so it carries no behaviour the projection does not already
+  hold.
+* ``co_qualname`` duplicates, for the outermost code object, the ``__qualname__``
+  the function projection already records; for a nested one -- a comprehension, an
+  inner ``def`` -- it restates the enclosing name the nesting itself supplies.
 
 **Bound values: by value where they are fixed, by type where they are state.** A
 ``functools.partial``'s arguments and a function's defaults are fixed when the
@@ -313,8 +326,17 @@ def _code_material(code: Any, depth: int) -> dict[str, Any]:
     """Project a code object onto everything about it that decides what it does.
 
     The bytecode, the constants it closes over, the names it reads and writes,
-    and the shape of its parameter list. Not its file or its line number: see the
-    module docstring for why an edit above a tool is not a substitution of it.
+    the shape of its parameter list, and the exception table. Not its file or its
+    line number: see the module docstring for why an edit above a tool is not a
+    substitution of it.
+
+    **``co_exceptiontable`` is part of the projection, not an optimization
+    detail.** Since Python 3.11 exception handling is zero-cost: entering a
+    ``try`` emits no opcode, and which range each handler covers lives *only* in
+    that table. Two functions with byte-identical ``co_code``, constants and
+    names can therefore differ in whether a ``ZeroDivisionError`` is caught or
+    propagates -- the sharpest behavioural difference a tool can have, and it was
+    invisible to identity while the table was omitted.
 
     Args:
         code: The code object.
@@ -336,6 +358,7 @@ def _code_material(code: Any, depth: int) -> dict[str, Any]:
         "flags": code.co_flags,
         "nlocals": code.co_nlocals,
         "bytecode": code.co_code.hex(),
+        "exceptiontable": code.co_exceptiontable.hex(),
         "names": [_optional_text(name) for name in code.co_names],
         "varnames": [_optional_text(name) for name in code.co_varnames],
         "freevars": [_optional_text(name) for name in code.co_freevars],

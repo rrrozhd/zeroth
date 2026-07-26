@@ -413,3 +413,98 @@ def test_a_hostile_tool_cannot_forge_a_real_tool_s_identity() -> None:
 
     assert real.name == forged.name
     assert real.fingerprint != forged.fingerprint
+
+
+# -- The exception axis: what a tool catches is what a tool does --------------
+
+
+def build_catching_probe() -> Any:
+    """Build a body that guards *both* of its steps."""
+
+    def probe(value: Any, first: Any, second: Any) -> Any:
+        """Do two things."""
+        try:
+            left = first(value)
+            right = second(value)
+        except ZeroDivisionError:
+            return None
+        return left + right
+
+    return probe
+
+
+def build_propagating_probe() -> Any:
+    """Build a body that guards only its first step, and lets the second one out."""
+
+    def probe(value: Any, first: Any, second: Any) -> Any:
+        """Do two things."""
+        try:
+            left = first(value)
+        except ZeroDivisionError:
+            return None
+        right = second(value)
+        return left + right
+
+    return probe
+
+
+_PROJECTED_CODE_FIELDS = (
+    "co_name",
+    "co_argcount",
+    "co_posonlyargcount",
+    "co_kwonlyargcount",
+    "co_flags",
+    "co_nlocals",
+    "co_code",
+    "co_consts",
+    "co_names",
+    "co_varnames",
+    "co_freevars",
+    "co_cellvars",
+)
+"""Everything the code projection held *before* the exception table was added.
+
+Asserted equal first, so this test cannot pass on an incidental difference
+between the two bodies -- which is exactly how its first draft passed against a
+projection that still omitted the table: the two code objects carried different
+``co_name``\\ s and the digests differed for a reason the test was not about.
+"""
+
+
+def test_two_bodies_differing_only_in_which_exception_they_catch_are_not_one_tool() -> None:
+    """``co_exceptiontable`` is behaviour, and it is the only place that behaviour lives.
+
+    Since Python 3.11 exception handling is zero-cost: entering a ``try`` emits
+    no opcode, and the range each handler covers is recorded *only* in the
+    exception table. These two bodies compile to byte-identical code with
+    identical constants, names and locals, and one of them swallows a
+    ``ZeroDivisionError`` the other lets out -- which is as behaviourally
+    different as two tools get.
+    """
+    catching, propagating = build_catching_probe(), build_propagating_probe()
+    propagating.__qualname__ = catching.__qualname__
+
+    for attribute in _PROJECTED_CODE_FIELDS:
+        assert getattr(catching.__code__, attribute) == getattr(propagating.__code__, attribute)
+    assert catching.__doc__ == propagating.__doc__
+    assert catching.__module__ == propagating.__module__
+    assert catching.__closure__ is propagating.__closure__ is None
+    assert catching.__code__.co_exceptiontable != propagating.__code__.co_exceptiontable
+
+    # And the two genuinely answer differently.
+    assert catching(3, _unchanged, _divides) is None
+    with pytest.raises(ZeroDivisionError):
+        propagating(3, _unchanged, _divides)
+
+    assert callable_implementation_digest(catching) != callable_implementation_digest(propagating)
+    assert identity_of(catching).fingerprint != identity_of(propagating).fingerprint
+
+
+def _unchanged(value: Any) -> Any:
+    """Return the value, so the first step of a probe always succeeds."""
+    return value
+
+
+def _divides(value: Any) -> Any:
+    """Divide by zero, so the second step of a probe always raises."""
+    return value / 0

@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.12] - 2026-07-26
+
+### Fixed
+
+- **A governed tool executed a second, mutable reference to its delegate.**
+  `GovernedTool` carried `zeroth_delegate` and `zeroth_plan` as public,
+  assignable pydantic fields while re-deriving the *identity* it enforces from
+  the plan — so assigning a same-schema tool over `zeroth_delegate` after
+  `govern_tools` returned made that tool execute under the original's authorized
+  fingerprint. A confused deputy, reproduced by probe. The plan is now sealed in
+  private state, execution goes through `plan.target`, `__setattr__` refuses
+  every name a call is executed or reported through, and the callable surface
+  publishes no handle to its target or plan at all.
+- **A delegate overriding a pre-body entry point could run arguments policy never
+  saw.** Clearing `args_schema` on the per-call executing twin makes `BaseTool`'s
+  `_parse_input` a pass-through, but does nothing about a subclass that
+  *overrides* it: policy authorized `{"query": "safe"}` while the body received
+  `"danger"`. **Breaking, deliberately:** a delegate whose class overrides
+  `_parse_input`, `_to_args_and_kwargs`, `invoke`, `ainvoke`, `run` or `arun`
+  is now refused with `UnstableToolIdentityError`, at `govern_tools` and again
+  before every execution. `langchain-core`'s own `BaseTool` and `StructuredTool`
+  implementations are permitted, so the `@tool` decorator's output — the normal
+  case — is unaffected; hand-written subclasses that override one of those six
+  hooks, `langchain_core.tools.Tool`, and re-governing an already-governed tool
+  are not. See the cookbook's "What `govern_tools` refuses to wrap". The ban can
+  be lifted once a neutral execution adapter exists that bypasses those hooks.
+- **Tool identity ignored exception handling.** The code projection omitted
+  `co_exceptiontable`. Since Python 3.11 exception handling is zero-cost —
+  entering a `try` emits no opcode — so two bodies with byte-identical
+  `co_code`, constants and names can differ in whether a `ZeroDivisionError` is
+  caught or propagates, and they fingerprinted identically. The table is now part
+  of the projection. Every other `co_*` attribute is documented as projected or
+  excluded, with the reason, in `_tool_fingerprint`'s module docstring.
+- **Recording a tool inventory consumed live authorization resolvers.** Both
+  install surfaces asked the caller's `side_effect` classifier and `contract_ref`
+  resolver for a reading at construction. A resolver is allowed to be live, and
+  asking one *consumes* an answer — so every later call was decided under the
+  following answer. On `ZerothMiddleware` this meant the same installation denied
+  a call **without** `expected_tools` and allowed it **with** it; on
+  `govern_tools` the first real call was decided under the classification meant
+  for the second. Neither surface resolves anything while recording now: the
+  inventory carries the identity, `SideEffectClass.UNKNOWN` and no contract, and
+  both facts are resolved live on every call as before. A caller that wants a
+  classified inventory builds `GovernedToolBinding` values from its own
+  observations and passes them to `record_binding_inventory`.
+
 ## [0.13.11] - 2026-07-26
 
 ### Added

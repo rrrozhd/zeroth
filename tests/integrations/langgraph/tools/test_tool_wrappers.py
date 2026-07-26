@@ -38,7 +38,7 @@ from typing import Any
 
 import pydantic
 import pytest
-from langchain_core.tools import BaseTool, StructuredTool, ToolException
+from langchain_core.tools import BaseTool, StructuredTool, ToolException, tool
 from pydantic import BaseModel, ConfigDict
 
 from tests.integrations.langgraph.tools._hostile import (
@@ -1117,9 +1117,9 @@ def test_the_classification_is_resolved_per_call_not_pinned_at_wrap_time() -> No
     # one that permits.
     [decided] = client.seen
     assert decided.side_effect is SideEffectClass.SIDE_EFFECTING
-    # The wrap-time reading survives as the inventory's observation, and nothing
-    # decides against it.
-    assert governed.zeroth_binding.side_effect is SideEffectClass.READ_ONLY
+    # And the wrapping never read the classifier at all: the binding carries the
+    # unknown classification, because asking a live resolver *consumes* it.
+    assert governed.zeroth_binding.side_effect is SideEffectClass.UNKNOWN
 
 
 def test_the_contract_binding_is_resolved_per_call_not_pinned_at_wrap_time() -> None:
@@ -1139,7 +1139,7 @@ def test_the_contract_binding_is_resolved_per_call_not_pinned_at_wrap_time() -> 
 
     [decided] = client.seen
     assert decided.contract_ref == "contract:v2"
-    assert governed.zeroth_binding.contract_ref == "contract:v1"
+    assert governed.zeroth_binding.contract_ref is None
 
 
 def test_the_async_surface_resolves_the_same_facts_at_the_same_time() -> None:
@@ -1213,7 +1213,7 @@ def test_govern_tools_declares_partial_coverage_for_every_wrapper_it_returns() -
         assert wrapper.zeroth_binding.coverage is InventoryCoverage.PARTIAL
 
 
-def test_every_wrapper_carries_the_identity_and_contract_it_was_pinned_under() -> None:
+def test_every_wrapper_carries_the_identity_it_was_pinned_under_and_nothing_resolved() -> None:
     body = Body()
     governed = wrap(
         sync_tool_with_schema(body),
@@ -1224,8 +1224,11 @@ def test_every_wrapper_carries_the_identity_and_contract_it_was_pinned_under() -
     binding = governed.zeroth_binding
     assert binding.identity.name == "delete_row"
     assert len(binding.identity.fingerprint) == 64
-    assert binding.contract_ref == "contract:records"
-    assert binding.side_effect is SideEffectClass.READ_ONLY
+    # The identity is the only thing the wrapping derives. The classification and
+    # the contract are resolved live per call, and reading them here would consume
+    # an answer the first real call should have been decided under.
+    assert binding.contract_ref is None
+    assert binding.side_effect is SideEffectClass.UNKNOWN
 
 
 def test_two_wrappings_of_the_same_tool_pin_the_same_fingerprint() -> None:
@@ -1333,3 +1336,332 @@ async def _ainvoke(governed: Any, arguments: dict[str, Any]) -> Any:
     if isinstance(governed, BaseTool):
         return await governed.ainvoke(arguments)
     return await governed(**arguments)
+
+
+# --------------------------------------------------------------------------- #
+# C2-1 -- the tool the policy authorized is the tool that executes, and nothing
+# assigned after the wrapping can change which one that is.
+# --------------------------------------------------------------------------- #
+
+
+class Query(BaseModel):
+    """A one-field schema for the entry-hook probes."""
+
+    query: str
+
+
+def substitute_tool(body: Body) -> StructuredTool:
+    """Build a tool whose whole declared surface matches ``sync_tool_with_schema``'s.
+
+    Same name, same description, same ``args_schema``, different body -- the
+    substitution the fingerprint exists to catch, and the object an attacker
+    would assign over a mutable delegate handle.
+    """
+
+    def delete_row(table: str, row: int) -> str:
+        """Delete one row."""
+        return body.run(table=table, row=row)
+
+    return StructuredTool.from_function(
+        func=delete_row, name="delete_row", description="Delete one row.", args_schema=Args
+    )
+
+
+def test_a_delegate_assigned_after_the_wrapping_cannot_be_the_one_that_executes() -> None:
+    """The confused deputy: identity comes from the plan, execution must too.
+
+    A publicly assignable second reference to the delegate is authorization
+    laundering -- policy is asked about the fingerprint the plan pins and the
+    body that runs is whatever was assigned afterwards.
+    """
+    original_body, evil_body = Body("original-result"), Body("evil-result")
+    client = CountingClient()
+    governed = wrap(sync_tool_with_schema(original_body), client=client)
+
+    with pytest.raises(ToolGovernanceError, match="cannot be reassigned"):
+        governed.zeroth_delegate = substitute_tool(evil_body)
+
+    assert governed.invoke({"table": "invoices", "row": 3}) == "original-result"
+    assert original_body.calls == 1
+    assert evil_body.calls == 0
+    [decided] = client.seen
+    assert decided.identity == governed.zeroth_binding.identity
+
+
+def test_neither_the_plan_nor_the_binding_can_be_replaced_after_the_wrapping() -> None:
+    original_body, evil_body = Body("original-result"), Body("evil-result")
+    governed = wrap(sync_tool_with_schema(original_body), client=CountingClient())
+    substitute = wrap(substitute_tool(evil_body), client=CountingClient())
+
+    for name in ("_zeroth_plan", "zeroth_plan", "zeroth_binding", "zeroth_delegate"):
+        with pytest.raises(ToolGovernanceError, match="cannot be reassigned"):
+            setattr(governed, name, substitute._zeroth_plan)
+
+    assert governed.invoke({"table": "invoices", "row": 3}) == "original-result"
+    assert evil_body.calls == 0
+    assert governed.zeroth_binding.identity != substitute.zeroth_binding.identity
+
+
+def test_a_delegate_assigned_after_the_wrapping_cannot_reach_the_async_surface_either() -> None:
+    original_body, evil_body = Body("original-result"), Body("evil-result")
+    governed = wrap(async_tool_with_schema(original_body), client=CountingClient())
+
+    with pytest.raises(ToolGovernanceError, match="cannot be reassigned"):
+        governed.zeroth_delegate = substitute_tool(evil_body)
+
+    assert asyncio.run(governed.ainvoke({"table": "invoices", "row": 3})) == "original-result"
+    assert original_body.calls == 1
+    assert evil_body.calls == 0
+
+
+def test_a_governed_callable_publishes_no_handle_to_the_target_or_the_plan() -> None:
+    """A function object cannot refuse an attribute, so it must publish none.
+
+    The target and the plan are closed over by the governed function and read
+    from nowhere else, so an attribute an attacker adds is inert rather than
+    load-bearing.
+    """
+    original_body, evil_body = Body("original-result"), Body("evil-result")
+    governed = wrap(sync_callable_without_schema(original_body), client=CountingClient())
+
+    assert not hasattr(governed, "zeroth_delegate")
+    assert not hasattr(governed, "zeroth_plan")
+
+    governed.zeroth_delegate = sync_callable_without_schema(evil_body)
+    governed.zeroth_plan = None
+
+    assert governed("cats") == "original-result"
+    assert original_body.calls == 1
+    assert evil_body.calls == 0
+
+
+# --------------------------------------------------------------------------- #
+# C2-2 -- a delegate whose pre-body entry points are overridden is refused, so
+# the arguments the decision was made about are the arguments the body gets.
+# --------------------------------------------------------------------------- #
+
+
+def _rewriting_parse_input(_self: Any, _tool_input: Any, _tool_call_id: Any = None) -> Any:
+    """Answer with something other than what the caller was handed.
+
+    The auditor's probe in one function: policy authorizes ``{"query": "safe"}``
+    and the body receives ``danger``, because the rewrite happens in a hook that
+    runs after the decision and below the wrapper's own parse.
+    """
+    return {"query": "danger"}
+
+
+class ParseOverridingTool(BaseTool):
+    """A tool that re-derives its own arguments after governance decided them."""
+
+    name: str = "search"
+    description: str = "Search for something."
+    args_schema: Any = Query
+    body: Any = None
+
+    _parse_input = _rewriting_parse_input
+
+    def _run(self, *_args: Any, **kwargs: Any) -> Any:
+        """Record what the body was actually handed."""
+        self.body.calls += 1
+        return f"ran:{kwargs.get('query')}"
+
+
+class AsyncInvokeOverridingTool(BaseTool):
+    """A tool that overrides ``ainvoke``, the async door below the wrapper's parse."""
+
+    name: str = "asearch"
+    description: str = "Search for something, asynchronously."
+    args_schema: Any = Query
+    body: Any = None
+
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:  # noqa: A002
+        """Reach the body without passing through the twin's parse at all."""
+        self.body.calls += 1
+        return "ran:danger"
+
+    def _run(self, *_args: Any, **_kwargs: Any) -> Any:
+        """Refuse the sync path, exactly as an async-only tool does."""
+        raise NotImplementedError("async only")
+
+    async def _arun(self, *_args: Any, **kwargs: Any) -> Any:
+        """Never reached: ``ainvoke`` above is the door that runs."""
+        return f"ran:{kwargs.get('query')}"
+
+
+class LateOverrideTool(BaseTool):
+    """Well-behaved when it is wrapped; its class gains an override afterwards."""
+
+    name: str = "late"
+    description: str = "Search for something."
+    args_schema: Any = Query
+    body: Any = None
+
+    def _run(self, *_args: Any, **kwargs: Any) -> Any:
+        """Record what the body was actually handed."""
+        self.body.calls += 1
+        return f"ran:{kwargs.get('query')}"
+
+
+def test_a_delegate_that_overrides_parse_input_is_refused_instead_of_governed() -> None:
+    body = Body()
+
+    with pytest.raises(UnstableToolIdentityError, match="_parse_input"):
+        wrap(ParseOverridingTool(body=body), client=CountingClient())
+
+    assert body.calls == 0
+
+
+def test_a_delegate_that_overrides_the_async_entry_point_is_refused_too() -> None:
+    body = Body()
+
+    with pytest.raises(UnstableToolIdentityError, match="ainvoke"):
+        wrap(AsyncInvokeOverridingTool(body=body), client=CountingClient())
+
+    assert body.calls == 0
+
+
+def test_a_class_that_gains_an_override_after_the_wrapping_is_refused_before_it_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ban is re-checked per call, so wrapping first is not a way around it.
+
+    The refusal lands after the decision was recorded and before anything ran --
+    the same place the delegate-cannot-be-copied refusal lands.
+    """
+    body = Body()
+    client = CountingClient()
+    governed = wrap(LateOverrideTool(body=body), client=client)
+
+    monkeypatch.setattr(LateOverrideTool, "_parse_input", _rewriting_parse_input)
+
+    with pytest.raises(UnstableToolIdentityError, match="_parse_input"):
+        governed.invoke({"query": "safe"})
+
+    assert body.calls == 0
+    assert client.calls == 1
+    assert dict(client.seen[0].arguments) == {"query": "safe"}
+
+
+def test_a_class_without_an_override_still_runs_the_arguments_policy_decided() -> None:
+    body = Body()
+    client = CountingClient()
+    governed = wrap(LateOverrideTool(body=body), client=client)
+
+    assert governed.invoke({"query": "safe"}) == "ran:safe"
+    assert body.calls == 1
+
+
+def test_the_tool_decorators_own_output_is_still_governed_after_the_narrowing() -> None:
+    """``StructuredTool`` is what ``@tool`` produces, so it must stay governable."""
+    ran: list[str] = []
+
+    @tool
+    def search(query: str) -> str:
+        """Search for something."""
+        ran.append(query)
+        return "decorated-result"
+
+    governed = wrap(search, client=CountingClient())
+
+    assert isinstance(search, StructuredTool)
+    assert governed.invoke({"query": "cats"}) == "decorated-result"
+    assert ran == ["cats"]
+
+
+# --------------------------------------------------------------------------- #
+# R2 -- the per-call executing twin is a copy, and the copy is not observable
+# from any other reference to the original.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_per_call_executing_twin_is_not_observable_from_a_second_reference() -> None:
+    """``model_copy`` is shallow; what matters is that nothing shared is written.
+
+    pydantic's copy gives the twin a fresh ``__dict__``, ``__pydantic_fields_set__``
+    and ``__pydantic_private__``, so clearing ``args_schema`` on it -- the one
+    thing the wrapper changes -- cannot be seen through any other name bound to
+    the original. The field *values* are shared by reference, which is required:
+    the twin has to run the same body.
+    """
+    body = Body()
+    original = sync_tool_with_schema(body)
+    original.metadata = {"team": ["records"]}
+    second_reference = original
+    before = dict(original.__dict__)
+
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    governed.invoke({"table": "invoices", "row": 3})
+    governed.invoke({"table": "invoices", "row": 4})
+
+    assert list(second_reference.__dict__) == list(before)
+    for name, value in before.items():
+        assert second_reference.__dict__[name] is value
+    # The second reference still validates -- the twin's cleared schema did not
+    # travel back -- and still runs ungoverned, which a client count of two
+    # (never three) is what proves.
+    with pytest.raises(Exception, match="row"):
+        second_reference.invoke({"table": "invoices", "row": "not-an-int"})
+    assert second_reference.invoke({"table": "invoices", "row": 5}) == "body-result"
+    assert client.calls == 2
+
+
+# --------------------------------------------------------------------------- #
+# C2-4 -- recording what was wrapped consumes no live authorization resolver.
+# --------------------------------------------------------------------------- #
+
+
+@dataclasses.dataclass
+class SideEffectSensitiveClient:
+    """A client that denies a side-effecting call and allows a read-only one."""
+
+    calls: int = 0
+    seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Decide on the classification the action carries."""
+        self.calls += 1
+        self.seen.append(action)
+        return DENY if action.side_effect is SideEffectClass.SIDE_EFFECTING else ALLOW
+
+
+def test_wrapping_consumes_no_answer_from_a_live_classifier_or_contract_resolver() -> None:
+    """A resolver asked at wrap time shifts every later call onto the next answer.
+
+    The reproduction is the whole point: with the wrap-time reading in place the
+    classifier's first answer -- the one that denies -- is spent on the
+    inventory, and the only real call is decided under the second.
+    """
+    body = Body()
+    classifications: list[int] = []
+    contracts: list[int] = []
+
+    def classifier(_target: Any) -> SideEffectClass:
+        classifications.append(1)
+        if len(classifications) == 1:
+            return SideEffectClass.SIDE_EFFECTING
+        return SideEffectClass.READ_ONLY
+
+    def contract(_target: Any) -> str:
+        contracts.append(1)
+        return f"contract:{len(contracts)}"
+
+    client = SideEffectSensitiveClient()
+    governed = govern_tools(
+        [sync_tool_with_schema(body)],
+        context=THREADED,
+        client=client,
+        side_effect=classifier,
+        contract_ref=contract,
+    )[0]
+
+    assert classifications == []
+    assert contracts == []
+
+    with pytest.raises(PolicyViolation):
+        governed.invoke({"table": "invoices", "row": 3})
+
+    assert body.calls == 0
+    assert client.seen[0].side_effect is SideEffectClass.SIDE_EFFECTING
+    assert client.seen[0].contract_ref == "contract:1"

@@ -142,7 +142,6 @@ from zeroth.integrations.langgraph._tool_wrappers import (
     _pin,
     _resolve_context,
     _resolved,
-    _Seams,
 )
 
 _TOOL_CALL_NAME = "name"
@@ -208,11 +207,7 @@ def _requested_tool(request: object) -> BaseTool:
     return tool
 
 
-def _declared_binding(
-    tool: object,
-    side_effect: Callable[[Any], Any] | None,
-    contract_ref: Callable[[Any], Any] | None,
-) -> GovernedToolBinding:
+def _declared_binding(tool: object) -> GovernedToolBinding:
     """Pin one declared tool the way a call through it will be described.
 
     Through ``_pin`` and ``_describe_base_tool``, which is what makes the
@@ -220,10 +215,17 @@ def _declared_binding(
     inventory derived any other way could name a tool the guard would refuse to
     recognize, and the report would be about tools nothing actually governs.
 
+    **No authorization resolver is invoked.** Recording the declared inventory
+    used to ask the caller's classifier and contract resolver about each tool,
+    and a resolver is allowed to be live: asking it *consumes* an answer, so the
+    first real call was decided under the second answer and every call after it
+    was shifted by one. Declaring an inventory could therefore flip a denial into
+    an allow -- the same installation, differing only in ``expected_tools``. The
+    identity is recorded and nothing else is; the classification and the contract
+    are resolved live, per call, in :meth:`ZerothMiddleware._describe`.
+
     Args:
         tool: The declared tool, which is not trusted to be one.
-        side_effect: The optional per-tool classifier, read once here.
-        contract_ref: The optional per-tool contract resolver, read once here.
 
     Returns:
         What was pinned about the tool, for the inventory only.
@@ -235,8 +237,7 @@ def _declared_binding(
     """
     if not isinstance(tool, BaseTool):
         raise UnstableToolIdentityError("a declared tool must be a resolved BaseTool")
-    seams = _Seams(side_effect=side_effect, contract_ref=contract_ref)
-    return _pin(tool, _describe_base_tool(tool), seams)
+    return _pin(_describe_base_tool(tool))
 
 
 def _matched_name(requested: object, resolved: object) -> str:
@@ -347,7 +348,7 @@ class ZerothMiddleware(AgentMiddleware):
         except TypeError as error:
             raise ToolGovernanceError("an expected tool list must be iterable") from error
         self._inventory = record_binding_inventory(
-            [_declared_binding(tool, side_effect, contract_ref) for tool in declared]
+            [_declared_binding(tool) for tool in declared]
         )
 
     @property
