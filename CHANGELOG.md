@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-07-26
+
+### Added
+
+- `_tool_normalize.py`: builds the complete `ToolAction` a tool-governance
+  decision is made about *before* any policy runs — tool identity, canonical
+  argument projection with a stable SHA-256 fingerprint, contract binding,
+  injected principal, side-effect classification. Every gate is an exact-type
+  gate (`type(x) is str`), every container is copied before it is validated,
+  and mappings are read by iterating `items()` rather than keying back into
+  them, so a hostile `str` / `dict` / `tuple` / `list` subclass cannot reach
+  the descriptor. An argument the projection cannot represent is refused, never
+  elided or replaced: a placeholder would show a policy a different call from
+  the one about to run.
+- `_tool_decisions.py`: the decision seam — a `ToolDecisionClient` protocol and
+  `FailClosedToolDecisionClient`, the default that denies every call.
+  `resolve_tool_decision` turns a missing client, a raising client, a `None`, a
+  duck-typed impostor and an unrecognized verdict all into denials; an
+  unclassified (`SideEffectClass.UNKNOWN`) tool is denied before a client is
+  even asked. The only escape is `UnknownSideEffectPolicy.ALLOW_UNCLASSIFIED_TOOLS`,
+  an enum member compared by identity so no boolean, default or bare string can
+  trip it. Every reason code the seam mints is registered in `REASON_CODES`,
+  and repairing an unregistered client-supplied code never changes the verdict.
+- The principal and tenant are injected, never read from the unverified
+  correlation carrier: a test pins that a forged correlation id cannot become a
+  principal, structurally (no import edge) and behaviourally.
+
+### Changed
+
+- Two tool reason-code assertions that passed trivially are now discriminating:
+  the caller-facing `code` is pinned to the audit code it must derive
+  (`zeroth.<condition>` ↔ `<condition>_error`, with `PolicyViolation` branched
+  separately), and the content-leak probe now smuggles a secret through an
+  unallowlisted `execution_metadata` key instead of asserting on a field the
+  secret was never written to.
+
 ## [0.13.1] - 2026-07-26
 
 ### Added

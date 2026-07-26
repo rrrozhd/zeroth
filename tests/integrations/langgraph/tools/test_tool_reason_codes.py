@@ -126,12 +126,23 @@ def test_the_denial_verdict_and_the_failures_are_registered_in_different_sets() 
 def test_every_tool_governance_error_declares_a_zeroth_namespaced_code(
     error_type: type[BaseException],
 ) -> None:
-    # The caller-facing code, which is a different string from the audit one.
+    # The caller-facing code, which is a different string from the audit one --
+    # and specifically *how* they differ. Asserting only inequality would pass
+    # on the "zeroth." prefix alone, so it would hold for any two unrelated
+    # strings and could not catch a code naming the wrong condition.
     code = error_type.code  # type: ignore[attr-defined]
 
     assert type(code) is str
     assert code.startswith("zeroth.")
-    assert code != normalize_reason_code(error_type.__name__)
+    condition = code.removeprefix("zeroth.")
+    if error_type is _tool_errors.PolicyViolation:
+        # The one verdict: no ``Error`` suffix on the class, deliberately, so
+        # the two names are the same condition spelled once. Branching on the
+        # class rather than on ``name.endswith("Error")`` -- the suffix is the
+        # thing under test.
+        assert condition == normalize_reason_code(error_type.__name__)
+    else:
+        assert f"{condition}_error" == normalize_reason_code(error_type.__name__)
 
 
 @pytest.mark.parametrize("error_type", TOOL_ERRORS, ids=lambda cls: cls.__name__)
@@ -160,14 +171,25 @@ async def test_an_unregistered_failure_is_summarized_instead_of_retained(sqlite_
     assert set(persisted) == {"sha256", "schema", "count"}  # type: ignore[call-overload]
 
 
-async def test_the_exception_message_never_reaches_the_persisted_record(sqlite_db) -> None:
-    # bare_error_audit_record promotes the class name and drops the message; the
-    # message is whatever the raising code was holding.
+async def test_content_smuggled_alongside_the_reason_code_never_reaches_storage(
+    sqlite_db,
+) -> None:
+    # Two drops, and only the second is a real test. bare_error_audit_record
+    # reads type(error).__name__ and nothing else, so asserting on its output
+    # alone proves only that the secret was never put there. The probe below
+    # puts it there: an unallowlisted "prompt" key riding next to the reason
+    # code, which NodeAuditRecord accepts at construction and the capture
+    # boundary has to strip on the way into storage.
     repository = AuditRepository(sqlite_db)
-    await repository.write(
-        _record(_tool_errors.PolicyViolation(SECRET), audit_id="audit:no-message")
+    record = _record(_tool_errors.PolicyViolation(SECRET), audit_id="audit:no-message")
+    smuggled = record.model_copy(
+        update={"execution_metadata": {**record.execution_metadata, "prompt": SECRET}}
     )
+    assert smuggled.execution_metadata["prompt"] == SECRET
 
+    await repository.write(smuggled)
     stored = await repository.list_by_run("run-tool-denial")
 
     assert SECRET not in "".join(record.model_dump_json() for record in stored)
+    match = [record for record in stored if record.audit_id == "audit:no-message"]
+    assert match[0].execution_metadata["reason_code"] == "policy_violation"
