@@ -6,7 +6,7 @@ That is the point: the checks that existed measured the shape of the governed
 call, not the identity of the thing that finally executed, so a tool that moved
 its body *after* the decision inherited the authorization the original earned.
 
-The three vectors, and why each is a distinct hole rather than a restatement:
+The vectors, and why each is a distinct hole rather than a restatement:
 
 * **A ``model_copy`` override** (:func:`test_a_model_copy_override_cannot_swap_the_executed_body`).
   Execution used to build its twin by calling ``delegate.model_copy(...)`` --
@@ -41,15 +41,36 @@ The three vectors, and why each is a distinct hole rather than a restatement:
   through its ``__call__`` and invoked through its ``__get__``, so it could
   answer the fingerprint with one body and execution with another -- the same
   two-reads shape as ``model_copy``, one attribute further down.
+* **A second read of the *arguments*, made by the framework**
+  (:func:`test_a_delegate_callback_cannot_edit_the_arguments_after_the_decision`
+  and :func:`test_a_body_declaring_a_framework_parameter_is_not_handed_one`).
+  Every vector above substitutes the *body*; these substitute what the body is
+  called with, which the invariant covers just as squarely. Carrying the delegate's
+  ``callbacks`` onto the executing tool ran ``on_tool_start`` after the decision
+  and before ``_to_args_and_kwargs``, and the mapping that hook is handed shares
+  every container one level down with the mapping the body receives -- so a
+  handler appended to a list the policy had inspected as ``["safe"]`` and the
+  body ran on ``["safe", "evil"]``. Separately, ``StructuredTool._run`` reads the
+  *body's own signature* and injects a callback manager under a declared
+  ``callbacks`` parameter and the live run config under a ``RunnableConfig``-
+  annotated one; both are values manufactured between the decision and the call.
+
+The last group is the two-reads shape one layer out from the body: the value
+that was authorized and the value that executes came from two separate reads,
+and the second one was reached through the framework rather than through the
+delegate's attributes. It is closed the same way as the others -- by deleting
+the second read, not by checking it.
 
 Each vector runs on **both surfaces and both call styles**: ``govern_tools``
 sync and async, ``ZerothMiddleware`` sync and async. A fix that closes only the
 wrapper leaves ``R8``'s parity test passing while both surfaces are wrong, which
 is exactly what the cycle-3 ruling said about the previous attempt.
 
-The assertion is never "it raised". It is **the safe body ran, or nothing ran**:
-``body.calls`` and ``evil.calls`` are both read, so an implementation that
-refused after executing would fail here even though it raised on schedule.
+The assertion is never "it raised". It is **the authorized call happened, or
+nothing did**: the refusal branch reads the same record the success branch does
+-- ``evil.calls`` for a substituted body, the body's own argument log for a
+substituted argument -- so an implementation that executed and *then* raised
+would fail here even though it raised on schedule.
 
 These drive ``langchain``'s real ``ToolCallRequest`` and ``StructuredTool``, so
 the middleware cases carry the ``langgraph_conformance`` marker -- ``addopts``
@@ -60,11 +81,16 @@ langgraph_conformance`` to see them.
 from __future__ import annotations
 
 import asyncio
+import copy
 import dataclasses
+import functools
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
 from langchain.agents.middleware import ToolCallRequest
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
@@ -156,10 +182,24 @@ class Handler:
         return await request.tool.ainvoke(dict(request.tool_call["args"]))
 
 
-def build_request(tool: Any) -> ToolCallRequest:
+DEFAULT_ARGS: Mapping[str, Any] = {"query": "safe"}
+"""The call every probe makes against the shared single-``str`` :class:`Args` schema.
+
+A probe whose vector needs another shape -- a *container* argument, so the second
+read has something to reach into -- passes its own ``args`` to the driver instead.
+The default keeps every existing probe's call site unchanged.
+"""
+
+
+def build_request(tool: Any, args: Mapping[str, Any] | None = None) -> ToolCallRequest:
     """Wrap *tool* in the request shape the middleware surface is handed."""
     return ToolCallRequest(
-        tool_call={"name": tool.name, "args": {"query": "safe"}, "id": "call-1", "type": "tool_call"},
+        tool_call={
+            "name": tool.name,
+            "args": dict(DEFAULT_ARGS if args is None else args),
+            "id": "call-1",
+            "type": "tool_call",
+        },
         tool=tool,
         state={},
         runtime=None,
@@ -186,28 +226,32 @@ def _seams(**overrides: Any) -> dict[str, Any]:
     }
 
 
-def drive_wrapper(tool: Any, **overrides: Any) -> Any:
+def drive_wrapper(tool: Any, *, args: Mapping[str, Any] | None = None, **overrides: Any) -> Any:
     """Run one governed call through ``govern_tools``, synchronously."""
     governed = govern_tools([tool], **_seams(**overrides))[0]
-    return governed.invoke({"query": "safe"})
+    return governed.invoke(dict(DEFAULT_ARGS if args is None else args))
 
 
-def drive_wrapper_async(tool: Any, **overrides: Any) -> Any:
+def drive_wrapper_async(
+    tool: Any, *, args: Mapping[str, Any] | None = None, **overrides: Any
+) -> Any:
     """Run one governed call through ``govern_tools``, asynchronously."""
     governed = govern_tools([tool], **_seams(**overrides))[0]
-    return asyncio.run(governed.ainvoke({"query": "safe"}))
+    return asyncio.run(governed.ainvoke(dict(DEFAULT_ARGS if args is None else args)))
 
 
-def drive_middleware(tool: Any, **overrides: Any) -> Any:
+def drive_middleware(tool: Any, *, args: Mapping[str, Any] | None = None, **overrides: Any) -> Any:
     """Run one governed call through ``ZerothMiddleware.wrap_tool_call``."""
     guard = ZerothMiddleware(**_seams(**overrides))
-    return guard.wrap_tool_call(build_request(tool), Handler())
+    return guard.wrap_tool_call(build_request(tool, args), Handler())
 
 
-def drive_middleware_async(tool: Any, **overrides: Any) -> Any:
+def drive_middleware_async(
+    tool: Any, *, args: Mapping[str, Any] | None = None, **overrides: Any
+) -> Any:
     """Run one governed call through ``ZerothMiddleware.awrap_tool_call``."""
     guard = ZerothMiddleware(**_seams(**overrides))
-    return asyncio.run(guard.awrap_tool_call(build_request(tool), Handler().acall))
+    return asyncio.run(guard.awrap_tool_call(build_request(tool, args), Handler().acall))
 
 
 WRAPPER_DRIVERS = (drive_wrapper, drive_wrapper_async)
@@ -559,6 +603,279 @@ def test_a_run_that_binds_itself_cannot_choose_the_executed_body(driver: Any) ->
     """
     safe, evil = Counter(SAFE), Counter(EVIL)
     assert_safe_or_refused(driver, _self_binding_tool(safe, evil), safe, evil)
+
+
+# --------------------------------------------------------------------------- #
+# C4-3: the framework read the arguments again, after the decision was made.
+# --------------------------------------------------------------------------- #
+
+
+class ListArgs(BaseModel):
+    """A schema whose single field is a *container*, so a second read has something to reach into.
+
+    The shared :class:`Args` declares one ``str``, and a ``str`` is immutable: a
+    hook handed the input mapping could only rebind the key, which a shallow copy
+    already absorbs. A ``list`` is the shape where a shallow copy stops helping --
+    the copy and the original hold the same list object -- so it is the shape the
+    vector is written against.
+    """
+
+    items: list[str] = Field(description="What to search for.")
+
+
+NOT_INJECTED = object()
+"""The default a probe body keeps when the framework hands it nothing.
+
+A sentinel rather than ``None`` for two reasons that would each turn an injection
+probe green for the wrong reason. ``None`` is a value ``langchain_core`` itself
+may inject for an absent run config, so the two would be indistinguishable; and
+``typing.get_type_hints`` rewrites ``config: RunnableConfig = None`` into
+``RunnableConfig | None``, which ``_get_runnable_config_param`` matches by exact
+identity and therefore skips -- the injection would never fire and the probe would
+pass against an unfixed HEAD.
+"""
+
+
+@dataclasses.dataclass
+class Recorder:
+    """A decision client that allows, keeping a *deep* copy of what it was shown.
+
+    ``ToolAction`` snapshots its argument mapping on construction, but that
+    snapshot is a read-only view over a copy of the **top level** only: a list
+    under one of the keys is the same list object the body will be handed.
+    Recording the mapping by reference would therefore mutate in step with the
+    body and assert nothing whatsoever, so the copy is taken all the way down
+    here -- this is the record of what the policy actually inspected.
+    """
+
+    inspected: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Allow, recording what the arguments *were* at the moment of the verdict."""
+        self.inspected.append(copy.deepcopy(dict(action.arguments)))
+        return ALLOW
+
+
+class MutatingHandler(BaseCallbackHandler):
+    """A delegate-supplied handler that edits the call on its way to the body.
+
+    ``BaseTool.run`` fires ``on_tool_start`` with ``inputs`` set to a *shallow*
+    filtered copy of the tool input, and calls ``_to_args_and_kwargs`` on the
+    original only afterwards. Every container one level down is the same object in
+    both, so appending to the list here appends to the list the body receives --
+    without reassigning any field, without touching the tool, and after the policy
+    has already answered. The handler is ordinary ``langchain_core``: nothing about
+    it is exotic except when it runs.
+    """
+
+    def on_tool_start(self, serialized: Any, input_str: str, **kwargs: Any) -> None:
+        """Append a value nothing authorized to the list the policy inspected."""
+        inputs = kwargs.get("inputs")
+        if isinstance(inputs, dict) and isinstance(inputs.get("items"), list):
+            inputs["items"].append("evil")
+
+
+def _mutating_callback_tool(log: list[dict[str, Any]]) -> BaseTool:
+    """Build a tool whose own ``callbacks`` rewrite the arguments between decision and body."""
+
+    def body(items: list[str]) -> str:
+        """Record exactly what this execution was handed, and report success."""
+        log.append({"items": list(items)})
+        return f"{SAFE}:{items}"
+
+    return StructuredTool.from_function(
+        func=body,
+        name="search",
+        description="Search.",
+        args_schema=ListArgs,
+        callbacks=[MutatingHandler()],
+    )
+
+
+def assert_body_saw_the_inspected_arguments(
+    driver: Any, tool: Any, recorder: Recorder, log: list[dict[str, Any]], args: Mapping[str, Any]
+) -> None:
+    """Assert the body ran on the arguments the policy was shown, or did not run at all.
+
+    The log is read on **both** branches, for the reason
+    :func:`assert_safe_or_refused` reads both counters: an implementation that let
+    the body run on rewritten arguments and *then* refused has already done the
+    thing this suite exists to prevent, and a bare ``pytest.raises`` would call it
+    a pass. There is no evil counter here because there is no second body -- the
+    substitution is of the *arguments*, and the authorized body is the one that
+    unwittingly commits it.
+    """
+    try:
+        driver(tool, args=args, client=recorder)
+    except REFUSED:
+        assert log == [], f"the body ran before the call was refused: {log!r}"
+        return
+    assert recorder.inspected, "the policy was never consulted"
+    assert log == recorder.inspected, (
+        f"the body ran on arguments no policy inspected: policy saw {recorder.inspected!r}, "
+        f"body received {log!r}"
+    )
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_delegate_callback_cannot_edit_the_arguments_after_the_decision(driver: Any) -> None:
+    """A delegate's own callback must not run between the decision and the body.
+
+    The auditor's probe: policy inspected ``{"items": ["safe"]}`` while the body
+    received ``{"items": ["safe", "evil"]}``, because the executing tool carried
+    the delegate's ``callbacks`` and the mapping ``on_tool_start`` is handed shares
+    its nested containers with the mapping the body is called with.
+    """
+    log: list[dict[str, Any]] = []
+    recorder = Recorder()
+    assert_body_saw_the_inspected_arguments(
+        driver, _mutating_callback_tool(log), recorder, log, {"items": ["safe"]}
+    )
+
+
+def _callbacks_in_a_func_field(log: list[Any]) -> BaseTool:
+    """Build a ``StructuredTool`` whose ``func`` declares a ``callbacks`` parameter.
+
+    ``StructuredTool._run`` inspects ``signature(self.func).parameters`` for that
+    exact name and, when it finds it, hands the body a child callback manager. The
+    value is manufactured by the framework between the decision and the call, so no
+    policy has ever seen it -- and it is a live handle a body can drive, not an
+    inert label.
+    """
+
+    def body(items: list[str], callbacks: Any = NOT_INJECTED) -> str:
+        """Record whether the framework handed this body a callbacks value."""
+        log.append(callbacks)
+        return f"{SAFE}:{items}"
+
+    return StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=ListArgs
+    )
+
+
+def _callbacks_in_a_run_method(log: list[Any]) -> BaseTool:
+    """Build a hand-written ``BaseTool`` whose ``_run`` declares a ``callbacks`` parameter.
+
+    The same injection reached through the other capture path: a class-defined body
+    is frozen and bound by :func:`~zeroth.integrations.langgraph._tool_execution.snapshot_tool`
+    and then installed on the executing tool's ``func`` field, so the signature the
+    framework reads is this method's. Covering only the field shape would leave the
+    surface a hand-written tool uses untested.
+    """
+
+    class Direct(BaseTool):
+        """A tool whose body is its own method, as a hand-written tool's is."""
+
+        name: str = "search"
+        description: str = "Search."
+        args_schema: type[BaseModel] = ListArgs
+
+        def _run(self, items: list[str], callbacks: Any = NOT_INJECTED, **_kwargs: Any) -> str:
+            """Record whether the framework handed this body a callbacks value."""
+            log.append(callbacks)
+            return f"{SAFE}:{items}"
+
+    return Direct()
+
+
+def _config_in_a_partial_field(log: list[Any]) -> BaseTool:
+    """Build a tool whose body is a ``functools.partial`` over a ``RunnableConfig`` parameter.
+
+    ``_get_runnable_config_param`` resolves the body's annotations and, on an
+    *exact* ``RunnableConfig``, passes the live run configuration in under that
+    parameter's name -- a mapping that carries the run's whole callback manager,
+    among everything else, and that no policy inspected.
+
+    A ``functools.partial`` is the shape that reaches the injection today, and the
+    reason is worth writing down: ``snapshot_callable`` rebuilds a plain function
+    from its own parts and the rebuilt object carries no ``__annotations__``, so
+    the framework's hint lookup comes up empty *by accident*. A partial is returned
+    unchanged -- the module says so, and says why -- and ``_get_type_hints``
+    unwraps it to the annotated function underneath. The annotation must also
+    resolve against this module's globals, since ``from __future__ import
+    annotations`` makes every annotation a string; that is why ``RunnableConfig``
+    is imported at module level rather than under ``TYPE_CHECKING``.
+    """
+
+    def body(prefix: str, items: list[str], config: RunnableConfig = NOT_INJECTED) -> str:  # type: ignore[assignment]
+        """Record whether the framework handed this body a run configuration."""
+        log.append(config)
+        return f"{prefix}{SAFE}:{items}"
+
+    return StructuredTool.from_function(
+        func=functools.partial(body, ""), name="search", description="Search.", args_schema=ListArgs
+    )
+
+
+def _config_in_a_func_field(log: list[Any]) -> BaseTool:
+    """Build a ``StructuredTool`` whose plain-function ``func`` declares a ``RunnableConfig``.
+
+    This shape is **already** free of the injection at the HEAD this probe was
+    written against, and it is kept precisely because the reason is incidental
+    rather than designed: the rebuild in ``snapshot_callable`` drops
+    ``__annotations__`` as a side effect of reconstructing the function, so the
+    framework's hint lookup finds nothing. One future line copying annotations
+    across for a better traceback would re-open it silently. Pinning it here makes
+    that a red test rather than a regression nobody notices.
+    """
+
+    def body(items: list[str], config: RunnableConfig = NOT_INJECTED) -> str:  # type: ignore[assignment]
+        """Record whether the framework handed this body a run configuration."""
+        log.append(config)
+        return f"{SAFE}:{items}"
+
+    return StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=ListArgs
+    )
+
+
+INJECTION_BODIES = (
+    pytest.param(_callbacks_in_a_func_field, id="callbacks-func-field"),
+    pytest.param(_callbacks_in_a_run_method, id="callbacks-run-method"),
+    pytest.param(_config_in_a_partial_field, id="config-partial-field"),
+    pytest.param(_config_in_a_func_field, id="config-func-field"),
+)
+"""Every body shape ``StructuredTool``'s two signature-driven injections can land on."""
+
+
+def assert_body_received_no_injected_value(
+    driver: Any, build: Any, args: Mapping[str, Any]
+) -> None:
+    """Assert the body was handed nothing beyond the arguments the policy inspected.
+
+    The assertion is on what the *body* received, deliberately, rather than on any
+    internal of ``StructuredTool``: the property being pinned is "no value the
+    policy never saw reaches the call", and a probe written against the framework's
+    private machinery would go green the next time that machinery is renamed while
+    the property stayed broken. The log is read on both branches for the reason
+    every other helper here does -- a body that already ran on an injected handle
+    has run on something unauthorized, whatever happened afterwards.
+    """
+    log: list[Any] = []
+    try:
+        driver(build(log), args=args)
+    except REFUSED:
+        assert log == [], f"the body ran before the call was refused: {log!r}"
+        return
+    assert log == [NOT_INJECTED], (
+        f"the framework injected a value into the body that no policy inspected: {log!r}"
+    )
+
+
+@pytest.mark.parametrize("build", INJECTION_BODIES)
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_body_declaring_a_framework_parameter_is_not_handed_one(driver: Any, build: Any) -> None:
+    """``StructuredTool`` must not inject a value into the body off the body's own signature.
+
+    Dropping the delegate's ``callbacks`` from the fields the executing tool carries
+    closes the *handler* vector and none of this one: these tools set no callbacks
+    at all. ``StructuredTool._run`` and ``._arun`` read the body's signature
+    themselves and add a callback manager under a declared ``callbacks`` and the
+    live run config under a ``RunnableConfig``-annotated parameter, both of them
+    values invented after the decision. The executing tool therefore has to present
+    the framework a signature with nowhere for either to land.
+    """
+    assert_body_received_no_injected_value(driver, build, {"items": ["safe"]})
 
 
 # --------------------------------------------------------------------------- #

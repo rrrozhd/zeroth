@@ -8,7 +8,7 @@ because the defence was a list of banned attributes and the attacker chose the
 attribute. The list was never the problem; reading through the delegate at all
 was.
 
-Two properties fix that, and this module exists to hold both:
+Three properties fix that, and this module exists to hold all three:
 
 **Every read is static.** ``getattr`` on a foreign object asks the object what it
 would like to say. Identity material read that way is delegate-authored, so a
@@ -43,6 +43,22 @@ invoked, which is the ``model_copy`` shape one attribute further down. Only the
 three descriptor kinds Python's own binding is defined for are admitted; a tool
 whose body is anything else is refused rather than bound by its own code.
 
+**Nothing the delegate supplied runs between the decision and the body, and
+nothing the framework invents is added to the call.** The body half of the
+invariant was the whole story for three cycles; the argument half has the same
+two-reads shape one layer out. The executing tool used to carry the delegate's
+``callbacks``, so ``on_tool_start`` ran after approval and before
+``BaseTool.run`` built the call -- and the mapping that hook is handed shares
+every container one level down with the mapping the body receives, which made a
+list the policy inspected as ``["safe"]`` a list the body ran on as
+``["safe", "evil"]``. The field is no longer carried; see
+:data:`_CARRIED_FIELDS`. Separately, ``StructuredTool`` reads the *body's* own
+signature and injects a live callback manager under a declared ``callbacks``
+parameter and the run configuration under a ``RunnableConfig``-annotated one, so
+each half is installed behind :func:`_adapted`, whose ``(*args, **kwargs)``
+surface neither injection matches. Both are deletions of the second read, not
+guards around it.
+
 The refusal table in :func:`refuse_delegate_dispatch` is kept as well, and is
 deliberately *not* the load-bearing part. It fails a tool closed at wrap time and
 again per call, which turns a hostile tool into an error rather than a silent
@@ -67,6 +83,18 @@ the same declared-identity boundary
 :mod:`~zeroth.integrations.langgraph._tool_fingerprint` documents -- identity
 covers a tool's implementation, not its configuration -- and it is the boundary
 the cookbook discloses.
+
+One more is on the argument side and belongs in the same list. Dropping
+``callbacks`` stops the *delegate* choosing code that runs between the decision
+and the body; it does not empty the callback chain, because a run manager is
+still constructed and the caller's *own* ``RunnableConfig`` handlers -- the ones
+they attached to the graph, plus governance's own -- remain ambient around the
+executing tool. A caller who installs a handler that rewrites their own call is
+attacking themselves with their own configuration, which is a different thing
+from a tool the caller does not control doing it, and governance does not claim
+to stop it. What it claims is narrower and is what the audit asked for: no code
+the *delegate* supplied, and no argument the framework invented, sits between the
+verdict and the call.
 """
 
 from __future__ import annotations
@@ -135,7 +163,6 @@ _CARRIED_FIELDS = (
     "response_format",
     "handle_tool_error",
     "handle_validation_error",
-    "callbacks",
     "metadata",
     "tags",
     "return_direct",
@@ -146,6 +173,29 @@ _CARRIED_FIELDS = (
 ``response_format`` is the load-bearing one: a ``content_and_artifact`` tool
 builds its own ``ToolMessage`` with the artifact attached, and an executing tool
 that dropped the setting would return bare content and lose the artifact.
+
+**``callbacks`` was here and is deliberately gone.** Carrying it ran the
+delegate's own handlers inside the post-approval executor -- ``on_tool_start``
+fires after the decision and before ``BaseTool.run`` calls
+``_to_args_and_kwargs``, and the mapping that hook is handed is a *shallow*
+filtered copy of the tool input, so every container one level down is the same
+object the body is about to receive. A handler that appended to a list the policy
+had inspected as ``["safe"]`` therefore had the body run on ``["safe", "evil"]``,
+with nothing reassigned and nothing to see on the tool. That is the same
+two-reads shape as ``model_copy``, moved one layer out from the body to the
+arguments: the value that was authorized and the value that executed came from
+two separate reads, and the second one was reached through a framework hook.
+Dropping the field deletes the second read rather than checking it.
+
+Governed execution consequently does not run a delegate tool's own callbacks at
+all, and that is the stated behaviour rather than an omission. A caller who wants
+to observe governed calls has the governance audit trail, which records the
+decision *and* the execution; a hook that runs between the decision and the body
+is not observability, it is a second chance to change the call. The wrapper side
+reached the same conclusion for its own reasons long before this
+(:func:`~zeroth.integrations.langgraph._tool_wrappers._carried_fields` refuses to
+carry ``callbacks`` because doing so would fire every handler twice), so the two
+halves of the governed path now agree instead of contradicting each other.
 """
 
 
@@ -223,9 +273,7 @@ def _permitted_hooks() -> dict[str, tuple[Any, ...]]:
         permitted = []
         for source in (BaseTool, StructuredTool):
             implementation = static_class_attribute(source, hook)
-            if implementation is not None and not any(
-                implementation is seen for seen in permitted
-            ):
+            if implementation is not None and not any(implementation is seen for seen in permitted):
                 permitted.append(implementation)
         table[hook] = tuple(permitted)
     return table
@@ -440,6 +488,81 @@ def _snapshot_body(snapshot: ToolSnapshot, field: str, method: str) -> Any:
     return snapshot.bodies.get(method)
 
 
+def _adapted(body: Any) -> Any:
+    """Present a snapshotted sync body to the framework behind an opaque signature.
+
+    ``StructuredTool._run`` reads the *body's own signature* and adds arguments to
+    the call from what it finds there::
+
+        if run_manager and signature(self.func).parameters.get("callbacks"):
+            kwargs["callbacks"] = run_manager.get_child()
+        if config_param := _get_runnable_config_param(self.func):
+            kwargs[config_param] = config
+        return self.func(*args, **kwargs)
+
+    Both values are manufactured by the framework *after* the decision, out of the
+    run's live state, and neither was ever shown to a policy: a body that declares
+    a ``callbacks`` parameter receives a live child callback manager, and one with
+    a parameter annotated exactly ``RunnableConfig`` receives the whole run
+    configuration -- callback manager included. That is the same second read the
+    rest of this module deletes, reached through the framework instead of through
+    the delegate, and no list of banned parameter names would close it any better
+    than the banned-attribute lists closed the earlier cycles.
+
+    The adapter closes it structurally. ``signature`` of the returned function is
+    ``(*args, **kwargs)``, so ``parameters.get("callbacks")`` is ``None``; it
+    carries no annotations, so ``_get_runnable_config_param`` finds nothing.
+    Neither injection has anywhere to land, and the body is called with exactly
+    the arguments the governed call was authorized with. This is also where that
+    property becomes *checkable*: every argument the body ever receives passes
+    through the single forwarding call below, so "no framework keyword the policy
+    never inspected reaches the body" is a claim about one readable line rather
+    than about the whole of ``BaseTool``'s dispatch.
+
+    Args:
+        body: The snapshotted callable to forward to.
+
+    Returns:
+        A plain function that forwards its arguments unchanged.
+    """
+
+    def governed_body(*args: Any, **kwargs: Any) -> Any:
+        """Forward exactly what the authorized call carried, and nothing else."""
+        return body(*args, **kwargs)
+
+    # Deliberately *not* ``functools.wraps``, and deliberately no ``__signature__``.
+    # ``inspect.signature`` follows ``__wrapped__`` and honours an explicit
+    # ``__signature__``, so either one would hand ``StructuredTool`` the body's own
+    # parameter list straight back and re-open both injections -- which is exactly
+    # what a later tidy-up reaching for a nicer traceback would do. The adapter's
+    # own literal name is the whole of the debugging affordance on purpose: copying
+    # ``body.__name__`` across would be an attribute read on a captured callable,
+    # and this module does not make those.
+    return governed_body
+
+
+def _adapted_async(body: Any) -> Any:
+    """Present a snapshotted async body to the framework behind an opaque signature.
+
+    The ``coroutine`` half of :func:`_adapted`, and it exists because
+    ``StructuredTool._arun`` repeats the same two injections verbatim against
+    ``self.coroutine``. Everything :func:`_adapted` says about ``functools.wraps``,
+    ``__wrapped__`` and ``__signature__`` applies here unchanged.
+
+    Args:
+        body: The snapshotted awaitable-returning callable to forward to.
+
+    Returns:
+        A coroutine function that forwards its arguments unchanged.
+    """
+
+    async def governed_body(*args: Any, **kwargs: Any) -> Any:
+        """Await exactly what the authorized call carried, and nothing else."""
+        return await body(*args, **kwargs)
+
+    return governed_body
+
+
 def executing_tool(snapshot: ToolSnapshot) -> BaseTool:
     """Build the framework-owned tool a governed call actually invokes.
 
@@ -459,6 +582,17 @@ def executing_tool(snapshot: ToolSnapshot) -> BaseTool:
     nonce returns something else, and the body would then execute arguments no
     policy saw. With no schema, ``BaseTool._parse_input`` is a pass-through and
     the body receives exactly the values the decision was made about.
+
+    **Each half is installed behind an adapter, not directly.** With the schema
+    cleared, the last route by which an unauthorized value could still reach the
+    body was the framework reading the *body's own signature* and injecting
+    against what it found -- see :func:`_adapted`. Wrapping both halves leaves the
+    executing tool with a ``(*args, **kwargs)`` surface that neither injection
+    matches, so the body is called with the arguments the decision was made about
+    and nothing else. Only the half the snapshot actually holds is wrapped:
+    ``StructuredTool`` needs at least one of the two and picks its execution path
+    by which of them is set, so manufacturing an adapter over a missing body would
+    quietly turn a sync-only tool into one that claims an async body.
 
     Args:
         snapshot: What the tool was when its identity was pinned.
@@ -482,8 +616,8 @@ def executing_tool(snapshot: ToolSnapshot) -> BaseTool:
             name=str(snapshot.name),
             description=str(snapshot.description or ""),
             args_schema=None,
-            func=func,
-            coroutine=coroutine,
+            func=None if func is None else _adapted(func),
+            coroutine=None if coroutine is None else _adapted_async(coroutine),
             **dict(snapshot.carried),
         )
     except Exception as error:

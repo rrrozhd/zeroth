@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.2] - 2026-07-27
+
+### Fixed
+
+- Stop carrying the delegate's `callbacks` onto the tool that executes after approval.
+  `on_tool_start` fired between the decision and the body, and `BaseTool.run` hands that
+  hook a **shallow** filtered copy of the tool input — so every container one level down
+  is the same object the body is about to receive. A handler that appended to a list the
+  policy had inspected as `["safe"]` had the body run on `["safe", "evil"]`, with nothing
+  reassigned and nothing visible on the tool. Governed execution therefore does not run a
+  delegate tool's own callbacks at all; observability comes from the governance audit
+  trail, not from a hook that runs between the verdict and the call. `response_format` is
+  still carried, so a `content_and_artifact` tool keeps its artifact.
+- Install each snapshotted body behind an internal `(*args, **kwargs)` adapter, so
+  `StructuredTool` has nowhere to inject arguments no policy inspected. Both `_run` and
+  `_arun` read the *body's own* signature and add a live child callback manager under a
+  declared `callbacks` parameter and the whole run configuration under a
+  `RunnableConfig`-annotated one. The adapter carries neither that parameter name nor any
+  annotation — and deliberately no `functools.wraps`, `__wrapped__` or `__signature__`,
+  each of which would hand the framework the body's real signature straight back. Proved
+  on all four driver combinations — `govern_tools` and `ZerothMiddleware`, sync and async
+  — across the `func` field, a `functools.partial` field and a hand-written `_run`.
+
 ## [0.13.14.1] - 2026-07-27
 
 ### Fixed

@@ -507,8 +507,8 @@ one a policy cannot read unambiguously.
 
 ## Known divergences
 
-Two things are deliberately *not* identical between a governed wrapper and the
-tool it wraps. Both are known and neither is a governance gap.
+Three things are deliberately *not* identical between a governed wrapper and the
+tool it wraps. All three are known and none is a governance gap.
 
 ### `response_format` is not carried
 
@@ -532,11 +532,33 @@ The split is by *who reads the field*:
 
 ### Two callback trees fire per governed call
 
-The wrapper's `run()` and the delegate's `run()` each emit `on_tool_start` /
-`on_tool_end`, so a callback-based observer sees two tool spans for one governed
-call. This is telemetry divergence, not a governance gap: the tool body still
-executes exactly once per governed call, and that call is still recorded exactly
-once.
+The wrapper's `run()` and the executing tool's `run()` each emit `on_tool_start`
+/ `on_tool_end`, so a callback-based observer sees two tool spans for one
+governed call. This is telemetry divergence, not a governance gap: the tool body
+still executes exactly once per governed call, and that call is still recorded
+exactly once.
+
+### A tool's own `callbacks` do not fire under governance
+
+A handler attached to the *tool object* — `StructuredTool.from_function(...,
+callbacks=[handler])` — is not run by a governed call. Handlers you attach to the
+**run**, through `config={"callbacks": [...]}` on the graph or agent, are
+unaffected and still fire.
+
+The reason is ordering, not tidiness. `on_tool_start` runs after the policy
+decision and before `BaseTool.run` turns the tool input into the body's
+arguments, and the mapping that hook receives is a *shallow* filtered copy of
+that input — so a list, dict or model one level down is the **same object** the
+body is about to be handed. A handler that appends to a list the policy inspected
+as `["safe"]` has the body run on `["safe", "evil"]`, without reassigning a field
+and without anything visible on the tool. Governance therefore does not run a
+tool's own callbacks at all rather than trying to police what they do.
+
+If you were using tool-level callbacks for observability, use the governance
+audit trail instead: it records the decision *and* the execution, which is what a
+`on_tool_start` hook was standing in for. If you were using them to mutate the
+call, that is the thing this removes on purpose — change the tool, or express the
+requirement as policy.
 
 ## See also
 - [Block a tool call via policy](policy-block.md)
