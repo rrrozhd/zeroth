@@ -30,6 +30,19 @@ the snapshotted callables. Its type is framework-owned, so it has no hostile
 ``__getattribute__``, no instance-dictionary shadow and no overridden
 ``model_copy``: there is no attribute on it the delegate can reach.
 
+"By value" is meant literally, because a captured callable is not one. Storing
+the delegate's own function object left ``body.__code__ = other`` as a swap that
+moved nothing the snapshot pointed at -- same object, same field, same
+signature, different body -- so every captured slot is rebuilt through
+:func:`snapshot_callable` and the snapshot holds code nothing else can reach. A
+class-defined ``_run``/``_arun`` is **bound here too**, by
+:func:`types.MethodType`, rather than by calling the delegate's ``__get__``
+during execution: a descriptor's ``__get__`` is delegate-written code that used
+to run after all three resolvers and decide what the authorized call finally
+invoked, which is the ``model_copy`` shape one attribute further down. Only the
+three descriptor kinds Python's own binding is defined for are admitted; a tool
+whose body is anything else is refused rather than bound by its own code.
+
 The refusal table in :func:`refuse_delegate_dispatch` is kept as well, and is
 deliberately *not* the load-bearing part. It fails a tool closed at wrap time and
 again per call, which turns a hostile tool into an error rather than a silent
@@ -39,10 +52,21 @@ hold even when nothing is refused.
 
 **What is still not claimed.** A snapshot pins the *code* a tool will run, not
 the state that code reads: a body that consults a mutable attribute of its own
-object is fingerprinted by its code, and the code is what executes. That is the
-same declared-identity boundary
-:mod:`~zeroth.integrations.langgraph._tool_fingerprint` documents, and it is the
-boundary the cookbook discloses.
+object is fingerprinted by its code, and the code is what executes. Three things
+are on the state side of that line and are named here so they are read as the
+disclosed boundary rather than found as the next omission: a rebuilt function
+keeps its **closure cells and its module globals** by reference, so a body that
+reads either reads whatever they hold when it runs -- rebinding them would give
+a tool a frozen copy of the world and break every tool that keeps state
+anywhere; a bound body keeps the **instance** it was
+bound to, because binding it to a copy would make a tool's own state invisible to
+its own next call; and a **callable object** or ``functools.partial`` is captured
+as it is, so a body that delegates to a mutable attribute of its own instance is
+governed by the code of that ``__call__`` and not by the attribute. All three are
+the same declared-identity boundary
+:mod:`~zeroth.integrations.langgraph._tool_fingerprint` documents -- identity
+covers a tool's implementation, not its configuration -- and it is the boundary
+the cookbook discloses.
 """
 
 from __future__ import annotations
@@ -257,19 +281,27 @@ def refuse_delegate_dispatch(delegate: Any) -> None:
 class ToolSnapshot:
     """One tool's body and surface, captured by value before any caller code ran.
 
-    Everything a governed call needs after this point comes from here. The
-    delegate is kept only to bind a ``_run`` that was defined as a method, and is
-    never read for a body, a surface or a hook.
+    Everything a governed call needs after this point comes from here, and
+    **nothing here is produced by running the delegate's code.** The snapshot used
+    to carry the delegate itself so that execution could bind a method body with
+    ``implementation.__get__(delegate, kind)`` -- one call into delegate-written
+    code, made after the classifier, the contract resolver and the decision
+    client had all run, deciding what the authorized call would invoke. The
+    binding is now done by :func:`types.MethodType` inside :func:`snapshot_tool`,
+    so the field has no reader left and is gone with it. A bound body still holds
+    the instance it was bound to, which is the tool's own state and the declared
+    boundary this module documents; what it does not hold is a route back into
+    the delegate's *code*.
 
     Attributes:
         kind: The delegate's class, as the fingerprint records it.
         name: The declared name.
         description: The declared description.
         args_schema: The declared schema, which the wrapper parses against.
-        bodies: Every implementation slot found, by name -- the material the
-            fingerprint digests and the material execution runs.
+        bodies: Every implementation slot found, by name, already frozen and
+            already bound -- the material the fingerprint digests and the exact
+            material execution runs.
         carried: The output-shaping fields the executing tool needs.
-        delegate: The original, for binding a method body and nothing else.
     """
 
     kind: Any
@@ -278,7 +310,63 @@ class ToolSnapshot:
     args_schema: Any
     bodies: Mapping[str, Any]
     carried: Mapping[str, Any]
-    delegate: Any
+
+
+def _is_framework_boilerplate(implementation: Any, method: str) -> bool:
+    """Report whether *implementation* is ``langchain_core``'s own ``_run``/``_arun``.
+
+    Framework boilerplate is not a body and must never be captured as one.
+    ``BaseTool._arun`` re-dispatches to ``self._run`` when it is called, so a
+    snapshot that carried it would hold a body that resolves itself through the
+    delegate at execution time -- exactly the hole every other line here closes.
+    The check is by identity against the two classes governance reads, so a
+    subclass that overrides ``_arun`` with its own implementation is a body and
+    is captured as one.
+    """
+    return any(
+        implementation is static_class_attribute(source, method)
+        for source in (BaseTool, StructuredTool)
+    )
+
+
+def _bound_method_body(implementation: Any, delegate: Any, kind: Any, method: str) -> Any:
+    """Freeze one class-defined body and bind it, before any caller code has run.
+
+    Binding is the step that used to be delegate-controlled: execution called
+    ``implementation.__get__(delegate, kind)``, and a ``_run`` that is an object
+    with a ``__call__`` and a ``__get__`` is fingerprinted through the first and
+    invoked through the second, so it could answer identity with one body and
+    execution with another. Python's own binding for the three descriptor kinds
+    below is not code the delegate wrote, so it is performed here -- once, before
+    the classifier, the contract resolver and the decision client -- and the
+    result is what both the fingerprint and the call see.
+
+    Args:
+        implementation: The ``_run``/``_arun`` read statically off the class.
+        delegate: The tool an instance method is bound to.
+        kind: The tool's class, which a ``classmethod`` binds to instead.
+        method: The slot name, for the refusal message.
+
+    Returns:
+        The frozen, already-bound callable for that slot.
+
+    Raises:
+        UnstableToolIdentityError: If the body is any other shape. Refusing costs
+            no tool that a person wrote -- a method, a ``staticmethod`` and a
+            ``classmethod`` are what a ``BaseTool`` subclass declares -- and
+            admitting the rest would mean running the delegate's binding code to
+            find out what governance had just authorized.
+    """
+    if type(implementation) is types.FunctionType:
+        return types.MethodType(snapshot_callable(implementation), delegate)
+    if type(implementation) is staticmethod:
+        return snapshot_callable(implementation.__func__)
+    if type(implementation) is classmethod:
+        return types.MethodType(snapshot_callable(implementation.__func__), kind)
+    raise UnstableToolIdentityError(
+        f"this tool keeps its body behind a descriptor governance cannot bind "
+        f"without executing the tool's own code: {method}"
+    )
 
 
 def snapshot_tool(delegate: Any) -> ToolSnapshot:
@@ -290,6 +378,13 @@ def snapshot_tool(delegate: Any) -> ToolSnapshot:
     otherwise move the body in that window and have it execute under the
     identity that was pinned before it moved.
 
+    Every slot is captured **as a value**: a field body is rebuilt by
+    :func:`snapshot_callable`, and a class-defined body is frozen the same way
+    and then bound here rather than at execution time. Reading a slot and keeping
+    the object it held was never enough -- the object stays put while its
+    ``__code__`` is replaced -- and binding at execution time handed the delegate
+    one last chance to choose the callee after the decision had been made.
+
     Args:
         delegate: The tool being governed.
 
@@ -298,7 +393,9 @@ def snapshot_tool(delegate: Any) -> ToolSnapshot:
 
     Raises:
         UnstableToolIdentityError: If the tool dispatches through anything
-            governance cannot read past. See :func:`refuse_delegate_dispatch`.
+            governance cannot read past (see :func:`refuse_delegate_dispatch`),
+            or keeps a body behind a descriptor that would have to run its own
+            code to be bound (see :func:`_bound_method_body`).
     """
     refuse_delegate_dispatch(delegate)
     kind = type(delegate)
@@ -306,11 +403,12 @@ def snapshot_tool(delegate: Any) -> ToolSnapshot:
     for field in _BODY_FIELDS:
         body = static_instance_field(delegate, field)
         if body is not None:
-            bodies[field] = body
+            bodies[field] = snapshot_callable(body)
     for method in _BODY_METHODS:
         implementation = static_class_attribute(kind, method)
-        if implementation is not None:
-            bodies[method] = implementation
+        if implementation is None or _is_framework_boilerplate(implementation, method):
+            continue
+        bodies[method] = _bound_method_body(implementation, delegate, kind, method)
     return ToolSnapshot(
         kind=kind,
         name=static_instance_field(delegate, "name"),
@@ -322,31 +420,24 @@ def snapshot_tool(delegate: Any) -> ToolSnapshot:
             for field in _CARRIED_FIELDS
             if static_instance_field(delegate, field) is not None
         },
-        delegate=delegate,
     )
 
 
 def _snapshot_body(snapshot: ToolSnapshot, field: str, method: str) -> Any:
     """Pick the callable that runs one half of a snapshot, sync or async.
 
-    A ``func``/``coroutine`` field wins, because that is where a
-    ``StructuredTool`` keeps the body and it was captured by value. Failing that,
-    a ``_run``/``_arun`` **the tool's own class defined** is bound to the
-    delegate. ``BaseTool``'s own boilerplate is not a body and is skipped
-    deliberately: its ``_arun`` re-dispatches to ``self._run`` at call time, so
-    treating it as the async body would reopen exactly the hole the snapshot
-    closes.
+    Both candidates were frozen and bound when the snapshot was taken, so this is
+    a choice between two values and nothing more: a ``func``/``coroutine`` field
+    wins because that is where a ``StructuredTool`` keeps its body, and a
+    ``_run``/``_arun`` the tool's own class defined stands in when there is no
+    field. Framework boilerplate never reaches here -- it is not captured -- so
+    the absence of both is a tool with no body rather than a tool whose body is
+    somebody else's ``_arun``.
     """
     body = snapshot.bodies.get(field)
     if body is not None:
         return body
-    implementation = snapshot.bodies.get(method)
-    if implementation is None or any(
-        implementation is static_class_attribute(source, method)
-        for source in (BaseTool, StructuredTool)
-    ):
-        return None
-    return implementation.__get__(snapshot.delegate, snapshot.kind)
+    return snapshot.bodies.get(method)
 
 
 def executing_tool(snapshot: ToolSnapshot) -> BaseTool:
@@ -402,19 +493,33 @@ def executing_tool(snapshot: ToolSnapshot) -> BaseTool:
 
 
 def snapshot_callable(target: Any) -> Any:
-    """Return a body for a plain callable that a later mutation cannot move.
+    """Return a body that a later mutation cannot move, for any callable.
 
-    The callable surface has no ``model_copy`` and no instance dictionary to
-    shadow, and ``govern_tools`` closes over its target rather than publishing a
-    handle to it -- so the analogous vector is not substitution of the object but
-    mutation of the code inside it: ``target.__code__ = other`` swaps the body
-    while the closed-over reference, the signature and the surface all stay put.
+    The vector this answers is not substitution of the object but mutation of the
+    code inside it: ``target.__code__ = other`` swaps the body while the
+    closed-over reference, the field that held it, the signature and the whole
+    surface stay put. Every route into this module now passes through here --
+    ``govern_tools``'s plain-callable surface, a ``StructuredTool``'s ``func`` and
+    ``coroutine`` fields, and the ``_run``/``_arun`` a subclass defines -- because
+    a mutation the callable surface was rebuilt against was equally available on
+    the tool surface, which was not.
 
-    A plain function is therefore rebuilt from its own parts, so the governed
-    wrapper holds a function whose ``__code__`` nothing else has a reference to.
-    Anything else -- a bound method, a ``functools.partial``, a callable object --
-    is returned unchanged: its body is not reachable through a single writable
-    ``__code__``, and rebuilding it would change what it is.
+    A plain function is rebuilt from its own parts, so the governed wrapper holds
+    a function whose ``__code__`` nothing else has a reference to. A **bound
+    method** is rebuilt the same way and re-bound to the same instance: it is the
+    shape a tool built from ``StructuredTool.from_function(func=obj.run)`` holds,
+    and ``obj.run`` is one ``__code__`` assignment away from being another body.
+    Re-binding to the *same* instance is deliberate -- an object's attributes are
+    the state its body reads, and binding a copy would hide a tool's own state
+    from its own next call.
+
+    A ``functools.partial`` and a callable object are returned unchanged, which is
+    the disclosed boundary rather than an omission: their implementation is the
+    code of the ``func`` or the ``__call__`` that the fingerprint already walks,
+    and an instance that delegates to a mutable attribute of its own is a tool
+    whose *configuration* moved, not one whose code did. Identity covers the
+    implementation; :mod:`~zeroth.integrations.langgraph._tool_fingerprint` says
+    so, and the cookbook discloses it.
 
     Args:
         target: The callable being governed.
@@ -422,6 +527,11 @@ def snapshot_callable(target: Any) -> Any:
     Returns:
         The callable to execute for every governed call.
     """
+    if type(target) is types.MethodType:
+        function = target.__func__
+        if type(function) is not types.FunctionType:
+            return target
+        return types.MethodType(snapshot_callable(function), target.__self__)
     if type(target) is not types.FunctionType:
         return target
     rebuilt = types.FunctionType(

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.1] - 2026-07-27
+
+### Fixed
+
+- Freeze every captured tool body **by value**, and bind a class-defined one **before**
+  any caller-supplied code runs. The snapshot that closed the moved-field vector still
+  stored the delegate's own callables, so `body.__code__ = other` swapped what executed
+  while the field, the signature and the snapshot itself all stayed put — half-covered by
+  chance on the plain-callable surface, which rebuilt functions, and not covered at all
+  on the `BaseTool` surface, which froze nothing. Every captured slot is now rebuilt
+  through `snapshot_callable`, bound methods included, so the wrapper holds code nothing
+  else has a reference to.
+- Move method binding out of execution and into the snapshot. A `_run` used to be bound
+  by calling the delegate's own `__get__` *after* the side-effect classifier, the
+  contract resolver and the decision client had run, and a descriptor that is
+  fingerprinted through `__call__` and invoked through `__get__` could answer the two
+  reads with two different bodies. Only a plain function, a `staticmethod` and a
+  `classmethod` are admitted — what a hand-written tool actually declares — and any other
+  descriptor is refused with `UnstableToolIdentityError` rather than bound by its own
+  code. `langchain_core`'s own `_run`/`_arun` boilerplate is still skipped rather than
+  captured, so an ordinary tool never reaches that refusal. `ToolSnapshot.delegate` is
+  gone with its only reader: no delegate-written code runs after authorization to produce
+  the body. Both vectors are proved on all four driver combinations — `govern_tools` and
+  `ZerothMiddleware`, sync and async.
+
 ## [0.13.14] - 2026-07-27
 
 ### Fixed
