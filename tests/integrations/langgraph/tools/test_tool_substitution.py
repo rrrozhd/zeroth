@@ -134,6 +134,15 @@ ALLOW = ToolDecision(kind=ToolDecisionKind.ALLOW, reason_code="unknown_error")
 SAFE = "safe-result"
 EVIL = "evil-result"
 
+BOUND = "bound-keyword:"
+"""What a ``functools.partial``'s bound keyword prefixes its result with.
+
+A ``partial``'s bound arguments are its *state*, and rebuilding one around a
+frozen function is a rebuild that could silently drop them. The control asserts
+this string arrives, so "the partial still executes" cannot pass while the
+configuration that made it a distinct tool has been thrown away.
+"""
+
 REFUSED = (UnstableToolIdentityError, ToolGovernanceError)
 """What a governed call may raise when it will not vouch for the body.
 
@@ -836,15 +845,21 @@ def _config_in_a_partial_field(log: list[Any]) -> BaseTool:
     parameter's name -- a mapping that carries the run's whole callback manager,
     among everything else, and that no policy inspected.
 
-    A ``functools.partial`` is the shape that reaches the injection today, and the
-    reason is worth writing down: ``snapshot_callable`` rebuilds a plain function
-    from its own parts and the rebuilt object carries no ``__annotations__``, so
-    the framework's hint lookup comes up empty *by accident*. A partial is returned
-    unchanged -- the module says so, and says why -- and ``_get_type_hints``
-    unwraps it to the annotated function underneath. The annotation must also
-    resolve against this module's globals, since ``from __future__ import
-    annotations`` makes every annotation a string; that is why ``RunnableConfig``
-    is imported at module level rather than under ``TYPE_CHECKING``.
+    A ``functools.partial`` is the shape that reached the injection when this probe
+    was written, and the reason is worth keeping straight because it has since
+    changed underneath it. ``snapshot_callable`` rebuilds a plain function from its
+    own parts and the rebuilt object carries no ``__annotations__``, so the
+    framework's hint lookup comes up empty *by accident*; a partial used to be
+    returned unchanged, so ``_get_type_hints`` unwrapped it to the annotated
+    function underneath and the accident did not apply. C5-1 closed that -- a
+    partial is now rebuilt around a frozen ``func``, and the annotations go the
+    same way the plain function's do -- so this shape is covered twice over rather
+    than once. The probe stays exactly as it is: the property asserted is "no value
+    the policy never saw reaches the body", which must hold however the framework's
+    hint lookup happens to come out. The annotation must still resolve against this
+    module's globals, since ``from __future__ import annotations`` makes every
+    annotation a string; that is why ``RunnableConfig`` is imported at module level
+    rather than under ``TYPE_CHECKING``.
     """
 
     def body(prefix: str, items: list[str], config: RunnableConfig = NOT_INJECTED) -> str:  # type: ignore[assignment]
@@ -1096,6 +1111,297 @@ def test_a_variadic_callable_is_decided_on_the_shape_its_call_had(
 
 
 # --------------------------------------------------------------------------- #
+# C5-1: the snapshot froze the outermost callable and nothing it had captured.
+# --------------------------------------------------------------------------- #
+
+
+def _mutating_classifier(mutate: Any) -> Any:
+    """Build a side-effect resolver that runs *mutate* when it is consulted.
+
+    :func:`_code_swapping_classifier` generalized to the vectors below, which move
+    something other than a function's own ``__code__``: the function inside a
+    ``partial``, the contents of a closure cell, an entry in the mapping a body's
+    keyword defaults live in. The window is the one every probe in this file uses
+    -- caller-supplied code the wrapper invokes after identity has been pinned and
+    before the body runs -- and so is the discipline: not one object the snapshot
+    recorded is replaced, only something *inside* one.
+    """
+
+    def classify(_target: object) -> SideEffectClass:
+        """Classify read-only, and move the captured implementation on the way past."""
+        mutate()
+        return SideEffectClass.READ_ONLY
+
+    return classify
+
+
+def _cell_holding(function: Any, name: str) -> Any:
+    """Return the closure cell *function* reads *name* out of.
+
+    Positional: a function's ``__closure__`` is ordered by ``co_freevars``, and
+    the attacker needs the one cell rather than all of them, because rebinding
+    every cell would also move the counters the assertion reads.
+    """
+    return function.__closure__[function.__code__.co_freevars.index(name)]
+
+
+def _a_partial_bodied_tool(safe: Counter, evil: Counter) -> tuple[Any, Any, Any]:
+    """Build a ``partial``-bodied tool whose underlying function's code can be swapped.
+
+    ``functools.partial`` is one of the two shapes the snapshot used to return
+    unchanged, so the ``partial`` the snapshot held and the ``partial`` the
+    attacker reaches through were the same object -- and ``partial.func`` is a
+    plain function, whose ``__code__`` is assignable exactly as every other body
+    in this file is. Nothing about the ``partial`` itself moves: same object, same
+    ``func`` attribute, same bound keyword, different code underneath.
+
+    The bound keyword is not decoration. It is the *state* half of the same
+    object, recorded by value in ``_partial_material``, and the control below
+    asserts it still arrives -- a rebuild that dropped it would turn this vector
+    into a broken tool rather than a governed one.
+
+    Returns:
+        The tool, the function the ``partial`` wraps, and the body to swap in.
+    """
+    counters = {"safe": safe, "evil": evil}
+
+    def declared(query: str, prefix: str) -> str:
+        """Count the authorized execution."""
+        return f"{prefix}{counters['safe'].run(query=query)}"
+
+    def substituted(query: str, prefix: str) -> str:
+        """Count an execution nothing authorized."""
+        return f"{prefix}{counters['evil'].run(query=query)}"
+
+    tool = StructuredTool.from_function(
+        func=functools.partial(declared, prefix=BOUND),
+        name="search",
+        description="Search.",
+        args_schema=Args,
+    )
+    return tool, declared, substituted
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_partials_underlying_code_cannot_be_swapped_after_the_decision(driver: Any) -> None:
+    """A ``partial`` whose ``func`` moved after identity was pinned must not run under it.
+
+    The ``partial`` reaches all four tool drivers as a ``StructuredTool``'s
+    ``func`` field, which is the shape a caller writes when a tool is one
+    configured variant of a general body.
+    """
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    tool, declared, substituted = _a_partial_bodied_tool(safe, evil)
+    assert_safe_or_refused(
+        driver, tool, safe, evil, side_effect=_code_swapping_classifier(declared, substituted)
+    )
+
+
+def _a_callable_object_body(safe: Counter, evil: Counter) -> tuple[Any, Any, Any]:
+    """Build an instance whose ``__call__`` is its implementation, and a body to swap in.
+
+    The other shape the snapshot returned unchanged. Its code is not in a field at
+    all: ``type(obj).__call__`` is where the fingerprint reads it from and where
+    execution dispatches to, so one ``__code__`` assignment on the class moves
+    what runs while the instance, its attributes and the field holding it stay
+    exactly as the snapshot found them.
+
+    Both bodies close over one ``counters`` mapping defined in this scope, for the
+    reason :func:`_shared_cell_bodies` gives: the incoming code resolves its free
+    variables against the *declared* function's cells.
+
+    Returns:
+        The instance, the ``__call__`` that will be mutated, and the body to swap in.
+    """
+    counters = {"safe": safe, "evil": evil}
+
+    class Body:
+        """A tool whose implementation is its type's ``__call__``, not a function field."""
+
+        name = "search"
+        description = "Search."
+        args_schema = Args
+
+        def __call__(self, query: str, **_kwargs: Any) -> str:
+            """Count the authorized execution."""
+            return counters["safe"].run(query=query)
+
+    def substituted(_self: Any, query: str, **_kwargs: Any) -> str:
+        """Count an execution nothing authorized."""
+        return counters["evil"].run(query=query)
+
+    return Body(), Body.__call__, substituted
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_callable_objects_call_code_cannot_be_swapped_after_the_decision(driver: Any) -> None:
+    """A callable object whose ``__call__`` moved after identity was pinned must not run."""
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    body, declared, substituted = _a_callable_object_body(safe, evil)
+    tool = StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=Args
+    )
+    assert_safe_or_refused(
+        driver, tool, safe, evil, side_effect=_code_swapping_classifier(declared, substituted)
+    )
+
+
+def test_a_callable_object_governed_directly_cannot_have_its_call_swapped() -> None:
+    """The same vector on the surface a callable object is handed to on its own.
+
+    ``drive_callable`` only: the plain-callable surface picks its async half by
+    ``inspect.iscoroutinefunction(target)``, which is ``False`` for an instance
+    whatever its ``__call__`` is, so there is no async variant of *this* shape to
+    reach -- the async half of the same freeze runs under ``wrapper-async`` above.
+    """
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    body, declared, substituted = _a_callable_object_body(safe, evil)
+    assert_safe_or_refused(
+        drive_callable,
+        body,
+        safe,
+        evil,
+        args=dict(DEFAULT_ARGS),
+        side_effect=_code_swapping_classifier(declared, substituted),
+    )
+
+
+def _a_body_that_calls_a_helper(safe: Counter, evil: Counter) -> tuple[Any, Any]:
+    """Build a body that calls a helper it closes over, and a helper to rebind in.
+
+    A cell is not a value either. The rebuilt function used to be handed the
+    delegate's own ``__closure__`` tuple, so ``cell.cell_contents = other`` moved
+    the body's callee without touching the function, the field or any ``__code__``
+    the snapshot had rebuilt.
+
+    This is the cell shape the fingerprint *follows* -- ``_cell_material`` recurses
+    into a cell holding a function, because that is where a decorated tool's real
+    body lives -- so it is implementation by the same rule that makes it
+    substitutable.
+
+    Returns:
+        The declared body, and the helper to rebind its cell to.
+    """
+
+    def helper(query: str) -> str:
+        """Count the authorized execution."""
+        return safe.run(query=query)
+
+    def substituted(query: str) -> str:
+        """Count an execution nothing authorized."""
+        return evil.run(query=query)
+
+    def declared(query: str, **_kwargs: Any) -> str:
+        """Run whichever helper the closure cell holds when this call is made."""
+        return helper(query)
+
+    return declared, substituted
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_closure_cell_holding_the_helper_cannot_be_rebound_after_the_decision(
+    driver: Any,
+) -> None:
+    """A body whose closed-over helper was rebound after the decision must not run it."""
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    declared, substituted = _a_body_that_calls_a_helper(safe, evil)
+    tool = StructuredTool.from_function(
+        func=declared, name="search", description="Search.", args_schema=Args
+    )
+    cell = _cell_holding(declared, "helper")
+
+    def rebind() -> None:
+        """Point the cell the snapshot shares at a body nothing authorized."""
+        cell.cell_contents = substituted
+
+    assert_safe_or_refused(driver, tool, safe, evil, side_effect=_mutating_classifier(rebind))
+
+
+def _a_body_that_runs_code_it_closes_over(safe: Counter, evil: Counter) -> tuple[Any, Any]:
+    """Build a body that executes a code object out of a cell, and code to rebind in.
+
+    The second cell shape ``_is_implementation`` admits, and the one that shows the
+    vector is about the *cell* rather than about mutability: a code object cannot
+    be mutated at all, so freezing what the cell holds would close nothing. What
+    has to move is the cell.
+
+    The two code objects are compiled at module scope rather than closed over, so
+    each resolves ``counters`` and ``query`` out of the mapping ``exec`` is handed
+    -- there are no free variables to mis-resolve against the declared body's own
+    cells, which is the trap :func:`_shared_cell_bodies` documents.
+
+    Returns:
+        The declared body, and the code object to rebind its cell to.
+    """
+    counters = {"safe": safe, "evil": evil}
+    chosen = compile("result = counters['safe'].run(query=query)", "<declared>", "exec")
+    substituted = compile("result = counters['evil'].run(query=query)", "<substituted>", "exec")
+
+    def declared(query: str, **_kwargs: Any) -> str:
+        """Materialize and run whatever code object the closure cell holds."""
+        scope: dict[str, Any] = {"counters": counters, "query": query}
+        exec(chosen, scope)
+        return str(scope["result"])
+
+    return declared, substituted
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_closure_cell_holding_code_cannot_be_rebound_after_the_decision(driver: Any) -> None:
+    """A body whose closed-over code object was rebound after the decision must not run it."""
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    declared, substituted = _a_body_that_runs_code_it_closes_over(safe, evil)
+    tool = StructuredTool.from_function(
+        func=declared, name="search", description="Search.", args_schema=Args
+    )
+    cell = _cell_holding(declared, "chosen")
+
+    def rebind() -> None:
+        """Point the cell the snapshot shares at code nothing authorized."""
+        cell.cell_contents = substituted
+
+    assert_safe_or_refused(driver, tool, safe, evil, side_effect=_mutating_classifier(rebind))
+
+
+def _a_body_with_a_keyword_default(safe: Counter, evil: Counter) -> Any:
+    """Build a body whose keyword default decides which counter it runs.
+
+    ``__kwdefaults__`` is a *mutable mapping* the rebuilt function used to be
+    handed by reference, so one ``__setitem__`` on the delegate's own function
+    changed a value the executing body materializes for itself -- no field moved,
+    no ``__code__`` moved, and the mapping the fingerprint read is the mapping the
+    call now resolves against.
+
+    The tool surface materializes this default in the body rather than in the
+    binding: only the plain-callable surface binds a signature and applies
+    defaults, so this is the vector's own shape rather than a restatement of C4-4.
+    """
+    counters = {"safe": safe, "evil": evil}
+
+    def declared(query: str, *, counter: str = "safe", **_kwargs: Any) -> str:
+        """Run whichever counter this body's own keyword default names."""
+        return counters[counter].run(query=query)
+
+    return declared
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_keyword_default_cannot_be_rewritten_after_the_decision(driver: Any) -> None:
+    """A body whose keyword default was rewritten after the decision must not run on it."""
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    declared = _a_body_with_a_keyword_default(safe, evil)
+    tool = StructuredTool.from_function(
+        func=declared, name="search", description="Search.", args_schema=Args
+    )
+
+    def rewrite() -> None:
+        """Rewrite the mapping the executing body's default is read out of."""
+        declared.__kwdefaults__["counter"] = "evil"
+
+    assert_safe_or_refused(driver, tool, safe, evil, side_effect=_mutating_classifier(rewrite))
+
+
+# --------------------------------------------------------------------------- #
 # The controls: the hardening must not refuse the tools it exists to govern.
 # --------------------------------------------------------------------------- #
 
@@ -1164,3 +1470,109 @@ def test_a_plain_subclass_of_base_tool_still_executes(driver: Any) -> None:
     result = driver(Direct())
     assert safe.calls == 1
     assert SAFE in str(result)
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_partial_bodied_tool_still_executes(driver: Any) -> None:
+    """A ``functools.partial`` is an admitted shape and must still run, keywords intact.
+
+    The positive control the hostile ``partial`` probe cannot supply:
+    :func:`assert_safe_or_refused` passes when the tool is *refused*, so on its own
+    it cannot tell a closed vector from a shape that stopped executing at all. This
+    asserts the authorized body ran **and** that the bound keyword reached it,
+    which is what a rebuild around a frozen function is most likely to lose.
+    """
+    safe = Counter(SAFE)
+    tool, _declared, _substituted = _a_partial_bodied_tool(safe, Counter(EVIL))
+    result = driver(tool)
+    assert safe.calls == 1
+    assert BOUND in str(result), f"the partial's bound keyword did not reach the body: {result!r}"
+    assert SAFE in str(result)
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_callable_object_bodied_tool_still_executes(driver: Any) -> None:
+    """A callable object is an admitted shape and must still run, on its own instance.
+
+    The instance matters as much as the code: ``type(obj).__call__`` is frozen and
+    re-bound to *this* object, so a body reading its own attributes still reads
+    them. Binding a copy would hide a tool's state from its own call.
+    """
+    safe = Counter(SAFE)
+    body, _declared, _substituted = _a_callable_object_body(safe, Counter(EVIL))
+    tool = StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=Args
+    )
+    result = driver(tool)
+    assert safe.calls == 1
+    assert SAFE in str(result)
+
+
+def test_a_callable_object_governed_directly_still_executes() -> None:
+    """The same control on the surface a callable object is handed to on its own."""
+    safe = Counter(SAFE)
+    body, _declared, _substituted = _a_callable_object_body(safe, Counter(EVIL))
+    result = drive_callable(body, args=dict(DEFAULT_ARGS))
+    assert safe.calls == 1
+    assert SAFE in str(result)
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_body_that_closes_over_a_helper_still_calls_it(driver: Any) -> None:
+    """Freezing a cell's implementation must leave the body able to call it.
+
+    The over-freezing control for the closure walk. A cell holding a function is
+    followed and frozen, so what the body calls is a *copy* of its helper -- and a
+    copy that could not be called, or that was replaced by something inert, would
+    make every decorated tool in the world refuse.
+    """
+    safe = Counter(SAFE)
+    declared, _substituted = _a_body_that_calls_a_helper(safe, Counter(EVIL))
+    tool = StructuredTool.from_function(
+        func=declared, name="search", description="Search.", args_schema=Args
+    )
+    result = driver(tool)
+    assert safe.calls == 1
+    assert SAFE in str(result)
+
+
+def _a_body_that_counts_its_own_calls(seen: list[int]) -> Any:
+    """Build a body that rebinds a closed-over counter on every call.
+
+    ``nonlocal`` is the sharp case, sharper than an object mutated in place: a
+    rebind writes to the *cell*, so a snapshot that gave the body a fresh cell
+    would leave every call writing into a copy the next snapshot never reads. The
+    tool would count one invocation forever and never know it.
+    """
+    counted = 0
+
+    def declared(query: str, **_kwargs: Any) -> str:
+        """Advance this tool's own state and report where it got to."""
+        nonlocal counted
+        counted += 1
+        seen.append(counted)
+        return f"{SAFE}:{counted}"
+
+    return declared
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_body_that_keeps_state_still_sees_it_on_its_next_call(driver: Any) -> None:
+    """Freezing implementation must not freeze the state a tool keeps between calls.
+
+    The other over-freezing control, and the one that decides the whole shape of
+    the closure walk: only a cell whose contents are *implementation* is detached.
+    A cell holding state stays the delegate's own, because an identity that gave
+    each call a fresh copy of the world would break every tool that remembers
+    anything.
+    """
+    seen: list[int] = []
+    tool = StructuredTool.from_function(
+        func=_a_body_that_counts_its_own_calls(seen),
+        name="search",
+        description="Search.",
+        args_schema=Args,
+    )
+    driver(tool)
+    driver(tool)
+    assert seen == [1, 2], f"the tool did not see its own state on its second call: {seen!r}"

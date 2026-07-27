@@ -66,20 +66,34 @@ substitution; but a fix that consisted only of refusals would be the fourth
 version of a list somebody walks around. The snapshot is what makes the guarantee
 hold even when nothing is refused.
 
+"By value" reaches everything a body *captured*, too. Rebuilding the outermost
+callable and handing it the delegate's own closure tuple, keyword-default mapping
+and ``partial`` left four ways to move what runs without moving anything the
+snapshot points at: ``partial.func.__code__``, ``type(obj).__call__.__code__``, a
+closure cell rebound to another function or another code object, and a keyword
+default rewritten in the mapping the body resolves against. The walk in
+:func:`snapshot_callable` therefore descends -- through exactly the shapes
+:mod:`~zeroth.integrations.langgraph._tool_fingerprint` walks as implementation,
+because it imports that module's own predicate to decide.
+
 **What is still not claimed.** A snapshot pins the *code* a tool will run, not
 the state that code reads: a body that consults a mutable attribute of its own
-object is fingerprinted by its code, and the code is what executes. Three things
+object is fingerprinted by its code, and the code is what executes. Four things
 are on the state side of that line and are named here so they are read as the
 disclosed boundary rather than found as the next omission: a rebuilt function
-keeps its **closure cells and its module globals** by reference, so a body that
-reads either reads whatever they hold when it runs -- rebinding them would give
-a tool a frozen copy of the world and break every tool that keeps state
-anywhere; a bound body keeps the **instance** it was
-bound to, because binding it to a copy would make a tool's own state invisible to
-its own next call; and a **callable object** or ``functools.partial`` is captured
-as it is, so a body that delegates to a mutable attribute of its own instance is
-governed by the code of that ``__call__`` and not by the attribute. All three are
-the same declared-identity boundary
+keeps its **module globals** by reference, and keeps every **closure cell that
+holds state** -- only a cell holding implementation is detached -- so a body that
+rebinds a counter or reads a client goes on reading whatever it holds when it
+runs, because rebinding those would give a tool a frozen copy of the world and
+break every tool that keeps state anywhere; a bound body keeps the **instance**
+it was bound to, and a callable object's frozen ``__call__`` is re-bound to that
+same instance, because binding to a copy would make a tool's own state invisible
+to its own next call; a ``functools.partial``'s **bound arguments** are carried
+across as the values they are, so a ``partial`` over a mutable client is governed
+by the code of its ``func`` and not by what that client does next; and an
+instance that **delegates to a mutable attribute of its own** is a tool whose
+configuration moved, not one whose code did. All four are the same
+declared-identity boundary
 :mod:`~zeroth.integrations.langgraph._tool_fingerprint` documents -- identity
 covers a tool's implementation, not its configuration -- and it is the boundary
 the cookbook discloses.
@@ -99,6 +113,7 @@ verdict and the call.
 
 from __future__ import annotations
 
+import functools
 import types
 from abc import ABCMeta
 from collections.abc import Mapping
@@ -112,6 +127,18 @@ from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
     UnstableToolIdentityError,
 )
+from zeroth.integrations.langgraph._tool_fingerprint import (
+    _guard_depth,
+    _is_implementation,
+)
+
+# Both are imported rather than restated, and they are the fingerprint's own
+# private names on purpose: what this module must freeze is *exactly* what that
+# one walks as implementation, so the two have to be the same predicate rather
+# than two spellings of one intention that drift apart at the next shape either
+# of them learns about. ``_guard_depth`` carries ``_MAX_MATERIAL_DEPTH`` and the
+# refusal that goes with it, so a self-referential closure terminates here on the
+# same bound and with the same error it terminates on there.
 
 _MRO_OF = type.__dict__["__mro__"].__get__
 """``type``'s own ``__mro__`` descriptor, so a metaclass cannot answer with another list."""
@@ -647,40 +674,219 @@ def snapshot_callable(target: Any) -> Any:
     the state its body reads, and binding a copy would hide a tool's own state
     from its own next call.
 
-    A ``functools.partial`` and a callable object are returned unchanged, which is
-    the disclosed boundary rather than an omission: their implementation is the
-    code of the ``func`` or the ``__call__`` that the fingerprint already walks,
-    and an instance that delegates to a mutable attribute of its own is a tool
-    whose *configuration* moved, not one whose code did. Identity covers the
-    implementation; :mod:`~zeroth.integrations.langgraph._tool_fingerprint` says
-    so, and the cookbook discloses it.
+    **Rebuilding only the outermost callable was half a snapshot.** A body is not
+    only its own ``__code__``: it is also every implementation it captured, and
+    each of those was reached through a container the delegate still held. A
+    ``functools.partial`` was returned as it was, so ``partial.func.__code__``
+    moved what ran; a callable object was returned as it was, so
+    ``type(obj).__call__.__code__`` did; a rebuilt function was handed the
+    delegate's own ``__closure__`` tuple, so ``cell.cell_contents = other`` moved
+    the helper it called; and its ``__kwdefaults__`` was assigned across by
+    reference, so one ``__setitem__`` rewrote a default the executing body
+    materializes for itself. None of the four moves an object the snapshot points
+    at. All four move what it runs.
+
+    **What is frozen is what identity calls implementation, and nothing else.**
+    The line is not drawn again here: ``_is_implementation`` is imported from
+    :mod:`~zeroth.integrations.langgraph._tool_fingerprint`, so the walk descends
+    into exactly the shapes that module walks -- a function, a bound method, a
+    ``partial``, a code object, a ``staticmethod``, a ``classmethod`` -- and stops
+    where it stops. A captured entry is frozen **at its own position only**: a
+    function in a cell, a default or a ``partial``'s keyword is implementation and
+    is detached, while a client object, a mapping or a list is state and is passed
+    through by reference, exactly as ``_bound_material`` records it by value and
+    ``_cell_material`` records it by type. Nothing recurses into a container
+    looking for implementation, because identity does not look there either.
+
+    That rule is what keeps the freeze from becoming the opposite failure. A cell
+    holding **state** stays the delegate's own cell -- a body that rebinds a
+    counter through ``nonlocal`` must still see its own count on its next call,
+    and a fresh cell would give every call a copy of the world. A ``partial``'s
+    bound arguments are copied into the rebuilt one *by reference*: they are the
+    configuration that makes it a distinct tool, they must arrive intact, and the
+    keywords *mapping* is copied so that the mapping cannot be rewritten
+    underneath the call. A callable object's ``__call__`` is resolved statically
+    off its type, frozen, and re-bound to the **same instance**, for the reason a
+    bound method is.
+
+    The recursion is bounded by ``_guard_depth`` -- the fingerprint's own
+    ``_MAX_MATERIAL_DEPTH`` and its own refusal -- so a self-referential closure
+    stops on the bound identity derivation stops on, with the error that surface
+    already raises, rather than recursing until the stack ends.
 
     Args:
         target: The callable being governed.
 
     Returns:
         The callable to execute for every governed call.
+
+    Raises:
+        UnstableToolIdentityError: If the implementation is nested past the
+            fingerprint's depth bound.
     """
-    if type(target) is types.MethodType:
-        function = target.__func__
-        if type(function) is not types.FunctionType:
-            return target
-        return types.MethodType(snapshot_callable(function), target.__self__)
-    if type(target) is not types.FunctionType:
+    return _frozen_implementation(target, 0)
+
+
+def _frozen_implementation(target: Any, depth: int) -> Any:
+    """Return *target* with every implementation it captured detached from the delegate.
+
+    Shape for shape, this is ``_implementation_material``'s walk with a rebuild
+    where that one has a projection, and the correspondence is the completeness
+    argument: a shape identity *walks* and this does not freeze is a body the
+    fingerprint pinned and the delegate can still move, which is the whole of the
+    vector. The one shape that is returned as it is, is the one identity refuses
+    -- a C-implemented ``__call__`` carries no code, so the tool has no
+    fingerprint and is denied a moment later rather than run unfrozen.
+
+    Args:
+        target: The implementation to freeze.
+        depth: How deep in the implementation this value sits.
+
+    Returns:
+        The frozen equivalent, callable exactly as *target* was.
+
+    Raises:
+        UnstableToolIdentityError: If the nesting exceeds the fingerprint's bound.
+    """
+    _guard_depth(depth)
+    kind = type(target)
+    if kind is types.FunctionType:
+        return _frozen_function(target, depth)
+    if kind is types.MethodType:
+        return types.MethodType(
+            _frozen_implementation(target.__func__, depth + 1), target.__self__
+        )
+    if kind is functools.partial:
+        return _frozen_partial(target, depth)
+    if kind is types.CodeType:
         return target
+    if kind is staticmethod:
+        return staticmethod(_frozen_implementation(target.__func__, depth + 1))
+    if kind is classmethod:
+        return classmethod(_frozen_implementation(target.__func__, depth + 1))
+    return _frozen_callable_object(target, depth)
+
+
+def _frozen_capture(value: Any, depth: int) -> Any:
+    """Freeze one captured entry when it is implementation, else keep it as it is.
+
+    The projection ``_bound_material`` makes, inverted: it hands an
+    implementation-typed entry to ``_implementation_material`` and records
+    everything else by value or by type, so an entry it walks as code is one this
+    must detach, and an entry it records as a value is state a tool is entitled to
+    keep. The test is applied at this position and never one level down, because
+    a function inside a list default is not walked by identity either.
+    """
+    if _is_implementation(value):
+        return _frozen_implementation(value, depth + 1)
+    return value
+
+
+def _frozen_cell(cell: Any, depth: int) -> Any:
+    """Return the cell a rebuilt function should close over in place of *cell*.
+
+    A cell holding implementation is replaced by a **new** cell holding the frozen
+    value: the contents are what moves -- ``cell.cell_contents = other`` is an
+    assignment -- so freezing the value alone would close nothing and the cell
+    itself has to stop being shared.
+
+    A cell holding anything else is handed back untouched. That is not a
+    concession: it is the state side of the same line ``_cell_material`` draws by
+    recording a non-implementation cell as a bare type name, and a tool that
+    rebinds a ``nonlocal`` between calls keeps working only because of it.
+
+    An **unbound** cell is also handed back untouched. A fresh cell would have to
+    hold something, and putting ``None`` in it would turn a body's ``NameError``
+    into a silent ``None`` -- a behaviour change, in the one direction this module
+    must never make one.
+    """
+    try:
+        captured = cell.cell_contents
+    except ValueError:
+        return cell
+    if not _is_implementation(captured):
+        return cell
+    return types.CellType(_frozen_implementation(captured, depth + 1))
+
+
+def _frozen_function(target: Any, depth: int) -> Any:
+    """Rebuild a plain function around frozen code, frozen cells and copied defaults.
+
+    ``__globals__`` is deliberately shared. A module's globals are the world a
+    body runs in rather than the body itself -- ``_code_material`` records the
+    *names* a code object reads, never their values -- and rebinding them would
+    hand every tool a frozen copy of its own module.
+    """
+    keyword_defaults = target.__kwdefaults__
+    defaults = target.__defaults__
+    closure = target.__closure__
     rebuilt = types.FunctionType(
         target.__code__,
         target.__globals__,
         target.__name__,
-        target.__defaults__,
-        target.__closure__,
+        None if defaults is None else tuple(_frozen_capture(item, depth) for item in defaults),
+        None if closure is None else tuple(_frozen_cell(cell, depth) for cell in closure),
     )
-    rebuilt.__kwdefaults__ = target.__kwdefaults__
+    rebuilt.__kwdefaults__ = (
+        None
+        if keyword_defaults is None
+        else {key: _frozen_capture(value, depth) for key, value in keyword_defaults.items()}
+    )
     rebuilt.__qualname__ = target.__qualname__
     rebuilt.__doc__ = target.__doc__
     rebuilt.__module__ = target.__module__
     rebuilt.__dict__.update(target.__dict__)
     return rebuilt
+
+
+def _frozen_partial(target: Any, depth: int) -> Any:
+    """Rebuild a ``functools.partial`` around a frozen callable and its own arguments.
+
+    Only ``func`` is implementation. The bound arguments are the configuration
+    that makes ``partial(run, "read")`` a different tool from
+    ``partial(run, "delete")``, they are recorded by value in
+    ``_partial_material``, and they are carried across unchanged -- with the two
+    *containers* rebuilt, so neither the argument tuple nor the keyword mapping the
+    call resolves against is one the delegate can still write into.
+    """
+    return functools.partial(
+        _frozen_implementation(target.func, depth + 1),
+        *(_frozen_capture(item, depth) for item in target.args),
+        **{key: _frozen_capture(value, depth) for key, value in target.keywords.items()},
+    )
+
+
+def _frozen_callable_object(target: Any, depth: int) -> Any:
+    """Bind a frozen copy of an instance's ``__call__`` to that same instance.
+
+    ``__call__`` is read off the **type**, through the same static walk every
+    other read in this module makes, and never through the instance: an object
+    whose ``__getattribute__`` answers the lookup would be choosing its own
+    implementation, which is the vector this module exists to delete.
+
+    The binding then re-applies exactly what CPython applies for the shape found,
+    measured rather than assumed: a plain function is bound to the instance, a
+    ``classmethod`` to the type, and a ``staticmethod``, a ``partial`` or a nested
+    callable object is called with the arguments alone because none of them is a
+    descriptor. The instance is the same one throughout -- its attributes are its
+    state, and a tool that reads its own configuration must go on reading it.
+
+    A ``__call__`` that is not a shape identity can walk -- a slot wrapper, a
+    builtin -- is left alone with the target, which is not a gap: that tool has no
+    fingerprint at all and ``_callable_object_material`` refuses it before it can
+    run.
+    """
+    call = static_class_attribute(type(target), "__call__")
+    if not _is_implementation(call):
+        return target
+    frozen = _frozen_implementation(call, depth + 1)
+    if type(call) is types.FunctionType:
+        return types.MethodType(frozen, target)
+    if type(call) is classmethod:
+        return types.MethodType(frozen.__func__, type(target))
+    if type(call) is staticmethod:
+        return frozen.__func__
+    return frozen
 
 
 __all__ = [

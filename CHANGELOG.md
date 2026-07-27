@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.4] - 2026-07-27
+
+### Fixed
+
+- Freeze what a governed body *captured*, not only the body itself. The snapshot rebuilt the
+  outermost callable and then handed it the delegate's own containers, which left four ways to
+  move what runs without moving anything the snapshot pointed at: a `functools.partial` was
+  returned unchanged, so `partial.func.__code__` swapped the body underneath it; a callable
+  object was returned unchanged, so `type(obj).__call__.__code__` did the same; a rebuilt
+  function received the delegate's own `__closure__` tuple, so `cell.cell_contents = other`
+  replaced the helper it called or the code object it executed; and `__kwdefaults__` was
+  assigned across by reference, so one `__setitem__` rewrote a default the executing body
+  materializes for itself. The snapshot now walks into every shape identity walks — it imports
+  the fingerprint's own `_is_implementation` predicate and `_guard_depth` bound rather than
+  restating either — rebuilding partials around a frozen `func` with copied argument
+  containers, binding a statically resolved frozen `__call__` to the same instance, and giving
+  a rebuilt function new cells for the implementation it closes over.
+- Freezing stops at the line identity draws. A closure cell holding **state** stays the
+  delegate's own cell, so a body that rebinds a counter through `nonlocal` still sees its own
+  count on its next call; a `partial`'s bound arguments and a body's non-implementation
+  defaults are carried across by reference; module globals stay shared; and a frozen `__call__`
+  is re-bound to the same instance, so a tool that reads its own attributes goes on reading
+  them. A `__call__` that is C-implemented is left alone and refused by the fingerprint a
+  moment later, as it always was.
+
 ## [0.13.14.3] - 2026-07-27
 
 ### Fixed
