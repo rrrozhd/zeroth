@@ -54,12 +54,25 @@ The vectors, and why each is a distinct hole rather than a restatement:
   *body's own signature* and injects a callback manager under a declared
   ``callbacks`` parameter and the live run config under a ``RunnableConfig``-
   annotated one; both are values manufactured between the decision and the call.
+* **A value the *signature* materializes, on the plain-callable surface**
+  (:func:`test_a_defaulted_callable_is_decided_on_the_default_it_will_run`,
+  :func:`test_a_defaulted_async_callable_is_decided_on_the_default_it_will_run`
+  and :func:`test_a_variadic_callable_is_decided_on_the_shape_its_call_had`).
+  The same two-reads shape with neither the framework nor the delegate involved:
+  the wrapper bound the call against the callable's own signature to *describe*
+  it and then re-passed the caller's original ``args``/``kwargs`` to *execute*
+  it. A parameter default lives on exactly one of those two sides, so
+  ``remove(path="/danger")`` invoked with no arguments was authorized as ``{}``
+  and ran on ``"/danger"`` -- an empty call decided, a destructive one executed.
 
-The last group is the two-reads shape one layer out from the body: the value
-that was authorized and the value that executes came from two separate reads,
-and the second one was reached through the framework rather than through the
-delegate's attributes. It is closed the same way as the others -- by deleting
-the second read, not by checking it.
+The last two groups are the two-reads shape one layer out from the body: the
+value that was authorized and the value that executes came from two separate
+reads, and the second one was reached through the framework, or through a
+signature, rather than through the delegate's attributes. Both are closed the
+same way as the others -- by deleting the second read, not by checking it. The
+defaults case is deleted by *issuing one call*: the binding is applied to the
+arguments the policy is shown and re-issued as ``bound.args`` /
+``bound.kwargs``, so the body's own defaults are never consulted a second time.
 
 Each vector runs on **both surfaces and both call styles**: ``govern_tools``
 sync and async, ``ZerothMiddleware`` sync and async. A fix that closes only the
@@ -252,6 +265,43 @@ def drive_middleware_async(
     """Run one governed call through ``ZerothMiddleware.awrap_tool_call``."""
     guard = ZerothMiddleware(**_seams(**overrides))
     return asyncio.run(guard.awrap_tool_call(build_request(tool, args), Handler().acall))
+
+
+def drive_callable(
+    target: Any,
+    *,
+    args: Mapping[str, Any] | None = None,
+    positional: tuple[Any, ...] = (),
+    **overrides: Any,
+) -> Any:
+    """Run one governed call through ``govern_tools``' plain-callable surface.
+
+    A fifth driver rather than a branch inside :func:`drive_wrapper`, because a
+    governed callable's whole interface *is* the direct call: ``_govern_callable``
+    returns a function carrying ``name`` / ``description`` / ``args_schema``, and
+    no ``invoke`` for the four tool drivers to reach it through.
+
+    ``args`` defaults to **no arguments at all** rather than to
+    :data:`DEFAULT_ARGS`, which is the opposite of the tool drivers and is the
+    point: the vector this driver exists for is a call that passes nothing and is
+    nevertheless executed with a value. ``positional`` is separate because a
+    mapping cannot express a ``*args`` argument, and the shape of a *non-empty*
+    variadic call is one of the things pinned here.
+    """
+    governed = govern_tools([target], **_seams(**overrides))[0]
+    return governed(*positional, **({} if args is None else args))
+
+
+def drive_callable_async(
+    target: Any,
+    *,
+    args: Mapping[str, Any] | None = None,
+    positional: tuple[Any, ...] = (),
+    **overrides: Any,
+) -> Any:
+    """Run one governed call through the plain-callable surface, asynchronously."""
+    governed = govern_tools([target], **_seams(**overrides))[0]
+    return asyncio.run(governed(*positional, **({} if args is None else args)))
 
 
 WRAPPER_DRIVERS = (drive_wrapper, drive_wrapper_async)
@@ -879,8 +929,199 @@ def test_a_body_declaring_a_framework_parameter_is_not_handed_one(driver: Any, b
 
 
 # --------------------------------------------------------------------------- #
+# C4-4: the signature materialized a value only one of the two reads could see.
+# --------------------------------------------------------------------------- #
+
+
+DANGER = "/danger"
+"""What a defaulted parameter carries when the caller supplies nothing at all.
+
+Destructive on purpose. The finding is not that the policy saw an *incomplete*
+record of the call -- it is that the call it approved and the call that ran were
+two different calls, and the whole of the difference was the argument that does
+the damage.
+"""
+
+
+def _defaulted_sync_callable(log: list[dict[str, Any]]) -> Any:
+    """Build a plain sync callable whose destructive argument lives in its own signature."""
+
+    def remove(path: str = DANGER) -> str:
+        """Record exactly what this execution was handed, and report success."""
+        log.append({"path": path})
+        return f"{SAFE}:{path}"
+
+    return remove
+
+
+def _defaulted_async_callable(log: list[dict[str, Any]]) -> Any:
+    """Build the async twin of :func:`_defaulted_sync_callable`.
+
+    It is governed through a *different* wrapper --
+    ``_async_callable_wrapper``, picked by ``inspect.iscoroutinefunction`` -- which
+    re-passes the caller's arguments on its own line. The two lines are identical
+    and were wrong identically, so covering only the sync half would leave a fix
+    that closed one of two copies of the same bug.
+    """
+
+    async def aremove(path: str = DANGER) -> str:
+        """Record exactly what this execution was handed, and report success."""
+        log.append({"path": path})
+        return f"{SAFE}:{path}"
+
+    return aremove
+
+
+def assert_the_default_was_decided(driver: Any, target: Any, log: list[dict[str, Any]]) -> None:
+    """Assert the policy was shown the value the body is about to be run with.
+
+    Two assertions rather than one, because agreement between the two records is
+    not by itself the property. ``log == recorder.inspected`` holds trivially when
+    both sides are empty, which is what a fix that applied the defaults to
+    *neither* side would produce, so the literal the signature materializes is
+    pinned first and the agreement second.
+
+    The log is read on the refusal branch too, for the reason every helper in this
+    module does it: a body that has already run on an argument nothing authorized
+    has done the damage whatever was raised afterwards.
+    """
+    recorder = Recorder()
+    try:
+        driver(target, args={}, client=recorder)
+    except REFUSED:
+        assert log == [], f"the body ran before the call was refused: {log!r}"
+        return
+    assert recorder.inspected == [{"path": DANGER}], (
+        f"the policy authorized a call it was never shown: it inspected "
+        f"{recorder.inspected!r} while the signature materializes {DANGER!r}"
+    )
+    assert log == recorder.inspected, (
+        f"the body ran on arguments no policy inspected: policy saw "
+        f"{recorder.inspected!r}, body received {log!r}"
+    )
+
+
+def test_a_defaulted_callable_is_decided_on_the_default_it_will_run() -> None:
+    """A parameter default must be part of the call the policy is shown.
+
+    The auditor's probe: ``remove(path="/danger")`` governed and then invoked with
+    **no arguments** was authorized as ``{}`` -- ``signature(target).bind()``
+    materializes nothing on its own -- and executed with ``"/danger"``, because
+    the wrapper re-passed the caller's original ``args`` / ``kwargs`` rather than
+    the binding it had just described to the policy.
+
+    Reached by the plain-callable sync driver only, and that is structural rather
+    than a gap: a governed callable exposes no ``invoke`` for the two tool drivers
+    to enter through, the two middleware drivers decide a ``BaseTool`` carried on
+    a ``ToolCallRequest`` and never touch this binding, and a sync body cannot be
+    awaited. Its async twin is the next test.
+    """
+    log: list[dict[str, Any]] = []
+    assert_the_default_was_decided(drive_callable, _defaulted_sync_callable(log), log)
+
+
+def test_a_defaulted_async_callable_is_decided_on_the_default_it_will_run() -> None:
+    """The same call, through the async half of the callable surface."""
+    log: list[dict[str, Any]] = []
+    assert_the_default_was_decided(drive_callable_async, _defaulted_async_callable(log), log)
+
+
+def _variadic_callable(log: list[dict[str, Any]]) -> Any:
+    """Build a callable carrying a defaulted parameter *and* both variadic ones."""
+
+    def sweep(path: str = DANGER, *extra: str, **rest: Any) -> str:
+        """Record exactly what this execution was handed, and report success."""
+        log.append({"path": path, "extra": list(extra), "rest": dict(rest)})
+        return f"{SAFE}:{path}"
+
+    return sweep
+
+
+VARIADIC_CALLS = (
+    pytest.param(
+        (),
+        {},
+        {"path": DANGER},
+        {"path": DANGER, "extra": [], "rest": {}},
+        id="nothing-given-adds-no-empty-variadic-entries",
+    ),
+    pytest.param(
+        ("/tmp", "x"),
+        {"flag": True},
+        {"path": "/tmp", "extra": ["x"], "rest": {"flag": True}},
+        {"path": "/tmp", "extra": ["x"], "rest": {"flag": True}},
+        id="something-given-keeps-the-nested-shape-it-has-today",
+    ),
+)
+"""The two variadic cells, and what each must leave the decided call looking like.
+
+The first is the regression trap in ``apply_defaults()``: it synthesizes an empty
+tuple under a ``*args`` parameter and an empty dict under a ``**kwargs`` one, and
+letting those through would put ``{"extra": [], "rest": {}}`` into the mapping
+every policy is handed for every variadic tool that exists today -- a different
+decided call, and a different argument fingerprint, for calls nobody changed.
+
+The second pins the shape a *non-empty* variadic call already has: the values stay
+nested under their parameter names rather than being flattened into the mapping.
+Flattening would arguably describe the call better, but it would move the decided
+shape of calls this finding is not about, so it is deliberately not done. The
+tuple reads back as a list because ``canonical_arguments`` projects it that way,
+which is why the body logs ``list(extra)`` and the two records compare equal.
+"""
+
+
+@pytest.mark.parametrize("positional, args, decided, received", VARIADIC_CALLS)
+def test_a_variadic_callable_is_decided_on_the_shape_its_call_had(
+    positional: tuple[Any, ...],
+    args: Mapping[str, Any],
+    decided: Mapping[str, Any],
+    received: Mapping[str, Any],
+) -> None:
+    """Applying the binding's defaults must not invent arguments the call did not make.
+
+    A pin, not a reproduction, and the two cells fail for different reasons. The
+    empty cell is red at the unfixed HEAD on its ``path`` key alone -- that is
+    C4-4 again -- and its ``extra`` / ``rest`` half only becomes falsifiable once
+    the fix is in, which is what a suppression that is later deleted has to be
+    caught by. The non-empty cell is green on both sides of the fix by design:
+    its whole job is to fail if the shape of an existing variadic call ever moves.
+    """
+    log: list[dict[str, Any]] = []
+    recorder = Recorder()
+    drive_callable(_variadic_callable(log), args=args, positional=positional, client=recorder)
+    assert recorder.inspected == [dict(decided)], (
+        f"the decided call was not the one that was made: {recorder.inspected!r}"
+    )
+    assert log == [dict(received)], f"the body was not run with the decided call: {log!r}"
+
+
+# --------------------------------------------------------------------------- #
 # The controls: the hardening must not refuse the tools it exists to govern.
 # --------------------------------------------------------------------------- #
+
+
+CALLABLE_CONTROLS = (
+    pytest.param(drive_callable, _defaulted_sync_callable, id="callable-sync"),
+    pytest.param(drive_callable_async, _defaulted_async_callable, id="callable-async"),
+)
+"""The plain-callable surface's two halves, each with a body its driver can run."""
+
+
+@pytest.mark.parametrize("driver, build", CALLABLE_CONTROLS)
+def test_an_ordinary_callable_still_executes_under_the_hardened_path(
+    driver: Any, build: Any
+) -> None:
+    """The control for the callable surface, which the four tool drivers never reach.
+
+    Re-issuing the decided call as ``bound.args`` / ``bound.kwargs`` turns a
+    caller's keyword argument into a positional one for every
+    positional-or-keyword parameter, so "the argument still arrives" is exactly
+    the thing that could break and exactly what is asserted here.
+    """
+    log: list[dict[str, Any]] = []
+    result = driver(build(log), args={"path": "/tmp"})
+    assert log == [{"path": "/tmp"}]
+    assert SAFE in str(result)
 
 
 @pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)

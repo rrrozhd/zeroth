@@ -34,7 +34,11 @@ call is therefore executed through
 :func:`~zeroth.integrations.langgraph._tool_execution.executing_tool`, whose
 validation stage is a pass-through, and the values the body receives are exactly
 the values the decision was made about. See :func:`_delegate_input` for why that
-object is still driven through ``invoke``.
+object is still driven through ``invoke``. The plain-callable surface reaches the
+same property by a different route: :func:`_effective_call` binds the call against
+the callable's own signature *once* and that one binding is both what the policy
+is shown and what the body is invoked with, so a value the signature materializes
+-- a parameter default -- cannot exist on only one of the two sides.
 
 **Identity is the tool's body, not the label on it.** Name, description and
 argument names are metadata a substituted tool reproduces exactly, so identity
@@ -177,15 +181,6 @@ report somebody rewrote after the wrapping describes tools nothing governs.
 ``zeroth_plan`` and ``zeroth_delegate`` are no longer fields at all -- pydantic
 already refuses an unknown one under ``extra="ignore"`` -- and are listed so the
 refusal is a typed governance failure rather than a bare ``ValueError``.
-"""
-
-_ENTRY_HOOKS = ("_parse_input", "_to_args_and_kwargs", "invoke", "ainvoke", "run", "arun")
-"""Every ``BaseTool`` hook that runs *before* the body and can rewrite its input.
-
-``_parse_input`` is the one the finding was about -- clearing ``args_schema`` on
-the executing twin makes ``BaseTool``'s implementation a pass-through, but not an
-override of it -- and the other five reach the body without passing through the
-twin's parse at all.
 """
 
 _BASE_TOOL_SURFACE = "base_tool"
@@ -351,9 +346,22 @@ def _carried_fields(tool: Any) -> dict[str, Any]:
 
     ``callbacks``, ``handle_tool_error`` and ``response_format`` are deliberately
     *not* carried, for one reason: the delegate is the layer that runs, formats
-    and therefore fails. Carrying the first would fire every handler twice, the
-    second would hide a failure the delegate already handled, and the third would
-    make the wrapper re-format an output the delegate had already formatted --
+    and therefore fails. Carrying the first once meant firing every handler
+    twice; it would now fire them exactly **once**, because the executing tool
+    stopped carrying the delegate's ``callbacks`` at all --
+    :data:`~zeroth.integrations.langgraph._tool_execution._CARRIED_FIELDS` drops
+    the field and says why. Once is still the wrong number: these are the
+    *delegate's* handlers, and running them around the wrapper runs
+    caller-supplied code inside the governance boundary to observe a call the
+    audit trail already records. It is not the same hole that field list closes,
+    and the difference is worth stating so the two are not read as one argument:
+    handlers on *this* object fire before the verdict rather than after it --
+    ``on_tool_start`` runs ahead of ``_to_args_and_kwargs`` and the decision is
+    made inside ``_run`` -- so what one of them rewrote, the policy would still
+    be shown.
+
+    The second would hide a failure the delegate already handled, and the third
+    would make the wrapper re-format an output the delegate had already formatted --
     which, for ``content_and_artifact``, means rejecting the delegate's own
     ``ToolMessage`` for not being a two-tuple. The delegate is handed the whole
     tool call, artifact and all, and its result travels back untouched.
@@ -594,23 +602,117 @@ def _call_arguments(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> dict[st
     return arguments
 
 
-def _callable_arguments(
+@dataclass(frozen=True, slots=True)
+class _EffectiveCall:
+    """One call to a plain callable, in the two forms a governed invocation needs.
+
+    ``arguments`` is what the policy is shown; ``args`` and ``kwargs`` are what
+    the body is invoked with. They are carried together because they must be the
+    same call: deriving them from two separate reads is what let a value exist on
+    one side and not the other.
+
+    Attributes:
+        arguments: The named mapping a decision is made about.
+        args: The positional half of the call to re-issue.
+        kwargs: The named half of the call to re-issue.
+    """
+
+    arguments: dict[str, Any]
+    args: tuple[Any, ...]
+    kwargs: Mapping[str, Any]
+
+
+_VARIADIC_CONTAINERS: tuple[tuple[Any, type], ...] = (
+    (inspect.Parameter.VAR_POSITIONAL, tuple),
+    (inspect.Parameter.VAR_KEYWORD, dict),
+)
+"""The two variadic parameter kinds, paired with the exact container each binds into.
+
+Scanned with ``is`` on both halves rather than tested by truthiness alone, for the
+reason :data:`~zeroth.integrations.langgraph._tool_normalize._CANONICAL_HANDLERS`
+gives: an emptiness test on a value of some other type reaches whatever
+``__bool__`` or ``__len__`` that type defines, and nothing here needs to consult a
+caller's code to decide whether the binding invented an entry.
+"""
+
+
+def _drop_empty_variadics(bound: inspect.BoundArguments) -> None:
+    """Forget the empty ``*args`` / ``**kwargs`` entries ``apply_defaults`` invents.
+
+    ``apply_defaults`` materializes an empty tuple under a ``VAR_POSITIONAL``
+    parameter and an empty dict under a ``VAR_KEYWORD`` one even when the caller
+    passed neither. Leaving them in would put ``{"args": [], "kwargs": {}}`` into
+    the mapping handed to a policy for every variadic tool that exists, changing
+    the decided shape -- and therefore the argument fingerprint -- of calls this
+    module was not asked to change.
+
+    Deleting them cannot change what executes. ``BoundArguments.args`` extends by
+    an empty tuple and ``.kwargs`` updates by an empty dict when the entries are
+    present, and both stop at a missing variadic parameter when they are not, so
+    the re-issued call is identical either way. It is a projection of the record,
+    not an edit of the call.
+
+    A *non-empty* variadic is left exactly as it is -- nested under its parameter
+    name, which is the shape this surface has always reported. Flattening it into
+    the mapping would describe the call more faithfully, and is deliberately not
+    done here: it would move the decided shape of existing calls, which is a
+    behaviour change beyond the finding and could break a policy written against
+    what the surface reports today.
+
+    Args:
+        bound: The binding to project, mutated in place.
+    """
+    for name, parameter in bound.signature.parameters.items():
+        value = bound.arguments.get(name)
+        for kind, container in _VARIADIC_CONTAINERS:
+            if parameter.kind is kind and type(value) is container and not value:
+                del bound.arguments[name]
+
+
+def _effective_call(
     target: Any, args: tuple[Any, ...], kwargs: Mapping[str, Any]
-) -> dict[str, Any]:
-    """Name a plain callable's arguments the way a structured tool call would.
+) -> _EffectiveCall:
+    """Resolve one call to a plain callable *once*, for both the policy and the body.
 
     Binding against the callable's own signature is what keeps this surface and
     the middleware surface describing the same call: the middleware is handed
     named arguments and never positional ones, so a wrapper that reported
     ``__arg1`` for ``search("cats")`` would decide a differently-shaped call than
-    the middleware decides for the same tool. Only a callable with no retrievable
-    signature -- a builtin, most C functions -- falls back to positional naming.
+    the middleware decides for the same tool.
+
+    **The binding's defaults are applied, and the bound call is the one that
+    runs.** Those are one change, not two. ``bind`` alone describes only what the
+    caller passed, so ``remove(path="/danger")`` invoked with no arguments was
+    decided as an empty call and then executed with ``"/danger"`` -- the policy
+    authorized one call and the signature supplied another. Applying the defaults
+    without re-issuing the bound call would fix the record and leave the same two
+    reads in place; re-issuing it as ``args`` / ``kwargs`` means every parameter
+    arrives explicitly and the body's own ``__defaults__`` are never consulted at
+    execution. The second read is deleted rather than checked.
+
+    Only a callable with no retrievable signature -- a builtin, most C functions
+    -- falls back to positional naming, and that path re-issues the caller's
+    original arguments untouched: there is no binding to have described anything
+    else, so there is no second read to delete.
+
+    Args:
+        target: The callable whose signature defines the call.
+        args: The positional arguments the caller passed.
+        kwargs: The named arguments the caller passed.
+
+    Returns:
+        The one call this invocation will be decided on and executed with.
+
+    Raises:
+        ToolGovernanceError: If the arguments cannot be named unambiguously.
     """
     try:
         bound = inspect.signature(target).bind(*args, **kwargs)
     except (TypeError, ValueError):
-        return _call_arguments(args, kwargs)
-    return _call_arguments((), bound.arguments)
+        return _EffectiveCall(_call_arguments(args, kwargs), args, kwargs)
+    bound.apply_defaults()
+    _drop_empty_variadics(bound)
+    return _EffectiveCall(_call_arguments((), bound.arguments), bound.args, bound.kwargs)
 
 
 def _governed_action(
@@ -891,30 +993,43 @@ def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) 
 
 
 def _sync_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
-    """Return a governed function that calls *target* exactly once on an allow."""
+    """Return a governed function that calls *target* exactly once on an allow.
+
+    The body is invoked with the call :func:`_effective_call` resolved, never with
+    the caller's own ``args`` / ``kwargs``: re-passing the originals would run the
+    body on a call the policy was not shown the whole of, because a parameter
+    default is materialized by the binding and by nothing else.
+    """
 
     @functools.wraps(target)
     def governed(*args: Any, **kwargs: Any) -> Any:
         """Govern this call, then invoke the snapshotted body exactly once on an allow."""
-        action, context, facts = _governed_action(plan, _callable_arguments(target, args, kwargs))
+        call = _effective_call(target, args, kwargs)
+        action, context, facts = _governed_action(plan, call.arguments)
         body = facts.body
         return guard_tool_call(
-            action, context, lambda: body(*args, **kwargs), **_enforcement_seams(plan)
+            action, context, lambda: body(*call.args, **call.kwargs), **_enforcement_seams(plan)
         )
 
     return governed
 
 
 def _async_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
-    """Return a governed coroutine function that awaits *target* once on an allow."""
+    """Return a governed coroutine function that awaits *target* once on an allow.
+
+    Invokes the same resolved call the sync wrapper does, for the same reason.
+    The two lines are identical on purpose: an argument-handling fix applied to
+    one of them leaves the other surface deciding one call and running another.
+    """
 
     @functools.wraps(target)
     async def governed(*args: Any, **kwargs: Any) -> Any:
         """Govern this call, then await the snapshotted body exactly once on an allow."""
-        action, context, facts = _governed_action(plan, _callable_arguments(target, args, kwargs))
+        call = _effective_call(target, args, kwargs)
+        action, context, facts = _governed_action(plan, call.arguments)
         body = facts.body
         authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await body(*args, **kwargs)
+        return await body(*call.args, **call.kwargs)
 
     return governed
 

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.3] - 2026-07-27
+
+### Fixed
+
+- Decide a governed plain callable on the call it will actually run. The wrapper bound the
+  arguments against the callable's own signature to *describe* the call, then re-passed the
+  caller's original `args`/`kwargs` to *execute* it — two reads, with a parameter default
+  materialized by only one of them. A callable `remove(path="/danger")` invoked with **no
+  arguments** was therefore authorized as `{}` and executed with `"/danger"`: the policy
+  approved an empty call and a destructive one ran. The binding now applies its defaults and
+  is re-issued as `bound.args` / `bound.kwargs`, so every parameter arrives explicitly and
+  the body's own `__defaults__` are never consulted a second time. A callable with no
+  retrievable signature — a builtin, most C functions — still executes with the caller's
+  arguments untouched, because there is no binding there to have described anything else.
+  The empty `()` / `{}` entries `apply_defaults()` invents for `*args` / `**kwargs`
+  parameters are suppressed, so no existing variadic tool's decided shape moves; a non-empty
+  variadic keeps the nested shape it reports today.
+
+### Removed
+
+- Deleted the unused `_ENTRY_HOOKS` copy in `_tool_wrappers.py`. The authoritative table is
+  the one `refuse_delegate_dispatch` reads in `_tool_execution.py`, and a second copy nothing
+  imports is a table that can silently fall out of step with the one that enforces.
+
 ## [0.13.14.2] - 2026-07-27
 
 ### Fixed
