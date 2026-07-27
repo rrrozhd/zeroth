@@ -151,6 +151,7 @@ from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
     UnstableToolIdentityError,
 )
+from zeroth.integrations.langgraph._tool_execution import ToolSnapshot
 from zeroth.integrations.langgraph._tool_types import (
     SideEffectClass,
     ToolAction,
@@ -2010,6 +2011,141 @@ def test_a_variadic_decorator_still_executes_under_its_own_signature() -> None:
     )
     assert log == [{"path": "/tmp"}], f"the decorated body did not run: {log!r}"
     assert SAFE in str(result)
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_governed_callable_publishes_no_reference_to_the_ungoverned_target(
+    is_async: bool,
+) -> None:
+    """The returned function must not hand callers an unguarded execution path.
+
+    ``functools.wraps`` normally publishes the wrapped function twice when the
+    target also carries a self-reference: once as ``__wrapped__`` and once via
+    the copied ``__dict__``.  Both are ordinary attributes on the object a caller
+    receives, so either one bypasses the decision client without mutation or a
+    timing window.
+    """
+
+    def sync_target(path: str = DANGER) -> str:
+        """Return the supplied path synchronously."""
+        return path
+
+    async def async_target(path: str = DANGER) -> str:
+        """Return the supplied path asynchronously."""
+        return path
+
+    target = async_target if is_async else sync_target
+    target.published_alias = target
+    governed = govern_tools([target], **_seams())[0]
+
+    published = {
+        name: getattr(governed, name) for name in dir(governed) if getattr(governed, name) is target
+    }
+    assert published == {}, (
+        f"the governed callable publishes an unguarded reference to its target: {published!r}"
+    )
+    driver = drive_callable_async if is_async else drive_callable
+    assert driver(target, args={"path": "/safe"}) == "/safe"
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_governed_callables_signature_and_derived_schema_are_unchanged(
+    is_async: bool,
+) -> None:
+    """Removing the escape hatch must preserve framework schema inference exactly."""
+
+    def sync_target(path: str = DANGER, *, force: bool = False) -> str:
+        """Return the supplied path synchronously."""
+        return f"{path}:{force}"
+
+    async def async_target(path: str = DANGER, *, force: bool = False) -> str:
+        """Return the supplied path asynchronously."""
+        return f"{path}:{force}"
+
+    target = async_target if is_async else sync_target
+    governed = govern_tools([target], **_seams())[0]
+    original_tool = StructuredTool.from_function(
+        func=None if is_async else target,
+        coroutine=target if is_async else None,
+        name="remove",
+        description="Remove a path.",
+    )
+    governed_tool = StructuredTool.from_function(
+        func=None if is_async else governed,
+        coroutine=governed if is_async else None,
+        name="remove",
+        description="Remove a path.",
+    )
+
+    assert inspect.signature(governed, follow_wrapped=False) == inspect.signature(
+        target, follow_wrapped=False
+    )
+    assert governed_tool.args_schema.model_json_schema() == (
+        original_tool.args_schema.model_json_schema()
+    )
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_governed_base_tool_publishes_no_reference_to_its_original_execution_path(
+    is_async: bool,
+) -> None:
+    """The already-neutral BaseTool twin stays free of the callable-surface leak."""
+
+    def sync_target(query: str) -> str:
+        """Return the query synchronously."""
+        return query
+
+    async def async_target(query: str) -> str:
+        """Return the query asynchronously."""
+        return query
+
+    target = StructuredTool.from_function(
+        func=None if is_async else sync_target,
+        coroutine=async_target if is_async else None,
+        name="search",
+        description="Search.",
+        args_schema=Args,
+    )
+    governed = govern_tools([target], **_seams())[0]
+    originals = tuple(
+        value
+        for value in (target, getattr(target, "func", None), getattr(target, "coroutine", None))
+        if value is not None
+    )
+    published = {
+        name: value
+        for name, value in vars(governed).items()
+        if any(value is original for original in originals)
+    }
+    assert published == {}, (
+        f"the governed BaseTool publishes its original execution path: {published!r}"
+    )
+    for name in ("func", "coroutine", "snapshot", "__wrapped__"):
+        assert not hasattr(governed, name), f"the governed BaseTool publishes {name}"
+
+
+def test_a_tool_snapshot_carries_only_state_used_after_capture() -> None:
+    """The delegate class stopped being execution state when bodies became bound."""
+    assert "kind" not in {field.name for field in dataclasses.fields(ToolSnapshot)}
+
+
+def test_an_over_bound_partial_is_admitted_but_refused_before_policy() -> None:
+    """A partial with no valid call shape fails closed at invocation time."""
+
+    def one(value: str) -> str:
+        """Return the sole accepted value."""
+        return value
+
+    target = functools.partial(one, "one", "two", "three")
+    target.name = "over_bound"
+    target.description = "A partial whose arguments cannot bind."
+    client = AllowingClient()
+
+    governed = govern_tools([target], **_seams(client=client))[0]
+
+    with pytest.raises(ToolGovernanceError, match="signature cannot be established"):
+        governed()
+    assert client.calls == 0
 
 
 @pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)

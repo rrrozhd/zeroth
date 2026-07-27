@@ -402,7 +402,6 @@ class ToolSnapshot:
     the delegate's *code*.
 
     Attributes:
-        kind: The delegate's class, as the fingerprint records it.
         name: The declared name.
         description: The declared description.
         args_schema: The declared schema, which the wrapper parses against.
@@ -412,7 +411,6 @@ class ToolSnapshot:
         carried: The output-shaping fields the executing tool needs.
     """
 
-    kind: Any
     name: Any
     description: Any
     args_schema: Any
@@ -518,7 +516,6 @@ def snapshot_tool(delegate: Any) -> ToolSnapshot:
             continue
         bodies[method] = _bound_method_body(implementation, delegate, kind, method)
     return ToolSnapshot(
-        kind=kind,
         name=static_instance_field(delegate, "name"),
         description=static_instance_field(delegate, "description"),
         args_schema=static_instance_field(delegate, "args_schema"),

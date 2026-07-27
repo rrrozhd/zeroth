@@ -99,6 +99,7 @@ startup, and a parameter would let a caller assert completeness nothing verified
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import inspect
 from collections.abc import Callable, Iterable, Mapping
@@ -346,10 +347,11 @@ def _carried_fields(tool: Any) -> dict[str, Any]:
     schema; if it raises, the delegate is never reached to handle anything.
 
     ``callbacks``, ``handle_tool_error`` and ``response_format`` are deliberately
-    *not* carried, for one reason: the delegate is the layer that runs, formats
-    and therefore fails. Carrying the first once meant firing every handler
-    twice; it would now fire them exactly **once**, because the executing tool
-    stopped carrying the delegate's ``callbacks`` at all --
+    *not* carried by the outer wrapper. The framework-owned executing twin runs
+    the frozen body and receives the output-shaping fields captured in its
+    snapshot. Carrying the first once meant firing every handler twice; it would
+    now fire them exactly **once**, because the executing twin stopped carrying
+    the source tool's ``callbacks`` at all --
     :data:`~zeroth.integrations.langgraph._tool_execution._CARRIED_FIELDS` drops
     the field and says why. Once is still the wrong number: these are the
     *delegate's* handlers, and running them around the wrapper runs
@@ -361,11 +363,11 @@ def _carried_fields(tool: Any) -> dict[str, Any]:
     made inside ``_run`` -- so what one of them rewrote, the policy would still
     be shown.
 
-    The second would hide a failure the delegate already handled, and the third
-    would make the wrapper re-format an output the delegate had already formatted --
-    which, for ``content_and_artifact``, means rejecting the delegate's own
-    ``ToolMessage`` for not being a two-tuple. The delegate is handed the whole
-    tool call, artifact and all, and its result travels back untouched.
+    The second would hide a failure the executing twin already handled, and the
+    third would make the wrapper re-format output the twin already formatted --
+    which, for ``content_and_artifact``, means rejecting the twin's own
+    ``ToolMessage`` for not being a two-tuple. The twin is handed the whole tool
+    call, artifact and all, and its result travels back untouched.
 
     Args:
         tool: The tool being wrapped.
@@ -716,6 +718,30 @@ def _declared_signature(target: Any) -> inspect.Signature:
         raise ToolGovernanceError("this callable's own signature cannot be established") from error
 
 
+def _published_signature(target: Any) -> inspect.Signature:
+    """Return the executable's real call shape with its declared type metadata.
+
+    :func:`_declared_signature` deliberately reads parameter shape and defaults
+    from a frozen executable that carries neither ``__signature__`` nor
+    ``__wrapped__``.  The freeze also omits function annotations, which do not
+    choose what executes but are required by LangChain's schema inference.  Put
+    those declarations back onto the already-trusted shape without consulting a
+    caller-supplied signature object.
+    """
+    signature = _declared_signature(target)
+    annotations = getattr(target, "__annotations__", None)
+    if type(annotations) is not dict:
+        return signature
+    parameters = [
+        parameter.replace(annotation=annotations.get(parameter.name, parameter.annotation))
+        for parameter in signature.parameters.values()
+    ]
+    return signature.replace(
+        parameters=parameters,
+        return_annotation=annotations.get("return", signature.return_annotation),
+    )
+
+
 def _effective_call(
     target: Any, args: tuple[Any, ...], kwargs: Mapping[str, Any]
 ) -> _EffectiveCall:
@@ -901,15 +927,16 @@ def _callback_free_config() -> RunnableConfig:
 def _delegate_input(
     args: tuple[Any, ...], kwargs: Mapping[str, Any], tool_call_id: str | None, name: str
 ) -> Any:
-    """Rebuild the input the original tool's own ``invoke`` expects.
+    """Rebuild the input the framework-owned executing twin's ``invoke`` expects.
 
-    When the governed call arrived as a tool call, the delegate is handed a tool
-    call too, id and all. That is what keeps a ``content_and_artifact`` tool's
-    artifact alive through the wrapping: the delegate builds the whole
-    ``ToolMessage`` itself, and a ``ToolMessage`` travels back out of the
+    When the governed call arrived as a tool call, the twin is handed a tool call
+    too, id and all. That is what keeps a ``content_and_artifact`` tool's artifact
+    alive through the wrapping: the twin builds the whole ``ToolMessage`` itself
+    from the frozen body and captured output settings, and that message travels out of the
     wrapper's own formatting stage untouched. Rebuilding a bare argument dict
-    instead would leave the delegate with no call id, and a delegate with no call
-    id returns content and drops its artifact on the floor.
+    instead would leave the twin with no call id, and a twin with no call id
+    returns content and drops its artifact on the floor. The source tool is never
+    invoked here.
 
     Args:
         args: The parsed positional arguments.
@@ -918,7 +945,7 @@ def _delegate_input(
         name: The tool's name, as it goes into a rebuilt tool call.
 
     Returns:
-        The input to hand the delegate.
+        The input to hand the executing twin.
 
     Raises:
         ToolGovernanceError: If the call shape cannot be handed on faithfully.
@@ -938,7 +965,7 @@ def _delegate_input(
 
 
 class GovernedTool(BaseTool):
-    """A ``BaseTool`` that decides before it delegates, and mutates nothing.
+    """A ``BaseTool`` that decides before it runs a frozen twin, and mutates nothing.
 
     Preserves ``name``, ``description`` and ``args_schema`` from the tool it
     wraps, and reports the wrapped tool's own input schema rather than one
@@ -948,12 +975,13 @@ class GovernedTool(BaseTool):
     the body behind it -- see :func:`_carried_fields` for which, and why the
     error-handling ones are not among them.
 
-    **One reference, sealed.** The tool that runs is the ``target`` on the plan
-    the identity was pinned against, held in pydantic's private store and
-    unreachable as a field. There is deliberately no second, assignable handle to
-    the delegate: identity is re-derived from the plan, so a delegate somebody
-    assigned after the wrapping would execute under the plan target's
-    authorization. :meth:`__setattr__` refuses every name in
+    **One source reference, sealed.** The ``target`` on the plan is the source a
+    fresh static snapshot is captured from before caller code runs; execution
+    uses the framework-owned twin built from that snapshot, never the target's
+    dispatch. The target is held in pydantic's private store and unreachable as a
+    field. There is deliberately no second, assignable source handle: identity is
+    re-derived from the plan, so another target assigned after wrapping could be
+    snapshotted under the plan target's authorization. :meth:`__setattr__` refuses every name in
     :data:`_SEALED_ATTRIBUTES`, so neither the delegate nor the plan nor the
     reported binding can be swapped for another.
 
@@ -1025,7 +1053,7 @@ class GovernedTool(BaseTool):
         """Parse the input as ``BaseTool`` does, carrying the call id on to ``_run``.
 
         ``BaseTool`` hands the call id to this method and to nothing further, but
-        the delegate needs it to format its own output. Threading it through the
+        the executing twin needs it to format its own output. Threading it through the
         parsed keyword arguments is what makes it reachable without overriding
         ``run`` and ``arun`` wholesale.
 
@@ -1039,11 +1067,11 @@ class GovernedTool(BaseTool):
         return args, {**kwargs, _TOOL_CALL_ID_KEY: tool_call_id}
 
     def _run(self, *args: Any, **kwargs: Any) -> Any:
-        """Govern this call, then invoke the wrapped tool exactly once on an allow.
+        """Govern this call, then invoke its frozen executing twin once on an allow.
 
         Every ``BaseTool`` entry point -- ``invoke``, ``run`` and the inherited
         ``_arun`` fallback -- funnels through here, so there is no way to reach
-        the delegate without passing the guard.
+        the snapshotted body without passing the guard.
 
         The executor is invoked with :func:`_callback_free_config` rather than
         bare. Only *this* invocation is silenced: the wrapper's own ``run`` has
@@ -1123,7 +1151,7 @@ def _sync_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
     default is materialized by the binding and by nothing else.
     """
 
-    @functools.wraps(target)
+    @functools.wraps(target, updated=())
     def governed(*args: Any, **kwargs: Any) -> Any:
         """Govern this call, then invoke the snapshotted body exactly once on an allow."""
         call = _effective_call(target, args, kwargs)
@@ -1144,7 +1172,7 @@ def _async_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
     one of them leaves the other surface deciding one call and running another.
     """
 
-    @functools.wraps(target)
+    @functools.wraps(target, updated=())
     async def governed(*args: Any, **kwargs: Any) -> Any:
         """Govern this call, then await the snapshotted body exactly once on an allow."""
         call = _effective_call(target, args, kwargs)
@@ -1174,6 +1202,13 @@ def _govern_callable(target: Any, facts: _ToolFacts, plan: _GovernedPlan) -> Any
         governed = _async_callable_wrapper(target, plan)
     else:
         governed = _sync_callable_wrapper(target, plan)
+    del governed.__wrapped__
+    # Preserve the existing fail-closed boundary for admitted callables whose
+    # executable cannot describe a valid call (an over-bound partial, for
+    # example): construction succeeds, and every attempted call is refused by
+    # ``_effective_call`` before a policy is consulted.
+    with contextlib.suppress(ToolGovernanceError):
+        governed.__signature__ = _published_signature(target)
     governed.name = plan.binding.identity.name
     governed.description = facts.description
     governed.args_schema = facts.args_schema

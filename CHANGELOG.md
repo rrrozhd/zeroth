@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.7] - 2026-07-27
+
+### Fixed
+
+- Stop governed plain callables from publishing the original, ungoverned callable through
+  `__wrapped__` or attributes copied by `functools.wraps`. The governed sync and async
+  functions retain their name, documentation, module, qualified name, truthful signature,
+  and exact LangChain-derived argument schema without exposing a direct policy bypass.
+- Keep the existing fail-closed boundary for callables whose executable has no valid call
+  signature. An over-bound `functools.partial` is still admitted at wrapping time, then
+  refused before policy evaluation when invoked.
+
+### Changed
+
+- Remove the unused `ToolSnapshot.kind` field now that class-defined bodies are frozen and
+  bound during snapshot capture. Update wrapper documentation to describe the
+  framework-owned executing twin rather than the obsolete delegate invocation path.
+
 ## [0.13.14.6] - 2026-07-27
 
 ### Fixed
