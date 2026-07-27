@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.13.3] - 2026-07-27
+
+### Documentation
+
+- Document the exact boundary of the injected-argument refusal, and record the
+  decision not to project injected arguments away. An injected argument is
+  projected by the same canonical rule as every other argument, so its **value**
+  decides the outcome: the whole graph state (`Annotated[dict, InjectedState]`) and
+  an `InjectedStore` handle are refused, while a narrowed
+  `InjectedState("user_id")` and an `InjectedToolCallId` are representable and are
+  governed normally. The cookbook now states the workaround — narrow the injection
+  to the slice the body needs, which is also the declaration a policy can be
+  written against — and why eliding the value is not an option: a policy that
+  denies `path="/etc/shadow"` must not be shown a call with the path removed. This
+  narrows the `0.13.13` note below, which claimed the refusal covered
+  `InjectedState` / `InjectedStore` as such.
+
+### Tests
+
+- Cover all four injected-argument shapes in the cross-surface parity table,
+  driven through a real `create_agent` invocation on both surfaces — the argument
+  table above hands tools their arguments directly, so it could not observe
+  injection at all. Confirms that `govern_tools` and `ZerothMiddleware` refuse and
+  allow the same shapes, and that the two representable shapes really are governed
+  rather than merely tolerated.
+- Extract the scripted tool-calling model into
+  `tests/integrations/langgraph/tools/_agents.py`, so the middleware suite and the
+  parity table drive one definition instead of two copies.
+
 ## [0.13.13.2] - 2026-07-26
 
 ### Documentation
@@ -58,9 +87,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside `ZerothMiddleware` therefore observes calls governance goes on to refuse,
   and one that rewrites `request.tool` removes governance entirely. Install
   `ZerothMiddleware` last.
-- A tool declaring an `InjectedState` / `InjectedStore` argument is now refused on
-  the middleware surface, because the injected value reaches the canonical
-  argument projection. This matches what `govern_tools` already did.
+- A tool whose injected argument carries an unrepresentable value — the whole graph
+  state, an `InjectedStore` handle — is now refused on the middleware surface,
+  because the injected value reaches the canonical argument projection. This
+  matches what `govern_tools` already did. A narrowed injection whose value is
+  representable, such as `InjectedState("user_id")` or `InjectedToolCallId`, is
+  governed normally; see the cookbook for the boundary.
 
 ## [0.13.12] - 2026-07-26
 

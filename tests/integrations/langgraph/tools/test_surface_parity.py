@@ -59,16 +59,21 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any, TypedDict
 
 import pytest
 
 pytest.importorskip("langchain.agents", reason="requires the gateway-conformance dependency group")
 
+from langchain.agents import create_agent
 from langchain.agents.middleware import ToolCallRequest
-from langchain_core.tools import StructuredTool
+from langchain_core.messages import HumanMessage
+from langchain_core.tools import InjectedToolCallId, StructuredTool
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, field_validator
 
+from tests.integrations.langgraph.tools._agents import TOOL_CALL_ID, scripted_model
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.integrations.langgraph._middleware import ZerothMiddleware
 from zeroth.integrations.langgraph._tool_decisions import UnknownSideEffectPolicy
@@ -76,6 +81,7 @@ from zeroth.integrations.langgraph._tool_errors import (
     ApprovalRequiresThreadError,
     GovernanceContextError,
     PolicyViolation,
+    ToolGovernanceError,
 )
 from zeroth.integrations.langgraph._tool_types import (
     SideEffectClass,
@@ -1041,3 +1047,241 @@ def test_the_argument_parity_table_covers_every_case_the_audit_named() -> None:
         "a-default-the-model-never-supplied",
         "a-validator-that-answers-differently-every-time-it-runs",
     }
+
+
+# --------------------------------------------------------------------------- #
+# R-1's boundary -- an argument ``ToolNode`` injects is decided like any other.
+#
+# The section above needs no agent: it hands the tool its arguments directly. That
+# cannot see an *injected* argument at all, because nothing in the test injects
+# one -- ``ToolNode`` resolves ``InjectedState`` / ``InjectedStore`` /
+# ``InjectedToolCallId`` itself, and on the middleware surface it does so *after*
+# the chain has returned. So every scenario below is driven through a real
+# ``create_agent`` invocation on both surfaces.
+#
+# What this pins is a boundary, not a refusal. An injected argument is projected
+# by exactly the rule every other argument is projected by -- the canonical
+# handlers in ``_tool_normalize`` -- so its *value* decides the outcome:
+#
+#   * the whole graph state holds ``BaseMessage`` objects, which are not a
+#     representable type, so the call is refused before any policy is consulted;
+#   * a narrowed state slice that is a ``str`` is representable, so policy sees it
+#     and can deny on it;
+#   * a tool call id is a ``str`` too, so the same holds.
+#
+# The refusal row is the one that changed in 0.13.13, and the two allowed rows are
+# what make it survivable: they are the shape a user narrows *to*. Documented in
+# ``docs/how-to/cookbook/govern-langgraph-tools.md`` under "What governance
+# refuses to wrap"; if either allowed row ever starts refusing, that workaround is
+# gone and the doc is wrong.
+#
+# Eliding an injected argument instead is deliberately not an option, on either
+# surface: see the module docstring of ``_tool_normalize`` -- a policy that denies
+# ``path="/etc/shadow"`` must not be handed a call with the path removed.
+# --------------------------------------------------------------------------- #
+
+RAW_INJECTED_CALL = {"query": "cats"}
+"""What the model emits for every injected scenario: the model-supplied part only.
+
+An injected argument is absent here on purpose. That is the definition of one --
+the model never supplies it -- and it is why deciding from the raw tool call could
+never have shown policy the value the body was about to run on.
+"""
+
+
+class SliceState(TypedDict):
+    """A graph state with one field that *is* canonically representable.
+
+    A subclass of ``AgentState`` cannot be used here: it carries managed channels
+    that ``create_agent`` refuses in an input schema. A plain ``TypedDict`` with
+    ``messages`` is the narrowest state that both drives an agent and holds a
+    field a tool can inject a ``str`` out of.
+    """
+
+    messages: Annotated[list, add_messages]
+    user_id: str
+
+
+def build_whole_state_tool() -> tuple[StructuredTool, list[dict[str, Any]]]:
+    """Build a tool that injects the entire graph state.
+
+    The refused row. ``ToolNode`` hands this the whole state mapping, whose
+    ``messages`` are ``BaseMessage`` objects -- not one of the exact types the
+    canonical projection accepts -- so normalization refuses the call and the body
+    never runs.
+    """
+    observed: list[dict[str, Any]] = []
+
+    def _run(query: str, state: Annotated[dict, InjectedState]) -> str:
+        observed.append({"query": query})
+        return BODY_RESULT
+
+    return (
+        StructuredTool.from_function(func=_run, name="search", description="search for things."),
+        observed,
+    )
+
+
+def build_state_slice_tool() -> tuple[StructuredTool, list[dict[str, Any]]]:
+    """Build a tool that injects one representable field out of the state.
+
+    The workaround the cookbook offers, as a test: narrowing the injection to the
+    slice the tool actually needs makes the argument representable, and a
+    representable injected argument is one policy is shown and can deny on.
+    """
+    observed: list[dict[str, Any]] = []
+
+    def _run(query: str, user_id: Annotated[str, InjectedState("user_id")]) -> str:
+        observed.append({"query": query, "user_id": user_id})
+        return BODY_RESULT
+
+    return (
+        StructuredTool.from_function(func=_run, name="search", description="search for things."),
+        observed,
+    )
+
+
+def build_tool_call_id_tool() -> tuple[StructuredTool, list[dict[str, Any]]]:
+    """Build a tool that injects its own tool call id.
+
+    Also representable, and worth pinning separately: ``InjectedToolCallId`` is the
+    injected argument most tools that return commands or ``ToolMessage`` values
+    declare, so a blanket refusal of injected arguments would have taken it out.
+    """
+    observed: list[dict[str, Any]] = []
+
+    def _run(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append({"query": query, "tool_call_id": tool_call_id})
+        return BODY_RESULT
+
+    return (
+        StructuredTool.from_function(func=_run, name="search", description="search for things."),
+        observed,
+    )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class InjectedScenario:
+    """One call carrying an argument the model did not supply.
+
+    Attributes:
+        label: The scenario's name, used as the parametrization id.
+        build: Builds a fresh tool and the list its body records into. A factory,
+            so each surface is driven against state of its own.
+        state: Extra state the agent is invoked with, beyond ``messages``.
+        state_schema: The graph state schema, when the scenario needs a field the
+            default one does not declare.
+        decided: What policy and the body must both see, or ``None`` when the call
+            must be refused before either happens.
+    """
+
+    label: str
+    build: Callable[[], tuple[StructuredTool, list[dict[str, Any]]]]
+    decided: dict[str, Any] | None
+    state: dict[str, Any] = dataclasses.field(default_factory=dict)
+    state_schema: Any = None
+
+
+INJECTED_SCENARIOS = (
+    InjectedScenario(
+        label="the-whole-graph-state-is-not-representable",
+        build=build_whole_state_tool,
+        decided=None,
+    ),
+    InjectedScenario(
+        label="a-narrowed-state-slice-is-representable",
+        build=build_state_slice_tool,
+        decided={"query": "cats", "user_id": "u-1"},
+        state={"user_id": "u-1"},
+        state_schema=SliceState,
+    ),
+    InjectedScenario(
+        label="an-injected-tool-call-id-is-representable",
+        build=build_tool_call_id_tool,
+        decided={"query": "cats", "tool_call_id": TOOL_CALL_ID},
+    ),
+)
+
+
+def _drive_injected(
+    scenario: InjectedScenario, install: Callable[[StructuredTool, Any], dict[str, Any]]
+) -> tuple[type[BaseException] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run one injected scenario through whichever surface *install* configures.
+
+    Args:
+        scenario: The scenario to drive.
+        install: Turns the tool and the decision client into the ``create_agent``
+            keyword arguments for one surface -- which is the *only* thing that
+            differs between the two drivers.
+
+    Returns:
+        The refusal's exact class or ``None``, what policy was shown, and what the
+        body received.
+    """
+    tool, observed = scenario.build()
+    client = ArgumentRecordingClient()
+    schema = {} if scenario.state_schema is None else {"state_schema": scenario.state_schema}
+    agent = create_agent(
+        scripted_model("search", dict(RAW_INJECTED_CALL)), **install(tool, client), **schema
+    )
+    invocation: dict[str, Any] = {"messages": [HumanMessage("hi")], **scenario.state}
+    try:
+        agent.invoke(invocation)
+    except ToolGovernanceError as error:
+        return type(error), client.seen, observed
+    return None, client.seen, observed
+
+
+def _wrapper_install(tool: StructuredTool, client: Any) -> dict[str, Any]:
+    """Install the tool through ``govern_tools``: the wrapper *is* the agent's tool."""
+    return {"tools": govern_tools([tool], context=THREADED, client=client, side_effect=read_only)}
+
+
+def _middleware_install(tool: StructuredTool, client: Any) -> dict[str, Any]:
+    """Install the tool raw and govern it with ``ZerothMiddleware`` instead."""
+    return {
+        "tools": [tool],
+        "middleware": [ZerothMiddleware(context=THREADED, client=client, side_effect=read_only)],
+    }
+
+
+@pytest.mark.parametrize("scenario", INJECTED_SCENARIOS, ids=lambda item: item.label)
+def test_both_surfaces_decide_an_injected_argument_identically(
+    scenario: InjectedScenario,
+) -> None:
+    """An injected argument is projected by one rule, and both surfaces apply it.
+
+    The equality comes first, as everywhere in this module: whether an injected
+    argument is representable is a governance fact, and a surface that refused
+    where the other allowed would be an R8 break regardless of which answer is the
+    right one.
+    """
+    wrapper = _drive_injected(scenario, _wrapper_install)
+    middleware = _drive_injected(scenario, _middleware_install)
+
+    # R8: one projection, so one answer.
+    assert wrapper == middleware
+
+    error, decided, executed = wrapper
+    if scenario.decided is None:
+        # Refused during normalization, which is *before* a policy is consulted --
+        # so an unrepresentable argument is never half-decided.
+        assert error is ToolGovernanceError
+        assert (decided, executed) == ([], [])
+    else:
+        assert error is None
+        # R-1 holds across injection too: policy saw exactly what the body ran on,
+        # including the argument the model never supplied.
+        assert decided == [scenario.decided]
+        assert executed == [scenario.decided]
+
+
+def test_the_injected_parity_table_covers_refused_and_representable_shapes() -> None:
+    """Both directions are named, so deleting the allowed rows cannot pass quietly."""
+    assert {scenario.label for scenario in INJECTED_SCENARIOS} == {
+        "the-whole-graph-state-is-not-representable",
+        "a-narrowed-state-slice-is-representable",
+        "an-injected-tool-call-id-is-representable",
+    }
+    refused = [scenario for scenario in INJECTED_SCENARIOS if scenario.decided is None]
+    assert len(refused) == 1

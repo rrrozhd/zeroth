@@ -396,6 +396,12 @@ absent, not that the tier passed.
 
 ## What governance refuses to wrap
 
+Two independent narrowings live here. The first is about a tool whose *entry path*
+cannot be read; the second is about an *argument value* that cannot be
+represented. Neither can be lifted by configuration.
+
+### A tool that overrides a pre-body entry point
+
 **A tool that overrides a pre-body entry point is refused, not governed.** This
 is a deliberate narrowing, and it will reject some tools that wrapped fine
 before `0.13.12`.
@@ -437,6 +443,67 @@ fail-closed direction on purpose: it can be lifted once there is a neutral
 execution adapter that bypasses those hooks, and until then a tool whose entry
 path is unreadable is a tool whose authorized call and executed call cannot be
 shown to be the same call.
+
+### An injected argument whose value is not canonically representable
+
+**A tool that injects the whole graph state is refused at every call**, on both
+surfaces, with
+
+```
+ToolGovernanceError: tool argument value is not representable as canonical JSON
+```
+
+The rule is *not* "injected arguments are refused". An injected argument goes
+through exactly the projection every other argument goes through, so its **value**
+decides the outcome:
+
+| Declared argument | Injected value | Outcome |
+| --- | --- | --- |
+| `Annotated[dict, InjectedState]` | the whole state, whose `messages` are `BaseMessage` objects | **refused** |
+| `Annotated[MyStore, InjectedStore]` | a `BaseStore` instance | **refused** |
+| `Annotated[str, InjectedState("user_id")]` | a `str` from one state field | **governed** — policy sees `user_id` |
+| `Annotated[str, InjectedToolCallId]` | the call id, a `str` | **governed** — policy sees `tool_call_id` |
+
+So the workaround is to **narrow the injection to the slice the tool actually
+needs**. `InjectedState("user_id")` is both representable and a better tool
+declaration: it is the field the body uses, and it is a field a policy can be
+written against.
+
+```python
+# Refused: the whole state is not representable.
+def search(query: str, state: Annotated[dict, InjectedState]) -> str: ...
+
+# Governed: the one field the body needs, which policy can now deny on.
+def search(query: str, user_id: Annotated[str, InjectedState("user_id")]) -> str: ...
+```
+
+If a tool genuinely needs an unrepresentable object — a store handle, a client —
+pass it through a closure or a resolver seam rather than a tool argument. An
+argument is the thing policy decides about; a dependency is not.
+
+**Why the value is refused rather than dropped.** Eliding an argument, or standing
+a placeholder in for it, would hand the policy a *different* call from the one
+about to run: a policy that denies `path="/etc/shadow"` would be shown a call with
+no path and allow it. `_tool_normalize.py` states this as its governing rule, and
+it holds for injected arguments for the same reason it holds for model-supplied
+ones — the body receives the value either way.
+
+**This changed on the middleware surface in `0.13.13`, and it is the fix, not a
+regression.** `govern_tools` has always refused these. `ZerothMiddleware` appeared
+to accept them only because it decided from `request.tool_call["args"]` — the raw
+model call, which never contains an injected argument at all. The tool then ran on
+a value no gate had seen. Deciding the validated call is what made the value
+visible, and a visible unrepresentable value is refused.
+
+Pinned by `test_a_tool_with_an_injected_state_argument_is_refused_rather_than_half_decided`
+and, for all four rows above driven through both surfaces, by
+`test_both_surfaces_decide_an_injected_argument_identically`.
+
+Showing policy the *names* of injected arguments without their values would be a
+third option — neither refusing nor eliding. It is deliberately not implemented:
+it needs a new `ToolAction` facet rather than a change to the argument projection,
+because an argument mapping that mixes decided values with named-only entries is
+one a policy cannot read unambiguously.
 
 ## Known divergences
 

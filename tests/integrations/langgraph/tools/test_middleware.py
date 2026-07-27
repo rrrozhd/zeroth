@@ -53,13 +53,13 @@ pytest.importorskip("langchain.agents", reason="requires the gateway-conformance
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ToolCallRequest
-from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import InjectedState
 
 from tests.integrations.langgraph.genai._causal import HostileStr
+from tests.integrations.langgraph.tools._agents import scripted_model
 from tests.integrations.langgraph.tools._hostile import HostileDict, HostileKey
 from zeroth.core.langgraph_gateway.models import GovernanceLevel
 from zeroth.governance.audit import NodeAuditRecord
@@ -624,29 +624,6 @@ class Marker(AgentMiddleware):
             return await handler(request)
         finally:
             self.log.append(f"{self.label}:exit")
-
-
-class ToolCallingModel(GenericFakeChatModel):
-    """A fake chat model that emits scripted tool calls and accepts a tool binding."""
-
-    def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
-        """Accept the binding unchanged: the scripted messages already name the tool."""
-        return self
-
-
-def scripted_model(tool_name: str, arguments: dict[str, Any]) -> ToolCallingModel:
-    """Build a model that asks for one tool call and then answers."""
-    return ToolCallingModel(
-        messages=iter(
-            [
-                AIMessage(
-                    content="",
-                    tool_calls=[{"name": tool_name, "args": arguments, "id": "call-1"}],
-                ),
-                AIMessage(content="done"),
-            ]
-        )
-    )
 
 
 def test_three_middleware_nest_first_defined_outermost() -> None:
