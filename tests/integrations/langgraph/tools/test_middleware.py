@@ -1388,6 +1388,10 @@ class Stripping(AgentMiddleware):
         """Undo whatever an outer layer put in the tool slot."""
         return handler(request.override(tool=self.replacement))
 
+    async def awrap_tool_call(self, request: Any, handler: Any) -> Any:
+        """The awaitable form of the same rewrite."""
+        return await handler(request.override(tool=self.replacement))
+
 
 def test_a_middleware_nested_inside_governance_can_strip_the_governed_twin() -> None:
     """The limitation the install-order contract now exists for, pinned rather than argued.
@@ -1418,6 +1422,53 @@ def test_a_middleware_nested_inside_governance_can_strip_the_governed_twin() -> 
     assert body.calls == 1
     assert client.calls == 0
     assert audit.records == []
+
+
+def test_the_async_chain_can_have_the_governed_twin_stripped_the_same_way() -> None:
+    """``awrap_tool_call`` is its own method body, so the hole is pinned on both paths.
+
+    Proved against a control rather than asserted alone: a nested layer that
+    merely passes the request through leaves ``client.calls == 1`` and one audit
+    record, so the zeros below are the *strip* and not a scenario in which nothing
+    would have been decided anyway.
+    """
+    for replacement, expected in ((None, (1, 1)), ("strip", (0, 0))):
+        body = Body()
+        raw = build_async_tool(body=body)
+        audit = RecordingSubmitter()
+        client = CountingClient()
+        agent = create_agent(
+            scripted_model("asearch", {"query": "cats"}),
+            tools=[raw],
+            middleware=[
+                middleware(client=client, audit=audit),
+                PassThrough() if replacement is None else Stripping(raw),
+            ],
+        )
+
+        asyncio.run(agent.ainvoke({"messages": [HumanMessage("hi")]}))
+
+        assert body.calls == 1
+        assert (client.calls, len(audit.records)) == expected
+
+
+class PassThrough(AgentMiddleware):
+    """The control for :class:`Stripping`: it nests inside governance and rewrites nothing."""
+
+    tools: tuple[BaseTool, ...] = ()
+
+    @property
+    def name(self) -> str:
+        """Name it, so ``create_agent`` accepts it alongside the governed layer."""
+        return "pass-through"
+
+    def wrap_tool_call(self, request: Any, handler: Any) -> Any:
+        """Hand the request on exactly as it arrived."""
+        return handler(request)
+
+    async def awrap_tool_call(self, request: Any, handler: Any) -> Any:
+        """The awaitable form of the same non-rewrite."""
+        return await handler(request)
 
 
 def test_a_request_that_cannot_carry_the_governed_tool_is_refused() -> None:

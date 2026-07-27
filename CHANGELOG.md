@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.13.1] - 2026-07-26
+
+### Fixed
+
+- Pin the async half of the un-substitution limitation: a middleware nested inside
+  `ZerothMiddleware` can strip the governed twin from `awrap_tool_call` exactly as
+  it can from `wrap_tool_call`, leaving no decision and no audit record. Both are
+  now asserted against a pass-through control, so neither test can go vacuous.
+
 ## [0.13.13] - 2026-07-26
 
 ### Fixed
