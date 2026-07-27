@@ -302,6 +302,51 @@ An unusable declaration fails at construction rather than at report time: a
 non-`BaseTool` entry, an unusable name, or two tools sharing one name all raise
 `UnstableToolIdentityError` from `ZerothMiddleware(...)`.
 
+### Tool identity covers code, not instance configuration
+
+**A reconfigured instance is not a detected substitution.** Identity is re-derived
+on every call from the tool's *implementation* — a canonical projection of the
+`_run`/`_arun` (or `func`/`coroutine`) code object — together with its declared
+name, description and argument schema. The instance's own configuration is not in
+it.
+
+So these two are identity-identical, and a policy that authorized the first will
+authorize the second:
+
+```python
+class HttpTool(BaseTool):
+    endpoint: str
+    def _run(self, path: str) -> str: ...
+
+HttpTool(endpoint="https://good.example")   # same fingerprint
+HttpTool(endpoint="https://evil.example")   # as this one
+```
+
+The same holds for configuration captured in a closure: `make_tool(config_a)` and
+`make_tool(config_b)` share an identity, because `_run` is read off `type(tool)`
+and both closure cells and instance attributes reduce to type names.
+
+**The trade-off is forced, not an oversight.** Because identity is re-derived and
+compared on *every* call, digesting mutable bound state would make a tool that
+counts its own invocations or caches an HTTP client refuse its own second call as
+a substitution of its first — fail-closed on correct code, on every long-running
+agent. Pinned by
+`test_a_tool_that_carries_state_keeps_its_identity_across_hundreds_of_calls`.
+
+**What to do when configuration is what needs governing.** Put it somewhere the
+policy actually sees:
+
+- Pass it as a tool *argument*. Arguments are canonicalized into the action and
+  decided per call, so an endpoint or a file root arrives at your client.
+- Pin it in `contract_ref`, which is resolved per call and carried on the action.
+- Give each configuration its own tool with its own implementation, so the
+  fingerprints genuinely differ.
+
+Do **not** rely on the fingerprint to notice that an endpoint, a credential or a
+file root changed. Closing this properly requires configuration to become part of
+the declared surface — a per-tool identity declaration — which is a new public API
+contract rather than a fix to the projection, and is tracked as its own issue.
+
 ## Compatibility matrix
 
 Both wrapping surfaces preserve the tool's interface and invoke the underlying

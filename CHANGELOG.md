@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.13.2] - 2026-07-26
+
+### Documentation
+
+- Document that tool identity covers implementation code and the declared surface,
+  not instance configuration: two instances of the same configurable `BaseTool`
+  subclass — one pointed at a benign endpoint, one at a hostile one — carry the
+  same fingerprint, so a reconfigured instance is not a detected substitution. The
+  trade-off is forced, because identity is re-derived and compared on every call
+  and digesting mutable bound state would make a stateful tool refuse its own
+  second call. Records what to do instead: pass the configuration as a tool
+  argument, pin it in `contract_ref`, or give each configuration its own
+  implementation.
+
 ## [0.13.13.1] - 2026-07-26
 
 ### Fixed
