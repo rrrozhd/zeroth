@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.13] - 2026-07-26
+
+### Fixed
+
+- `ZerothMiddleware` no longer authorizes the raw arguments the model emitted. It
+  now substitutes a per-call governed twin of `request.tool` into the request it
+  hands downstream, so `BaseTool` validation, coercion, defaulting and `ToolNode`
+  argument injection all happen **before** the shared guard runs. Policy
+  previously saw the string `"7"` while the body received the integer `7`, and
+  never saw a defaulted or injected argument at all.
+- The middleware carries no enforcement branch of its own any more: its calls to
+  `guard_tool_call` / `authorize_tool_call` are removed, so both install surfaces
+  reach the enforcement core at one point (R8).
+- A tool that overrides a pre-body entry point (`_parse_input`, `invoke`, ...) is
+  now refused on the middleware surface too, as it already was on `govern_tools`.
+- Passing an already-governed tool to `ZerothMiddleware` is now refused with
+  `UnstableToolIdentityError` instead of being decided and recorded twice.
+- A retry middleware nested *inside* governance now gets a decision and an audit
+  record per physical execution, retiring a previously documented limitation.
+
+### Changed
+
+- **Breaking for mis-installed chains.** The verdict now travels back up *through*
+  the LangChain `handler`: a denial raises, and an approval interrupts, inside the
+  tool's execution rather than before the handler is reached. A middleware nested
+  inside `ZerothMiddleware` therefore observes calls governance goes on to refuse,
+  and one that rewrites `request.tool` removes governance entirely. Install
+  `ZerothMiddleware` last.
+- A tool declaring an `InjectedState` / `InjectedStore` argument is now refused on
+  the middleware surface, because the injected value reaches the canonical
+  argument projection. This matches what `govern_tools` already did.
+
 ## [0.13.12] - 2026-07-26
 
 ### Fixed

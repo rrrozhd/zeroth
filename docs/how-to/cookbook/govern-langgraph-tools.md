@@ -11,10 +11,18 @@ There are two install surfaces and they share one enforcement core:
 - `govern_tools(tools, ...)` — returns governed twins of a raw tool list. Nothing
   about the originals is mutated: no attribute is written back, `.func` and
   `.coroutine` are never rebound, and the supplied container is copied.
-- `ZerothMiddleware(...)` — an `AgentMiddleware` for `create_agent`. LangChain
-  hands the tool's execution in as a `handler` callback, so a denial or an
-  approval is literally "the handler was never called". **Install it last** — see
-  [Middleware nesting order](#middleware-nesting-order).
+- `ZerothMiddleware(...)` — an `AgentMiddleware` for `create_agent`. It carries no
+  decision of its own: it substitutes a governed twin of `request.tool` — built by
+  the same `govern_tools` machinery, per call — into the request it hands
+  downstream, and LangChain's `ToolNode` executes *that*. So the two surfaces are
+  literally one implementation, and the decision is made about the arguments the
+  body receives, after `BaseTool` has validated, coerced and defaulted them.
+  **Install it last** — see [Middleware nesting order](#middleware-nesting-order).
+
+A denial or an approval therefore travels back **up through** the handler: it is
+raised inside the tool's execution, not before it is reached. "The call was
+refused" is observable as *the tool body ran zero times*, never as a handler
+count.
 
 ## When to use
 - You already have a LangGraph app or a `create_agent` agent and want tool calls
@@ -160,54 +168,69 @@ create_agent(model, tools=tools, middleware=[retry, tracing, ZerothMiddleware(co
 
 LangChain composes `wrap_tool_call` middleware **first-defined-outermost**. For
 `create_agent(..., middleware=[A, ZerothMiddleware(...), B])` a tool call enters
-`A`, then governance, then `B`, and unwinds in reverse. Pinned by
-`test_three_middleware_nest_first_defined_outermost`, which asserts the exact
-sequence `["a:enter", "z:decide", "b:enter", "b:exit", "a:exit"]`.
+`A`, then governance, then `B`, and unwinds in reverse. The substitution happens
+at governance's own position, so `A` is handed the raw tool and `B` is handed the
+governed twin. Pinned by `test_three_middleware_nest_first_defined_outermost`,
+which asserts the exact sequence
+`["a:enter:raw", "b:enter:governed", "z:decide", "b:exit", "a:exit"]`.
 
-Two failures follow from nesting a middleware *inside* governance:
+One failure follows from nesting a middleware *inside* governance, and it is
+severe:
 
-- **Rewritten arguments.** An inner middleware can call
-  `handler(request.override(tool_call=modified))`, and the tool then runs with
-  arguments the decision was never made about.
-- **Undecided executions.** LangChain hands each layer a handler its own body may
-  call as many times as it likes — `_chain_tool_call_wrappers.compose_two` in
-  `langchain/agents/factory.py` says so in a comment ("Outer can call call_inner
-  multiple times"), and LangChain's shipped `ToolRetryMiddleware` does exactly
-  that (`langchain/agents/middleware/tool_retry.py`). A retry nested inside
-  governance therefore runs the tool body N times against **one** decision and
-  **one** audit record.
+- **Un-substitution.** An inner middleware receives the governed twin and can hand
+  its own downstream something else — `handler(request.override(tool=raw))`, or
+  the same move on `tool_call`. Because the substitution *is* the enforcement, the
+  raw tool then runs with **no decision and no audit record at all**. Nothing
+  raises and nothing is recorded, so neither a deny count nor a record count can
+  see it. Pinned by
+  `test_a_middleware_nested_inside_governance_can_strip_the_governed_twin`.
 
-Installed last, the same retry re-enters `wrap_tool_call` on every attempt, so
-**every physical tool execution gets its own decision and its own audit record**.
-Pinned by `test_an_outer_retry_gets_a_decision_and_a_record_per_physical_execution`
-and its async twin, which count executions of the tool function itself — not
-handler calls.
+Anything that rewrites a request therefore belongs *outside* governance, where the
+substitution happens after it.
 
-### "Exactly once" means the handler, not the body
+### Retries are no longer a hole, either side of governance
 
-`wrap_tool_call` runs its downstream exactly once per decision, outside any loop,
-and never retries. That is a statement about the *handler*. How many times the
-tool body runs beneath the handler is whatever the layers nested inside
-governance do, and the two numbers coincide only when governance is innermost.
+LangChain hands each layer a handler its own body may call as many times as it
+likes — `_chain_tool_call_wrappers.compose_two` in `langchain/agents/factory.py`
+says so in a comment ("Outer can call call_inner multiple times"), and LangChain's
+shipped `ToolRetryMiddleware` does exactly that
+(`langchain/agents/middleware/tool_retry.py`). Every one of those calls now
+reaches the governed twin, so **every physical tool execution gets its own
+decision and its own audit record** whichever side of governance the retry sits
+on. Pinned by
+`test_an_outer_retry_gets_a_decision_and_a_record_per_physical_execution`, its
+async twin, and `test_a_retry_nested_inside_governance_is_decided_per_execution_too`
+— all of which count executions of the tool function itself, not handler calls.
+
+This retires a limitation earlier revisions documented: a retry nested inside
+governance used to run the body N times against one decision and one record.
 
 ### Why this is a contract and not a check
 
 Nothing in the middleware validates its own position, because nothing supported
-can. `AgentMiddleware` exposes no hook that receives the middleware list,
-`create_agent` composes the chain into a closure the middleware never sees, and
-the only observable difference between an innermost install and a nested one is
-whether the handler is the tool executor or LangChain's private
-`compose_two.<locals>.call_inner`. Distinguishing those means reading another
-library's local closures — it would break silently when LangChain refactors, and
-a position guard that silently stops guarding is worse than a documented contract
-with tests behind it. The limitation is pinned by
-`test_a_retry_nested_inside_governance_runs_the_body_undecided`, so it can never
-quietly turn back into a claim.
+can. `AgentMiddleware` exposes no hook that receives the middleware list and
+`create_agent` composes the chain into a closure the middleware never sees.
+Distinguishing an innermost install from a nested one means reading another
+library's local closures — it would break silently when LangChain refactors, and a
+position guard that silently stops guarding is worse than a documented contract
+with tests behind it.
 
-A wrong order does **not** weaken denial: a refused call raises before the nested
-layer is reached, so it executes zero times either way
-(`test_a_retry_nested_inside_governance_still_never_runs_a_denied_call`). What a
-wrong order loses is the per-execution decision and the per-execution record.
+A wrong order does **not** weaken denial on its own: a nested layer that simply
+passes the request through still executes the governed twin, so the refusal still
+holds and the body still runs zero times
+(`test_a_denial_now_reaches_the_middleware_nested_inside_governance`). What it now
+does mean is that such a layer *observes* calls governance goes on to refuse —
+and, if it rewrites the request, defeats governance entirely.
+
+### Pick one surface per tool list
+
+Passing `govern_tools(...)` output to `ZerothMiddleware` is a configuration error
+and is **refused at every call** with `UnstableToolIdentityError`: `GovernedTool`
+overrides `_to_args_and_kwargs`, which the entry-hook ban refuses, exactly as
+`govern_tools` refuses a tool it already wrapped. Earlier revisions accepted this
+silently and produced two decisions and two audit records for one physical
+execution. Pinned by `test_an_already_governed_tool_is_refused_by_the_middleware_too`
+and `test_an_already_governed_tool_is_refused_by_govern_tools`.
 
 ## What this does not claim
 
@@ -326,11 +349,17 @@ wrong and you run the wrong suite:
 A conformance run that reports everything skipped means the dependencies are
 absent, not that the tier passed.
 
-## What `govern_tools` refuses to wrap
+## What governance refuses to wrap
 
 **A tool that overrides a pre-body entry point is refused, not governed.** This
 is a deliberate narrowing, and it will reject some tools that wrapped fine
 before `0.13.12`.
+
+Since `0.13.13` this applies to **both** install surfaces. `ZerothMiddleware`
+builds its governed twin through the same machinery, so a tool it would once have
+decided-then-run is now refused at the call, with the same
+`UnstableToolIdentityError`
+(`test_a_tool_that_overrides_a_pre_body_entry_point_is_refused_on_this_surface_too`).
 
 `govern_tools` guarantees that the arguments policy was asked about are the
 arguments the body receives. It gets that by parsing the call once, against the

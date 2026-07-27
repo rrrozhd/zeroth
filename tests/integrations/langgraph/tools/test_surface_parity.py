@@ -67,6 +67,7 @@ pytest.importorskip("langchain.agents", reason="requires the gateway-conformance
 
 from langchain.agents.middleware import ToolCallRequest
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, field_validator
 
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.integrations.langgraph._middleware import ZerothMiddleware
@@ -187,19 +188,32 @@ class Body:
 
 @dataclasses.dataclass
 class Handler:
-    """The downstream LangChain hands the middleware surface, counting invocations."""
+    """``ToolNode`` as the middleware surface actually meets it: it runs ``request.tool``.
+
+    A handler that merely returned a value would measure nothing on this surface
+    any more. ``ZerothMiddleware`` no longer decides; it substitutes a governed
+    twin into the request, and the *downstream* executes it -- so a double that
+    ignores ``request.tool`` reports an allow for every verdict and compares
+    equal to nothing the wrapper surface does.
+
+    The raw argument mapping is handed to ``invoke`` rather than the whole tool
+    call, because that is the shape ``drive_wrapper`` hands the wrapper surface;
+    driving the two with different inputs would compare the inputs rather than
+    the surfaces.
+    """
 
     calls: int = 0
 
     def __call__(self, request: Any) -> Any:
-        """Count this invocation and return the shared result."""
+        """Count this invocation and execute whatever tool the request now carries."""
         self.calls += 1
-        return BODY_RESULT
+        return request.tool.invoke(dict(request.tool_call["args"]))
 
     async def acall(self, request: Any) -> Any:
-        """The awaitable form of the same counting downstream."""
+        """The awaitable form of the same downstream."""
+        self.calls += 1
         await asyncio.sleep(0)
-        return self(request)
+        return await request.tool.ainvoke(dict(request.tool_call["args"]))
 
 
 def read_only(_target: object) -> SideEffectClass:
@@ -616,14 +630,20 @@ def drive_wrapper(scenario: Scenario, tool: Any, body: Body) -> Outcome:
     return _outcome(lambda: governed.invoke({"query": "cats"}), body, audit, interrupt)
 
 
-def drive_middleware(scenario: Scenario, tool: Any) -> Outcome:
-    """Drive *scenario* through ``ZerothMiddleware.wrap_tool_call``."""
+def drive_middleware(scenario: Scenario, tool: Any, body: Body) -> Outcome:
+    """Drive *scenario* through ``ZerothMiddleware.wrap_tool_call``.
+
+    The downstream counter is the *body*, not the handler. The handler now runs
+    on every verdict -- the decision happens inside it, in the governed twin the
+    middleware substituted -- so a handler count would read ``1`` for a denial and
+    compare unequal to the wrapper surface for a reason that is not a divergence.
+    Counting the tool function is the same measurement ``drive_wrapper`` makes.
+    """
     audit, interrupt, live = RecordingSubmitter(), RecordingInterrupt(), {}
     guard = ZerothMiddleware(**_seams(scenario, audit, interrupt, live))
     _staged(scenario, live)
-    handler = Handler()
     request = build_request(tool)
-    return _outcome(lambda: guard.wrap_tool_call(request, handler), handler, audit, interrupt)
+    return _outcome(lambda: guard.wrap_tool_call(request, Handler()), body, audit, interrupt)
 
 
 def drive_wrapper_async(scenario: Scenario, tool: Any, body: Body) -> Outcome:
@@ -636,16 +656,15 @@ def drive_wrapper_async(scenario: Scenario, tool: Any, body: Body) -> Outcome:
     )
 
 
-def drive_middleware_async(scenario: Scenario, tool: Any) -> Outcome:
+def drive_middleware_async(scenario: Scenario, tool: Any, body: Body) -> Outcome:
     """Drive *scenario* through ``ZerothMiddleware.awrap_tool_call``."""
     audit, interrupt, live = RecordingSubmitter(), RecordingInterrupt(), {}
     guard = ZerothMiddleware(**_seams(scenario, audit, interrupt, live))
     _staged(scenario, live)
-    handler = Handler()
     request = build_request(tool)
     return _outcome(
-        lambda: asyncio.run(guard.awrap_tool_call(request, handler.acall)),
-        handler,
+        lambda: asyncio.run(guard.awrap_tool_call(request, Handler().acall)),
+        body,
         audit,
         interrupt,
     )
@@ -677,11 +696,10 @@ def _assert_declared(outcome: Outcome, scenario: Scenario) -> None:
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda item: item.label)
 def test_both_surfaces_decide_the_same_scenario_identically(scenario: Scenario) -> None:
     """``govern_tools`` and ``ZerothMiddleware`` produce the same outcome, field for field."""
-    body = Body()
-    tool = build_tool(body)
+    wrapper_body, middleware_body = Body(), Body()
 
-    wrapper = drive_wrapper(scenario, tool, body)
-    middleware = drive_middleware(scenario, tool)
+    wrapper = drive_wrapper(scenario, build_tool(wrapper_body), wrapper_body)
+    middleware = drive_middleware(scenario, build_tool(middleware_body), middleware_body)
 
     assert wrapper == middleware
     _assert_declared(wrapper, scenario)
@@ -697,11 +715,12 @@ def test_both_async_surfaces_decide_the_same_scenario_identically(scenario: Scen
     downstream -- so this drives the same table down the other pair of paths and
     holds them to the same equality.
     """
-    body = Body()
-    tool = build_async_tool(body)
+    wrapper_body, middleware_body = Body(), Body()
 
-    wrapper = drive_wrapper_async(scenario, tool, body)
-    middleware = drive_middleware_async(scenario, tool)
+    wrapper = drive_wrapper_async(scenario, build_async_tool(wrapper_body), wrapper_body)
+    middleware = drive_middleware_async(
+        scenario, build_async_tool(middleware_body), middleware_body
+    )
 
     assert wrapper == middleware
     _assert_declared(wrapper, scenario)
@@ -757,11 +776,10 @@ def test_an_approval_payload_is_the_same_schema_on_both_surfaces() -> None:
     from *both* surfaces at once is still caught.
     """
     scenario = next(item for item in SCENARIOS if item.label == "require-approval")
-    body = Body()
-    tool = build_tool(body)
+    wrapper_body, middleware_body = Body(), Body()
 
-    [payload] = drive_wrapper(scenario, tool, body).interrupts
-    [twin] = drive_middleware(scenario, tool).interrupts
+    [payload] = drive_wrapper(scenario, build_tool(wrapper_body), wrapper_body).interrupts
+    [twin] = drive_middleware(scenario, build_tool(middleware_body), middleware_body).interrupts
 
     assert payload == twin
     assert set(payload) == {
@@ -782,3 +800,244 @@ def test_an_approval_payload_is_the_same_schema_on_both_surfaces() -> None:
     }
     assert payload["kind"] == "tool_approval"
     assert payload["approval_ref"] == "approval-7"
+
+
+# --------------------------------------------------------------------------- #
+# R-1 / R8 -- the decided arguments are the executed arguments, on both surfaces.
+#
+# The table above stays green on any implementation, because every scenario in it
+# calls ``{"query": "cats"}`` against a ``str`` field: nothing is coerced, nothing
+# is defaulted, and the raw model arguments happen to equal the validated ones. So
+# it could not see the finding this section exists for -- a middleware that decided
+# from ``request.tool_call["args"]`` authorized the *string* ``"7"`` while the body
+# ran on the *integer* ``7``.
+#
+# Each scenario below therefore records two mappings for each surface: what the
+# decision client was handed, and what the tool function actually received. The
+# assertions are that the two are equal on each surface, that the surfaces agree,
+# and -- for coercion and defaulting -- that the decided mapping is *not* the raw
+# one, so a regression that reverts to pre-validation arguments fails here rather
+# than passing for the old reason.
+# --------------------------------------------------------------------------- #
+
+
+@dataclasses.dataclass
+class ArgumentRecordingClient:
+    """A permitting client that keeps the arguments of every action it decided."""
+
+    seen: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Record what policy was shown, then allow."""
+        self.seen.append(dict(action.arguments))
+        return ALLOW
+
+
+def build_coercing_tool() -> tuple[StructuredTool, list[dict[str, Any]]]:
+    """Build a tool whose one field is an ``int``, so a JSON string is coerced into it.
+
+    The auditor's reproduction, as a tool: the model emits ``"7"`` and
+    ``BaseTool`` hands the body ``7``.
+    """
+    observed: list[dict[str, Any]] = []
+
+    class Arguments(BaseModel):
+        """One integer, which a model's JSON string has to be coerced into."""
+
+        count: int
+
+    def _run(count: int) -> str:
+        observed.append({"count": count})
+        return BODY_RESULT
+
+    tool = StructuredTool.from_function(
+        func=_run, name="search", description="search for things.", args_schema=Arguments
+    )
+    return tool, observed
+
+
+def build_defaulting_tool() -> tuple[StructuredTool, list[dict[str, Any]]]:
+    """Build a tool with a defaulted field the model never mentions.
+
+    A policy that decides from the raw call never sees ``limit`` at all, so it
+    cannot deny on it -- the argument arrives at the body having been through no
+    gate whatsoever.
+    """
+    observed: list[dict[str, Any]] = []
+
+    class Arguments(BaseModel):
+        """One supplied field and one the schema fills in."""
+
+        query: str
+        limit: int = 5
+
+    def _run(query: str, limit: int = 5) -> str:
+        observed.append({"query": query, "limit": limit})
+        return BODY_RESULT
+
+    tool = StructuredTool.from_function(
+        func=_run, name="search", description="search for things.", args_schema=Arguments
+    )
+    return tool, observed
+
+
+def build_stateful_validator_tool() -> tuple[StructuredTool, list[dict[str, Any]]]:
+    """Build a tool whose validator answers differently every time it runs.
+
+    This is the case that separates "validates before deciding" from "validates
+    exactly once before deciding". A surface that parsed the call, decided, and
+    then handed the parsed values back through the delegate's *public* entry point
+    would run this validator twice: policy would see ``n-1`` and the body ``n-2``.
+    """
+    observed: list[dict[str, Any]] = []
+    validations: list[int] = []
+
+    class Arguments(BaseModel):
+        """One field whose validation consumes a counter it cannot un-consume."""
+
+        nonce: str
+
+        @field_validator("nonce")
+        @classmethod
+        def _consume(cls, value: str) -> str:
+            """Stamp the value with how many validations have happened."""
+            validations.append(1)
+            return f"{value}-{len(validations)}"
+
+    def _run(nonce: str) -> str:
+        observed.append({"nonce": nonce})
+        return BODY_RESULT
+
+    tool = StructuredTool.from_function(
+        func=_run, name="search", description="search for things.", args_schema=Arguments
+    )
+    return tool, observed
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ArgumentScenario:
+    """One call whose raw arguments differ from the ones the body will receive.
+
+    Attributes:
+        label: The scenario's name, used as the parametrization id.
+        build: Builds a fresh tool and the list its body records into. A factory,
+            so each surface is driven against state of its own -- the stateful
+            validator would otherwise carry its counter across the two.
+        raw: The arguments as the model emits them, before any validation.
+        decided: What both the policy and the body must see. Written out rather
+            than derived, so a change in what ``BaseTool`` does to a call is a
+            test failure and not a silently updated expectation.
+        differs: Whether *decided* must not equal *raw*. ``True`` for the cases
+            that reproduce the finding; the stateful one is exempt only because
+            its expectation already pins the exact validation count.
+    """
+
+    label: str
+    build: Callable[[], tuple[StructuredTool, list[dict[str, Any]]]]
+    raw: dict[str, Any]
+    decided: dict[str, Any]
+    differs: bool = True
+
+
+ARGUMENT_SCENARIOS = (
+    ArgumentScenario(
+        label="a-string-coerced-into-an-int-field",
+        build=build_coercing_tool,
+        raw={"count": "7"},
+        decided={"count": 7},
+    ),
+    ArgumentScenario(
+        label="a-default-the-model-never-supplied",
+        build=build_defaulting_tool,
+        raw={"query": "cats"},
+        decided={"query": "cats", "limit": 5},
+    ),
+    ArgumentScenario(
+        label="a-validator-that-answers-differently-every-time-it-runs",
+        build=build_stateful_validator_tool,
+        raw={"nonce": "n"},
+        decided={"nonce": "n-1"},
+    ),
+)
+
+
+def _wrapper_arguments(
+    scenario: ArgumentScenario,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run one scenario through ``govern_tools``, returning what policy and the body saw."""
+    tool, observed = scenario.build()
+    client = ArgumentRecordingClient()
+    [governed] = govern_tools([tool], context=THREADED, client=client, side_effect=read_only)
+    governed.invoke(dict(scenario.raw))
+    [decided] = client.seen
+    [executed] = observed
+    return decided, executed
+
+
+def _middleware_arguments(
+    scenario: ArgumentScenario,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run one scenario through ``ZerothMiddleware``, returning the same two mappings."""
+    tool, observed = scenario.build()
+    client = ArgumentRecordingClient()
+    guard = ZerothMiddleware(context=THREADED, client=client, side_effect=read_only)
+    request = ToolCallRequest(
+        tool_call={
+            "name": tool.name,
+            "args": dict(scenario.raw),
+            "id": "call-1",
+            "type": "tool_call",
+        },
+        tool=tool,
+        state={},
+        runtime=None,
+    )
+    guard.wrap_tool_call(request, Handler())
+    [decided] = client.seen
+    [executed] = observed
+    return decided, executed
+
+
+@pytest.mark.parametrize("scenario", ARGUMENT_SCENARIOS, ids=lambda item: item.label)
+def test_both_surfaces_decide_the_arguments_the_body_receives(
+    scenario: ArgumentScenario,
+) -> None:
+    """The authorized call is the executed call, whatever validation did to it."""
+    wrapper_decided, wrapper_executed = _wrapper_arguments(scenario)
+    middleware_decided, middleware_executed = _middleware_arguments(scenario)
+
+    # The finding, stated directly: what policy saw is what ran.
+    assert wrapper_decided == wrapper_executed
+    assert middleware_decided == middleware_executed
+    # R8: and both surfaces saw the same thing.
+    assert wrapper_decided == middleware_decided
+    assert wrapper_decided == scenario.decided
+    if scenario.differs:
+        # Without this the test would pass on the broken implementation too,
+        # because the raw and validated mappings would happen to be equal.
+        assert scenario.decided != scenario.raw
+
+
+@pytest.mark.parametrize("scenario", ARGUMENT_SCENARIOS, ids=lambda item: item.label)
+def test_the_middleware_never_decides_the_raw_model_arguments(
+    scenario: ArgumentScenario,
+) -> None:
+    """The regression guard, aimed at the middleware surface specifically.
+
+    ``ZerothMiddleware`` used to build its action from ``request.tool_call["args"]``
+    -- the mapping the model produced, before ``BaseTool`` touched it. This asserts
+    the negative directly, so reverting the substitution fails here even if some
+    later change made the positive assertion above pass for another reason.
+    """
+    decided, _executed = _middleware_arguments(scenario)
+
+    assert decided != scenario.raw
+
+
+def test_the_argument_parity_table_covers_every_case_the_audit_named() -> None:
+    """Coercion, defaulting and a stateful validator, named rather than assumed."""
+    assert {scenario.label for scenario in ARGUMENT_SCENARIOS} == {
+        "a-string-coerced-into-an-int-field",
+        "a-default-the-model-never-supplied",
+        "a-validator-that-answers-differently-every-time-it-runs",
+    }

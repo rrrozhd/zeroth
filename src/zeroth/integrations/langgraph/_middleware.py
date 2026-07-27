@@ -1,94 +1,105 @@
 """The middleware install surface: ``ZerothMiddleware`` for ``create_agent``.
 
-**This module composes; it decides nothing.** Exactly like
-:mod:`~zeroth.integrations.langgraph._tool_wrappers`, every allow, deny and
-approval branch lives in :mod:`~zeroth.integrations.langgraph._tool_guard`:
-:meth:`ZerothMiddleware.wrap_tool_call` calls
-:func:`~zeroth.integrations.langgraph._tool_guard.guard_tool_call` and
-:meth:`ZerothMiddleware.awrap_tool_call` calls
-:func:`~zeroth.integrations.langgraph._tool_guard.authorize_tool_call` before
-awaiting its own downstream. There is deliberately no async enforcement core and
-no second copy of the fail-closed rules -- two implementations of "may this tool
-run" is two places for them to diverge, and the one that drifts is the one that
-fails *open*.
+**This module installs the wrapper surface; it decides nothing and enforces
+nothing.** It holds no call to
+:func:`~zeroth.integrations.langgraph._tool_guard.guard_tool_call` or
+:func:`~zeroth.integrations.langgraph._tool_guard.authorize_tool_call` at all.
+What :meth:`ZerothMiddleware.wrap_tool_call` does is substitute a *governed twin*
+of ``request.tool`` -- built by the same
+:func:`~zeroth.integrations.langgraph._tool_wrappers.govern_tools` machinery, per
+call -- into the request it hands downstream. LangChain's ``ToolNode`` then
+executes that twin, and the twin is the thing that decides. Both install
+surfaces therefore enter the enforcement core at one point,
+:meth:`~zeroth.integrations.langgraph._tool_wrappers.GovernedTool._run`, through
+one implementation of the fail-closed rules (R8).
 
-**``handler`` is the downstream, so not calling it is the enforcement.** LangChain
-hands the tool's execution in as a callback. A denial raises before the callback
-is reached and an approval suspends before it is reached, so "the tool did not
-run" is observable directly as "the handler was called zero times" rather than
-inferred from a return value.
+**The decision is made about the arguments the body will actually receive.** This
+is the whole reason the twin exists. ``request.tool_call["args"]`` is what the
+*model* emitted: raw JSON, before ``BaseTool`` coerces it against
+``args_schema``, before a default is filled in, before ``ToolNode`` injects a
+state or store argument. A middleware that decided from that mapping authorized
+the string ``"7"`` while the body ran on the integer ``7`` -- and never saw an
+injected argument at all. Substituting the twin puts validation, coercion,
+defaulting and injection *ahead* of the guard, exactly once, so the authorized
+call is the executed call.
+
+**Not calling the downstream is no longer the enforcement, and that is a real
+change.** The verdict now travels up *through* ``handler``: a denial raises
+:class:`~zeroth.integrations.langgraph._tool_errors.PolicyViolation` from inside
+the twin's ``_run``, and an approval interrupts there. ``handler`` is reached on
+every verdict, so "the tool did not run" is measured at the tool *body*, never at
+a handler count. ``ToolNode`` propagates both -- it renders no error
+``ToolMessage`` for them -- which
+``test_a_denied_call_raises_the_typed_error_out_of_a_real_agent`` and its async
+and approval twins pin through a real ``create_agent``.
 
 **A denial propagates; it is never rendered as an error ``ToolMessage``.** The
 guard's contract is that governance decides *whether* a call happens, not what it
-means, and turning
-:class:`~zeroth.integrations.langgraph._tool_errors.PolicyViolation` into a
-message here would be a second representation of the verdict -- one the wrapper
-surface does not produce and could not be held to. Callers who want a denial fed
-back to the model catch the exception in their own middleware, outside
-governance.
+means. Callers who want a denial fed back to the model catch the exception in
+their own middleware, outside governance.
 
 **Nesting order (R12).** LangChain composes ``wrap_tool_call`` middleware with
 the *first entry outermost*: for
 ``create_agent(..., middleware=[A, ZerothMiddleware(...), B])`` a tool call
-enters ``A``, then ``ZerothMiddleware``, then ``B``, and unwinds in reverse.
-Governance therefore sees every call that middleware *before* it let through, and
-``B`` -- with everything nested inside it -- only ever runs on a call governance
-allowed. Put ``ZerothMiddleware`` ahead of any middleware that must not observe a
-refused call, and behind any that legitimately rewrites the request first.
+enters ``A``, then ``ZerothMiddleware``, then ``B``, and unwinds in reverse. The
+substitution happens at governance's own position, so ``A`` is handed the raw
+tool and ``B`` is handed the governed twin -- which is how
+``test_three_middleware_nest_first_defined_outermost`` observes the position now
+that the decision itself happens below every layer.
 
-**The converse is a hard requirement, not a preference: ``ZerothMiddleware`` must
-be the LAST ``wrap_tool_call`` middleware in the list.** Two distinct failures
-follow from nesting anything inside it, and neither is detectable from here.
+**``ZerothMiddleware`` must be the LAST ``wrap_tool_call`` middleware in the
+list.** One failure follows from nesting anything inside it, and it is not
+detectable from here.
 
-*Rewritten arguments.* A middleware nested inside can call
-``handler(request.override(tool_call=modified))``, and the tool then runs with
-arguments the decision was never made about. Anything that rewrites a tool call
-belongs *outside*, where governance sees its output rather than its input.
+*Un-substitution.* A middleware nested inside receives the governed twin and can
+hand its own downstream something else -- ``handler(request.override(tool=raw))``
+-- and the raw tool then runs with **no decision and no audit record at all**.
+Rewriting ``tool_call`` has the same shape. Anything that rewrites a request
+belongs *outside* governance, where the substitution happens after it. The
+limitation is pinned by
+``test_a_middleware_nested_inside_governance_can_strip_the_governed_twin`` so it
+can never quietly become a claim.
 
-*Undecided executions.* LangChain hands each layer a handler its own body may
-call **as many times as it likes** -- ``_chain_tool_call_wrappers.compose_two``
-in ``langchain/agents/factory.py`` says so in as many words ("Outer can call
-call_inner multiple times"), and the shipped ``ToolRetryMiddleware`` does exactly
-that. So a retrying middleware nested inside governance runs the tool body N
-times against **one** decision and **one** audit record.
-Innermost, the same retry re-enters ``wrap_tool_call`` per attempt, and every
-physical execution gets its own decision and its own record -- which is the
-property the guarantee is actually about.
-
-**"Exactly once" here is a statement about the handler, and the handler is not
-the body.** :meth:`ZerothMiddleware.wrap_tool_call` calls its downstream once per
-decision; how many times the tool body runs underneath that downstream is
-whatever the layers below it do. The two coincide only when governance is
-innermost, which is why the ordering is the contract rather than a suggestion.
+*A retry nested inside is no longer a hole.* LangChain hands each layer a handler
+its own body may call **as many times as it likes** --
+``_chain_tool_call_wrappers.compose_two`` in ``langchain/agents/factory.py`` says
+so in as many words ("Outer can call call_inner multiple times"), and the shipped
+``ToolRetryMiddleware`` does exactly that. Each of those calls now reaches the
+twin, so each physical execution gets its own decision and its own record
+whichever side of governance the retry sits on. Installed outermost or innermost,
+the accounting is the same; only un-substitution defeats it.
 
 **No supported mechanism detects the position, so nothing here tries.**
 :class:`~langchain.agents.middleware.AgentMiddleware` exposes no hook that
-receives the middleware list, ``create_agent`` composes the chain into a closure
-the middleware never sees, and the only difference between an innermost install
-and a nested one is whether ``handler`` is the tool executor or LangChain's
-private ``compose_two.<locals>.call_inner``. Telling those apart means reading
-another library's local closures: it would break silently on a refactor there,
-and a guard that silently stops guarding is worse than a documented contract with
-tests behind it. The contract is pinned instead by
-``test_an_outer_retry_gets_a_decision_and_a_record_per_physical_execution`` and
-its async twin, with the nested-retry limitation pinned by
-``test_a_retry_nested_inside_governance_runs_the_body_undecided`` so it can never
-quietly become a claim.
+receives the middleware list and ``create_agent`` composes the chain into a
+closure the middleware never sees. A guard that silently stops guarding is worse
+than a documented contract with tests behind it.
 
 **Identity is read off the registered tool, not off the model's request.**
 :class:`~langchain.agents.middleware.ToolCallRequest` carries both a ``tool_call``
-the model produced and the ``tool`` the agent resolved it to. The fingerprint is
-derived from the resolved tool through the same
+the model produced and the ``tool`` the agent resolved it to. The twin is built
+from the resolved tool through the same
 ``_describe_base_tool`` the wrapper surface uses -- so one tool fingerprints
-identically on both surfaces -- and the requested name must match the resolved
-tool's, because a request naming one tool while carrying another is a request
-whose decision would be recorded against the wrong thing.
+identically on both surfaces -- and the requested name must match the name the
+twin was pinned under, because a request naming one tool while carrying another
+is a request whose decision would be recorded against the wrong thing.
 
 **An unregistered tool is refused, not decided.** ``request.tool`` is ``None``
 when the agent could not resolve the call, and a tool with no declared surface
 has no material to pin an identity against. It raises
 :class:`~zeroth.integrations.langgraph._tool_errors.UnstableToolIdentityError`
 rather than being decided against a name alone.
+
+**A tool whose entry path governance cannot execute past is refused here too.**
+Building the twin runs
+:func:`~zeroth.integrations.langgraph._tool_wrappers._refuse_overridden_entry_hooks`,
+so a delegate that overrides ``_parse_input`` -- or ``invoke``, or any other
+pre-body hook -- is refused on this surface exactly as it is on the wrapper
+surface. An **already-governed** tool is refused by the same gate, because
+:class:`~zeroth.integrations.langgraph._tool_wrappers.GovernedTool` overrides
+``_to_args_and_kwargs``: governing a governed tool twice is a configuration
+error, and refusing it is what stops one call carrying two decisions and two
+records.
 
 **No callback handler is registered here.** ``_callbacks.py`` normalizes a run
 down to exactly one canonical
@@ -120,28 +131,21 @@ from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
     UnstableToolIdentityError,
 )
-from zeroth.integrations.langgraph._tool_guard import (
-    ToolAuditSubmitter,
-    authorize_tool_call,
-    guard_tool_call,
-)
+from zeroth.integrations.langgraph._tool_guard import ToolAuditSubmitter
 from zeroth.integrations.langgraph._tool_inventory import (
     ToolEnforcementReport,
     record_binding_inventory,
     report_tool_enforcement,
 )
-from zeroth.integrations.langgraph._tool_normalize import (
-    normalize_identifier,
-    normalize_tool_action,
-)
-from zeroth.integrations.langgraph._tool_types import ToolAction, ToolInventory
+from zeroth.integrations.langgraph._tool_normalize import normalize_identifier
+from zeroth.integrations.langgraph._tool_types import ToolInventory
 from zeroth.integrations.langgraph._tool_wrappers import (
     GovernedToolBinding,
     _describe_base_tool,
+    _govern_one,
     _peek,
     _pin,
-    _resolve_context,
-    _resolved,
+    _Seams,
 )
 
 _TOOL_CALL_NAME = "name"
@@ -257,26 +261,70 @@ def _matched_name(requested: object, resolved: object) -> str:
     return actual
 
 
+def _carrying(request: object, twin: BaseTool) -> Any:
+    """Rewrite one request onto the governed twin, refusing a rewrite that did not take.
+
+    ``ToolCallRequest.override`` is LangChain's own copy-with-replacement, and it
+    is the only supported way to change what the downstream executes. Two things
+    are checked rather than assumed, because this substitution *is* the
+    enforcement now: a request that cannot be rewritten has no governed path
+    downstream, and a request whose ``tool`` came back as something other than
+    the twin would run ungoverned while every count in this package still read as
+    if it had not.
+
+    The check is an identity refusal, not a second policy decision -- it decides
+    nothing about the call, it only refuses to hand on a request that would
+    escape the one decision.
+
+    Args:
+        request: The middleware request, which is not trusted to be one.
+        twin: The governed tool the downstream must execute.
+
+    Returns:
+        The request to hand the downstream handler.
+
+    Raises:
+        UnstableToolIdentityError: If the request cannot carry the governed tool,
+            or did not.
+    """
+    override = _peek(request, "override")
+    if not callable(override):
+        raise UnstableToolIdentityError("a governed tool call needs a rewritable request")
+    try:
+        carried = override(tool=twin)
+    except Exception as error:
+        raise UnstableToolIdentityError(
+            "this tool call could not be rewritten onto its governed tool"
+        ) from error
+    if _peek(carried, "tool") is not twin:
+        raise UnstableToolIdentityError("this tool call did not carry its governed tool downstream")
+    return carried
+
+
 class ZerothMiddleware(AgentMiddleware):
     """Governs every tool call a ``create_agent`` agent makes, deciding before it runs.
 
-    **The second install surface for tool enforcement.** Pass it to
+    **The second install surface for tool enforcement, and the second only in the
+    sense of where it is installed.** Pass it to
     ``create_agent(..., middleware=[ZerothMiddleware(context=...)])`` and every
-    tool call the agent makes is decided by the same core
-    :func:`~zeroth.integrations.langgraph._tool_wrappers.govern_tools` decides
-    through. Allow, deny and approval mean exactly what they mean there, because
-    neither surface carries an enforcement branch of its own.
+    tool call the agent makes runs through a per-call governed twin built by the
+    same :func:`~zeroth.integrations.langgraph._tool_wrappers.govern_tools`
+    machinery. Allow, deny and approval mean exactly what they mean there,
+    because this class carries no decision of its own to mean anything else with.
 
     **Supplying no context refuses every call, deliberately.** The principal is
     injected and never discovered, so an agent governed without one is governed
     fail-closed rather than governed unattributed.
 
     **Install it LAST.** ``middleware=[...everything else..., ZerothMiddleware()]``
-    makes it the innermost ``wrap_tool_call`` layer, which is what makes every
-    physical tool execution -- including each attempt of an outer retry -- its own
-    decision and its own audit record. See the module docstring for the two
-    failures that follow from nesting a middleware inside it, and for why no
-    supported mechanism detects the position.
+    makes it the innermost ``wrap_tool_call`` layer, which is what stops a nested
+    layer from handing its own downstream a request the twin was taken back out
+    of. See the module docstring for that failure, and for why no supported
+    mechanism detects the position.
+
+    **Do not hand it tools that ``govern_tools`` already wrapped.** Governing a
+    governed tool is refused at every call, on this surface as on the other:
+    pick one install surface per tool list.
 
     Attributes:
         tools: Declared empty and never populated. A middleware's ``tools`` are
@@ -347,9 +395,7 @@ class ZerothMiddleware(AgentMiddleware):
             declared = list(expected_tools)
         except TypeError as error:
             raise ToolGovernanceError("an expected tool list must be iterable") from error
-        self._inventory = record_binding_inventory(
-            [_declared_binding(tool) for tool in declared]
-        )
+        self._inventory = record_binding_inventory([_declared_binding(tool) for tool in declared])
 
     @property
     def tool_inventory(self) -> ToolInventory:
@@ -394,70 +440,83 @@ class ZerothMiddleware(AgentMiddleware):
         """
         return report_tool_enforcement(self._inventory)
 
-    def _seams(self) -> dict[str, Any]:
-        """Render the pinned seams as the keyword arguments the enforcement core takes."""
-        return {
-            "client": self._client,
-            "unknown_side_effect": self._unknown_side_effect,
-            "audit": self._audit,
-            "actor": self._actor,
-            "interrupt": self._interrupt,
-        }
+    def _seams(self) -> _Seams:
+        """Render the pinned seams as the wrapping surface's own seam record.
 
-    def _describe(self, request: object) -> tuple[ToolAction, object]:
-        """Build the normalized descriptor one middleware request is decided from.
+        Every field is handed straight through, so a tool governed by this
+        middleware is governed under exactly the seams
+        :func:`~zeroth.integrations.langgraph._tool_wrappers.govern_tools` would
+        have been given -- which is what makes the two surfaces' decisions
+        comparable rather than merely similar.
+        """
+        return _Seams(
+            context=self._context,
+            client=self._client,
+            unknown_side_effect=self._unknown_side_effect,
+            audit=self._audit,
+            actor=self._actor,
+            interrupt=self._interrupt,
+            side_effect=self._side_effect,
+            contract_ref=self._contract_ref,
+        )
 
-        The single place a request becomes a decidable action: both the sync and
-        the async surface call this and then hand the result to the shared
-        enforcement core, so the two cannot describe the same call differently.
+    def _governed(self, request: object) -> Any:
+        """Return the request to hand downstream, with a governed twin in the tool slot.
+
+        The single place a request becomes a governed one: both the sync and the
+        async surface call this, so the two cannot install the twin differently.
+
+        Nothing here decides anything. The twin does, when ``ToolNode`` executes
+        it -- after ``BaseTool`` has validated, coerced and defaulted the
+        arguments, and after any injected argument has been resolved.
+
+        **The name check is against the twin's pinned name, not the raw tool's.**
+        That is the name the decision will be recorded under, so matching the
+        request against anything else would leave a gap between the name that was
+        checked and the name that was decided.
+
+        **No authorization resolver is consumed here.** Building the twin runs
+        :func:`~zeroth.integrations.langgraph._tool_wrappers._pin`, which
+        consults neither the classifier nor the contract resolver; both are
+        resolved live, once, inside the twin's own decision. A twin built per
+        call therefore costs exactly the resolver answers one decision costs.
 
         Args:
             request: The middleware request, which is not trusted to be one.
 
         Returns:
-            The normalized action and the governance context it is attributed
-            to, both handed on to the enforcement core unchanged.
+            The rewritten request, carrying the governed twin.
 
         Raises:
             UnstableToolIdentityError: If the request carries no resolved tool,
-                no plain tool call, or a name that is not the resolved tool's.
-            GovernanceContextError: If the call cannot be attributed.
-            ToolGovernanceError: If the arguments are not canonically
-                representable.
+                no plain tool call, a name that is not the twin's, a tool whose
+                entry path governance cannot execute past -- including one that
+                is already governed -- or a request that will not carry the twin.
+            ToolGovernanceError: If the tool's declared surface will not build a
+                governed twin.
         """
         tool = _requested_tool(request)
-        requested_name, arguments = _requested_call(request)
-        facts = _describe_base_tool(tool)
-        name = _matched_name(requested_name, facts.name)
-        context = _resolve_context(self._context)
-        action = normalize_tool_action(
-            name=name,
-            arguments={} if arguments is None else arguments,
-            context=context,
-            identity_material=facts.material,
-            contract_ref=_resolved(self._contract_ref, tool),
-            side_effect=_resolved(self._side_effect, tool),
-        )
-        return action, context
+        requested_name, _arguments = _requested_call(request)
+        twin = _govern_one(tool, self._seams())
+        _matched_name(requested_name, _peek(twin, "name"))
+        return _carrying(request, twin)
 
     def wrap_tool_call(
         self,
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Any],
     ) -> Any:
-        """Govern this call, then run the downstream handler exactly once on an allow.
+        """Install the governed twin into this call and hand it downstream once.
 
-        ``handler`` is passed to the enforcement core as the invocation, so it is
-        called once on an allow, outside any ``try`` and any loop, and not at all
-        on any other verdict. An exception the tool raises propagates unchanged
-        and this method never retries a call.
+        ``handler`` is called exactly once, on every verdict, outside any loop --
+        this method neither decides nor retries. The decision happens *inside*
+        it, when ``ToolNode`` executes the twin, so a denial or an approval
+        travels back out through ``handler`` as the typed exception the wrapper
+        surface raises.
 
-        **That is a claim about the handler, not about the tool body.** How many
-        times the body runs beneath the handler is decided by whatever layers are
-        nested inside this one: a retrying middleware declared *after*
-        ``ZerothMiddleware`` executes the tool repeatedly against this single
-        decision. Installed last, as required, this method is re-entered per
-        physical execution and each one is decided and recorded on its own.
+        **"The tool did not run" is therefore a statement about the body, never
+        about this call.** Every enforcement assertion counts executions of the
+        tool function; a handler count would now read ``1`` on a denial.
 
         Args:
             request: The tool call the agent is about to make.
@@ -467,26 +526,25 @@ class ZerothMiddleware(AgentMiddleware):
             Whatever the handler returned.
 
         Raises:
-            ToolGovernanceError: Whenever the call did not proceed. See
+            ToolGovernanceError: Whenever the call did not proceed -- raised
+                either by the gates here or, through ``handler``, by the shared
+                enforcement core. See
                 :func:`~zeroth.integrations.langgraph._tool_guard.authorize_tool_call`
                 for which subclass names which condition.
         """
-        action, context = self._describe(request)
-        return guard_tool_call(action, context, lambda: handler(request), **self._seams())
+        return handler(self._governed(request))
 
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[Any]],
     ) -> Any:
-        """Govern this call, then await the downstream handler once on an allow.
+        """Install the governed twin into this call and await it downstream once.
 
-        Authorization is the same synchronous core the sync path runs; only the
-        downstream is awaited. There is no async enforcement branch to drift out
-        of step with the sync one -- including the ordering contract: the async
-        chain composes identically (``_chain_async_tool_call_wrappers`` mirrors
-        the sync ``compose_two``), so an awaited handler is one decision too, and
-        the tool body underneath it is whatever the inner layers run.
+        The same substitution the sync path makes, differing only in the await.
+        There is no async enforcement branch here because there is no enforcement
+        branch here at all: the twin's own ``_arun`` runs the one synchronous
+        core, exactly as its ``_run`` does.
 
         Args:
             request: The tool call the agent is about to make.
@@ -498,9 +556,7 @@ class ZerothMiddleware(AgentMiddleware):
         Raises:
             ToolGovernanceError: Whenever the call did not proceed.
         """
-        action, context = self._describe(request)
-        authorize_tool_call(action, context, **self._seams())
-        return await handler(request)
+        return await handler(self._governed(request))
 
 
 __all__ = ["ZerothMiddleware"]
