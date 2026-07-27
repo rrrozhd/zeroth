@@ -1526,8 +1526,18 @@ def test_a_class_that_gains_an_override_after_the_wrapping_is_refused_before_it_
 ) -> None:
     """The ban is re-checked per call, so wrapping first is not a way around it.
 
-    The refusal lands after the decision was recorded and before anything ran --
-    the same place the delegate-cannot-be-copied refusal lands.
+    **The refusal now lands before the policy is consulted, not after.** The ban
+    used to be re-checked at execution time, inside the twin-building step that
+    ran after the decision -- so a tool nothing could execute still spent a
+    decision. It is now part of the per-call snapshot, which is taken before the
+    classifier, the contract resolver and the client, because the snapshot is
+    what identity is derived from and what finally runs.
+
+    That ordering is the one every other fail-closed refusal in this file
+    already asserts (``client.calls == 0``), and it matters beyond tidiness: a
+    decision client is a *live* seam, so asking it about a call that can never
+    execute consumes an answer the next real call should have had -- the same
+    reasoning ``_pin`` gives for consulting no resolver at wrap time.
     """
     body = Body()
     client = CountingClient()
@@ -1539,8 +1549,8 @@ def test_a_class_that_gains_an_override_after_the_wrapping_is_refused_before_it_
         governed.invoke({"query": "safe"})
 
     assert body.calls == 0
-    assert client.calls == 1
-    assert dict(client.seen[0].arguments) == {"query": "safe"}
+    assert client.calls == 0
+    assert client.seen == []
 
 
 def test_a_class_without_an_override_still_runs_the_arguments_policy_decided() -> None:

@@ -92,7 +92,7 @@ rather than being decided against a name alone.
 
 **A tool whose entry path governance cannot execute past is refused here too.**
 Building the twin runs
-:func:`~zeroth.integrations.langgraph._tool_wrappers._refuse_overridden_entry_hooks`,
+:func:`~zeroth.integrations.langgraph._tool_execution.refuse_delegate_dispatch`,
 so a delegate that overrides ``_parse_input`` -- or ``invoke``, or any other
 pre-body hook -- is refused on this surface exactly as it is on the wrapper
 surface. An **already-governed** tool is refused by the same gate, because
@@ -226,7 +226,8 @@ def _declared_binding(tool: object) -> GovernedToolBinding:
     was shifted by one. Declaring an inventory could therefore flip a denial into
     an allow -- the same installation, differing only in ``expected_tools``. The
     identity is recorded and nothing else is; the classification and the contract
-    are resolved live, per call, in :meth:`ZerothMiddleware._describe`.
+    are resolved live, per call, inside the twin :meth:`ZerothMiddleware._governed`
+    installs -- see :func:`~zeroth.integrations.langgraph._tool_wrappers._governed_action`.
 
     Args:
         tool: The declared tool, which is not trusted to be one.

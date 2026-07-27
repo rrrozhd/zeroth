@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14] - 2026-07-27
+
+### Fixed
+
+- Establish, and prove, that **the body which runs is the body whose identity was
+  authorized, and the arguments it receives are the arguments the policy saw**. Identity
+  was previously derived from the live tool and the body fetched from it again at
+  execution time, with the caller's contract resolver, side-effect classifier and
+  decision client running in between — so anything that moved the tool in that window
+  executed under a fingerprint pinned before it moved, and every read governance made
+  could be answered by the delegate itself. A `BaseTool` overriding `model_copy` returned
+  an evil same-schema `StructuredTool` that ran in place of the authorized one; a
+  classifier replacing `target.func` when consulted ran a substituted body under the
+  unchanged pin; an `invoke` entry in the delegate's instance `__dict__` and a custom
+  `__getattribute__` both bypassed a refusal that read only class-level attributes. All
+  four reproduced on both enforcement surfaces, sync and async.
+
+### Added
+
+- `zeroth.integrations.langgraph._tool_execution`, which makes identity derivation and
+  execution one fact instead of two reads. Reads are **static** — the real `__mro__`
+  walked through `type`'s own descriptors, instance state through
+  `object.__getattribute__` — so neither a hostile `__getattribute__` nor a metaclass can
+  author them. A **per-call snapshot** captures body and surface by value before any
+  caller-supplied code runs, identity is digested from that snapshot
+  (`tool_slots_digest`), and execution runs a **framework-constructed** `StructuredTool`
+  carrying the snapshotted callables rather than a copy the delegate produced — an object
+  the delegate has no attribute on.
+
+### Changed
+
+- The entry-hook refusal is widened to `model_copy`, `__copy__`, `__deepcopy__`,
+  `__getattribute__` and per-instance shadows of every hook, plus a metaclass allowlist,
+  checked at wrap time and again per call. `__getattr__` is permitted by identity rather
+  than refused, because `BaseModel` defines it. This refusal is deliberately **defence in
+  depth and not the guarantee**: a list of banned attributes is a list the next probe
+  walks around, which is why the snapshot carries the invariant.
+- A delegate whose entry path governance cannot execute past is now refused **before** the
+  policy is consulted rather than after. That is the ordering every other fail-closed
+  refusal already used, and it stops a live decision client from spending an answer on a
+  call that can never execute.
+- A governed plain callable now executes a function rebuilt from its own parts, so a later
+  `__code__` reassignment cannot move the body the wrapper holds.
+
 ## [0.13.13.3] - 2026-07-27
 
 ### Documentation

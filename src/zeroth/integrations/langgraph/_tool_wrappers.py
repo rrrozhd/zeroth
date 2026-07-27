@@ -30,11 +30,11 @@ validation happens. Handing the *parsed* arguments back through the delegate's
 public ``invoke`` would validate them a second time, and a validator that is
 stateful or otherwise non-idempotent answers differently on the second pass -- so
 policy would authorize the first answer while the body ran on the second. The
-delegate is therefore driven through :func:`_executing_delegate`, a twin of it
-whose validation stage is a pass-through, and the values the body receives are
-exactly the values the decision was made about. See that function for why a twin
-rather than the delegate itself, and :func:`_delegate_input` for why the twin is
-still driven through ``invoke``.
+call is therefore executed through
+:func:`~zeroth.integrations.langgraph._tool_execution.executing_tool`, whose
+validation stage is a pass-through, and the values the body receives are exactly
+the values the decision was made about. See :func:`_delegate_input` for why that
+object is still driven through ``invoke``.
 
 **Identity is the tool's body, not the label on it.** Name, description and
 argument names are metadata a substituted tool reproduces exactly, so identity
@@ -55,21 +55,20 @@ is therefore written once, into pydantic's private store, and
 :meth:`GovernedTool.__setattr__` refuses every later assignment to it, to the
 binding, and to the names the mutable handles used to carry.
 
-**A delegate that overrides a pre-body entry point is refused, not governed.**
-One validation per governed call is arranged by handing the delegate a
-pass-through twin (:func:`_executing_delegate`), and that arrangement holds only
-for a delegate whose ``_parse_input`` / ``_to_args_and_kwargs`` / ``invoke`` /
-``ainvoke`` / ``run`` / ``arun`` are the framework's own. A subclass that
-overrides any of them re-derives the arguments *after* the decision, inside a
-hook the wrapper cannot see past -- policy authorizes ``{"query": "safe"}`` and
-the body receives ``"danger"``. ``langchain_core``'s own ``BaseTool`` and
-``StructuredTool`` implementations are permitted, because ``StructuredTool`` is
-what ``@tool`` produces and is therefore the normal case; anything else raises
-:class:`~zeroth.integrations.langgraph._tool_errors.UnstableToolIdentityError`
-at wrapping and again before every execution. This is a narrowing, and it is
-deliberately the fail-closed direction: a neutral execution adapter that bypassed
-those hooks would let the ban be lifted, and until one exists a tool whose entry
-path is unreadable cannot be governed.
+**The body that runs is the body whose identity was authorized.** Identity used
+to be derived from the live tool and the body fetched from it again at execution
+time, with the caller's classifier, contract resolver and decision client running
+in between -- so anything that moved the tool in that window executed under the
+fingerprint pinned before it moved, and any read governance made could be
+answered by the delegate itself. Both halves are now one fact:
+:mod:`~zeroth.integrations.langgraph._tool_execution` takes a per-call snapshot
+by static reads before any caller-supplied code runs, identity is digested from
+that snapshot, and execution runs a framework-owned adapter built from it rather
+than a copy the delegate produced. A delegate that overrides a pre-body entry
+point, its copy machinery or its attribute dispatch -- or that shadows one on the
+instance -- is refused as well, at wrapping and again per call; that refusal is
+defense in depth rather than the guarantee, because a list of banned attributes
+is a list the next probe walks around.
 
 **Identity is pinned at wrap time and re-derived at every call.** A tool whose
 name, body or declared schema moves between the wrapping and the call cannot
@@ -102,7 +101,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import BaseTool
 from pydantic import PrivateAttr
 
 from zeroth.governance.identity import ActorIdentity
@@ -115,10 +114,17 @@ from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
     UnstableToolIdentityError,
 )
+from zeroth.integrations.langgraph._tool_execution import (
+    ToolSnapshot,
+    executing_tool,
+    refuse_delegate_dispatch,
+    snapshot_callable,
+    snapshot_tool,
+)
 from zeroth.integrations.langgraph._tool_fingerprint import (
     callable_implementation_digest,
     schema_digest,
-    tool_implementation_digest,
+    tool_slots_digest,
 )
 from zeroth.integrations.langgraph._tool_guard import (
     ToolAuditSubmitter,
@@ -234,12 +240,22 @@ class GovernedToolBinding:
 
 @dataclass(frozen=True, slots=True)
 class _ToolFacts:
-    """The identifying surface read off one foreign tool object, already gated."""
+    """The identifying surface read off one foreign tool object, already gated.
+
+    ``snapshot`` is what makes the identity and the execution one fact rather
+    than two reads of the same object: the ``BaseTool`` surface derives
+    ``material`` from it and then *runs* it, so there is no window in which the
+    thing that was fingerprinted and the thing that executes can differ. The
+    callable surface leaves it ``None`` and carries its executable body in
+    ``body`` instead, because a plain callable has no tool object to snapshot.
+    """
 
     name: object
     description: str
     args_schema: Any
     material: Mapping[str, Any]
+    snapshot: ToolSnapshot | None = None
+    body: Any = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -420,10 +436,11 @@ def _describe_base_tool(tool: Any) -> _ToolFacts:
             Both fail closed: a surface-only identity is one a substituted tool
             inherits authorization through.
     """
-    description = _text(_peek(tool, "description"))
-    args_schema = _peek(tool, "args_schema")
+    snapshot = snapshot_tool(tool)
+    description = _text(snapshot.description)
+    args_schema = snapshot.args_schema
     return _ToolFacts(
-        name=_peek(tool, "name"),
+        name=snapshot.name,
         description=description,
         args_schema=args_schema,
         material={
@@ -431,8 +448,9 @@ def _describe_base_tool(tool: Any) -> _ToolFacts:
             "description": description,
             "arguments": _schema_argument_names(args_schema),
             "schema": schema_digest(args_schema),
-            "implementation": tool_implementation_digest(tool),
+            "implementation": tool_slots_digest(tool, snapshot.bodies),
         },
+        snapshot=snapshot,
     )
 
 
@@ -465,6 +483,7 @@ def _describe_callable(target: Any) -> _ToolFacts:
     if normalize_identifier(name) is None:
         name = _peek(target, "__name__")
     arguments = _schema_argument_names(args_schema) or _signature_argument_names(target)
+    body = snapshot_callable(target)
     return _ToolFacts(
         name=name,
         description=description,
@@ -474,8 +493,9 @@ def _describe_callable(target: Any) -> _ToolFacts:
             "description": description,
             "arguments": arguments,
             "schema": schema_digest(args_schema),
-            "implementation": callable_implementation_digest(target),
+            "implementation": callable_implementation_digest(body),
         },
+        body=body,
     )
 
 
@@ -595,14 +615,24 @@ def _callable_arguments(
 
 def _governed_action(
     plan: _GovernedPlan, arguments: Mapping[str, Any]
-) -> tuple[ToolAction, object]:
-    """Rebuild the decided descriptor from the live tool, refusing an identity that moved.
+) -> tuple[ToolAction, object, _ToolFacts]:
+    """Snapshot the tool, decide about the snapshot, and hand it back to be executed.
+
+    **The snapshot is taken first, and it is what runs.** ``plan.describe`` reads
+    the tool's body and surface by value, statically, on the line below -- before
+    the contract resolver, the side-effect classifier and the decision client,
+    every one of which is *caller-supplied code this function calls*. That
+    ordering used to be a hole rather than a detail: a classifier that replaced
+    the tool's ``func`` when it was consulted moved the body after its identity
+    had been pinned and before execution read it again, and the new body then ran
+    under the old fingerprint. Nothing downstream re-reads the tool, so there is
+    no longer a second read to disagree with the first.
 
     **Every authorization fact is resolved now, not at wrap time.** The
     classification and the contract binding are re-read from the live resolvers
     on each call, exactly as
-    :meth:`~zeroth.integrations.langgraph._middleware.ZerothMiddleware._describe`
-    reads them, for two reasons that point the same way. The first is R8: two
+    :meth:`~zeroth.integrations.langgraph._middleware.ZerothMiddleware._governed`
+    installs them, for two reasons that point the same way. The first is R8: two
     surfaces that resolve the same fact at different *times* decide the same tool
     differently the moment the fact moves, and a fact pinned before the tool
     became side-effecting is the one that permits. The second is that staleness
@@ -618,12 +648,13 @@ def _governed_action(
         arguments: The named call arguments.
 
     Returns:
-        The normalized action and the governance context it was attributed to,
-        both handed on to the enforcement core unchanged.
+        The normalized action, the governance context it was attributed to, and
+        the snapshot the action describes -- which is the object execution runs.
 
     Raises:
         UnstableToolIdentityError: If the tool's identity is not the one it was
-            wrapped under.
+            wrapped under, or it dispatches through machinery governance cannot
+            read past.
         GovernanceContextError: If the call cannot be attributed.
         ToolGovernanceError: If the arguments are not canonically representable.
     """
@@ -639,7 +670,7 @@ def _governed_action(
     )
     if action.identity != plan.binding.identity:
         raise UnstableToolIdentityError("the tool's identity changed after it was governed")
-    return action, context
+    return action, context, facts
 
 
 def _enforcement_seams(plan: _GovernedPlan) -> dict[str, Any]:
@@ -691,119 +722,6 @@ def _delegate_input(
     if tool_call_id is None:
         return arguments
     return {"name": name, "args": arguments, "id": tool_call_id, "type": "tool_call"}
-
-
-def _permitted_entry_hooks() -> dict[str, tuple[Any, ...]]:
-    """Table the framework's own implementations of each pre-body entry hook.
-
-    Built once, from ``langchain_core``'s ``BaseTool`` and ``StructuredTool``
-    only. ``StructuredTool`` is what the ``@tool`` decorator produces for a
-    single-argument and a multi-argument function alike, so permitting its own
-    overrides is what keeps the normal case working; ``langchain_core``'s
-    single-input ``Tool`` is deliberately *not* here, because nothing in this
-    package or its tests produces one and admitting a class on the strength of
-    an unread override is the direction that fails open.
-
-    Returns:
-        Each hook name mapped to the implementations that may appear under it.
-    """
-    table: dict[str, tuple[Any, ...]] = {}
-    for hook in _ENTRY_HOOKS:
-        permitted = []
-        for source in (BaseTool, StructuredTool):
-            implementation = getattr(source, hook, None)
-            if implementation is not None:
-                permitted.append(implementation)
-        table[hook] = tuple(permitted)
-    return table
-
-
-_PERMITTED_ENTRY_HOOKS = _permitted_entry_hooks()
-"""What may appear under each name in :data:`_ENTRY_HOOKS`, by identity."""
-
-
-def _refuse_overridden_entry_hooks(delegate: Any) -> None:
-    """Refuse a delegate that reaches its body through a hook governance cannot see past.
-
-    Compared by *identity* against the framework's own implementations, read off
-    ``type(delegate)`` rather than off the instance: a bound method is rebuilt
-    per access and an instance attribute shadowing a method is not what actually
-    runs. An implementation this table does not hold -- including one that is
-    absent, and one a hostile metaclass answered with -- refuses the tool.
-
-    Args:
-        delegate: The tool whose execution path is being checked.
-
-    Raises:
-        UnstableToolIdentityError: If any pre-body entry point is overridden.
-            Fail-closed rather than governed: the decision is made about the
-            arguments the wrapper parsed, and an override re-derives them after
-            it.
-    """
-    kind = type(delegate)
-    for hook, permitted in _PERMITTED_ENTRY_HOOKS.items():
-        implementation = _peek(kind, hook)
-        if not any(implementation is candidate for candidate in permitted):
-            raise UnstableToolIdentityError(
-                "this tool overrides a tool entry point governance cannot execute past: "
-                f"{hook}"
-            )
-
-
-def _executing_delegate(delegate: Any) -> Any:
-    """Return a twin of *delegate* that runs the arguments it is handed, unvalidated.
-
-    The wrapper has already parsed the call against the delegate's own
-    ``args_schema`` -- it carries that schema -- and the policy was asked about
-    the result. Invoking the delegate itself would run ``_parse_input`` over
-    those values a second time, and only a *pure* validator is guaranteed to
-    answer the same thing twice: a stateful one, a validator that reads the
-    clock, or one that consumes a nonce returns something else, and the tool then
-    executes arguments no policy ever saw. Clearing ``args_schema`` on the twin
-    makes ``BaseTool._parse_input`` a pass-through (``langchain_core/tools/base.py``
-    returns its input untouched when there is no schema), so exactly one
-    validation happens per governed call and the body receives exactly the values
-    the decision was made about.
-
-    A *twin* rather than the delegate, because governing a tool must not change
-    it: rebinding ``args_schema`` on the original would strip validation from
-    every other holder of that tool. A twin *per call* rather than one pinned at
-    wrap time, because the pinned copy would stop tracking a delegate whose
-    ``func`` moved, which is the behaviour invoking the delegate directly has
-    today.
-
-    The twin keeps everything else -- ``name``, ``response_format``,
-    ``callbacks``, ``handle_tool_error`` -- so it still builds its own
-    ``ToolMessage`` and a ``content_and_artifact`` tool's artifact still survives
-    the wrapping.
-
-    **Clearing the schema is not enough on its own.** It makes ``BaseTool``'s
-    ``_parse_input`` a pass-through; it does nothing about a subclass that
-    *overrode* ``_parse_input`` -- or ``invoke``, or any other pre-body entry
-    point -- and re-derives the arguments there. The ban is therefore re-checked
-    here, per call, so a class that gained an override after its instance was
-    wrapped is refused before it executes rather than at the next wrapping.
-
-    Args:
-        delegate: The wrapped tool.
-
-    Returns:
-        The tool object to invoke for this call.
-
-    Raises:
-        UnstableToolIdentityError: If the delegate overrides a pre-body entry
-            point. See :func:`_refuse_overridden_entry_hooks`.
-        ToolGovernanceError: If the delegate cannot be copied. Refusing is the
-            only outcome that does not run the tool against arguments the guard
-            could not pin, and it happens after the decision was recorded.
-    """
-    _refuse_overridden_entry_hooks(delegate)
-    try:
-        return delegate.model_copy(update={"args_schema": None})
-    except Exception as error:
-        raise ToolGovernanceError(
-            "this tool cannot be driven with the arguments its call was authorized under"
-        ) from error
 
 
 class GovernedTool(BaseTool):
@@ -916,14 +834,13 @@ class GovernedTool(BaseTool):
         """
         plan = self._plan()
         call_id = kwargs.pop(_TOOL_CALL_ID_KEY, None)
-        action, context = _governed_action(plan, _call_arguments(args, kwargs))
-        target, name = plan.target, self.name
+        action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
+        payload = _delegate_input(args, kwargs, call_id, self.name)
+        runnable = executing_tool(facts.snapshot)
         return guard_tool_call(
             action,
             context,
-            lambda: _executing_delegate(target).invoke(
-                _delegate_input(args, kwargs, call_id, name)
-            ),
+            lambda: runnable.invoke(payload),
             **_enforcement_seams(plan),
         )
 
@@ -936,10 +853,11 @@ class GovernedTool(BaseTool):
         """
         plan = self._plan()
         call_id = kwargs.pop(_TOOL_CALL_ID_KEY, None)
-        action, context = _governed_action(plan, _call_arguments(args, kwargs))
+        action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
         payload = _delegate_input(args, kwargs, call_id, self.name)
+        runnable = executing_tool(facts.snapshot)
         authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await _executing_delegate(plan.target).ainvoke(payload)
+        return await runnable.ainvoke(payload)
 
 
 def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) -> GovernedTool:
@@ -956,7 +874,7 @@ def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) 
             Refusing is the only outcome that cannot leave an ungoverned tool in
             the returned list.
     """
-    _refuse_overridden_entry_hooks(target)
+    refuse_delegate_dispatch(target)
     try:
         return GovernedTool(
             name=plan.binding.identity.name,
@@ -977,10 +895,11 @@ def _sync_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
 
     @functools.wraps(target)
     def governed(*args: Any, **kwargs: Any) -> Any:
-        """Govern this call, then invoke the wrapped callable exactly once on an allow."""
-        action, context = _governed_action(plan, _callable_arguments(target, args, kwargs))
+        """Govern this call, then invoke the snapshotted body exactly once on an allow."""
+        action, context, facts = _governed_action(plan, _callable_arguments(target, args, kwargs))
+        body = facts.body
         return guard_tool_call(
-            action, context, lambda: target(*args, **kwargs), **_enforcement_seams(plan)
+            action, context, lambda: body(*args, **kwargs), **_enforcement_seams(plan)
         )
 
     return governed
@@ -991,10 +910,11 @@ def _async_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
 
     @functools.wraps(target)
     async def governed(*args: Any, **kwargs: Any) -> Any:
-        """Govern this call, then await the wrapped callable exactly once on an allow."""
-        action, context = _governed_action(plan, _callable_arguments(target, args, kwargs))
+        """Govern this call, then await the snapshotted body exactly once on an allow."""
+        action, context, facts = _governed_action(plan, _callable_arguments(target, args, kwargs))
+        body = facts.body
         authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await target(*args, **kwargs)
+        return await body(*args, **kwargs)
 
     return governed
 

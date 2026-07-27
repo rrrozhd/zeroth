@@ -79,7 +79,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from types import CodeType, FunctionType, MethodType
 from typing import Any
 
@@ -707,18 +707,47 @@ def tool_implementation_digest(tool: object) -> str:
     for attribute in _TOOL_BODY_SLOTS:
         body = _slot_value(tool, attribute)
         if body is not None:
-            slots[attribute] = _implementation_material(body, 0)
+            slots[attribute] = body
     for attribute in _TOOL_METHOD_SLOTS:
         method = _slot_value(type(tool), attribute)
         if method is not None:
-            slots[attribute] = _implementation_material(method, 0)
-    if not slots:
+            slots[attribute] = method
+    return tool_slots_digest(tool, slots)
+
+
+def tool_slots_digest(tool: object, slots: Mapping[str, Any]) -> str:
+    """Return the digest of implementation slots that were *already read*.
+
+    The governed path reads a tool's body once, statically, into a snapshot and
+    then both fingerprints and executes that snapshot -- see
+    :mod:`~zeroth.integrations.langgraph._tool_execution`. Digesting the same
+    objects execution will run is the point: a digest computed from a *second*
+    read describes whatever the tool answered the second time, and the gap
+    between the two reads is exactly where a substituted body used to live.
+
+    Args:
+        tool: The tool, for naming its type.
+        slots: The implementation slots already read off it, by name.
+
+    Returns:
+        The hex SHA-256 digest of the material, identical to what
+        :func:`tool_implementation_digest` produces for the same slots.
+
+    Raises:
+        UnstableToolIdentityError: If the tool exposes no implementation at all,
+            or any slot cannot be fingerprinted stably.
+    """
+    material: dict[str, Any] = {
+        attribute: _implementation_material(body, 0) for attribute, body in slots.items()
+    }
+    if not material:
         raise _refuse("this tool exposes no implementation to fingerprint")
-    return _digest({"type": _type_name(tool), "slots": slots})
+    return _digest({"type": _type_name(tool), "slots": material})
 
 
 __all__ = [
     "callable_implementation_digest",
     "schema_digest",
     "tool_implementation_digest",
+    "tool_slots_digest",
 ]
