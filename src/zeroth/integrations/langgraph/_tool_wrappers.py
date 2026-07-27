@@ -105,6 +105,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import PrivateAttr
 
@@ -849,6 +850,54 @@ def _enforcement_seams(plan: _GovernedPlan) -> dict[str, Any]:
     }
 
 
+def _callback_free_config() -> RunnableConfig:
+    """Return the config the post-authorization executor is invoked with.
+
+    **An invocation with no config is not an invocation with no callbacks.**
+    ``ensure_config`` fills a missing config from ``var_child_runnable_config`` --
+    the variable ``BaseTool.run`` republishes its own child config into while the
+    body runs -- so the internal executor, invoked bare, inherited every handler
+    attached to the outer run and fired ``on_tool_start`` a *second* time, after
+    the verdict and before ``_to_args_and_kwargs``. The mapping that hook is handed
+    is a shallow filtered copy, so every container one level down is the one the
+    body is about to receive: a policy that inspected ``["safe", "evil"]`` had the
+    body run on ``["safe", "evil", "evil"]``, the extra entry appended by a handler
+    that had already, legitimately, run once before the decision.
+
+    That is the same second read of the *arguments* that dropping ``callbacks``
+    from :data:`~zeroth.integrations.langgraph._tool_execution._CARRIED_FIELDS`
+    deleted, reached through the run instead of through the delegate. Closing the
+    delegate's carrier did nothing to this one, which is why the two are recorded
+    as separate facts rather than one.
+
+    **``{"callbacks": []}``, and specifically not ``{"callbacks": None}``.**
+    ``ensure_config`` merges the ``ContextVar`` first and then overlays the
+    explicit config only for keys whose value ``is not None``, so a ``None`` is
+    filtered straight back out and the ambient handlers win -- measurably: the
+    ambient handler fires once with ``None`` and not at all with ``[]``. The empty
+    list is a *value*, and ``callbacks`` is in ``CONFIG_KEYS``, so it overlays.
+
+    **Only ``callbacks``, and the ``ContextVar`` is deliberately left alone.** The
+    other keys ``ensure_config`` inherits -- ``tags``, ``metadata``,
+    ``configurable``, ``run_name``, ``recursion_limit``, ``max_concurrency`` --
+    carry no handler the framework invokes, and none of them reaches the body:
+    ``configurable`` is injected only into a parameter annotated ``RunnableConfig``
+    and the execution adapter presents ``(*args, **kwargs)`` with no annotations at
+    all. Emptying the variable instead would additionally strip ``configurable``
+    from what a body reads back through ``get_config()`` -- a governed tool would
+    stop seeing its own ``thread_id`` -- which is the observability this fix is
+    careful not to break, one layer further in.
+
+    A fresh mapping per call rather than a module constant: this value is handed to
+    framework code, and a shared mutable default is one ``setdefault`` away from
+    being a carrier of exactly the kind this function exists to close.
+
+    Returns:
+        A config that suppresses inherited callbacks and overrides nothing else.
+    """
+    return {"callbacks": []}
+
+
 def _delegate_input(
     args: tuple[Any, ...], kwargs: Mapping[str, Any], tool_call_id: str | None, name: str
 ) -> Any:
@@ -995,6 +1044,11 @@ class GovernedTool(BaseTool):
         Every ``BaseTool`` entry point -- ``invoke``, ``run`` and the inherited
         ``_arun`` fallback -- funnels through here, so there is no way to reach
         the delegate without passing the guard.
+
+        The executor is invoked with :func:`_callback_free_config` rather than
+        bare. Only *this* invocation is silenced: the wrapper's own ``run`` has
+        already fired the caller's handlers for the governed tool, before the
+        verdict, and goes on doing so.
         """
         plan = self._plan()
         call_id = kwargs.pop(_TOOL_CALL_ID_KEY, None)
@@ -1004,7 +1058,7 @@ class GovernedTool(BaseTool):
         return guard_tool_call(
             action,
             context,
-            lambda: runnable.invoke(payload),
+            lambda: runnable.invoke(payload, config=_callback_free_config()),
             **_enforcement_seams(plan),
         )
 
@@ -1014,6 +1068,12 @@ class GovernedTool(BaseTool):
         Authorization is the same synchronous core the sync path runs; only the
         downstream invocation is awaited. There is no async enforcement branch to
         drift out of step with the sync one.
+
+        It carries :func:`_callback_free_config` for the same reason ``_run`` does,
+        and the two lines say it identically on purpose: ``ainvoke`` inherits the
+        ambient run config by exactly the same ``ensure_config`` path, so a fix
+        applied to one of them would leave the other surface running handlers after
+        the verdict.
         """
         plan = self._plan()
         call_id = kwargs.pop(_TOOL_CALL_ID_KEY, None)
@@ -1021,7 +1081,7 @@ class GovernedTool(BaseTool):
         payload = _delegate_input(args, kwargs, call_id, self.name)
         runnable = executing_tool(facts.snapshot)
         authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await runnable.ainvoke(payload)
+        return await runnable.ainvoke(payload, config=_callback_free_config())
 
 
 def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) -> GovernedTool:

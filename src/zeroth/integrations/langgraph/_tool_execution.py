@@ -98,17 +98,48 @@ declared-identity boundary
 covers a tool's implementation, not its configuration -- and it is the boundary
 the cookbook discloses.
 
-One more is on the argument side and belongs in the same list. Dropping
-``callbacks`` stops the *delegate* choosing code that runs between the decision
-and the body; it does not empty the callback chain, because a run manager is
-still constructed and the caller's *own* ``RunnableConfig`` handlers -- the ones
-they attached to the graph, plus governance's own -- remain ambient around the
-executing tool. A caller who installs a handler that rewrites their own call is
-attacking themselves with their own configuration, which is a different thing
-from a tool the caller does not control doing it, and governance does not claim
-to stop it. What it claims is narrower and is what the audit asked for: no code
-the *delegate* supplied, and no argument the framework invented, sits between the
-verdict and the call.
+Nothing on the *argument* side is on that boundary, and an earlier revision of
+this paragraph said otherwise. It disclosed the handlers a caller attaches to
+their own run as acceptable -- on the grounds that a caller who installs one is
+attacking themselves, which is a different thing from a tool they do not control
+doing it. **That was wrong, and it is withdrawn rather than superseded.** Who
+installed a handler has no bearing on whether the body ran on the arguments the
+policy inspected, and that second question is the whole invariant. Dropping
+``callbacks`` from :data:`_CARRIED_FIELDS` closed the *delegate's* route to
+``on_tool_start``; the executor was still invoked with no config at all, so it
+inherited the outer run's handlers from ``var_child_runnable_config`` and fired
+them again after the verdict, one shallow copy away from the mapping the body
+receives. Both routes are shut now: the field list deletes the delegate's, and
+:func:`~zeroth.integrations.langgraph._tool_wrappers._callback_free_config`
+deletes the ambient one, at the two lines that invoke this module's executing
+tool. The claim is consequently about the call rather than about whose code it
+is: **no callback handler runs between the verdict and the body**, whoever
+attached it.
+
+Suppression stops at the executor. The governed twin is itself a ``BaseTool``,
+and the handlers a caller attached to the run still see its start and its end,
+exactly once, before the decision and after the body; that is observability, and
+losing it would be its own failure rather than a stricter fix.
+
+The suppression does reach further than the executor's own run, and that is a
+cost rather than a second guarantee. The executor's child config is what a body's
+context carries, so a handler the caller attached to the run no longer sees what
+the *body* invokes either -- a nested tool, a model, a ``RunnableLambda``. Those
+handlers fire after the body has started and cannot change the call it was
+authorized with, so restoring them would be a separate change; it is written down
+here, and pinned by a test, so that making it is a decision.
+
+Two residuals are named rather than left to be found, and neither is offered as
+acceptable. ``ensure_config`` calls ``.copy()`` on the ambient ``tags``,
+``metadata`` and ``configurable`` *values*, so a caller object's method does
+execute during the internal invoke -- it is handed no reference to the call, and
+the body was measured receiving the authorized arguments unchanged, but it is
+code and it runs there. And ``langchain_core``'s ``register_configure_hook``
+registry is process-global and keyed off its own ``ContextVar``s, so a handler
+registered through it is added to every callback manager in the process,
+including this one; ``callbacks=[]`` does not remove it and emptying
+``var_child_runnable_config`` does not either. Closing that one is not a config
+argument at either invoke site.
 """
 
 from __future__ import annotations
@@ -217,12 +248,14 @@ Dropping the field deletes the second read rather than checking it.
 Governed execution consequently does not run a delegate tool's own callbacks at
 all, and that is the stated behaviour rather than an omission. A caller who wants
 to observe governed calls has the governance audit trail, which records the
-decision *and* the execution; a hook that runs between the decision and the body
-is not observability, it is a second chance to change the call. The wrapper side
-reached the same conclusion for its own reasons long before this
-(:func:`~zeroth.integrations.langgraph._tool_wrappers._carried_fields` refuses to
-carry ``callbacks`` because doing so would fire every handler twice), so the two
-halves of the governed path now agree instead of contradicting each other.
+decision *and* the execution, and their own run-level handlers, which go on
+seeing the governed tool's start and end exactly once; a hook that runs between
+the decision and the body is not observability, it is a second chance to change
+the call. The wrapper side reached the same conclusion for its own reasons long
+before this (:func:`~zeroth.integrations.langgraph._tool_wrappers._carried_fields`
+refuses to carry ``callbacks`` because doing so would fire every handler twice),
+so the two halves of the governed path now agree instead of contradicting each
+other.
 """
 
 

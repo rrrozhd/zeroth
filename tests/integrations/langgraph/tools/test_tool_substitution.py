@@ -54,6 +54,23 @@ The vectors, and why each is a distinct hole rather than a restatement:
   *body's own signature* and injects a callback manager under a declared
   ``callbacks`` parameter and the live run config under a ``RunnableConfig``-
   annotated one; both are values manufactured between the decision and the call.
+* **The same second read of the arguments, reached through the *ambient* run**
+  (:func:`test_a_run_level_callback_cannot_edit_the_arguments_after_the_decision`
+  and
+  :func:`test_a_run_level_callback_cannot_edit_an_agents_tool_call_after_the_decision`).
+  Dropping the delegate's own ``callbacks`` deleted one route to ``on_tool_start``
+  and left the other wide open: the internal executor was invoked with *no config
+  at all*, and ``ensure_config`` fills a missing one from the run's own
+  ``ContextVar``. Every handler attached to the outer run therefore fired a second
+  time, after the verdict, holding the same nested containers -- the policy
+  inspected ``["safe", "evil"]`` and the body ran on ``["safe", "evil", "evil"]``,
+  the extra entry appended by a handler that had already been allowed to run once,
+  legitimately, before the decision. Who installed the handler decides nothing
+  here: the invariant is that no handler runs between the verdict and the body,
+  not that no *hostile* one does.
+  :func:`test_a_run_level_handler_still_observes_the_governed_tool_exactly_once`
+  is the control that keeps the fix from being "suppress everything" -- the
+  handler must still see the governed tool's own start and end, exactly once.
 * **A value the *signature* materializes, on the plain-callable surface**
   (:func:`test_a_defaulted_callable_is_decided_on_the_default_it_will_run`,
   :func:`test_a_defaulted_async_callable_is_decided_on_the_default_it_will_run`
@@ -113,17 +130,19 @@ langgraph_conformance`` to see them.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import dataclasses
 import functools
 import inspect
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 import pytest
 from langchain.agents.middleware import ToolCallRequest
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import var_child_runnable_config
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
@@ -333,6 +352,64 @@ def drive_callable_async(
     return asyncio.run(governed(*positional, **({} if args is None else args)))
 
 
+def drive_agent(
+    tool: Any,
+    *,
+    args: Mapping[str, Any] | None = None,
+    config: RunnableConfig | None = None,
+    **overrides: Any,
+) -> Any:
+    """Run one governed call through a real ``create_agent`` agent, synchronously.
+
+    :func:`drive_middleware` installs the real ``ZerothMiddleware`` but drives it
+    with a stand-in handler, which is enough for every vector that lives inside
+    the governed twin. A *run-level* callback does not live there: it arrives on
+    the ``RunnableConfig`` a caller hands the graph, and only a real graph
+    propagates one down to the ``ToolNode`` that invokes the tool. So this driver
+    exists for exactly one property -- that ``config={"callbacks": [...]}`` on the
+    outermost ``invoke`` is what reaches the governed tool -- and it takes the
+    caller's config as an argument for that reason.
+
+    ``langchain.agents.create_agent`` and the scripted model are imported here
+    rather than at module scope: this file's plain tier must collect without the
+    conformance-tier agent stack, and
+    :mod:`tests.integrations.langgraph.tools._agents` says importing it is itself
+    Tier A.
+    """
+    from langchain.agents import create_agent
+    from langchain_core.messages import HumanMessage
+
+    from tests.integrations.langgraph.tools._agents import scripted_model
+
+    agent = create_agent(
+        scripted_model(tool.name, dict(DEFAULT_ARGS if args is None else args)),
+        tools=[tool],
+        middleware=[ZerothMiddleware(**_seams(**overrides))],
+    )
+    return agent.invoke({"messages": [HumanMessage("hi")]}, config=config)
+
+
+def drive_agent_async(
+    tool: Any,
+    *,
+    args: Mapping[str, Any] | None = None,
+    config: RunnableConfig | None = None,
+    **overrides: Any,
+) -> Any:
+    """Run one governed call through a real ``create_agent`` agent, asynchronously."""
+    from langchain.agents import create_agent
+    from langchain_core.messages import HumanMessage
+
+    from tests.integrations.langgraph.tools._agents import scripted_model
+
+    agent = create_agent(
+        scripted_model(tool.name, dict(DEFAULT_ARGS if args is None else args)),
+        tools=[tool],
+        middleware=[ZerothMiddleware(**_seams(**overrides))],
+    )
+    return asyncio.run(agent.ainvoke({"messages": [HumanMessage("hi")]}, config=config))
+
+
 WRAPPER_DRIVERS = (drive_wrapper, drive_wrapper_async)
 ALL_DRIVERS = (drive_wrapper, drive_wrapper_async, drive_middleware, drive_middleware_async)
 
@@ -345,6 +422,17 @@ CONFORMANCE_DRIVERS = (
     ),
 )
 """The four drivers, with the two that need a real ``langchain`` request marked."""
+
+AGENT_DRIVERS = (
+    pytest.param(drive_agent, id="agent-sync", marks=pytest.mark.langgraph_conformance),
+    pytest.param(drive_agent_async, id="agent-async", marks=pytest.mark.langgraph_conformance),
+)
+"""The two drivers that build a real graph, so a run-level config has somewhere to arrive.
+
+Separate from :data:`CONFORMANCE_DRIVERS` rather than a fifth and sixth entry in
+it: every probe in this file would otherwise pay for a whole ``create_agent``
+graph, and only the run-level vector needs one.
+"""
 
 
 def assert_safe_or_refused(
@@ -736,7 +824,15 @@ class Recorder:
 
 
 class MutatingHandler(BaseCallbackHandler):
-    """A delegate-supplied handler that edits the call on its way to the body.
+    """A handler that edits the call on its way to the body.
+
+    One class, two carriers, because the mutation is the same and only the
+    *installation* differs: :func:`_mutating_callback_tool` hangs it off the
+    delegate's own ``callbacks`` field, and :func:`ambient_callbacks` installs it
+    as a run-level handler the internal executor used to inherit. Writing a second
+    copy for the second carrier would have made them look like two vectors, when
+    what the two probes actually establish is that closing one carrier left the
+    other untouched.
 
     ``BaseTool.run`` fires ``on_tool_start`` with ``inputs`` set to a *shallow*
     filtered copy of the tool input, and calls ``_to_args_and_kwargs`` on the
@@ -810,6 +906,219 @@ def test_a_delegate_callback_cannot_edit_the_arguments_after_the_decision(driver
     assert_body_saw_the_inspected_arguments(
         driver, _mutating_callback_tool(log), recorder, log, {"items": ["safe"]}
     )
+
+
+# --------------------------------------------------------------------------- #
+# C5-3: the same second read, inherited from the *ambient* run rather than
+# carried from the delegate.
+# --------------------------------------------------------------------------- #
+
+
+@contextlib.contextmanager
+def ambient_callbacks(*handlers: BaseCallbackHandler) -> Iterator[None]:
+    """Install *handlers* as the run-level callbacks every nested runnable inherits.
+
+    Not the tool's ``callbacks`` field -- that is the delegate-supplied carrier the
+    probe above covers, and dropping it did nothing whatsoever to this one. This is
+    the carrier ``langchain_core`` uses to *propagate* a run: ``ensure_config``
+    fills a missing config from ``var_child_runnable_config``, and ``BaseTool.run``
+    republishes its own child config into that same variable around the body. A
+    handler installed here is therefore inherited by every runnable the governed
+    call reaches, which is the whole of the vector -- the wrapper's own ``run``
+    fires it once *before* the verdict, legitimately, and the internal executor
+    used to fire it a second time *after*.
+
+    Setting the variable directly rather than passing ``config=`` to each driver is
+    what lets one probe cover all four drivers: ``drive_middleware`` hands the
+    governed twin a bare argument mapping, so there is no config parameter to reach
+    it through, and a token set here is visible inside ``asyncio.run`` because a
+    ``Task`` copies the context it was created in.
+    """
+    token = var_child_runnable_config.set({"callbacks": list(handlers)})
+    try:
+        yield
+    finally:
+        var_child_runnable_config.reset(token)
+
+
+def _a_tool_with_a_container_argument(log: list[dict[str, Any]]) -> BaseTool:
+    """Build an ordinary tool -- no callbacks of its own -- whose argument is mutable.
+
+    Deliberately not :func:`_mutating_callback_tool`: this vector's attacker is not
+    on the tool at all, so a tool carrying handlers would leave it ambiguous which
+    carrier the probe had actually caught.
+    """
+
+    def body(items: list[str]) -> str:
+        """Record exactly what this execution was handed, and report success."""
+        log.append({"items": list(items)})
+        return f"{SAFE}:{items}"
+
+    return StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=ListArgs
+    )
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_run_level_callback_cannot_edit_the_arguments_after_the_decision(driver: Any) -> None:
+    """An ambient run-level handler must not run between the decision and the body.
+
+    The auditor's probe, and the exact numbers it reported: the policy inspected
+    ``{"items": ["safe", "evil"]}`` while the body received
+    ``{"items": ["safe", "evil", "evil"]}``. The first ``"evil"`` is the handler
+    firing on the wrapper's own ``run``, *before* the verdict -- allowed, and the
+    reason the two mappings are compared rather than either being compared to a
+    literal. The second is the same handler firing again on the internal executor,
+    which was invoked with no config at all and so inherited the outer run's
+    callbacks from the ``ContextVar``.
+
+    A previous cycle disclosed this as a caller attacking themselves with their own
+    configuration. That was wrong: who installed the handler has no bearing on
+    whether the body ran on arguments the policy saw, and the invariant is about
+    the second question only.
+
+    ``drive_callable`` / ``drive_callable_async`` are structurally unreachable and
+    deliberately absent -- the plain-callable surface calls the snapshotted body
+    directly, with no ``BaseTool.run`` and no callback manager anywhere in the
+    path, so there is nothing for a run-level handler to attach to.
+    """
+    log: list[dict[str, Any]] = []
+    recorder = Recorder()
+    with ambient_callbacks(MutatingHandler()):
+        assert_body_saw_the_inspected_arguments(
+            driver, _a_tool_with_a_container_argument(log), recorder, log, {"items": ["safe"]}
+        )
+
+
+@pytest.mark.parametrize("drive", AGENT_DRIVERS)
+def test_a_run_level_callback_cannot_edit_an_agents_tool_call_after_the_decision(
+    drive: Any,
+) -> None:
+    """The same vector through a real agent, with the handler on the caller's own config.
+
+    The probe above installs the handler by hand, into the variable the framework
+    would have put it in. This one has ``create_agent`` do the installing: the
+    handler is handed to ``agent.invoke`` as ``config={"callbacks": [...]}``, the
+    graph propagates it to ``ToolNode``, and ``ToolNode`` invokes the governed twin
+    with it. That is the shape a real deployment has -- a tracer or a metrics
+    handler attached to the run -- and it is the one the audit asked to see, on the
+    grounds that a fix proven only against a hand-set ``ContextVar`` proves nothing
+    about the path that actually carries one.
+    """
+    log: list[dict[str, Any]] = []
+    recorder = Recorder()
+    driver = functools.partial(drive, config={"callbacks": [MutatingHandler()]})
+    assert_body_saw_the_inspected_arguments(
+        driver, _a_tool_with_a_container_argument(log), recorder, log, {"items": ["safe"]}
+    )
+
+
+@dataclasses.dataclass
+class WatchingHandler(BaseCallbackHandler):
+    """A run-level handler that only *watches*, so over-suppression is visible.
+
+    Every probe in this file passes when a call is refused, and a fix that answered
+    C5-3 by emptying the callback chain outright would satisfy all of them while
+    silently deleting the caller's tracing. What that fix cannot satisfy is a
+    *count*: the governed tool is itself a ``BaseTool``, so a handler attached to
+    the run must see its start and its end exactly once. Two of each is the
+    unfixed hole -- the wrapper's run and the internal executor's, one nested
+    inside the other -- and zero is the over-suppression this class exists to
+    catch. Both names are ``search``, because the executing tool is constructed
+    from the snapshot's own name, so the count is the discriminator rather than
+    the names.
+    """
+
+    started: list[str] = dataclasses.field(default_factory=list)
+    ended: int = 0
+
+    def on_tool_start(self, serialized: Any, input_str: str, **kwargs: Any) -> None:
+        """Record which tool started, without touching anything it was handed."""
+        self.started.append(str(serialized.get("name")) if type(serialized) is dict else "?")
+
+    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+        """Record that a tool finished."""
+        self.ended += 1
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_a_run_level_handler_still_observes_the_governed_tool_exactly_once(driver: Any) -> None:
+    """The over-suppression control: suppressing the executor must not blind the caller.
+
+    Only the *internal*, post-authorization executor runs callback-free. The
+    governed twin is the tool the caller invoked and the tool the audit trail names,
+    and a handler on the run has to go on seeing it. This is the one assertion in
+    the file that fails in both directions.
+    """
+    log: list[dict[str, Any]] = []
+    watcher = WatchingHandler()
+    with ambient_callbacks(watcher):
+        driver(_a_tool_with_a_container_argument(log), args={"items": ["safe"]})
+    assert watcher.started == ["search"], (
+        f"the run-level handler did not see the governed tool exactly once: {watcher.started!r}"
+    )
+    assert watcher.ended == 1, f"the handler saw {watcher.ended} tool ends rather than one"
+    assert log == [{"items": ["safe"]}], f"the body did not run on the authorized call: {log!r}"
+
+
+@pytest.mark.parametrize("drive", AGENT_DRIVERS)
+def test_a_run_level_handler_still_observes_an_agents_governed_tool_once(drive: Any) -> None:
+    """The same control on the path a real caller's tracer actually travels."""
+    log: list[dict[str, Any]] = []
+    watcher = WatchingHandler()
+    drive(
+        _a_tool_with_a_container_argument(log),
+        args={"items": ["safe"]},
+        config={"callbacks": [watcher]},
+    )
+    assert watcher.started == ["search"], (
+        f"the run-level handler did not see the governed tool exactly once: {watcher.started!r}"
+    )
+    assert watcher.ended == 1, f"the handler saw {watcher.ended} tool ends rather than one"
+    assert log == [{"items": ["safe"]}], f"the body did not run on the authorized call: {log!r}"
+
+
+def _a_body_that_calls_another_runnable(log: list[dict[str, Any]]) -> BaseTool:
+    """Build an ordinary tool whose body invokes a second tool, as plenty of real ones do."""
+    inner = StructuredTool.from_function(
+        func=lambda note: f"{SAFE}:{note}", name="inner", description="Inner."
+    )
+
+    def body(items: list[str]) -> str:
+        """Record what this execution was handed, then call the inner tool."""
+        log.append({"items": list(items)})
+        return str(inner.invoke({"note": items[0]}))
+
+    return StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=ListArgs
+    )
+
+
+@pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
+def test_what_a_governed_body_invokes_is_not_traced_by_the_callers_handler(driver: Any) -> None:
+    """The cost of the fix, recorded as a decision rather than left to be discovered.
+
+    Silencing the executor silences more than the executor's own run: its child
+    config is what the body's context carries, so a handler the caller attached to
+    the run stops seeing whatever the *body* goes on to invoke. This body calls one
+    inner tool, and the handler saw three tool starts before the fix -- the governed
+    twin, the executor, the inner tool -- and sees one after.
+
+    This is deliberately not repaired here. A handler firing inside the body runs
+    after the body has started and cannot change the call it was authorized with,
+    so restoring it is a separate question from the invariant; what it must not be
+    is a surprise, which is what this test makes impossible. The same shape as
+    :func:`test_a_variadic_decorator_still_executes_under_its_own_signature`: a
+    priced decision, pinned, so a later change that moves it has to argue for it.
+    """
+    log: list[dict[str, Any]] = []
+    watcher = WatchingHandler()
+    with ambient_callbacks(watcher):
+        driver(_a_body_that_calls_another_runnable(log), args={"items": ["safe"]})
+    assert watcher.started == ["search"], (
+        f"the traced set of a governed call moved without a decision: {watcher.started!r}"
+    )
+    assert log == [{"items": ["safe"]}], f"the body did not run on the authorized call: {log!r}"
 
 
 def _callbacks_in_a_func_field(log: list[Any]) -> BaseTool:

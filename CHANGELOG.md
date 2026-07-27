@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.6] - 2026-07-27
+
+### Fixed
+
+- Invoke the post-authorization executor with an explicitly callback-free config, on both the
+  sync and the async path. An invocation with no config is not an invocation with no callbacks:
+  `ensure_config` fills a missing one from `var_child_runnable_config`, the variable
+  `BaseTool.run` republishes its own child config into, so the internal executor inherited every
+  handler attached to the outer run and fired `on_tool_start` a second time — after the verdict,
+  and before `_to_args_and_kwargs`. The mapping that hook is handed is a shallow filtered copy,
+  so a policy that inspected `["safe", "evil"]` had the body run on `["safe", "evil", "evil"]`,
+  the extra entry appended by a handler that had already, legitimately, run once before the
+  decision. Dropping `callbacks` from the executing tool's carried fields closed the delegate's
+  route to that hook and did nothing to this one. `{"callbacks": []}` rather than
+  `{"callbacks": None}`: `ensure_config` merges the contextvar first and overlays an explicit
+  config only for keys whose value is not `None`, so a `None` is filtered back out and the
+  ambient handlers still win.
+
+### Changed
+
+- A caller's own run-level callbacks no longer fire twice per governed tool call. They see the
+  governed tool's start and end exactly once, which is the tool they invoked; the internal
+  executor beneath it is no longer a second traced run. No other ambient config key is
+  overridden — `configurable` and the rest still reach a body through `get_config()`.
+- **Tracing stops at the governed body, not only at the executor.** The executor's child config
+  is what a body's own context carries, so anything the body goes on to invoke — a nested tool,
+  a model, a `RunnableLambda` — is no longer seen by the caller's ambient handlers either. A
+  body calling one inner tool used to produce three `on_tool_start` events for that handler and
+  now produces one. Those handlers run after the body has already started and cannot change the
+  authorized call, so this is a disclosed cost of the fix rather than part of it, and
+  `test_what_a_governed_body_invokes_is_not_traced_by_the_callers_handler` pins it so that
+  moving it is a decision.
+- **Withdrawn as wrong, not superseded.** `_tool_execution`'s module docstring disclosed the
+  handlers a caller attaches to their own run as acceptable, on the grounds that installing one
+  is attacking yourself. Who installed a handler has no bearing on whether the body ran on the
+  arguments the policy inspected, and that is the whole invariant; the paragraph has been
+  replaced rather than amended.
+
 ## [0.13.14.5] - 2026-07-27
 
 ### Fixed
