@@ -669,6 +669,52 @@ def _drop_empty_variadics(bound: inspect.BoundArguments) -> None:
                 del bound.arguments[name]
 
 
+def _declared_signature(target: Any) -> inspect.Signature:
+    """Read the parameters of the thing that runs, not of the label it carries.
+
+    ``inspect.signature`` answers from ``__signature__`` when there is one and
+    follows ``__wrapped__`` when there is one, and only reaches the ``__code__``
+    the body is actually made of if there is neither. Both are ordinary writable
+    attributes on an ordinary admitted Python function, so binding the call
+    against what they say was a *second read* of the same shape every other
+    finding in this module is about: the description said one thing, the
+    implementation did another, and the value the difference was worth was a
+    parameter default the body materialized for itself.
+
+    The signature is therefore taken from ``snapshot_callable``'s rebuild, which
+    is the object execution is authorized against, and which no longer carries
+    either attribute -- see ``_DISOWNING_ATTRIBUTES`` in
+    :mod:`~zeroth.integrations.langgraph._tool_execution`. Freezing here as well
+    as in :func:`_governed_action` is deliberate rather than wasteful: this call
+    needs a clean signature *before* the arguments exist to decide on, and a
+    target that moved between the two freezes is caught by the identity check the
+    decision already makes.
+
+    Both attributes have to go, not just the one that raises. A ``__signature__``
+    naming fewer parameters than the body has raises nothing at all: it binds, it
+    applies no defaults, and it hands the policy an empty call. Neither
+    ``follow_wrapped=False`` nor catching the error would have seen it.
+
+    Args:
+        target: The callable whose real parameters define the call.
+
+    Returns:
+        The signature of the executable, as the freeze rebuilt it.
+
+    Raises:
+        ToolGovernanceError: If the executable's own signature cannot be
+            established. Refusing is the point: the deleted alternative named the
+            arguments positionally and re-issued the caller's originals, so a
+            callable that would not answer the question got its defaults applied
+            by nobody and inspected by no policy.
+        UnstableToolIdentityError: If the callable cannot be frozen at all.
+    """
+    try:
+        return inspect.signature(snapshot_callable(target))
+    except (TypeError, ValueError) as error:
+        raise ToolGovernanceError("this callable's own signature cannot be established") from error
+
+
 def _effective_call(
     target: Any, args: tuple[Any, ...], kwargs: Mapping[str, Any]
 ) -> _EffectiveCall:
@@ -690,10 +736,23 @@ def _effective_call(
     arrives explicitly and the body's own ``__defaults__`` are never consulted at
     execution. The second read is deleted rather than checked.
 
-    Only a callable with no retrievable signature -- a builtin, most C functions
-    -- falls back to positional naming, and that path re-issues the caller's
-    original arguments untouched: there is no binding to have described anything
-    else, so there is no second read to delete.
+    **There is no unbound path left.** A callable with no retrievable signature
+    used to fall through to positional naming, on the stated grounds that only a
+    builtin or a C function could get there -- and no such callable can: every
+    C-implemented shape is refused by ``callable_implementation_digest`` at
+    ``govern_tools`` time, before a wrapper exists to call. What actually reached
+    that branch was an admitted Python function that had been *told* to have no
+    signature, and it arrived at the one place where saying so was worth
+    something: the defaults went unapplied, the policy inspected ``{}``, and the
+    body supplied its own ``"/danger"``. The branch is deleted rather than
+    narrowed, because a weaker path that only an attacker has a reason to reach
+    is not a fallback.
+
+    A call that will not bind is refused for the same reason. It is a call the
+    body would have rejected anyway -- ``Signature.bind`` is CPython's own
+    argument matching -- so nothing that could run is lost, and no mapping this
+    function could not derive from the executable is ever put in front of a
+    policy.
 
     Args:
         target: The callable whose signature defines the call.
@@ -704,12 +763,15 @@ def _effective_call(
         The one call this invocation will be decided on and executed with.
 
     Raises:
-        ToolGovernanceError: If the arguments cannot be named unambiguously.
+        ToolGovernanceError: If the executable's signature cannot be established,
+            if this call does not fit it, or if the arguments cannot be named
+            unambiguously.
     """
+    signature = _declared_signature(target)
     try:
-        bound = inspect.signature(target).bind(*args, **kwargs)
-    except (TypeError, ValueError):
-        return _EffectiveCall(_call_arguments(args, kwargs), args, kwargs)
+        bound = signature.bind(*args, **kwargs)
+    except TypeError as error:
+        raise ToolGovernanceError("this call does not fit the callable's own signature") from error
     bound.apply_defaults()
     _drop_empty_variadics(bound)
     return _EffectiveCall(_call_arguments((), bound.arguments), bound.args, bound.kwargs)

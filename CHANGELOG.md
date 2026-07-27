@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.5] - 2026-07-27
+
+### Fixed
+
+- Bind a governed call against the signature of the thing that runs, not against the label it
+  carries. `inspect.signature` answers from `__signature__` when there is one and follows
+  `__wrapped__` when there is one, and both are ordinary writable attributes on an ordinary
+  admitted Python function — so a plain callable could describe itself as taking no parameters
+  while its body went on materializing its own defaults. `remove(path="/danger")` with
+  `__signature__ = "opaque"` was decided as `{}` and executed with `"/danger"`; a *valid*
+  `inspect.Signature` naming fewer parameters did the same thing without raising anywhere, and
+  a `functools.wraps` pointing at a narrower facade was a third way to say it. The binding is
+  now taken from the frozen snapshot of the executable, which no longer carries either
+  attribute, so the parameters a call is bound against are whatever the body's `__code__`,
+  `__defaults__` and `__kwdefaults__` say they are.
+- Drop `__signature__` and `__wrapped__` when freezing a function. The rebuild carries a
+  function's `__dict__` across because a tool's own attributes are its state; these two are not
+  state but *descriptions* of an implementation, and this module exists to stop a description
+  and an implementation being two separately-readable things. The execution adapter already
+  refused to write either of them for that reason.
+- Delete the no-signature fallback on the plain-callable surface. It named arguments
+  positionally and re-issued the caller's originals, on the stated grounds that only a builtin
+  or a C function could reach it — and none can: every C-implemented shape is refused by
+  `callable_implementation_digest` at `govern_tools` time. What actually reached it was an
+  admitted Python function that had been told to have no signature. A call that will not bind
+  is now refused as well, which loses nothing that could have executed and means no mapping the
+  wrapper could not derive from the executable is put in front of a policy.
+
+### Changed
+
+- A `(*args, **kwargs)` decorator built with `functools.wraps` is now decided under the
+  variadic parameters it really declares rather than under the inner function's parameter
+  names. The argument is still in the mapping, one level down; a policy matching a decorated
+  tool's inner parameter names must match `kwargs` instead.
+
 ## [0.13.14.4] - 2026-07-27
 
 ### Fixed

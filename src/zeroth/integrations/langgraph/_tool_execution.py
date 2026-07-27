@@ -753,9 +753,7 @@ def _frozen_implementation(target: Any, depth: int) -> Any:
     if kind is types.FunctionType:
         return _frozen_function(target, depth)
     if kind is types.MethodType:
-        return types.MethodType(
-            _frozen_implementation(target.__func__, depth + 1), target.__self__
-        )
+        return types.MethodType(_frozen_implementation(target.__func__, depth + 1), target.__self__)
     if kind is functools.partial:
         return _frozen_partial(target, depth)
     if kind is types.CodeType:
@@ -809,6 +807,25 @@ def _frozen_cell(cell: Any, depth: int) -> Any:
     return types.CellType(_frozen_implementation(captured, depth + 1))
 
 
+_DISOWNING_ATTRIBUTES = frozenset({"__signature__", "__wrapped__"})
+"""The two attributes a function may use to describe itself as something it is not.
+
+``inspect.signature`` honours an explicit ``__signature__`` and follows
+``__wrapped__`` before it ever looks at the ``__code__`` it was handed, so either
+one answers "what parameters does this take?" with something the body is free to
+disagree with -- a value that raises, or a valid ``Signature`` naming fewer
+parameters than the body will materialize defaults for.
+
+Both live in a function's ``__dict__``, which is why they are named here rather
+than simply not being copied: the rebuild carries ``__dict__`` across on purpose,
+because a tool's own attributes are its state. These two are not state. They are
+descriptions of an implementation, and this module exists to stop a description
+and an implementation being two separately-readable things. :func:`_adapted`
+already refuses to *write* either of them for exactly this reason; carrying them
+across a freeze was the same mistake in the other direction.
+"""
+
+
 def _frozen_function(target: Any, depth: int) -> Any:
     """Rebuild a plain function around frozen code, frozen cells and copied defaults.
 
@@ -816,6 +833,11 @@ def _frozen_function(target: Any, depth: int) -> Any:
     body runs in rather than the body itself -- ``_code_material`` records the
     *names* a code object reads, never their values -- and rebinding them would
     hand every tool a frozen copy of its own module.
+
+    ``__signature__`` and ``__wrapped__`` are deliberately **not** carried across;
+    see :data:`_DISOWNING_ATTRIBUTES`. The rebuilt function's parameters are
+    whatever its frozen ``__code__``, ``__defaults__`` and ``__kwdefaults__`` say
+    they are, and there is no longer a second place to read them from.
     """
     keyword_defaults = target.__kwdefaults__
     defaults = target.__defaults__
@@ -835,7 +857,9 @@ def _frozen_function(target: Any, depth: int) -> Any:
     rebuilt.__qualname__ = target.__qualname__
     rebuilt.__doc__ = target.__doc__
     rebuilt.__module__ = target.__module__
-    rebuilt.__dict__.update(target.__dict__)
+    rebuilt.__dict__.update(
+        {key: value for key, value in target.__dict__.items() if key not in _DISOWNING_ATTRIBUTES}
+    )
     return rebuilt
 
 

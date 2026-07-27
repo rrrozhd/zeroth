@@ -64,15 +64,34 @@ The vectors, and why each is a distinct hole rather than a restatement:
   it. A parameter default lives on exactly one of those two sides, so
   ``remove(path="/danger")`` invoked with no arguments was authorized as ``{}``
   and ran on ``"/danger"`` -- an empty call decided, a destructive one executed.
+* **A signature that describes a body the callable does not have**, on that same
+  plain-callable surface
+  (:func:`test_a_declared_signature_cannot_hide_the_value_the_body_will_run`,
+  :func:`test_a_callable_objects_declared_signature_cannot_hide_its_bodys_default`
+  and :func:`test_a_call_that_does_not_fit_the_real_signature_is_refused`).
+  The same value, materialized by the same body, reached through the *description*
+  instead. ``inspect.signature`` answers from ``__signature__`` when there is one
+  and follows ``__wrapped__`` when there is one, and both are writable attributes
+  on an ordinary admitted Python function -- so the fix above bound the call
+  against whatever the callable claimed rather than against what it was. Three
+  ways to say the same lie: a ``__signature__`` that raises, which dropped the
+  binding into the no-signature fallback whose stated justification was that only
+  C-implemented callables could reach it; a **valid** ``inspect.Signature``
+  naming fewer parameters, which raises nothing anywhere and so is invisible to a
+  fix that only catches the error; and a ``functools.wraps`` pointing at a
+  narrower facade.
 
-The last two groups are the two-reads shape one layer out from the body: the
+The last three groups are the two-reads shape one layer out from the body: the
 value that was authorized and the value that executes came from two separate
 reads, and the second one was reached through the framework, or through a
-signature, rather than through the delegate's attributes. Both are closed the
+signature, rather than through the delegate's attributes. All are closed the
 same way as the others -- by deleting the second read, not by checking it. The
 defaults case is deleted by *issuing one call*: the binding is applied to the
 arguments the policy is shown and re-issued as ``bound.args`` /
 ``bound.kwargs``, so the body's own defaults are never consulted a second time.
+The description case is deleted by having *one signature*: it is read off the
+frozen snapshot of the executable, which no longer carries either attribute, so
+there is no label left for a body to disagree with.
 
 Each vector runs on **both surfaces and both call styles**: ``govern_tools``
 sync and async, ``ZerothMiddleware`` sync and async. A fix that closes only the
@@ -97,6 +116,7 @@ import asyncio
 import copy
 import dataclasses
 import functools
+import inspect
 from collections.abc import Mapping
 from typing import Any
 
@@ -987,6 +1007,20 @@ def _defaulted_async_callable(log: list[dict[str, Any]]) -> Any:
     return aremove
 
 
+CALLABLE_SURFACES = (
+    pytest.param(drive_callable, _defaulted_sync_callable, id="callable-sync"),
+    pytest.param(drive_callable_async, _defaulted_async_callable, id="callable-async"),
+)
+"""The plain-callable surface's two halves, each with a body its driver can run.
+
+Both the hostile probes on this surface and its positive control run through
+here, because the two wrappers ``_govern_callable`` picks between resolve the
+call on separate lines: a fix applied to one of them leaves the other surface
+deciding one call and running another, which is the shape of every finding this
+file records.
+"""
+
+
 def assert_the_default_was_decided(driver: Any, target: Any, log: list[dict[str, Any]]) -> None:
     """Assert the policy was shown the value the body is about to be run with.
 
@@ -1108,6 +1142,173 @@ def test_a_variadic_callable_is_decided_on_the_shape_its_call_had(
         f"the decided call was not the one that was made: {recorder.inspected!r}"
     )
     assert log == [dict(received)], f"the body was not run with the decided call: {log!r}"
+
+
+# --------------------------------------------------------------------------- #
+# C5-2: the signature the binding read was a description the body could disown.
+# --------------------------------------------------------------------------- #
+
+
+OPAQUE_SIGNATURE = "opaque"
+"""A ``__signature__`` of a type ``inspect.signature`` refuses to make sense of.
+
+The loud half of the vector. It is not a builtin and it is not refused anywhere:
+it is an ordinary admitted Python function that has been told to answer the
+question with a ``ValueError``, which used to drop the binding into the
+no-signature fallback -- the branch whose whole justification was that only
+C-implemented callables could reach it.
+"""
+
+
+def _a_signature_that_raises(target: Any) -> Any:
+    """Make reading *target*'s signature raise rather than answer."""
+    target.__signature__ = OPAQUE_SIGNATURE
+    return target
+
+
+def _a_signature_that_lies_quietly(target: Any) -> Any:
+    """Give *target* a **valid** signature declaring none of its real parameters.
+
+    The quieter half, and the one a fix that only caught the ``ValueError`` would
+    miss entirely: nothing raises anywhere. ``bind()`` succeeds against an empty
+    parameter list, ``apply_defaults`` has nothing to apply, and the mapping the
+    policy is shown is ``{}`` -- while the body still materializes its own
+    ``"/danger"`` on the way in.
+    """
+    target.__signature__ = inspect.Signature([])
+    return target
+
+
+def _a_wrapped_that_hides_parameters(target: Any) -> Any:
+    """Point *target*'s ``__wrapped__`` at a facade that declares no parameters.
+
+    The third way to make the same lie, through the attribute
+    ``inspect.signature`` follows *before* it looks at the object it was handed.
+    The facade is built here rather than at module scope so that
+    ``functools.wraps`` -- which copies ``__name__`` across -- leaves the target
+    named something ``normalize_identifier`` accepts; a name it rejects would
+    refuse the tool at wrap time and turn this probe green for a reason that has
+    nothing to do with the finding. The facade matches the target's own
+    sync/async shape so ``iscoroutinefunction`` still picks the wrapper the case
+    is meant to exercise.
+    """
+
+    def remove() -> str:
+        """Stand in for a body that takes no arguments at all."""
+        return SAFE
+
+    async def aremove() -> str:
+        """The async twin of the facade above."""
+        return SAFE
+
+    facade = aremove if inspect.iscoroutinefunction(target) else remove
+    return functools.wraps(facade)(target)
+
+
+DISOWNED_SIGNATURES = (
+    pytest.param(_a_signature_that_raises, id="signature-that-raises"),
+    pytest.param(_a_signature_that_lies_quietly, id="signature-that-lies-quietly"),
+    pytest.param(_a_wrapped_that_hides_parameters, id="wrapped-that-hides-parameters"),
+)
+"""The three ways an admitted callable can describe itself as something else."""
+
+
+@pytest.mark.parametrize("poison", DISOWNED_SIGNATURES)
+@pytest.mark.parametrize("driver, build", CALLABLE_SURFACES)
+def test_a_declared_signature_cannot_hide_the_value_the_body_will_run(
+    driver: Any, build: Any, poison: Any
+) -> None:
+    """The signature the call is bound against must be the executable's, not a label.
+
+    The auditor's C5-2 probe. ``remove(path="/danger")`` is an ordinary admitted
+    Python function -- it is fingerprinted, it is governed, it runs -- and every
+    poison here leaves it that way while moving what ``inspect.signature`` reports
+    about it. The binding then described a call the body was never going to make:
+    the policy inspected ``{}`` and the body received ``"/danger"``, which is
+    C4-4 reopened through the description rather than through the re-issue.
+
+    ``__signature__``/``__wrapped__`` are *descriptions* of an implementation and
+    are free to lie about it, so the fix reads neither: the binding is taken from
+    the frozen snapshot of the executable, which no longer carries either
+    attribute. That is why all three cells close together rather than one per
+    mechanism.
+
+    Reached by the plain-callable sync and async drivers only, for the reason
+    :func:`test_a_defaulted_callable_is_decided_on_the_default_it_will_run` gives:
+    this binding exists on ``govern_tools``' bare-callable surface, a governed
+    callable exposes no ``invoke`` for the two tool drivers to enter through, and
+    the two middleware drivers decide a ``BaseTool`` carried on a
+    ``ToolCallRequest`` and never touch it.
+    """
+    log: list[dict[str, Any]] = []
+    assert_the_default_was_decided(driver, poison(build(log)), log)
+
+
+def _a_callable_object_hiding_its_signature(log: list[dict[str, Any]]) -> Any:
+    """Build a callable object whose **type** declares a signature its body disowns."""
+
+    class Remove:
+        """A tool-shaped callable object with a destructive default in its body."""
+
+        name = "remove"
+        description = "Remove a path."
+        __signature__ = inspect.Signature([])
+
+        def __call__(self, path: str = DANGER) -> str:
+            """Record exactly what this execution was handed, and report success."""
+            log.append({"path": path})
+            return f"{SAFE}:{path}"
+
+    return Remove()
+
+
+def test_a_callable_objects_declared_signature_cannot_hide_its_bodys_default() -> None:
+    """The same lie told by the object rather than by the function, on the same line.
+
+    ``inspect.signature(instance)`` resolves ``__signature__`` through ordinary
+    attribute lookup, so a class attribute lies exactly as a function attribute
+    does -- and a callable object is an admitted shape on this surface, pinned by
+    :func:`test_a_callable_object_governed_directly_still_executes`. It is here
+    because the fix's claim is about the *shape space*, not about functions: the
+    binding is taken from the bound method the freeze produces from
+    ``type(obj).__call__``, and an attribute hung on the instance or its type is
+    not on that object at all.
+
+    Sync only, and structurally so: ``inspect.iscoroutinefunction`` is false for
+    an instance whatever its ``__call__`` is, so ``_govern_callable`` picks the
+    sync wrapper for a callable object regardless -- there is no async cell to
+    write.
+    """
+    log: list[dict[str, Any]] = []
+    target = _a_callable_object_hiding_its_signature(log)
+    assert_the_default_was_decided(drive_callable, target, log)
+
+
+@pytest.mark.parametrize("driver, build", CALLABLE_SURFACES)
+def test_a_call_that_does_not_fit_the_real_signature_is_refused(driver: Any, build: Any) -> None:
+    """A call the signature cannot name must be refused, not handed to the body unnamed.
+
+    The fallback this finding is about did two things: it named the arguments
+    positionally, and it re-issued the caller's own ``args``/``kwargs``. Deleting
+    it closes the hole, and this is the other end of that deletion -- the shape
+    that used to reach it *legitimately*.
+
+    ``remove(**{"nonexistent": 1})`` cannot bind, so the policy used to be shown
+    ``{"nonexistent": 1}`` and the body was then entered with a call it would
+    reject; the ``TypeError`` came back out of the body rather than out of
+    governance. Nothing is lost by refusing first: a call that does not fit the
+    real signature is a call that could never have executed. What is gained is
+    that no mapping the wrapper could not derive from the executable is ever put
+    in front of a policy.
+    """
+    log: list[dict[str, Any]] = []
+    recorder = Recorder()
+    with pytest.raises(REFUSED):
+        driver(build(log), args={"nonexistent": 1}, client=recorder)
+    assert log == [], f"the body was entered on a call that could not be named: {log!r}"
+    assert recorder.inspected == [], (
+        f"a policy was shown a call the wrapper could not bind: {recorder.inspected!r}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1406,14 +1607,7 @@ def test_a_keyword_default_cannot_be_rewritten_after_the_decision(driver: Any) -
 # --------------------------------------------------------------------------- #
 
 
-CALLABLE_CONTROLS = (
-    pytest.param(drive_callable, _defaulted_sync_callable, id="callable-sync"),
-    pytest.param(drive_callable_async, _defaulted_async_callable, id="callable-async"),
-)
-"""The plain-callable surface's two halves, each with a body its driver can run."""
-
-
-@pytest.mark.parametrize("driver, build", CALLABLE_CONTROLS)
+@pytest.mark.parametrize("driver, build", CALLABLE_SURFACES)
 def test_an_ordinary_callable_still_executes_under_the_hardened_path(
     driver: Any, build: Any
 ) -> None:
@@ -1427,6 +1621,85 @@ def test_an_ordinary_callable_still_executes_under_the_hardened_path(
     log: list[dict[str, Any]] = []
     result = driver(build(log), args={"path": "/tmp"})
     assert log == [{"path": "/tmp"}]
+    assert SAFE in str(result)
+
+
+def _a_truthfully_wrapped_callable(log: list[dict[str, Any]]) -> Any:
+    """Build a decorated callable whose ``__wrapped__`` describes it faithfully."""
+
+    def remove(path: str = DANGER) -> str:
+        """The facade this body is decorated as, declaring the parameters it has."""
+        raise AssertionError("the facade must never be the thing that runs")
+
+    def body(path: str = DANGER) -> str:
+        """Record exactly what this execution was handed, and report success."""
+        log.append({"path": path})
+        return f"{SAFE}:{path}"
+
+    return functools.wraps(remove)(body)
+
+
+def test_a_truthfully_wrapped_callable_still_executes_and_is_decided_the_same() -> None:
+    """Refusing to read ``__wrapped__`` must not refuse the callables that carry one.
+
+    ``functools.wraps`` is on ordinary tools, not only on hostile ones, and the
+    fix stops following it for every callable at once. This is the control that
+    says so: the decorated body declares the same parameters as its facade, so
+    ignoring the attribute lands on the identical signature, the identical decided
+    mapping and the identical execution. A fix that refused anything carrying
+    ``__wrapped__`` would pass all three hostile cells above and fail here.
+    """
+    log: list[dict[str, Any]] = []
+    recorder = Recorder()
+    target = _a_truthfully_wrapped_callable(log)
+    result = drive_callable(target, args={"path": "/tmp"}, client=recorder)
+    assert recorder.inspected == [{"path": "/tmp"}], (
+        f"a truthfully wrapped callable moved the call it decides: {recorder.inspected!r}"
+    )
+    assert log == [{"path": "/tmp"}]
+    assert SAFE in str(result)
+
+
+def _a_variadic_decorator(log: list[dict[str, Any]]) -> Any:
+    """Build the shape a real decorator has: variadic outside, parameters inside."""
+
+    def remove(path: str = DANGER) -> str:
+        """Record exactly what this execution was handed, and report success."""
+        log.append({"path": path})
+        return f"{SAFE}:{path}"
+
+    @functools.wraps(remove)
+    def wrapper(*args: Any, **kwargs: Any) -> str:
+        """Forward whatever it was called with, as a decorator does."""
+        return remove(*args, **kwargs)
+
+    return wrapper
+
+
+def test_a_variadic_decorator_still_executes_under_its_own_signature() -> None:
+    """The deliberate behaviour change, pinned rather than left to be discovered.
+
+    A ``(*args, **kwargs)`` decorator is the common shape of ``functools.wraps``,
+    and it is the one the fix visibly *moves*: the call used to be decided under
+    the inner function's parameter names, because ``inspect.signature`` followed
+    ``__wrapped__`` to find them, and it is now decided under the variadic
+    parameters the thing that actually runs declares. Nothing is hidden by that --
+    the value is in the mapping either way, one level down -- and it is the honest
+    description, since ``wrapper`` is the callable the policy is authorizing.
+
+    A policy matching on ``path`` for a decorated tool therefore has to match one
+    level in. That is a real cost, and it is the price of having one read: the
+    alternative is to trust an attribute the body is free to disagree with, which
+    is the finding. This test exists so the cost is a recorded decision instead of
+    a surprise, and so a later change that silently moves the shape back fails.
+    """
+    log: list[dict[str, Any]] = []
+    recorder = Recorder()
+    result = drive_callable(_a_variadic_decorator(log), args={"path": "/tmp"}, client=recorder)
+    assert recorder.inspected == [{"kwargs": {"path": "/tmp"}}], (
+        f"the decorator was not decided on its own signature: {recorder.inspected!r}"
+    )
+    assert log == [{"path": "/tmp"}], f"the decorated body did not run: {log!r}"
     assert SAFE in str(result)
 
 
