@@ -1,100 +1,10 @@
-"""Governed wrappers for raw tool lists: ``govern_tools`` and what it returns.
+"""Govern LangGraph tool and callable surfaces without mutating their sources.
 
-**This module composes; it decides nothing.** Every allow, deny and approval
-branch lives in :mod:`~zeroth.integrations.langgraph._tool_guard`, and the
-wrappers below call it: the sync surfaces call
-:func:`~zeroth.integrations.langgraph._tool_guard.guard_tool_call`, the async
-surfaces call :func:`~zeroth.integrations.langgraph._tool_guard.authorize_tool_call`
-and then ``await`` their own downstream. There is deliberately no async
-enforcement core, because two implementations of "may this tool run" is two
-places for the fail-closed rules to diverge -- and the one that drifts is the one
-that fails open.
-
-**Wrapping mutates nothing.** The original tool object is never written to, its
-``.func`` / ``.coroutine`` are never reassigned, and the supplied container is
-copied rather than governed in place. A wrapper that rebound ``tool.func`` would
-leave ``is``-identity intact while silently governing -- or breaking -- every
-other holder of that tool, which is exactly the failure ``is``-only assertions
-cannot see.
-
-**``_run`` / ``_arun`` are the choke point, not ``invoke``.** ``BaseTool.invoke``,
-``.run``, ``.ainvoke`` and ``.arun`` all funnel through them (and the inherited
-``_arun`` funnels back into ``_run``), so overriding the pair governs every entry
-point at once. ``BaseTool`` exposes no instance ``__call__`` in ``langchain-core``
-1.x, so there is no fifth door.
-
-**One validation, so the authorized call is the executed call.** ``BaseTool``
-validates its input against ``args_schema`` before it reaches ``_run``, and the
-wrapper carries the delegate's schema, so the wrapper's own parse is where that
-validation happens. Handing the *parsed* arguments back through the delegate's
-public ``invoke`` would validate them a second time, and a validator that is
-stateful or otherwise non-idempotent answers differently on the second pass -- so
-policy would authorize the first answer while the body ran on the second. The
-call is therefore executed through
-:func:`~zeroth.integrations.langgraph._tool_execution.executing_tool`, whose
-validation stage is a pass-through, and the values the body receives are exactly
-the values the decision was made about. See :func:`_delegate_input` for why that
-object is still driven through ``invoke``. The plain-callable surface reaches the
-same property by a different route: :func:`_effective_call` binds the call against
-the callable's own signature *once* and that one binding is both what the policy
-is shown and what the body is invoked with, so a value the signature materializes
--- a parameter default -- cannot exist on only one of the two sides.
-
-**Identity is the tool's body, not the label on it.** Name, description and
-argument names are metadata a substituted tool reproduces exactly, so identity
-also carries a digest of the code the tool will actually run and a digest of its
-complete declared schema -- types and constraints, not field names. A tool whose
-implementation cannot be fingerprinted stably is refused rather than pinned to
-the weaker surface it presents; see
-:mod:`~zeroth.integrations.langgraph._tool_fingerprint` for what is derived, what
-it deliberately leaves out, and why deriving beats a fingerprint a caller asserts.
-
-**The authorized tool is the executed tool, and nothing can rebind it.** The
-wrapper holds exactly one reference to the tool it governs -- the ``target`` on
-its sealed, private :class:`_GovernedPlan` -- and executes *that*. A second,
-publicly assignable handle to the delegate would be a confused deputy: identity
-is re-derived from the plan, so policy would authorize the plan's target's
-fingerprint while a delegate somebody assigned afterwards ran instead. The plan
-is therefore written once, into pydantic's private store, and
-:meth:`GovernedTool.__setattr__` refuses every later assignment to it, to the
-binding, and to the names the mutable handles used to carry.
-
-**The body that runs is the body whose identity was authorized.** Identity used
-to be derived from the live tool and the body fetched from it again at execution
-time, with the caller's classifier, contract resolver and decision client running
-in between -- so anything that moved the tool in that window executed under the
-fingerprint pinned before it moved, and any read governance made could be
-answered by the delegate itself. Both halves are now one fact:
-:mod:`~zeroth.integrations.langgraph._tool_execution` takes a per-call snapshot
-by static reads before any caller-supplied code runs, identity is digested from
-that snapshot, and execution runs a framework-owned adapter built from it rather
-than a copy the delegate produced. A delegate that overrides a pre-body entry
-point, its copy machinery or its attribute dispatch -- or that shadows one on the
-instance -- is refused as well, at wrapping and again per call; that refusal is
-defense in depth rather than the guarantee, because a list of banned attributes
-is a list the next probe walks around.
-
-**Identity is pinned at wrap time and re-derived at every call.** A tool whose
-name, body or declared schema moves between the wrapping and the call cannot
-carry a reproducible decision, so the mismatch raises
-:class:`~zeroth.integrations.langgraph._tool_errors.UnstableToolIdentityError`
-rather than being decided against an identity that will not hold. That is also
-what stops a hostile ``__getattr__`` from presenting one identity to the wrapper
-and another to the policy.
-
-**Dispatch is by ``isinstance``; safety is not.** Every real tool is a
-``BaseTool`` *subclass* -- ``StructuredTool`` is what ``@tool`` produces -- so an
-exact-type gate here would reject the entire framework. The hostile-subtype
-defense is therefore on the *values*: names and descriptions pass the same
-``type(x) is str`` gates as everywhere else in this package, every attribute is
-read through a helper that treats a raising property as absent, and no container
-the caller owns is trusted or retained.
-
-**Coverage is hard-coded to
-:attr:`~zeroth.integrations.langgraph._tool_types.InventoryCoverage.PARTIAL`.**
-``govern_tools`` takes no coverage parameter on purpose: declaring a complete
-inventory requires an explicit expected tool list whose fingerprints match at
-startup, and a parameter would let a caller assert completeness nothing verified.
+Each call snapshots identity before caller-controlled seams run, authorizes the
+canonical arguments once, and executes the matching frozen body directly. The
+governed BaseTool is the sole framework execution layer, so it owns output and
+ToolException shaping while genuine nested LangChain work inherits its outer
+callback context normally.
 """
 
 from __future__ import annotations
@@ -111,7 +21,6 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, get_args, get_origin
 
-from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, PrivateAttr, create_model
 from pydantic.fields import FieldInfo
@@ -129,7 +38,8 @@ from zeroth.integrations.langgraph._tool_errors import (
 )
 from zeroth.integrations.langgraph._tool_execution import (
     ToolSnapshot,
-    executing_tool,
+    aexecute_snapshot,
+    execute_snapshot,
     refuse_delegate_dispatch,
     refuse_state_cell_escalation,
     snapshot_callable,
@@ -169,15 +79,6 @@ when it renders one as an LLM function call
 whether it arrived positionally or as a structured tool call. Only a schema-less
 ``BaseTool`` and a callable with no readable signature ever reach this naming;
 everything else is decided under the argument's real name.
-"""
-
-_TOOL_CALL_ID_KEY = "__zeroth_tool_call_id__"
-"""The reserved keyword the parsed tool-call id rides into ``_run`` under.
-
-``BaseTool`` gives the id to ``_to_args_and_kwargs`` and to nothing downstream of
-it, so this is the seam that carries it the last step. A tool that declares an
-argument under this exact name has its call refused rather than silently
-overwritten.
 """
 
 _PLAN_ATTRIBUTE = "_zeroth_plan"
@@ -1393,7 +1294,9 @@ def _error_handler(value: object) -> Any:
     """Return an error-handling setting in one of the shapes ``BaseTool`` accepts."""
     if type(value) is bool or type(value) is str:
         return value
-    return value if callable(value) else False
+    if type(value) is types.FunctionType or type(value) is types.MethodType:
+        return value
+    return False
 
 
 def _carried_fields(tool: Any) -> dict[str, Any]:
@@ -1406,28 +1309,10 @@ def _carried_fields(tool: Any) -> dict[str, Any]:
     layer that parses the input, and the wrapper parses first, with the same
     schema; if it raises, the delegate is never reached to handle anything.
 
-    ``callbacks``, ``handle_tool_error`` and ``response_format`` are deliberately
-    *not* carried by the outer wrapper. The framework-owned executing twin runs
-    the frozen body and receives the output-shaping fields captured in its
-    snapshot. Carrying the first once meant firing every handler twice; it would
-    now fire them exactly **once**, because the executing twin stopped carrying
-    the source tool's ``callbacks`` at all --
-    :data:`~zeroth.integrations.langgraph._tool_execution._CARRIED_FIELDS` drops
-    the field and says why. Once is still the wrong number: these are the
-    *delegate's* handlers, and running them around the wrapper runs
-    caller-supplied code inside the governance boundary to observe a call the
-    audit trail already records. It is not the same hole that field list closes,
-    and the difference is worth stating so the two are not read as one argument:
-    handlers on *this* object fire before the verdict rather than after it --
-    ``on_tool_start`` runs ahead of ``_to_args_and_kwargs`` and the decision is
-    made inside ``_run`` -- so what one of them rewrote, the policy would still
-    be shown.
-
-    The second would hide a failure the executing twin already handled, and the
-    third would make the wrapper re-format output the twin already formatted --
-    which, for ``content_and_artifact``, means rejecting the twin's own
-    ``ToolMessage`` for not being a two-tuple. The twin is handed the whole tool
-    call, artifact and all, and its result travels back untouched.
+    ``callbacks`` is deliberately excluded: delegate-attached handlers are not
+    allowed inside the governance boundary. ``handle_tool_error`` and
+    ``response_format`` are carried because direct execution leaves this wrapper
+    as the one and only ``BaseTool`` layer responsible for error/output shaping.
 
     Args:
         tool: The tool being wrapped.
@@ -1440,6 +1325,13 @@ def _carried_fields(tool: Any) -> dict[str, Any]:
         "tags": _string_list(_peek(tool, "tags")),
         "metadata": _string_keyed(_peek(tool, "metadata")),
         "handle_validation_error": _error_handler(_peek(tool, "handle_validation_error")),
+        "handle_tool_error": _error_handler(_peek(tool, "handle_tool_error")),
+        "response_format": (
+            value
+            if type(value := _peek(tool, "response_format")) is str
+            and value in {"content", "content_and_artifact"}
+            else "content"
+        ),
     }
 
 
@@ -1972,94 +1864,6 @@ def _enforcement_seams(plan: _GovernedPlan | _CallablePlan) -> dict[str, Any]:
     }
 
 
-def _callback_free_config() -> RunnableConfig:
-    """Return the config the post-authorization executor is invoked with.
-
-    **An invocation with no config is not an invocation with no callbacks.**
-    ``ensure_config`` fills a missing config from ``var_child_runnable_config`` --
-    the variable ``BaseTool.run`` republishes its own child config into while the
-    body runs -- so the internal executor, invoked bare, inherited every handler
-    attached to the outer run and fired ``on_tool_start`` a *second* time, after
-    the verdict and before ``_to_args_and_kwargs``. The mapping that hook is handed
-    is a shallow filtered copy, so every container one level down is the one the
-    body is about to receive: a policy that inspected ``["safe", "evil"]`` had the
-    body run on ``["safe", "evil", "evil"]``, the extra entry appended by a handler
-    that had already, legitimately, run once before the decision.
-
-    That is the same second read of the *arguments* that dropping ``callbacks``
-    from :data:`~zeroth.integrations.langgraph._tool_execution._CARRIED_FIELDS`
-    deleted, reached through the run instead of through the delegate. Closing the
-    delegate's carrier did nothing to this one, which is why the two are recorded
-    as separate facts rather than one.
-
-    **``{"callbacks": []}``, and specifically not ``{"callbacks": None}``.**
-    ``ensure_config`` merges the ``ContextVar`` first and then overlays the
-    explicit config only for keys whose value ``is not None``, so a ``None`` is
-    filtered straight back out and the ambient handlers win -- measurably: the
-    ambient handler fires once with ``None`` and not at all with ``[]``. The empty
-    list is a *value*, and ``callbacks`` is in ``CONFIG_KEYS``, so it overlays.
-
-    **Only ``callbacks``, and the ``ContextVar`` is deliberately left alone.** The
-    other keys ``ensure_config`` inherits -- ``tags``, ``metadata``,
-    ``configurable``, ``run_name``, ``recursion_limit``, ``max_concurrency`` --
-    carry no handler the framework invokes, and none of them reaches the body:
-    ``configurable`` is injected only into a parameter annotated ``RunnableConfig``
-    and the execution adapter presents ``(*args, **kwargs)`` with no annotations at
-    all. Emptying the variable instead would additionally strip ``configurable``
-    from what a body reads back through ``get_config()`` -- a governed tool would
-    stop seeing its own ``thread_id`` -- which is the observability this fix is
-    careful not to break, one layer further in.
-
-    A fresh mapping per call rather than a module constant: this value is handed to
-    framework code, and a shared mutable default is one ``setdefault`` away from
-    being a carrier of exactly the kind this function exists to close.
-
-    Returns:
-        A config that suppresses inherited callbacks and overrides nothing else.
-    """
-    return {"callbacks": []}
-
-
-def _delegate_input(
-    args: tuple[Any, ...], kwargs: Mapping[str, Any], tool_call_id: str | None, name: str
-) -> Any:
-    """Rebuild the input the framework-owned executing twin's ``invoke`` expects.
-
-    When the governed call arrived as a tool call, the twin is handed a tool call
-    too, id and all. That is what keeps a ``content_and_artifact`` tool's artifact
-    alive through the wrapping: the twin builds the whole ``ToolMessage`` itself
-    from the frozen body and captured output settings, and that message travels out of the
-    wrapper's own formatting stage untouched. Rebuilding a bare argument dict
-    instead would leave the twin with no call id, and a twin with no call id
-    returns content and drops its artifact on the floor. The source tool is never
-    invoked here.
-
-    Args:
-        args: The parsed positional arguments.
-        kwargs: The parsed named arguments.
-        tool_call_id: The id of the tool call being governed, when there is one.
-        name: The tool's name, as it goes into a rebuilt tool call.
-
-    Returns:
-        The input to hand the executing twin.
-
-    Raises:
-        ToolGovernanceError: If the call shape cannot be handed on faithfully.
-            Guessing would invoke the tool with something other than what was
-            decided.
-    """
-    if args and not kwargs:
-        if len(args) != 1:
-            raise ToolGovernanceError("a governed tool call carries more than one positional input")
-        return args[0]
-    if args:
-        raise ToolGovernanceError("a governed tool call mixes positional and named inputs")
-    arguments = {key: value for key, value in kwargs.items()}
-    if tool_call_id is None:
-        return arguments
-    return {"name": name, "args": arguments, "id": tool_call_id, "type": "tool_call"}
-
-
 class GovernedTool(BaseTool):
     """A ``BaseTool`` that decides before it runs a frozen twin, and mutates nothing.
 
@@ -2073,8 +1877,8 @@ class GovernedTool(BaseTool):
 
     **One source reference, sealed.** The ``target`` on the plan is the source a
     fresh static snapshot is captured from before caller code runs; execution
-    uses the framework-owned twin built from that snapshot, never the target's
-    dispatch. The target is held in pydantic's private store and unreachable as a
+    calls the frozen snapshot body directly, never the target's dispatch. The
+    target is held in pydantic's private store and unreachable as a
     field. There is deliberately no second, assignable source handle: identity is
     re-derived from the plan, so another target assigned after wrapping could be
     snapshotted under the plan target's authorization. :meth:`__setattr__` refuses every name in
@@ -2143,69 +1947,23 @@ class GovernedTool(BaseTool):
         """Report the governed tool's own input schema, not this wrapper's signature."""
         return self._plan().target.get_input_schema(config)
 
-    def _to_args_and_kwargs(
-        self, tool_input: Any, tool_call_id: str | None
-    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
-        """Parse the input as ``BaseTool`` does, carrying the call id on to ``_run``.
-
-        ``BaseTool`` hands the call id to this method and to nothing further, but
-        the executing twin needs it to format its own output. Threading it through the
-        parsed keyword arguments is what makes it reachable without overriding
-        ``run`` and ``arun`` wholesale.
-
-        Raises:
-            ToolGovernanceError: If the tool declares an argument under the
-                reserved carrier name, which would otherwise be overwritten.
-        """
-        args, kwargs = super()._to_args_and_kwargs(tool_input, tool_call_id)
-        if any(existing == _TOOL_CALL_ID_KEY for existing in kwargs):
-            raise ToolGovernanceError("a tool argument collides with the tool-call id carrier")
-        return args, {**kwargs, _TOOL_CALL_ID_KEY: tool_call_id}
-
     def _run(self, *args: Any, **kwargs: Any) -> Any:
-        """Govern this call, then invoke its frozen executing twin once on an allow.
-
-        Every ``BaseTool`` entry point -- ``invoke``, ``run`` and the inherited
-        ``_arun`` fallback -- funnels through here, so there is no way to reach
-        the snapshotted body without passing the guard.
-
-        The executor is invoked with :func:`_callback_free_config` rather than
-        bare. Only *this* invocation is silenced: the wrapper's own ``run`` has
-        already fired the caller's handlers for the governed tool, before the
-        verdict, and goes on doing so.
-        """
+        """Govern this call, then execute its frozen sync body directly."""
         plan = self._plan()
-        call_id = kwargs.pop(_TOOL_CALL_ID_KEY, None)
         action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
-        payload = _delegate_input(args, kwargs, call_id, self.name)
-        runnable = executing_tool(facts.snapshot)
         return guard_tool_call(
             action,
             context,
-            lambda: runnable.invoke(payload, config=_callback_free_config()),
+            lambda: execute_snapshot(facts.snapshot, args, kwargs),
             **_enforcement_seams(plan),
         )
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
-        """Govern this call, then await the wrapped tool exactly once on an allow.
-
-        Authorization is the same synchronous core the sync path runs; only the
-        downstream invocation is awaited. There is no async enforcement branch to
-        drift out of step with the sync one.
-
-        It carries :func:`_callback_free_config` for the same reason ``_run`` does,
-        and the two lines say it identically on purpose: ``ainvoke`` inherits the
-        ambient run config by exactly the same ``ensure_config`` path, so a fix
-        applied to one of them would leave the other surface running handlers after
-        the verdict.
-        """
+        """Govern this call, then execute its frozen async body directly."""
         plan = self._plan()
-        call_id = kwargs.pop(_TOOL_CALL_ID_KEY, None)
         action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
-        payload = _delegate_input(args, kwargs, call_id, self.name)
-        runnable = executing_tool(facts.snapshot)
         authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await runnable.ainvoke(payload, config=_callback_free_config())
+        return await aexecute_snapshot(facts.snapshot, args, kwargs)
 
 
 def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) -> GovernedTool:

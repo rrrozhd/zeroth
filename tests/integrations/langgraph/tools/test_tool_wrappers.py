@@ -925,38 +925,35 @@ def test_content_and_artifact_survives_the_wrapping_and_the_artifact_is_not_drop
     governed = wrap(original, client=CountingClient())
     call = {"name": "measure", "args": {"table": "t"}, "id": "c1", "type": "tool_call"}
 
-    # The delegate is handed the whole tool call, so it builds the ToolMessage --
-    # artifact included -- and the wrapper's own formatting stage passes a
-    # ToolMessage straight through. The wrapper therefore keeps the default
-    # ``response_format``: carrying the delegate's would make it re-format an
-    # already-formatted output and reject the ToolMessage for not being a
-    # two-tuple.
-    assert governed.response_format == "content"
+    # Direct frozen-body execution returns the two-tuple to the governed wrapper,
+    # so the outer (and only) BaseTool layer owns artifact formatting.
+    assert governed.response_format == "content_and_artifact"
     assert governed.invoke(call) == original.invoke(call)
     assert governed.invoke(call).artifact == {"rows": 3}
 
 
-def test_a_tool_argument_colliding_with_the_call_id_carrier_is_refused() -> None:
+def test_the_obsolete_call_id_carrier_name_is_an_ordinary_argument() -> None:
     class Colliding(BaseModel):
-        """A schema loose enough to let the reserved carrier name through as an argument."""
+        """A schema loose enough to pass an extra argument through."""
 
         model_config = ConfigDict(extra="allow")
 
         table: str = "t"
 
-    def echo(**kwargs: Any) -> str:
+    def echo(**kwargs: Any) -> Any:
         """Echo."""
-        return "echoed"
+        return kwargs
 
     original = StructuredTool.from_function(
         func=echo, name="colliding", description="d", args_schema=Colliding
     )
     governed = wrap(original, client=CountingClient())
 
-    # An argument named like the carrier would otherwise be overwritten by the
-    # call id -- the policy would decide one call and the tool would run another.
-    with pytest.raises(ToolGovernanceError):
-        governed.invoke({"table": "t", "__zeroth_tool_call_id__": "spoofed"})
+    # Direct execution has no private call-id carrier, so this name is no longer
+    # reserved and reaches the body exactly as policy saw it.
+    assert governed.invoke(
+        {"table": "t", "__zeroth_tool_call_id__": "ordinary"}
+    ) == {"table": "t", "__zeroth_tool_call_id__": "ordinary"}
 
 
 def test_tags_and_metadata_a_caller_reads_off_the_tool_survive_the_wrapping() -> None:
@@ -981,7 +978,7 @@ def test_tags_and_metadata_a_caller_reads_off_the_tool_survive_the_wrapping() ->
     assert governed.metadata == {"team": "payments"}
 
 
-def test_the_delegates_own_error_handling_is_not_duplicated_onto_the_wrapper() -> None:
+def test_the_outer_wrapper_owns_tool_error_handling() -> None:
     def explode(table: str) -> str:
         """Fail the way a tool whose backend is down does."""
         raise ToolException("backend down")
@@ -1000,11 +997,114 @@ def test_the_delegates_own_error_handling_is_not_duplicated_onto_the_wrapper() -
     )
     governed = wrap(original, client=CountingClient())
 
-    # The delegate is the layer that runs and therefore fails, so it is the layer
-    # that handles -- copying the setting onto the wrapper would mask a failure
-    # the delegate had already dealt with.
-    assert governed.handle_tool_error is False
+    # The frozen body now runs directly. The governed wrapper is the only
+    # BaseTool layer, so it is also the only layer that handles the exception.
+    assert governed.handle_tool_error == "handled"
     assert governed.invoke({"table": "t"}) == original.invoke({"table": "t"}) == "handled"
+
+
+class ErrorArgs(BaseModel):
+    """The single argument shared by direct-execution error tests."""
+
+    table: str
+
+
+@pytest.mark.parametrize("asynchronous", (False, True), ids=("sync", "async"))
+@pytest.mark.parametrize("handler_kind", ("boolean", "callable"))
+def test_handle_tool_error_runs_exactly_once(asynchronous: bool, handler_kind: str) -> None:
+    """Boolean and callable handlers are applied once by the outer tool."""
+    body_calls: list[str] = []
+    handler_calls: list[str] = []
+
+    def handler(error: ToolException) -> str:
+        handler_calls.append(str(error))
+        return f"handled:{error}"
+
+    flag: Any = True if handler_kind == "boolean" else handler
+
+    if asynchronous:
+
+        async def explode(table: str) -> str:
+            """Fail natively asynchronously."""
+            body_calls.append(table)
+            raise ToolException("backend down")
+
+        original = StructuredTool.from_function(
+            coroutine=explode,
+            name="explode",
+            description="d",
+            args_schema=ErrorArgs,
+            handle_tool_error=flag,
+        )
+    else:
+
+        def explode(table: str) -> str:
+            """Fail synchronously."""
+            body_calls.append(table)
+            raise ToolException("backend down")
+
+        original = StructuredTool.from_function(
+            func=explode,
+            name="explode",
+            description="d",
+            args_schema=ErrorArgs,
+            handle_tool_error=flag,
+        )
+
+    governed = wrap(original, client=CountingClient())
+    result = (
+        asyncio.run(governed.ainvoke({"table": "t"}))
+        if asynchronous
+        else governed.invoke({"table": "t"})
+    )
+    assert result == ("backend down" if handler_kind == "boolean" else "handled:backend down")
+    assert body_calls == ["t"]
+    assert handler_calls == ([] if handler_kind == "boolean" else ["backend down"])
+
+
+@pytest.mark.parametrize("asynchronous", (False, True), ids=("sync", "async"))
+def test_handle_tool_error_does_not_swallow_ordinary_exceptions(asynchronous: bool) -> None:
+    """Only ToolException enters BaseTool's configured error handler."""
+    handler_calls: list[str] = []
+
+    def handler(error: ToolException) -> str:
+        handler_calls.append(str(error))
+        return "handled"
+
+    if asynchronous:
+
+        async def explode(table: str) -> str:
+            """Raise outside the handled exception type."""
+            raise ValueError(table)
+
+        original = StructuredTool.from_function(
+            coroutine=explode,
+            name="explode",
+            description="d",
+            args_schema=ErrorArgs,
+            handle_tool_error=handler,
+        )
+    else:
+
+        def explode(table: str) -> str:
+            """Raise outside the handled exception type."""
+            raise ValueError(table)
+
+        original = StructuredTool.from_function(
+            func=explode,
+            name="explode",
+            description="d",
+            args_schema=ErrorArgs,
+            handle_tool_error=handler,
+        )
+
+    governed = wrap(original, client=CountingClient())
+    with pytest.raises(ValueError, match="t"):
+        if asynchronous:
+            asyncio.run(governed.ainvoke({"table": "t"}))
+        else:
+            governed.invoke({"table": "t"})
+    assert handler_calls == []
 
 
 # --------------------------------------------------------------------------- #

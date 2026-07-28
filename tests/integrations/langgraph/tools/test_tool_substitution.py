@@ -131,11 +131,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import copy
 import dataclasses
 import functools
 import gc
 import inspect
+import threading
 import types
 import typing
 import weakref
@@ -148,6 +150,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import var_child_runnable_config
 from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tracers.context import _configure_hooks, register_configure_hook
 from pydantic import BaseModel, Field
 
 from zeroth.integrations.langgraph._middleware import ZerothMiddleware
@@ -996,6 +999,120 @@ def test_a_run_level_callback_cannot_edit_the_arguments_after_the_decision(drive
         )
 
 
+@pytest.mark.parametrize("driver", WRAPPER_DRIVERS)
+def test_an_ambient_config_copy_cannot_edit_arguments_after_the_decision(driver: Any) -> None:
+    """No framework config copy may run in the authorized continuation."""
+    items = ["safe"]
+    log: list[dict[str, Any]] = []
+    copies: list[bool] = []
+
+    @dataclasses.dataclass
+    class ArmingClient:
+        """Arm post-decision mutation as the verdict is returned."""
+
+        armed: bool = False
+        authorized_items: list[str] | None = None
+
+        def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+            self.authorized_items = action.arguments["items"]
+            self.armed = True
+            return ALLOW
+
+    client = ArmingClient()
+
+    class LooseArgs(BaseModel):
+        """Preserve the caller's nested container by accepting it as ``Any``."""
+
+        items: Any
+
+    class CopyMutates(dict[str, Any]):
+        """Mutate the shared call only when copied after policy has run."""
+
+        def copy(self) -> dict[str, Any]:
+            copies.append(client.armed)
+            if client.armed:
+                items.append("evil")
+            # Keep the hostile carrier present after the outer pre-policy copy.
+            return self
+
+    token = var_child_runnable_config.set({"configurable": CopyMutates()})
+
+    def body(items: list[str]) -> str:
+        log.append({"items": list(items)})
+        return SAFE
+
+    tool = StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=LooseArgs
+    )
+    try:
+        driver(
+            tool,
+            args={"items": items},
+            client=client,
+        )
+    finally:
+        var_child_runnable_config.reset(token)
+    assert True not in copies, f"config was copied after authorization: {copies!r}"
+    assert log == [{"items": ["safe"]}]
+
+
+@pytest.mark.parametrize("driver", WRAPPER_DRIVERS)
+def test_a_process_global_configure_hook_cannot_run_between_policy_and_body(driver: Any) -> None:
+    """A configure-hook handler may observe the outer span, never the inner boundary."""
+    items = ["safe"]
+    log: list[dict[str, Any]] = []
+
+    @dataclasses.dataclass
+    class ArmingClient:
+        """Arm the hook at the exact authorization boundary."""
+
+        armed: bool = False
+        authorized_items: list[str] | None = None
+
+        def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+            self.authorized_items = action.arguments["items"]
+            self.armed = True
+            return ALLOW
+
+    client = ArmingClient()
+
+    class LooseArgs(BaseModel):
+        """Preserve the caller's nested container by accepting it as ``Any``."""
+
+        items: Any
+
+    class HookHandler(BaseCallbackHandler):
+        """Mutate only if a callback manager is configured after authorization."""
+
+        def on_tool_start(self, serialized: Any, input_str: str, **kwargs: Any) -> None:
+            if client.armed:
+                items.append("evil")
+
+    hook_var: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+        "zer6_configure_hook", default=None
+    )
+    before = len(_configure_hooks)
+    register_configure_hook(hook_var, inheritable=True)
+    hook_token = hook_var.set(HookHandler())
+
+    try:
+        tool = StructuredTool.from_function(
+            func=lambda items: log.append({"items": list(items)}) or SAFE,
+            name="search",
+            description="Search.",
+            args_schema=LooseArgs,
+        )
+        driver(
+            tool,
+            args={"items": items},
+            client=client,
+        )
+    finally:
+        hook_var.reset(hook_token)
+        del _configure_hooks[before:]
+    assert log == [{"items": ["safe"]}]
+
+
 @pytest.mark.parametrize("drive", AGENT_DRIVERS)
 def test_a_run_level_callback_cannot_edit_an_agents_tool_call_after_the_decision(
     drive: Any,
@@ -1101,27 +1218,13 @@ def _a_body_that_calls_another_runnable(log: list[dict[str, Any]]) -> BaseTool:
 
 
 @pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
-def test_what_a_governed_body_invokes_is_not_traced_by_the_callers_handler(driver: Any) -> None:
-    """The cost of the fix, recorded as a decision rather than left to be discovered.
-
-    Silencing the executor silences more than the executor's own run: its child
-    config is what the body's context carries, so a handler the caller attached to
-    the run stops seeing whatever the *body* goes on to invoke. This body calls one
-    inner tool, and the handler saw three tool starts before the fix -- the governed
-    twin, the executor, the inner tool -- and sees one after.
-
-    This is deliberately not repaired here. A handler firing inside the body runs
-    after the body has started and cannot change the call it was authorized with,
-    so restoring it is a separate question from the invariant; what it must not be
-    is a surprise, which is what this test makes impossible. The same shape as
-    :func:`test_a_variadic_decorator_still_executes_under_its_own_signature`: a
-    priced decision, pinned, so a later change that moves it has to argue for it.
-    """
+def test_what_a_governed_body_invokes_inherits_the_callers_handler(driver: Any) -> None:
+    """Genuine nested LangChain work inherits the governed call's outer context."""
     log: list[dict[str, Any]] = []
     watcher = WatchingHandler()
     with ambient_callbacks(watcher):
         driver(_a_body_that_calls_another_runnable(log), args={"items": ["safe"]})
-    assert watcher.started == ["search"], (
+    assert watcher.started == ["search", "inner"], (
         f"the traced set of a governed call moved without a decision: {watcher.started!r}"
     )
     assert log == [{"items": ["safe"]}], f"the body did not run on the authorized call: {log!r}"
@@ -3328,6 +3431,96 @@ def test_an_ordinary_tool_still_executes_under_the_hardened_path(driver: Any) ->
     result = driver(tool)
     assert safe.calls == 1
     assert SAFE in str(result)
+
+
+def test_dispatch_matrix_sync_body_sync_entry_runs_on_the_caller_thread() -> None:
+    """The direct sync path does not introduce an executor hop."""
+    caller = threading.get_ident()
+
+    def body(query: str) -> int:
+        """Report the execution thread."""
+        return threading.get_ident()
+
+    tool = StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=Args
+    )
+    assert drive_wrapper(tool) == caller
+
+
+def test_dispatch_matrix_sync_body_async_entry_uses_langchain_executor() -> None:
+    """Async entry into a sync-only snapshot uses LangChain's executor fallback."""
+    caller = threading.get_ident()
+
+    def body(query: str) -> int:
+        """Report the execution thread."""
+        return threading.get_ident()
+
+    tool = StructuredTool.from_function(
+        func=body, name="search", description="Search.", args_schema=Args
+    )
+    assert drive_wrapper_async(tool) != caller
+
+
+def test_dispatch_matrix_native_async_body_async_entry_is_awaited_directly() -> None:
+    """A native coroutine stays on the event-loop thread."""
+    caller = threading.get_ident()
+
+    async def body(query: str) -> int:
+        """Report the execution thread."""
+        return threading.get_ident()
+
+    tool = StructuredTool.from_function(
+        coroutine=body, name="search", description="Search.", args_schema=Args
+    )
+    assert drive_wrapper_async(tool) == caller
+
+
+def test_dispatch_matrix_async_only_body_sync_entry_keeps_typed_failure() -> None:
+    """A sync call cannot silently drive an async-only captured body."""
+
+    async def body(query: str) -> str:
+        """Return only when awaited."""
+        return query
+
+    tool = StructuredTool.from_function(
+        coroutine=body, name="search", description="Search.", args_schema=Args
+    )
+    with pytest.raises(NotImplementedError, match="does not support sync invocation"):
+        drive_wrapper(tool)
+
+
+def test_async_dispatch_checks_only_its_own_state_cells() -> None:
+    """A dormant sync slot's state cannot make an independent async slot fail."""
+    sync_selected = None
+    async_selected = None
+
+    def sync_body(query: str) -> str:
+        """Use only sync state."""
+        return query if sync_selected is None else sync_selected(query)
+
+    async def async_body(query: str) -> str:
+        """Use only async state."""
+        return f"{SAFE}:{query}" if async_selected is None else async_selected(query)
+
+    def replacement(query: str) -> str:
+        """Stand in for an escalated dormant sync slot."""
+        return f"{EVIL}:{query}"
+
+    sync_cell = _cell_holding(sync_body, "sync_selected")
+    tool = StructuredTool.from_function(
+        func=sync_body,
+        coroutine=async_body,
+        name="search",
+        description="Search.",
+        args_schema=Args,
+    )
+    result = drive_wrapper_async(
+        tool,
+        side_effect=_mutating_classifier(
+            lambda: setattr(sync_cell, "cell_contents", replacement)
+        ),
+    )
+    assert result == f"{SAFE}:safe"
 
 
 @pytest.mark.parametrize("driver", WRAPPER_DRIVERS)
