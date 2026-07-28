@@ -7,9 +7,11 @@ of a policy check contains.
 
 from __future__ import annotations
 
+import inspect
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 from zeroth.contracts.graph.models import Capability
 
@@ -18,6 +20,7 @@ __all__ = [
     "EnforcementResult",
     "PolicyDecision",
     "PolicyDefinition",
+    "RunAdmissionResult",
 ]
 
 
@@ -47,6 +50,61 @@ class PolicyDefinition(BaseModel):
     approval_required_for_side_effects: bool = False
     timeout_override_seconds: float | None = None
     sandbox_strictness_mode: str | None = None
+    allowed_tenants: list[str] = Field(default_factory=list)
+    allowed_principals: list[str] = Field(default_factory=list)
+    required_roles: list[str] = Field(default_factory=list)
+    allowed_assistants: list[str] = Field(default_factory=list)
+    allowed_deployments: list[str] = Field(default_factory=list)
+    allowed_input_classifications: list[str] = Field(default_factory=list)
+    max_input_bytes: int | None = Field(default=None, ge=0)
+
+    @model_serializer(mode="wrap")
+    def _serialize_legacy_compatible(self, handler: Any) -> dict[str, Any]:
+        """Omit default admission fields on every supported Pydantic 2.x."""
+        data = handler(self)
+        list_fields = (
+            "allowed_tenants",
+            "allowed_principals",
+            "required_roles",
+            "allowed_assistants",
+            "allowed_deployments",
+            "allowed_input_classifications",
+        )
+        for field in list_fields:
+            if not getattr(self, field):
+                data.pop(field, None)
+        if self.max_input_bytes is None:
+            data.pop("max_input_bytes", None)
+        return data
+
+
+class RunAdmissionResult(BaseModel):
+    """Policy-only result for admitting a run-creating request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    policy_version: str
+    reason: str | None = None
+
+
+_policy_parameters = inspect.signature(PolicyDefinition).parameters
+PolicyDefinition.__signature__ = inspect.signature(PolicyDefinition).replace(
+    parameters=[
+        parameter
+        for name, parameter in _policy_parameters.items()
+        if name
+        not in {
+            "allowed_tenants",
+            "allowed_principals",
+            "required_roles",
+            "allowed_assistants",
+            "allowed_deployments",
+            "allowed_input_classifications",
+            "max_input_bytes",
+        }
+    ]
+)
 
 
 class EnforcementResult(BaseModel):

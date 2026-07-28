@@ -2,6 +2,24 @@
 
 Provides the AuditRepository class that handles saving and querying
 NodeAuditRecord objects using an async database.
+
+**This is the capture boundary, and it is the only one.**
+:meth:`AuditRepository.write` is the single durable chokepoint -- ``write_many``
+delegates to it -- so :mod:`zeroth.governance.audit.capture_policy` is applied
+*here*, on every record, unconditionally, before the digest is computed. The
+delivery worker used to apply it too, which left the second pass needing to
+recognise the first pass's work or destroy it; the only channel for that was a
+marker in producer-supplied ``execution_metadata``, forgeable by hand and
+detachable from the content it described. Nothing on the record is consulted
+now, so nothing on it can be forged.
+
+**The trade-off, stated plainly:** capture protects every *producer* -- all
+thirteen audit call sites reach this repository, including the orchestration
+runtime writing node prompts, results, errors and denials -- but not a
+hypothetical non-repository :class:`AuditRecordWriter` injected into
+:class:`~zeroth.governance.audit.delivery.AuditDeliveryQueue`. Production injects
+only this class (``core/langgraph_gateway/events.py``), and that Protocol now
+requires an implementation to be a capture-applying durable sink.
 """
 
 from __future__ import annotations
@@ -10,6 +28,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from zeroth.governance.audit.capture_policy import AuditCapturePolicy
 from zeroth.governance.audit.coordination import (
     advance_audit_chain,
     hydrate_audit_row,
@@ -21,12 +40,14 @@ from zeroth.governance.audit.erasure_schema import (
     LATEST_DIGEST_VERSION,
     pii_commitment_fields,
 )
+from zeroth.governance.audit.errors import DuplicateAuditIdError
 from zeroth.governance.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.governance.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.platform.storage import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.json import to_json_value
 
 if TYPE_CHECKING:
+    from zeroth.governance.audit.capture_policy import CaptureClassifier
     from zeroth.platform.signing import SigningKeyProvider
 
 
@@ -48,13 +69,50 @@ class AuditRepository:
         # atomically. None -> records stay unsigned-legacy (injected post-build
         # by bootstrap once the shared secret provider exists).
         self._signer = signer
+        # Constructed, never accepted: a capture boundary a caller can replace
+        # with a pass-through is not a boundary. Only the classifier is
+        # configurable, via ``configure_capture``.
+        self._capture = AuditCapturePolicy()
+        self._capture_configured = False
+
+    def configure_capture(self, classifier: CaptureClassifier) -> None:
+        """Install the deployment's capture classifier, once, at wiring time.
+
+        The classifier is the *only* replaceable part of the capture boundary:
+        it picks between two fixed outcomes and cannot author either, so a
+        deployment can opt into retaining content without supplying the
+        transform that decides what "retained" means.
+
+        Args:
+            classifier: Decides per record whether content may be retained.
+
+        Raises:
+            ValueError: If a classifier was already installed. Capture posture
+                is wiring, not a runtime switch: a repository whose policy can
+                be swapped mid-flight has no posture at all.
+        """
+        if self._capture_configured:
+            raise ValueError("audit capture classifier is already configured")
+        self._capture = AuditCapturePolicy(classifier=classifier)
+        self._capture_configured = True
 
     async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         """Save an audit record to the database.
 
         Writes are append-only. Duplicate audit IDs are rejected so history
-        cannot be silently rewritten.
+        cannot be silently rewritten. The record is classified and redacted
+        first -- always, with no way for a caller to signal otherwise -- so what
+        is digested and inserted is what the capture policy allows.
+
+        Raises:
+            DuplicateAuditIdError: If ``record.audit_id`` is already stored --
+                and only then. It subclasses ``ValueError`` so callers catching
+                ``ValueError`` are unaffected, while one that treats "already
+                stored" as a successful delivery can narrow to the exact type
+                instead of reading every pre-commit failure as a durable record.
         """
+        # First, so the digest below covers the captured object.
+        record = self._capture.apply(record)
         async with self._database.transaction(write_lock=True) as connection:
             head = await lock_audit_chain(
                 connection,
@@ -83,7 +141,7 @@ class AuditRepository:
                 (chained.audit_id,),
             )
             if existing is not None:
-                raise ValueError(f"audit_id {record.audit_id!r} already exists")
+                raise DuplicateAuditIdError(f"audit_id {record.audit_id!r} already exists")
             created_at = datetime.now(UTC)
             await connection.execute(
                 """

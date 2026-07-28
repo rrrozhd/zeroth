@@ -409,6 +409,46 @@
         ],
         "type": "object"
       },
+      "AuditDeliveryHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "abandoned": {
+            "type": "integer"
+          },
+          "delivered": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "losing_events": {
+            "type": "boolean"
+          },
+          "queue_depth": {
+            "type": "integer"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "rejected": {
+            "type": "integer"
+          },
+          "retried": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "queue_depth",
+          "queued",
+          "delivered",
+          "retried",
+          "rejected",
+          "failed",
+          "abandoned",
+          "losing_events"
+        ],
+        "type": "object"
+      },
       "AuditRecordListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1518,6 +1558,14 @@
         ],
         "type": "object"
       },
+      "GovernanceLevel": {
+        "enum": [
+          "admission",
+          "observed",
+          "enforced"
+        ],
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1570,6 +1618,16 @@
       "HealthResponse": {
         "additionalProperties": false,
         "properties": {
+          "audit_delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuditDeliveryHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deployment_ref": {
             "type": "string"
           },
@@ -1578,6 +1636,16 @@
           },
           "graph_version_ref": {
             "type": "string"
+          },
+          "langgraph_gateway": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LangGraphGatewayHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "default": "ok",
@@ -1599,6 +1667,78 @@
           "notification"
         ],
         "type": "string"
+      },
+      "LangGraphCompatibilityHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "detected_agent_server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "openapi_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "tested_agent_server": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tested_langgraph": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tested_langgraph",
+          "tested_agent_server",
+          "detected_agent_server",
+          "status",
+          "openapi_fingerprint"
+        ],
+        "type": "object"
+      },
+      "LangGraphGatewayHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "compatibility": {
+            "$ref": "#/components/schemas/LangGraphCompatibilityHealth"
+          },
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
+          "governance_level": {
+            "$ref": "#/components/schemas/GovernanceLevel"
+          },
+          "limitation": {
+            "default": "internal tool calls are not enforced in gateway-only mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "governance_level",
+          "compatibility"
+        ],
+        "type": "object"
       },
       "LegalHoldBody": {
         "additionalProperties": false,

@@ -53,6 +53,7 @@ from zeroth.runtime.runs import RunStatus
 # Test models
 # ---------------------------------------------------------------------------
 
+
 class SourceInput(BaseModel):
     value: int = 0
 
@@ -72,6 +73,7 @@ class ProcessedOutput(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_agent_runner(
     *,
@@ -144,9 +146,7 @@ def _source_runner():
     """Source runner that produces 3 items for fan-out."""
     return _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": 2}, {"x": 3}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}, {"x": 3}]}),
     )
 
 
@@ -259,7 +259,7 @@ async def test_failed_branch_dispatch_records_failed_audit(sqlite_db) -> None:
     for audit in failed_audits:
         assert audit.node_id == "sink"
         assert audit.error is not None
-        assert audit.execution_metadata["error_type"] == "AgentProviderError"
+        assert audit.execution_metadata["reason_code"] == "agent_provider_error"
         assert "branch_id" in audit.execution_metadata
         branch_index = audit.execution_metadata["branch_index"]
         assert audit.audit_id == f"{run.run_id}:branch:{branch_index}:audit:1"
@@ -290,9 +290,7 @@ async def test_batched_fan_out_audits_every_branch_across_waves(sqlite_db) -> No
         [
             _make_agent_node(
                 "source",
-                parallel_config=ParallelConfig(
-                    split_path="items", batch_size=2, max_concurrency=2
-                ),
+                parallel_config=ParallelConfig(split_path="items", batch_size=2, max_concurrency=2),
             ),
             _make_agent_node("sink"),
         ],
@@ -328,11 +326,13 @@ class RecordingPolicyGuard(PolicyGuard):
         self._deny_nodes = deny_nodes or set()
 
     def evaluate(self, graph, node, run, input_payload):
-        self.calls.append({
-            "node_id": node.node_id,
-            "run_id": run.run_id,
-            "input_keys": list(dict(input_payload).keys()),
-        })
+        self.calls.append(
+            {
+                "node_id": node.node_id,
+                "run_id": run.run_id,
+                "input_keys": list(dict(input_payload).keys()),
+            }
+        )
         if node.node_id in self._deny_nodes:
             return EnforcementResult(
                 decision=PolicyDecision.DENY,
@@ -368,6 +368,7 @@ async def test_policy_denial_in_branch(sqlite_db) -> None:
 
     class SelectiveDenyGuard(PolicyGuard):
         """Denies the second branch call to sink."""
+
         def __init__(self):
             super().__init__()
             self._sink_call_count = 0
@@ -444,8 +445,10 @@ async def test_budget_check_before_spawn(sqlite_db) -> None:
     assert run.status is RunStatus.FAILED
     assert budget.call_count >= 1
     assert run.failure_state is not None
-    assert "budget exceeded" in run.failure_state.message.lower() or \
-           "parallel_execution_failed" in run.failure_state.reason
+    assert (
+        "budget exceeded" in run.failure_state.message.lower()
+        or "parallel_execution_failed" in run.failure_state.reason
+    )
 
 
 @pytest.mark.asyncio

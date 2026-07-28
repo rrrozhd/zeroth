@@ -62,6 +62,15 @@ class InstrumentedLangGraph:
         if should_emit_by_rate("langgraph"):
             get_runtime().transport.enqueue_execution(event)
 
+    def _safe_emit(self, run_id: str, started: float, started_ms: int, operation: str, error: BaseException | None = None, streaming: bool = False) -> None:
+        # Best-effort telemetry: a failed emit must NEVER change the graph's return
+        # value, mask its exception, or alter cancellation. Swallow Exception only
+        # (never BaseException) so KeyboardInterrupt / CancelledError still propagate.
+        try:
+            self._emit(run_id, started, started_ms, operation, error=error, streaming=streaming)
+        except Exception:
+            pass
+
     async def _aemit(self, run_id: str, started: float, started_ms: int, operation: str, error: BaseException | None = None, streaming: bool = False) -> None:
         elapsed_ms = int((perf_counter() - started) * 1000)
         metadata = {
@@ -84,6 +93,15 @@ class InstrumentedLangGraph:
         if should_emit_by_rate("langgraph"):
             await get_runtime().transport.aenqueue_execution(event)
 
+    async def _safe_aemit(self, run_id: str, started: float, started_ms: int, operation: str, error: BaseException | None = None, streaming: bool = False) -> None:
+        # Best-effort async telemetry: see _safe_emit. Exception is swallowed so a
+        # transport failure cannot replace the result or unwind cancellation, while
+        # CancelledError (BaseException) still propagates unchanged.
+        try:
+            await self._aemit(run_id, started, started_ms, operation, error=error, streaming=streaming)
+        except Exception:
+            pass
+
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
             return self._graph.invoke(*args, **kwargs)
@@ -98,7 +116,7 @@ class InstrumentedLangGraph:
                 error = exc
                 raise
             finally:
-                self._emit(run_id, started, started_ms, "invoke", error=error)
+                self._safe_emit(run_id, started, started_ms, "invoke", error=error)
 
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
@@ -114,7 +132,7 @@ class InstrumentedLangGraph:
                 error = exc
                 raise
             finally:
-                await self._aemit(run_id, started, started_ms, "ainvoke", error=error)
+                await self._safe_aemit(run_id, started, started_ms, "ainvoke", error=error)
 
     def stream(self, *args: Any, **kwargs: Any):
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
@@ -132,7 +150,7 @@ class InstrumentedLangGraph:
                 error = exc
                 raise
             finally:
-                self._emit(run_id, started, started_ms, "stream", error=error, streaming=True)
+                self._safe_emit(run_id, started, started_ms, "stream", error=error, streaming=True)
 
     async def astream(self, *args: Any, **kwargs: Any):
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
@@ -151,7 +169,7 @@ class InstrumentedLangGraph:
                 error = exc
                 raise
             finally:
-                await self._aemit(run_id, started, started_ms, "astream", error=error, streaming=True)
+                await self._safe_aemit(run_id, started, started_ms, "astream", error=error, streaming=True)
 
     def __getattr__(self, item: str) -> Any:
         return getattr(self._graph, item)

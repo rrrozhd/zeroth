@@ -240,6 +240,22 @@ class PromptAssembler:
         return config.input_model.model_validate(input_payload)
 
 
+def _cache_disposition(serialized_response: Mapping[str, Any]) -> str | None:
+    """Name a serialized response's cache outcome as an audit-retained label.
+
+    Args:
+        serialized_response: The redacted provider response.
+
+    Returns:
+        ``"cache_hit"`` or ``"cache_miss"`` when the caching adapter was in the
+        chain, else ``None``.
+    """
+    metadata = serialized_response.get("metadata")
+    if not isinstance(metadata, Mapping) or "cache_hit" not in metadata:
+        return None
+    return "cache_hit" if metadata["cache_hit"] else "cache_miss"
+
+
 class AgentAuditSerializer:
     """Creates audit-safe copies of prompts and responses.
 
@@ -281,12 +297,27 @@ class AgentAuditSerializer:
         response: Any,
         extra: dict[str, Any],
     ) -> dict[str, Any]:
-        """Combine prompt, response, and extra info into one redacted audit record."""
-        record = {
+        """Combine prompt, response, and extra info into one redacted audit record.
+
+        The nested ``prompt``/``response``/``extra`` sections are content and do
+        not survive the audit capture boundary's metadata-only default. The two
+        signals that are *not* content -- how many attempts the call took and
+        whether the provider response came from the cache -- are therefore also
+        promoted to flat, allowlisted keys, so the econ waste detectors still
+        see them in a persisted record.
+        """
+        serialized_response = self.serialize_response(response)
+        record: dict[str, Any] = {
             "prompt": self.serialize_prompt(prompt),
-            "response": self.serialize_response(response),
+            "response": serialized_response,
             "extra": self._redact_structure(extra),
         }
+        attempts = extra.get("attempts")
+        if type(attempts) is int:
+            record["attempt"] = attempts
+        disposition = _cache_disposition(serialized_response)
+        if disposition is not None:
+            record["disposition"] = disposition
         return record
 
     def _redact_structure(self, value: Any) -> Any:

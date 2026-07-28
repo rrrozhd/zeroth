@@ -8,11 +8,18 @@ keeps resolving to identical types and functions.
 from __future__ import annotations
 
 from zeroth.service.api.authorization import (
+    BUILTIN_ROLE_PERMISSIONS as BUILTIN_ROLE_PERMISSIONS,
+)
+from zeroth.service.api.authorization import (
+    DEFAULT_ROLE_REGISTRY as DEFAULT_ROLE_REGISTRY,
+)
+from zeroth.service.api.authorization import (
     ROLE_PERMISSIONS as ROLE_PERMISSIONS,
 )
 from zeroth.service.api.authorization import (
     Permission as Permission,
 )
+from zeroth.service.api.authorization import RoleRegistry as RoleRegistry
 from zeroth.service.api.authorization import (
     require_deployment_scope as require_deployment_scope,
 )

@@ -36,6 +36,7 @@ from zeroth.contracts.graph import (
 from zeroth.core.runs import Run, RunStatus
 from zeroth.platform.observability import start_span
 from zeroth.runtime.agents import AgentRunner
+from zeroth.runtime.orchestration.audit_recorder import enforcement_audit_fields
 from zeroth.runtime.orchestration.errors import (
     MemoryBindingResolutionError,
     NodeDispatcherError,
@@ -461,8 +462,10 @@ class NodeDispatcher:
 
         audit_record = dict(result.audit_record)
         if enforcement_context:
+            # The nested context is kept for the content-capture posture; the
+            # flattened fields are what survive the metadata-only default.
             audit_record["enforcement"] = enforcement_context
-            audit_record["enforcement_applied"] = True
+            audit_record.update(enforcement_audit_fields(enforcement_context, applied=True))
         # Phase 36: Record template metadata in audit.
         if rendered_prompt_for_audit is not None:
             audit_record.setdefault("execution_metadata", {})
@@ -511,8 +514,10 @@ class NodeDispatcher:
             )
         audit_record = dict(result.audit_record)
         if enforcement_context:
+            # The nested context is kept for the content-capture posture; the
+            # flattened fields are what survive the metadata-only default.
             audit_record["enforcement"] = enforcement_context
-            audit_record["enforcement_applied"] = True
+            audit_record.update(enforcement_audit_fields(enforcement_context, applied=True))
         return result.output_data, audit_record
 
     async def dispatch_retrieval(

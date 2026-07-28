@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import weakref
 from pathlib import Path
 
 import pytest
@@ -164,7 +165,9 @@ def _otel_exporter():
 
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))  # synchronous: spans flush immediately
+    provider.add_span_processor(
+        SimpleSpanProcessor(exporter)
+    )  # synchronous: spans flush immediately
     trace.set_tracer_provider(provider)
     return exporter
 
@@ -195,3 +198,37 @@ def _tripwire_repo_root_residue(request):
     residue = [p for p in ("econ_plane.db", ".zeroth") if os.path.exists(p)]
     if residue:
         raise AssertionError(f"repo-root residue {residue} created during {request.node.nodeid}")
+
+
+class ContentCaptureClassifier:
+    """Classify every record into content -- the deployment posture that keeps it.
+
+    ``AuditRepository.write`` applies a metadata-only capture policy to every
+    record that has not been classified already, so a test asserting on stored
+    prompts, tool outcomes, denial reasons or free-form runtime metadata is
+    asserting about a deployment that deliberately retains content. Saying so
+    explicitly is the point: the default posture keeps none of it.
+    """
+
+    def classify(self, record: object) -> str:
+        """Answer ``content`` whatever the record holds."""
+        del record
+        from zeroth.governance.audit.capture_policy import CaptureDecision
+
+        return CaptureDecision.CONTENT.value
+
+
+_CONTENT_CAPTURED: weakref.WeakSet = weakref.WeakSet()
+
+
+def content_capture(repository):
+    """Opt one audit repository into retaining content, returning it for chaining.
+
+    Idempotent per repository, because ``configure_capture`` is deliberately
+    one-shot: a test that seeds several records must not have to remember which
+    call was the first.
+    """
+    if repository not in _CONTENT_CAPTURED:
+        repository.configure_capture(ContentCaptureClassifier())
+        _CONTENT_CAPTURED.add(repository)
+    return repository

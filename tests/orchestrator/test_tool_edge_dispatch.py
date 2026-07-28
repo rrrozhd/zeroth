@@ -38,6 +38,7 @@ from zeroth.contracts.graph.models import AgentNode, ExecutableUnitNode
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.runs import RunStatus
+from tests.conftest import content_capture
 
 
 class NumberInput(BaseModel):
@@ -119,7 +120,7 @@ def _double_manifest(script: Path) -> WrappedCommandUnitManifest:
 async def test_agent_runs_attached_unit_as_tool_call(sqlite_db, tmp_path: Path) -> None:
     script = tmp_path / "double.py"
     script.write_text(
-        'import json, sys\npayload = json.load(sys.stdin)\n'
+        "import json, sys\npayload = json.load(sys.stdin)\n"
         'print(json.dumps({"value": payload["value"] * 2}))\n',
         encoding="utf-8",
     )
@@ -154,7 +155,7 @@ async def test_agent_runs_attached_unit_as_tool_call(sqlite_db, tmp_path: Path) 
     assert attachments[0].parameters_schema["properties"]["value"]["type"] == "integer"
 
     orchestrator = RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
         run_repository=RunRepository(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=ExecutableUnitRunner(eu_registry),

@@ -472,6 +472,56 @@
         "title": "AttestationVerificationResponse",
         "type": "object"
       },
+      "AuditDeliveryHealth": {
+        "additionalProperties": false,
+        "description": "The bounded audit-delivery stage's own accounting, rendered as health.\n\nRead straight off the stage's counters rather than recomputed: \"delivered\"\nis the only counter that means an event is durable, and the three loss\ncounters are reported beside it so a failing stage can never be read as a\nhealthy one. ``queue_depth`` is the backlog still waiting for the worker.",
+        "properties": {
+          "abandoned": {
+            "title": "Abandoned",
+            "type": "integer"
+          },
+          "delivered": {
+            "title": "Delivered",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "losing_events": {
+            "title": "Losing Events",
+            "type": "boolean"
+          },
+          "queue_depth": {
+            "title": "Queue Depth",
+            "type": "integer"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          },
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "retried": {
+            "title": "Retried",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "queue_depth",
+          "queued",
+          "delivered",
+          "retried",
+          "rejected",
+          "failed",
+          "abandoned",
+          "losing_events"
+        ],
+        "title": "AuditDeliveryHealth",
+        "type": "object"
+      },
       "AuditRecordListResponse": {
         "additionalProperties": false,
         "description": "Public response for deployment-scoped audit lookups.",
@@ -1792,6 +1842,16 @@
         "title": "ExperimentRequest",
         "type": "object"
       },
+      "GovernanceLevel": {
+        "description": "Cumulative governance capability supported by evidence.",
+        "enum": [
+          "admission",
+          "observed",
+          "enforced"
+        ],
+        "title": "GovernanceLevel",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1857,6 +1917,16 @@
         "additionalProperties": false,
         "description": "Response payload for the wrapper health endpoint.\n\nDefined here rather than in the app module deliberately: the schema-model\ndiscovery in tests/architecture/test_library_surface.py treats any app.py\nwhose parent directory is literally \"service\" as schema-bearing, which\nwould discover this model under the app module's destination path before\nthe canonical fixture can follow. The legacy zeroth.core.service.app path\nstill resolves the same class object.",
         "properties": {
+          "audit_delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuditDeliveryHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deployment_ref": {
             "title": "Deployment Ref",
             "type": "string"
@@ -1868,6 +1938,16 @@
           "graph_version_ref": {
             "title": "Graph Version Ref",
             "type": "string"
+          },
+          "langgraph_gateway": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LangGraphGatewayHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "default": "ok",
@@ -1893,6 +1973,89 @@
         ],
         "title": "HumanInteractionType",
         "type": "string"
+      },
+      "LangGraphCompatibilityHealth": {
+        "additionalProperties": false,
+        "description": "Evidence from the one bounded Agent Server startup detection.",
+        "properties": {
+          "detected_agent_server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Agent Server"
+          },
+          "openapi_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Openapi Fingerprint"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tested_agent_server": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tested Agent Server",
+            "type": "array"
+          },
+          "tested_langgraph": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tested Langgraph",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tested_langgraph",
+          "tested_agent_server",
+          "detected_agent_server",
+          "status",
+          "openapi_fingerprint"
+        ],
+        "title": "LangGraphCompatibilityHealth",
+        "type": "object"
+      },
+      "LangGraphGatewayHealth": {
+        "additionalProperties": false,
+        "description": "Conservative deployment-level gateway capability surface.",
+        "properties": {
+          "compatibility": {
+            "$ref": "#/components/schemas/LangGraphCompatibilityHealth"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "governance_level": {
+            "$ref": "#/components/schemas/GovernanceLevel"
+          },
+          "limitation": {
+            "default": "internal tool calls are not enforced in gateway-only mode",
+            "title": "Limitation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "governance_level",
+          "compatibility"
+        ],
+        "title": "LangGraphGatewayHealth",
+        "type": "object"
       },
       "LegalHoldBody": {
         "additionalProperties": false,
@@ -3472,7 +3635,7 @@
         "type": "object"
       },
       "ServiceRole": {
-        "description": "Service roles used by route authorization.",
+        "description": "Built-in service roles used by route authorization.\n\nDeployments may add custom role names through service configuration.\nPrincipals therefore carry strings while this enum remains the stable\ncatalogue of built-in names.",
         "enum": [
           "operator",
           "reviewer",

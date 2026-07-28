@@ -13,12 +13,13 @@ from zeroth.governance.policy.errors import (
     parse_effective_capabilities,
     require_capabilities,
 )
-from zeroth.governance.policy.guard import PolicyGuard, apply_secret_policy
+from zeroth.governance.policy.guard import PolicyGuard, RunAdmissionRequest, apply_secret_policy
 from zeroth.governance.policy.models import (
     Capability,
     EnforcementResult,
     PolicyDecision,
     PolicyDefinition,
+    RunAdmissionResult,
 )
 from zeroth.governance.policy.registry import (
     CapabilityRegistry,
@@ -35,6 +36,8 @@ __all__ = [
     "PolicyDefinition",
     "PolicyGuard",
     "PolicyRegistry",
+    "RunAdmissionRequest",
+    "RunAdmissionResult",
     "apply_secret_policy",
     "default_capability_registry",
     "parse_effective_capabilities",

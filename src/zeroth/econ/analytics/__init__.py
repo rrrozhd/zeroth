@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from zeroth.econ.analytics.adapter import (
         InstrumentedProviderAdapter as InstrumentedProviderAdapter,
     )
-    from zeroth.econ.analytics.budget import BudgetEnforcer
+    from zeroth.econ.analytics.budget import BudgetCheckResult, BudgetEnforcer
     from zeroth.econ.analytics.client import RegulusClient
     from zeroth.econ.analytics.cost import CostEstimator
     from zeroth.econ.analytics.opportunities import NodeSpend, SpendReport, spend_opportunities
@@ -76,6 +76,7 @@ if TYPE_CHECKING:
 
 _EXPORTS = {
     "InstrumentedProviderAdapter": "adapter",
+    "BudgetCheckResult": "budget",
     "BudgetEnforcer": "budget",
     "RegulusClient": "client",
     "CostEstimator": "cost",
@@ -115,6 +116,7 @@ _EXPORTS = {
 }
 
 __all__ = [
+    "BudgetCheckResult",
     "BudgetEnforcer",
     "CandidateOutcome",
     "CorrectnessScorer",

@@ -103,22 +103,38 @@ class EconReport(BaseModel):
 
 
 def _attempts(record: NodeAuditRecord) -> int:
-    """Retry attempts for a node from its audit (``extra.attempts``; defaults to 1)."""
+    """Retry attempts for a node from its audit (defaults to 1).
+
+    Reads the flat ``attempt`` the agent serializer promotes, because the nested
+    ``extra`` section is content and does not survive the audit capture
+    boundary's metadata-only default. The nested path stays as a fallback for
+    records written under a content classification, and for rows already stored.
+    """
+    value = record.execution_metadata.get("attempt")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
     extra = record.execution_metadata.get("extra")
     if isinstance(extra, Mapping):
-        value = extra.get("attempts")
-        if isinstance(value, int) and value > 0:
-            return value
+        nested = extra.get("attempts")
+        if isinstance(nested, int) and nested > 0:
+            return nested
     return 1
 
 
 def _cache_hit(record: NodeAuditRecord) -> bool | None:
     """Cache hit/miss for a node, or ``None`` when caching was not in the chain.
 
-    Reads the nested ``response.metadata.cache_hit`` that ``CachingProviderAdapter``
-    sets. The path is pinned by a real-path test so a serialization change cannot
-    silently turn the detector inert (the lesson from the success-cost gap).
+    Reads the flat ``disposition`` label the agent serializer promotes from the
+    ``CachingProviderAdapter``'s flag, falling back to the nested
+    ``response.metadata.cache_hit`` the flag is serialized under. Both paths are
+    pinned by real-path tests so a serialization change cannot silently turn the
+    detector inert (the lesson from the success-cost gap).
     """
+    disposition = record.execution_metadata.get("disposition")
+    if disposition == "cache_hit":
+        return True
+    if disposition == "cache_miss":
+        return False
     response = record.execution_metadata.get("response")
     if isinstance(response, Mapping):
         metadata = response.get("metadata")

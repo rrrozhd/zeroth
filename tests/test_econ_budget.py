@@ -7,17 +7,18 @@ Also integration tests for AgentRunner with budget_enforcer.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from zeroth.econ.analytics.budget import BudgetCheckResult, BudgetEnforcer
 from zeroth.runtime.agents.errors import BudgetExceededError
 from zeroth.runtime.agents.models import AgentConfig
 from zeroth.runtime.agents.provider import DeterministicProviderAdapter, ProviderResponse
 from zeroth.runtime.agents.runner import AgentRunner
-from zeroth.econ.analytics.budget import BudgetEnforcer
 
 
 class _Input(BaseModel):
@@ -35,6 +36,151 @@ def _mock_transport(*, json_data: dict, status_code: int = 200) -> httpx.MockTra
         return httpx.Response(status_code=status_code, json=json_data)
 
     return handler
+
+
+@pytest.mark.asyncio
+async def test_check_budget_status_success_and_legacy_tuple_share_cached_request():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"total_cost_usd": 25, "budget_cap_usd": 100})
+
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+
+    status = await enforcer.check_budget_status("tenant-status")
+    legacy = await enforcer.check_budget("tenant-status")
+
+    assert status == BudgetCheckResult(
+        allowed=True,
+        spend_usd=25.0,
+        cap_usd=100.0,
+        degraded=False,
+        failure_mode="none",
+    )
+    assert legacy == (True, 25.0, 100.0)
+    assert type(legacy) is tuple
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_check_budget_status_unlimited_success_is_not_degraded():
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1",
+        _transport=_mock_transport(json_data={"total_cost_usd": 0, "budget_cap_usd": None}),
+    )
+
+    status = await enforcer.check_budget_status("tenant-unlimited")
+
+    assert status.allowed is True
+    assert status.spend_usd == 0.0
+    assert status.cap_usd is None
+    assert status.degraded is False
+    assert status.failure_mode == "none"
+
+    json.dumps(status.model_dump(mode="json"), allow_nan=False)
+    encoded = status.model_dump_json()
+    assert BudgetCheckResult.model_validate_json(encoded) == status
+
+
+@pytest.mark.asyncio
+async def test_check_budget_status_cached_success_remains_not_degraded():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"total_cost_usd": 10, "budget_cap_usd": 5})
+
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+
+    first = await enforcer.check_budget_status("tenant-cached")
+    second = await enforcer.check_budget_status("tenant-cached")
+
+    assert first == second
+    assert second.degraded is False
+    assert second.failure_mode == "none"
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("fail_closed", "expected"),
+    [
+        (
+            False,
+            BudgetCheckResult(
+                allowed=True,
+                spend_usd=0.0,
+                cap_usd=None,
+                degraded=True,
+                failure_mode="fail_open",
+            ),
+        ),
+        (
+            True,
+            BudgetCheckResult(
+                allowed=False,
+                spend_usd=0.0,
+                cap_usd=0.0,
+                degraded=True,
+                failure_mode="fail_closed",
+            ),
+        ),
+    ],
+)
+async def test_check_budget_status_marks_backend_failure_mode(
+    fail_closed: bool, expected: BudgetCheckResult
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("secret backend detail")
+
+    enforcer = BudgetEnforcer("http://regulus.test/v1", fail_closed=fail_closed, _transport=handler)
+
+    assert await enforcer.check_budget_status("tenant-failure") == expected
+
+
+@pytest.mark.asyncio
+async def test_check_budget_status_failure_is_not_cached():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ConnectError("temporary")
+        return httpx.Response(200, json={"total_cost_usd": 1, "budget_cap_usd": 10})
+
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+
+    failed = await enforcer.check_budget_status("tenant-retry")
+    recovered = await enforcer.check_budget_status("tenant-retry")
+
+    assert failed.degraded is True
+    assert recovered.degraded is False
+    assert recovered.spend_usd == 1.0
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_check_budget_status_cached_result_cannot_be_mutated():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"total_cost_usd": 1, "budget_cap_usd": 10})
+
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    status = await enforcer.check_budget_status("tenant-immutable")
+
+    with pytest.raises(ValidationError):
+        status.allowed = False
+
+    cached = await enforcer.check_budget_status("tenant-immutable")
+    assert cached.allowed is True
+    assert calls == 1
 
 
 # -- Test 1: under budget --
@@ -139,10 +285,7 @@ async def test_check_budget_fail_open_is_logged(caplog):
     with caplog.at_level(logging.WARNING, logger="zeroth.econ.analytics.budget"):
         allowed, _, _ = await enforcer.check_budget("tenant-42")
     assert allowed is True
-    assert any(
-        "tenant-42" in r.message and "NOT enforced" in r.message
-        for r in caplog.records
-    )
+    assert any("tenant-42" in r.message and "NOT enforced" in r.message for r in caplog.records)
 
 
 # -- Test 5: fail-open on timeout --
@@ -202,9 +345,7 @@ async def test_budget_fail_closed_denies_on_backend_error(caplog):
     assert allowed is False
     assert spend == 0.0
     assert cap == 0.0
-    assert any(
-        "tenant-closed" in r.message and "CLOSED" in r.message for r in caplog.records
-    )
+    assert any("tenant-closed" in r.message and "CLOSED" in r.message for r in caplog.records)
 
     # Fail-open (default): ALLOW.
     open_ = BudgetEnforcer(

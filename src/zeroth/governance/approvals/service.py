@@ -21,6 +21,7 @@ from zeroth.governance.approvals.models import (
     ApprovalResolution,
     ApprovalStatus,
 )
+from zeroth.governance.approvals.notifications import ApprovalNotification, Notifier
 from zeroth.governance.approvals.repository import ApprovalRepository
 from zeroth.governance.audit import (
     ApprovalActionRecord,
@@ -81,6 +82,7 @@ class ApprovalService:
             AuditRedactionConfig(redact_keys={"secret", "token", "password"})
         )
         self.webhook_service: object | None = None
+        self.notifier: Notifier | None = None
 
     async def create_pending(
         self,
@@ -138,7 +140,26 @@ class ApprovalService:
                 "sla_deadline": (result.sla_deadline.isoformat() if result.sla_deadline else None),
             },
         )
+        await self._notify(result)
         return result
+
+    async def _notify(self, record: ApprovalRecord, *, summary: str | None = None) -> None:
+        if self.notifier is None:
+            return
+        try:
+            await self.notifier.notify(
+                ApprovalNotification(
+                    approval_id=record.approval_id,
+                    run_id=record.run_id,
+                    node_id=record.node_id,
+                    deployment_ref=record.deployment_ref,
+                    tenant_id=record.tenant_id,
+                    summary=summary or record.summary,
+                    sla_deadline=(record.sla_deadline.isoformat() if record.sla_deadline else None),
+                )
+            )
+        except Exception:
+            logger.exception("approval notification failed for %s", record.approval_id)
 
     async def get(self, approval_id: str) -> ApprovalRecord | None:
         """Fetch a single approval record by its ID. Returns None if not found."""
@@ -228,6 +249,7 @@ class ApprovalService:
                 )
                 delegate_record.escalation_action = record.escalation_action
             await self.repository.write(delegate_record)
+            await self._notify(delegate_record)
             return record
 
         elif action == "auto_reject":
@@ -246,7 +268,9 @@ class ApprovalService:
         else:  # "alert" or unknown
             record.status = ApprovalStatus.ESCALATED
             record.updated_at = datetime.now(UTC)
-            return await self.repository.write(record)
+            written = await self.repository.write(record)
+            await self._notify(written, summary=f"[Escalated] {written.summary}")
+            return written
 
     async def resolve(
         self,

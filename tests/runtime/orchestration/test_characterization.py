@@ -346,7 +346,7 @@ async def test_failure_audit_payload_carries_error_type_and_run_attribution(sqli
     assert record.attempt == 1
     assert record.output_snapshot == {}
     # The runner wraps provider faults, so the recorded type is the runner's.
-    assert record.execution_metadata == {"error_type": "AgentProviderError"}
+    assert record.execution_metadata == {"reason_code": "agent_provider_error"}
     assert "provider exploded" in (record.error or "")
     # started_at is the dispatch time, so the record reports a real duration.
     assert record.started_at is not None
@@ -360,7 +360,7 @@ async def test_error_carrying_an_audit_record_is_audited_as_rejected(sqlite_db) 
     An error that attaches ``audit_record`` (content blocks, integrity
     rejections, paid-then-failed calls) is a *rejection*, not an infrastructure
     failure: the carried payload becomes ``execution_metadata`` verbatim and the
-    status is ``rejected``. Bare errors take the ``{"error_type": ...}`` branch.
+    status is ``rejected``. Bare errors take the ``{"reason_code": ...}`` branch.
     """
     journal = _Journal()
     audit_proxy = _RecordingAuditRepository(AuditRepository(sqlite_db), journal)
@@ -388,7 +388,7 @@ async def test_error_carrying_an_audit_record_is_audited_as_rejected(sqlite_db) 
     (record,) = audit_proxy.records
     assert record.status == "rejected"
     # The carried payload is preserved, not replaced by the error_type branch.
-    assert "error_type" not in record.execution_metadata
+    assert "reason_code" not in record.execution_metadata
     assert record.execution_metadata != {}
     assert record.error is not None
     assert journal.entries == [

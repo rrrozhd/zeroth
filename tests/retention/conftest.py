@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from tests.conftest import content_capture
 from zeroth.contracts.graph import (
     CancellationFence,
     SchedulingState,
@@ -244,7 +245,12 @@ class RetentionEnv:
 def _build_env(database) -> RetentionEnv:
     """Wire a full RetentionEnv over a given (possibly encrypted) database."""
     signer = EnvHmacSigner(key_id="k1", keys={"k1": b"retention-secret"})
-    audit_repo = AuditRepository(database, signer=signer)
+    # Retention is the discipline of destroying content a deployment chose to
+    # keep, so every fixture here is a deployment that chose to keep it. The
+    # opt-in is a classifier installed on the repository -- the one replaceable
+    # part of the capture boundary -- never a marker on a seeded record: a
+    # record cannot be allowed to authorize its own capture posture.
+    audit_repo = content_capture(AuditRepository(database, signer=signer))
     run_repo = RunRepository(database)
     policy_repo = RetentionPolicyRepository(database)
     hold_repo = LegalHoldRepository(database)

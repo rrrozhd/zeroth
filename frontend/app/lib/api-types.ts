@@ -2117,6 +2117,33 @@ export interface components {
             verified: boolean;
         };
         /**
+         * AuditDeliveryHealth
+         * @description The bounded audit-delivery stage's own accounting, rendered as health.
+         *
+         *     Read straight off the stage's counters rather than recomputed: "delivered"
+         *     is the only counter that means an event is durable, and the three loss
+         *     counters are reported beside it so a failing stage can never be read as a
+         *     healthy one. ``queue_depth`` is the backlog still waiting for the worker.
+         */
+        AuditDeliveryHealth: {
+            /** Abandoned */
+            abandoned: number;
+            /** Delivered */
+            delivered: number;
+            /** Failed */
+            failed: number;
+            /** Losing Events */
+            losing_events: boolean;
+            /** Queue Depth */
+            queue_depth: number;
+            /** Queued */
+            queued: number;
+            /** Rejected */
+            rejected: number;
+            /** Retried */
+            retried: number;
+        };
+        /**
          * AuditRecordListResponse
          * @description Public response for deployment-scoped audit lookups.
          */
@@ -2765,6 +2792,12 @@ export interface components {
              */
             tolerance_pct: number;
         };
+        /**
+         * GovernanceLevel
+         * @description Cumulative governance capability supported by evidence.
+         * @enum {string}
+         */
+        GovernanceLevel: "admission" | "observed" | "enforced";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -2828,12 +2861,14 @@ export interface components {
          *     still resolves the same class object.
          */
         HealthResponse: {
+            audit_delivery?: components["schemas"]["AuditDeliveryHealth"] | null;
             /** Deployment Ref */
             deployment_ref: string;
             /** Deployment Version */
             deployment_version: number;
             /** Graph Version Ref */
             graph_version_ref: string;
+            langgraph_gateway?: components["schemas"]["LangGraphGatewayHealth"] | null;
             /**
              * Status
              * @default ok
@@ -2849,6 +2884,40 @@ export interface components {
          * @enum {string}
          */
         HumanInteractionType: "approval" | "clarification" | "request_input" | "notification";
+        /**
+         * LangGraphCompatibilityHealth
+         * @description Evidence from the one bounded Agent Server startup detection.
+         */
+        LangGraphCompatibilityHealth: {
+            /** Detected Agent Server */
+            detected_agent_server: string | null;
+            /** Openapi Fingerprint */
+            openapi_fingerprint: string | null;
+            /** Status */
+            status: string;
+            /** Tested Agent Server */
+            tested_agent_server: string[];
+            /** Tested Langgraph */
+            tested_langgraph: string[];
+        };
+        /**
+         * LangGraphGatewayHealth
+         * @description Conservative deployment-level gateway capability surface.
+         */
+        LangGraphGatewayHealth: {
+            compatibility: components["schemas"]["LangGraphCompatibilityHealth"];
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            governance_level: components["schemas"]["GovernanceLevel"];
+            /**
+             * Limitation
+             * @default internal tool calls are not enforced in gateway-only mode
+             */
+            limitation: string;
+        };
         /**
          * LegalHoldBody
          * @description Request body for POST /retention/legal-holds.
@@ -3527,7 +3596,11 @@ export interface components {
         };
         /**
          * ServiceRole
-         * @description Service roles used by route authorization.
+         * @description Built-in service roles used by route authorization.
+         *
+         *     Deployments may add custom role names through service configuration.
+         *     Principals therefore carry strings while this enum remains the stable
+         *     catalogue of built-in names.
          * @enum {string}
          */
         ServiceRole: "operator" | "reviewer" | "admin" | "platform_admin";

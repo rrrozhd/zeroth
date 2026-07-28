@@ -160,7 +160,7 @@ async def test_record_history_without_a_repository_still_tracks_refs() -> None:
     assert [entry.node_id for entry in run.execution_history] == ["n1"]
 
 
-async def test_failed_execution_records_error_type_for_a_bare_error() -> None:
+async def test_failed_execution_records_a_normalized_reason_code_for_a_bare_error() -> None:
     repository = _CollectingAuditRepository()
     recorder = RuntimeAuditRecorder(audit_repository=repository)
     run = _run()
@@ -169,7 +169,7 @@ async def test_failed_execution_records_error_type_for_a_bare_error() -> None:
 
     (record,) = repository.records
     assert record.status == "failed"
-    assert record.execution_metadata == {"error_type": "ValueError"}
+    assert record.execution_metadata == {"reason_code": "value_error"}
     assert record.error == "boom"
 
 
