@@ -2303,6 +2303,50 @@ def test_an_args_schema_descriptor_carrier_is_refused_before_publication(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("carrier", ["descriptor", "callable_object"])
+def test_an_args_schema_carrier_type_state_is_refused_before_publication(
+    is_async: bool, carrier: str
+) -> None:
+    """Executable type state must not remain reachable through a published carrier."""
+    calls: list[str] = []
+
+    def sync_target(*_args: object) -> str:
+        calls.append("sync")
+        return EVIL
+
+    async def async_target(*_args: object) -> str:
+        calls.append("async")
+        return EVIL
+
+    target = async_target if is_async else sync_target
+    if carrier == "descriptor":
+
+        class TypeStateCarrier:
+            source = staticmethod(target)
+
+            def __get__(self, *_args: object) -> object:
+                return self.source
+
+    else:
+
+        class TypeStateCarrier:
+            source = staticmethod(target)
+
+            def __call__(self, *_args: object) -> object:
+                return self.source(*_args)
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    CarrierSchema.escape = TypeStateCarrier()
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 @pytest.mark.parametrize("carrier", ["staticmethod", "property", "inherited", "slot_only"])
 def test_an_args_schema_structural_carrier_reaching_the_source_is_refused(
     is_async: bool, carrier: str

@@ -99,6 +99,7 @@ startup, and a parameter would let a caller assert completeness nothing verified
 
 from __future__ import annotations
 
+import builtins
 import contextlib
 import functools
 import inspect
@@ -342,6 +343,12 @@ _SAFE_ANNOTATION_ORIGINS = _SAFE_ANNOTATION_ATOMS + (
 
 _MAX_STATIC_ATTESTATION_DEPTH = 32
 
+_BUILTIN_CARRIER_BASES = frozenset(
+    value for value in vars(builtins).values() if isinstance(value, type)
+)
+_PYDANTIC_CARRIER_BASES = frozenset(type.__dict__["__mro__"].__get__(BaseModel))
+"""Exact framework and builtin bases whose implementation namespaces are trusted."""
+
 _PYDANTIC_GENERATED_ATTRIBUTES = frozenset(
     {
         "_abc_impl",
@@ -413,7 +420,7 @@ def _attest_public_value(value: Any, *, annotation: bool = False) -> None:
 def _reaches_forbidden_static_value(
     value: Any,
     forbidden: tuple[Any, ...],
-    seen: set[int],
+    seen: dict[int, Any],
     depth: int = 0,
     *,
     opaque_is_safe: bool = False,
@@ -436,7 +443,7 @@ def _reaches_forbidden_static_value(
     identity = id(value)
     if identity in seen:
         return False
-    seen.add(identity)
+    seen[identity] = value
     kind = type(value)
     if kind in (str, bytes, int, float, bool, complex, type(None), types.CodeType):
         return False
@@ -487,6 +494,7 @@ def _reaches_forbidden_static_value(
             if descend(namespace):
                 return True
         return False
+    attest_carrier_type = False
     descriptor_get = None
     for owner in type.__dict__["__mro__"].__get__(type(value)):
         owner_namespace = type.__dict__["__dict__"].__get__(owner)
@@ -507,6 +515,7 @@ def _reaches_forbidden_static_value(
                 )
         elif descend(descriptor_get):
             return True
+        attest_carrier_type = not builtin_descriptor
     if callable(value):
         call = None
         for owner in type.__dict__["__mro__"].__get__(type(value)):
@@ -515,13 +524,21 @@ def _reaches_forbidden_static_value(
                 call = owner_namespace["__call__"]
                 break
         if call is None or not _is_implementation(call):
-            if opaque_is_safe:
-                return False
-            raise ToolGovernanceError(
-                "callable argument schema carries an uninspectable executable"
-            )
-        if descend(call):
-            return True
+            if not opaque_is_safe:
+                raise ToolGovernanceError(
+                    "callable argument schema carries an uninspectable executable"
+                )
+        else:
+            if descend(call):
+                return True
+            attest_carrier_type = True
+    if attest_carrier_type:
+        for owner in type.__dict__["__mro__"].__get__(type(value)):
+            if owner in _BUILTIN_CARRIER_BASES or owner in _PYDANTIC_CARRIER_BASES:
+                continue
+            owner_namespace = type.__dict__["__dict__"].__get__(owner)
+            if descend(owner_namespace):
+                return True
     namespace = None
     with contextlib.suppress(AttributeError, TypeError):
         namespace = object.__getattribute__(value, "__dict__")
@@ -637,7 +654,7 @@ def _schema_namespaces(schema: type[BaseModel]) -> Iterable[Mapping[str, Any]]:
 
 
 def _attest_schema_namespace(
-    namespace: Mapping[str, Any], forbidden: tuple[Any, ...], seen: set[int]
+    namespace: Mapping[str, Any], forbidden: tuple[Any, ...], seen: dict[int, Any]
 ) -> None:
     """Attest caller-owned schema entries while exempting exact framework products."""
     for name, value in namespace.items():
@@ -661,7 +678,7 @@ def _attest_args_schema(schema: Any, forbidden: tuple[Any, ...]) -> None:
         _attest_public_value(schema)
         return
     if isinstance(schema, type) and issubclass(schema, BaseModel):
-        seen: set[int] = set()
+        seen: dict[int, Any] = {}
         for namespace in _schema_namespaces(schema):
             _attest_schema_namespace(namespace, forbidden, seen)
         return
