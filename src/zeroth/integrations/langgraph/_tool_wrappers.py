@@ -338,6 +338,32 @@ _SAFE_ANNOTATION_ORIGINS = _SAFE_ANNOTATION_ATOMS + (
 )
 """Exact origins whose recursively attested arguments define a safe typing graph."""
 
+_MAX_STATIC_ATTESTATION_DEPTH = 32
+
+_PYDANTIC_GENERATED_ATTRIBUTES = frozenset(
+    {
+        "_abc_impl",
+        "__abstractmethods__",
+        "__class_vars__",
+        "__private_attributes__",
+        "__pydantic_complete__",
+        "__pydantic_computed_fields__",
+        "__pydantic_core_schema__",
+        "__pydantic_custom_init__",
+        "__pydantic_decorators__",
+        "__pydantic_fields__",
+        "__pydantic_generic_metadata__",
+        "__pydantic_parent_namespace__",
+        "__pydantic_post_init__",
+        "__pydantic_serializer__",
+        "__pydantic_setattr_handlers__",
+        "__pydantic_validator__",
+        "__signature__",
+        "__weakref__",
+    }
+)
+"""Exact framework-generated class fields, never caller-defined name patterns."""
+
 
 def _drop_callable_plan(token: object) -> None:
     """Remove one collected callable wrapper's plan without retaining the wrapper."""
@@ -386,32 +412,130 @@ def _reaches_forbidden_static_value(
     value: Any,
     forbidden: tuple[Any, ...],
     seen: set[int],
+    depth: int = 0,
 ) -> bool:
     """Traverse owned static dictionaries and exact containers without dispatch."""
+    if depth > _MAX_STATIC_ATTESTATION_DEPTH:
+        raise ToolGovernanceError("callable argument schema attestation exceeded its depth bound")
     if any(value is candidate for candidate in forbidden):
         return True
     identity = id(value)
     if identity in seen:
         return False
     seen.add(identity)
-    if type(value) is dict:
+    kind = type(value)
+    if kind in (str, bytes, int, float, bool, complex, type(None), types.CodeType):
+        return False
+    if any(value is atom for atom in _SAFE_ANNOTATION_ATOMS):
+        return False
+    if kind in (dict, types.MappingProxyType):
         return any(
-            _reaches_forbidden_static_value(item, forbidden, seen)
+            _reaches_forbidden_static_value(item, forbidden, seen, depth + 1)
             for pair in value.items()
             for item in pair
         )
-    if type(value) in (tuple, list, set, frozenset):
-        return any(_reaches_forbidden_static_value(item, forbidden, seen) for item in value)
-    if isinstance(value, type):
-        namespace = type.__dict__["__dict__"].__get__(value)
-    else:
+    if kind in (tuple, list, set, frozenset):
+        return any(
+            _reaches_forbidden_static_value(item, forbidden, seen, depth + 1) for item in value
+        )
+    if kind is property:
+        return any(
+            _reaches_forbidden_static_value(item, forbidden, seen, depth + 1)
+            for item in (value.fget, value.fset, value.fdel)
+            if item is not None
+        )
+    if kind in (staticmethod, classmethod):
+        return _reaches_forbidden_static_value(value.__func__, forbidden, seen, depth + 1)
+    if kind is types.CellType:
         try:
-            namespace = object.__getattribute__(value, "__dict__")
-        except (AttributeError, TypeError):
+            captured = value.cell_contents
+        except ValueError:
             return False
-    if type(namespace) is not dict and type(namespace) is not types.MappingProxyType:
+        return _reaches_forbidden_static_value(captured, forbidden, seen, depth + 1)
+    if kind is types.FunctionType:
+        return any(
+            _reaches_forbidden_static_value(item, forbidden, seen, depth + 1)
+            for item in (
+                value.__defaults__,
+                value.__kwdefaults__,
+                value.__annotations__,
+                value.__closure__,
+                value.__dict__,
+            )
+            if item is not None
+        )
+    if isinstance(value, type):
+        for base in type.__dict__["__mro__"].__get__(value):
+            if base is object:
+                break
+            namespace = type.__dict__["__dict__"].__get__(base)
+            if _reaches_forbidden_static_value(namespace, forbidden, seen, depth + 1):
+                return True
         return False
-    return _reaches_forbidden_static_value(dict(namespace), forbidden, seen)
+    namespace = None
+    with contextlib.suppress(AttributeError, TypeError):
+        namespace = object.__getattribute__(value, "__dict__")
+    if namespace is not None:
+        if type(namespace) is not dict:
+            raise ToolGovernanceError("callable argument schema carries an opaque dictionary")
+        if _reaches_forbidden_static_value(namespace, forbidden, seen, depth + 1):
+            return True
+    found_static_state = namespace is not None
+    for owner in type.__dict__["__mro__"].__get__(type(value)):
+        if owner is object:
+            break
+        owner_namespace = type.__dict__["__dict__"].__get__(owner)
+        slots = owner_namespace.get("__slots__")
+        if slots is None:
+            continue
+        if type(slots) is str:
+            slot_names = (slots,)
+        elif type(slots) is tuple and all(type(name) is str for name in slots):
+            slot_names = slots
+        else:
+            raise ToolGovernanceError("callable argument schema carries opaque slots")
+        for slot in slot_names:
+            if slot in ("__dict__", "__weakref__"):
+                continue
+            found_static_state = True
+            try:
+                slot_value = object.__getattribute__(value, slot)
+            except AttributeError:
+                continue
+            if _reaches_forbidden_static_value(slot_value, forbidden, seen, depth + 1):
+                return True
+    if found_static_state:
+        return False
+    if kind in (
+        types.MemberDescriptorType,
+        types.GetSetDescriptorType,
+        types.WrapperDescriptorType,
+        types.MethodDescriptorType,
+        types.BuiltinFunctionType,
+    ):
+        return False
+    raise ToolGovernanceError("callable argument schema carries opaque static state")
+
+
+def _schema_namespaces(schema: type[BaseModel]) -> Iterable[Mapping[str, Any]]:
+    """Yield every user-schema namespace from the real MRO, derived statically."""
+    for base in type.__dict__["__mro__"].__get__(schema):
+        if base in (BaseModel, object):
+            break
+        yield type.__dict__["__dict__"].__get__(base)
+
+
+def _attest_schema_namespace(
+    namespace: Mapping[str, Any], forbidden: tuple[Any, ...], seen: set[int]
+) -> None:
+    """Attest caller-owned schema entries while exempting exact framework products."""
+    for name, value in namespace.items():
+        if name in _PYDANTIC_GENERATED_ATTRIBUTES:
+            continue
+        if _reaches_forbidden_static_value(name, forbidden, seen) or (
+            _reaches_forbidden_static_value(value, forbidden, seen)
+        ):
+            raise ToolGovernanceError("callable argument schemas cannot retain executable sources")
 
 
 def _attest_args_schema(schema: Any, forbidden: tuple[Any, ...]) -> None:
@@ -422,9 +546,9 @@ def _attest_args_schema(schema: Any, forbidden: tuple[Any, ...]) -> None:
         _attest_public_value(schema)
         return
     if isinstance(schema, type) and issubclass(schema, BaseModel):
-        namespace = type.__dict__["__dict__"].__get__(schema)
-        if _reaches_forbidden_static_value(dict(namespace), forbidden, set()):
-            raise ToolGovernanceError("callable argument schemas cannot retain executable sources")
+        seen: set[int] = set()
+        for namespace in _schema_namespaces(schema):
+            _attest_schema_namespace(namespace, forbidden, seen)
         return
     raise ToolGovernanceError("callable argument schemas must be recursively attestable")
 

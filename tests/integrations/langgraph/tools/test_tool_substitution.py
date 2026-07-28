@@ -2207,6 +2207,48 @@ def test_an_args_schema_carrier_reaching_the_source_is_refused(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("carrier", ["staticmethod", "property", "inherited", "slot_only"])
+def test_an_args_schema_structural_carrier_reaching_the_source_is_refused(
+    is_async: bool, carrier: str
+) -> None:
+    """Descriptors, bases, and slot-only objects cannot hide an executable source."""
+
+    def sync_target(query: str) -> str:
+        return query
+
+    async def async_target(query: str) -> str:
+        return query
+
+    target = async_target if is_async else sync_target
+
+    class BaseCarrierSchema(BaseModel):
+        query: str
+
+    class CarrierSchema(BaseCarrierSchema):
+        pass
+
+    if carrier == "staticmethod":
+        CarrierSchema.escape = staticmethod(target)
+    elif carrier == "property":
+        CarrierSchema.escape = property(target)
+    elif carrier == "inherited":
+        BaseCarrierSchema.escape = target
+    else:
+
+        class SlotCarrier:
+            __slots__ = ("source",)
+
+            def __init__(self, source: object) -> None:
+                self.source = source
+
+        CarrierSchema.escape = SlotCarrier(target)
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 def test_an_ordinary_args_schema_is_published_by_identity(is_async: bool) -> None:
     """Attestation preserves the identity LangChain uses for an ordinary Pydantic schema."""
 
