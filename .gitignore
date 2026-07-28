@@ -41,8 +41,13 @@ docs/assets/openapi/
 .mcp.json
 .opencode.json
 GEMINI.md
+AGENTS.md
+CLAUDE.md
+PLAN.md
+PROGRESS.md
 .claude/
 /.planning/
+phases/
 live_scenarios/
 
 # Generated local state for runnable examples
