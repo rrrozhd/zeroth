@@ -134,9 +134,12 @@ import contextlib
 import copy
 import dataclasses
 import functools
+import gc
 import inspect
+import types
+import weakref
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Annotated, Any, ClassVar
 
 import pytest
 from langchain.agents.middleware import ToolCallRequest
@@ -152,6 +155,7 @@ from zeroth.integrations.langgraph._tool_errors import (
     UnstableToolIdentityError,
 )
 from zeroth.integrations.langgraph._tool_execution import ToolSnapshot
+from zeroth.integrations.langgraph import _tool_wrappers as tool_wrappers
 from zeroth.integrations.langgraph._tool_types import (
     SideEffectClass,
     ToolAction,
@@ -2083,6 +2087,219 @@ def test_a_governed_callables_signature_and_derived_schema_are_unchanged(
     assert governed_tool.args_schema.model_json_schema() == (
         original_tool.args_schema.model_json_schema()
     )
+
+
+class _AnnotationCarrier:
+    """An opaque annotation/default whose attributes may retain executable state."""
+
+    def __init__(self, source: object) -> None:
+        self.source = source
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        pytest.param(lambda target: target, id="direct"),
+        pytest.param(lambda target: {"nested": [target]}, id="builtin_container"),
+        pytest.param(lambda target: Annotated[str, target], id="annotated_metadata"),
+        pytest.param(lambda target: _AnnotationCarrier(target), id="custom_carrier"),
+    ],
+)
+def test_an_unsafe_annotation_is_refused_before_publication(
+    is_async: bool, annotation: Any
+) -> None:
+    """No annotation graph may publish the original executable, directly or transitively."""
+
+    def sync_target(path: str = DANGER) -> str:
+        return path
+
+    async def async_target(path: str = DANGER) -> str:
+        return path
+
+    target = async_target if is_async else sync_target
+    target.__annotations__ = {"path": annotation(target), "return": str}
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_safe_typing_annotations_are_preserved_by_publication(is_async: bool) -> None:
+    """Ordinary typing compositions remain available to framework schema inference."""
+
+    def sync_target(path: str) -> str | None:
+        return path
+
+    async def async_target(path: str) -> str | None:
+        return path
+
+    target = async_target if is_async else sync_target
+    annotations = {"path": Annotated[str, "safe-metadata"], "return": str | None}
+    target.__annotations__ = annotations
+
+    governed = govern_tools([target], **_seams())[0]
+
+    assert governed.__annotations__ == annotations
+    signature = inspect.signature(governed, follow_wrapped=False)
+    assert signature.parameters["path"].annotation == annotations["path"]
+    assert signature.return_annotation == annotations["return"]
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("kind", ["callable", "custom_carrier"])
+def test_an_unsafe_signature_default_is_refused_before_publication(
+    is_async: bool, kind: str
+) -> None:
+    """A published signature must not retain an executable or opaque carrier default."""
+
+    def source() -> str:
+        return EVIL
+
+    def sync_target(value: object = None) -> object:
+        return value
+
+    async def async_target(value: object = None) -> object:
+        return value
+
+    target = async_target if is_async else sync_target
+    target.__defaults__ = (source if kind == "callable" else _AnnotationCarrier(source),)
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_an_args_schema_carrier_reaching_the_source_is_refused(is_async: bool) -> None:
+    """Static Pydantic class state must not smuggle the original into the wrapper."""
+
+    def sync_target(query: str) -> str:
+        return query
+
+    async def async_target(query: str) -> str:
+        return query
+
+    target = async_target if is_async else sync_target
+
+    class CarrierSchema(BaseModel):
+        query: str
+        source: ClassVar[object]
+
+    CarrierSchema.source = target
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_an_ordinary_args_schema_is_published_by_identity(is_async: bool) -> None:
+    """Attestation preserves the identity LangChain uses for an ordinary Pydantic schema."""
+
+    def sync_target(query: str) -> str:
+        return query
+
+    async def async_target(query: str) -> str:
+        return query
+
+    target = async_target if is_async else sync_target
+    target.args_schema = Args
+    governed = govern_tools([target], **_seams())[0]
+
+    assert governed.args_schema is Args
+
+
+def _owned_publication_graph(root: Any) -> list[Any]:
+    """Traverse only state owned and published by a governed callable."""
+    pending = [
+        vars(root),
+        root.__annotations__,
+        inspect.signature(root, follow_wrapped=False),
+        root.__defaults__,
+        root.__kwdefaults__,
+        root.__closure__,
+    ]
+    seen: set[int] = set()
+    reached: list[Any] = []
+    while pending:
+        value = pending.pop()
+        if value is None or id(value) in seen:
+            continue
+        seen.add(id(value))
+        reached.append(value)
+        if type(value) is dict:
+            pending.extend(value.keys())
+            pending.extend(value.values())
+        elif type(value) in (tuple, list, set, frozenset):
+            pending.extend(value)
+        elif type(value) is types.CellType:
+            with contextlib.suppress(ValueError):
+                pending.append(value.cell_contents)
+        elif type(value) is inspect.Signature:
+            pending.extend(value.parameters.values())
+            pending.append(value.return_annotation)
+        elif type(value) is inspect.Parameter:
+            pending.extend((value.annotation, value.default))
+    return reached
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_normal_governed_callable_publication_graph_is_source_free(is_async: bool) -> None:
+    """Owned wrapper state exposes neither an executable body nor a plan containing one."""
+    calls: list[str] = []
+
+    def sync_target(path: str = DANGER, *, force: bool = False) -> str:
+        calls.append(path)
+        return path
+
+    async def async_target(path: str = DANGER, *, force: bool = False) -> str:
+        calls.append(path)
+        return path
+
+    target = async_target if is_async else sync_target
+    governed = govern_tools([target], **_seams())[0]
+    reached = _owned_publication_graph(governed)
+
+    assert all(value is not target for value in reached)
+    assert not any(type(value).__name__.endswith("Plan") for value in reached)
+    extracted = [
+        value
+        for value in reached
+        if type(value) in (types.FunctionType, types.MethodType, functools.partial)
+    ]
+    assert extracted == [], f"published callables could bypass governance: {extracted!r}"
+    assert calls == []
+
+
+def test_callable_registry_lifecycle_is_per_wrapper_and_does_not_retain() -> None:
+    """Opaque plan entries are distinct and disappear independently with their wrappers."""
+
+    def first(path: str = "/first") -> str:
+        return path
+
+    def second(path: str = "/second") -> str:
+        return path
+
+    before = set(tool_wrappers._CALLABLE_PLANS)
+    governed_first, governed_second = govern_tools([first, second], **_seams())
+    created = set(tool_wrappers._CALLABLE_PLANS) - before
+    assert len(created) == 2
+    assert all(not callable(token) for token in created)
+
+    first_ref = weakref.ref(governed_first)
+    del governed_first
+    gc.collect()
+
+    assert first_ref() is None
+    remaining = created & set(tool_wrappers._CALLABLE_PLANS)
+    assert len(remaining) == 1
+    assert governed_second(path="/live") == "/live"
+
+    second_ref = weakref.ref(governed_second)
+    del governed_second
+    gc.collect()
+    assert second_ref() is None
+    assert created.isdisjoint(tool_wrappers._CALLABLE_PLANS)
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])

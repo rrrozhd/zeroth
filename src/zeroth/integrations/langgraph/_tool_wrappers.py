@@ -100,15 +100,16 @@ startup, and a parameter would let a caller assert completeness nothing verified
 from __future__ import annotations
 
 import contextlib
-import functools
 import inspect
+import types
+import weakref
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, get_args, get_origin
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from pydantic import PrivateAttr
+from pydantic import BaseModel, PrivateAttr
 
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.langgraph._tool_decisions import (
@@ -277,6 +278,131 @@ class _GovernedPlan:
     describe: Callable[[Any], _ToolFacts]
     binding: GovernedToolBinding
     seams: _Seams
+
+
+@dataclass(frozen=True, slots=True)
+class _CallableMetadata:
+    """Immutable identifying metadata for one frozen callable source."""
+
+    name: str
+    description: str
+    arguments: tuple[str, ...]
+    schema: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _CallablePlan:
+    """A plain callable's source-free execution plan, held behind an opaque token."""
+
+    source: Any
+    metadata: _CallableMetadata
+    binding: GovernedToolBinding
+    seams: _Seams
+
+
+_CALLABLE_PLANS: dict[object, _CallablePlan] = {}
+"""Callable plans keyed by fresh, non-callable tokens closed over by wrappers."""
+
+
+def _drop_callable_plan(token: object) -> None:
+    """Remove one collected callable wrapper's plan without retaining the wrapper."""
+    _CALLABLE_PLANS.pop(token, None)
+
+
+def _callable_plan(token: object) -> _CallablePlan:
+    """Resolve an opaque wrapper token or fail closed if its plan no longer exists."""
+    try:
+        return _CALLABLE_PLANS[token]
+    except KeyError as error:
+        raise ToolGovernanceError(
+            "this governed callable's execution plan is unavailable"
+        ) from error
+
+
+def _attest_public_value(value: Any, *, annotation: bool = False) -> None:
+    """Refuse values whose recursively published graph is executable or opaque."""
+    if value is inspect.Signature.empty or value is Any or value is None or value is Ellipsis:
+        return
+    if type(value) in (str, bytes, int, float, bool, complex):
+        return
+    if type(value) in (tuple, list, set, frozenset):
+        for item in value:
+            _attest_public_value(item, annotation=annotation)
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            _attest_public_value(key, annotation=annotation)
+            _attest_public_value(item, annotation=annotation)
+        return
+    if annotation and type(value) is type and value.__module__ == "builtins":
+        return
+    if annotation:
+        origin = get_origin(value)
+        if origin is not None:
+            origin_module = getattr(origin, "__module__", None)
+            if origin_module not in ("builtins", "typing", "types"):
+                raise ToolGovernanceError("callable annotations must be recursively attestable")
+            for item in get_args(value):
+                _attest_public_value(item, annotation=True)
+            return
+    raise ToolGovernanceError("callable publication metadata must be recursively attestable")
+
+
+def _attest_args_schema(schema: Any) -> None:
+    """Attest schemas that will be published by identity on a callable wrapper."""
+    if schema is None:
+        return
+    if type(schema) is dict:
+        _attest_public_value(schema)
+        return
+    if isinstance(schema, type) and issubclass(schema, BaseModel):
+        namespace = type.__dict__["__dict__"].__get__(schema)
+        for name, value in namespace.items():
+            if (
+                type(name) is not str
+                or name.startswith("__")
+                or name.startswith("model_")
+                or name == "_abc_impl"
+            ):
+                continue
+            _attest_public_value(value, annotation=name == "__annotations__")
+        return
+    raise ToolGovernanceError("callable argument schemas must be recursively attestable")
+
+
+def _attested_annotations(target: Any) -> dict[str, Any]:
+    """Copy only an exact, recursively attestable annotation mapping."""
+    annotations = getattr(target, "__annotations__", None)
+    if annotations is None:
+        return {}
+    if type(annotations) is not dict:
+        raise ToolGovernanceError("callable annotations must be an exact dictionary")
+    copied: dict[str, Any] = {}
+    for name, value in annotations.items():
+        if type(name) is not str:
+            raise ToolGovernanceError("callable annotation names must be exactly str")
+        _attest_public_value(value, annotation=True)
+        copied[name] = value
+    return copied
+
+
+def _attest_signature_defaults(target: Any) -> None:
+    """Refuse any default that could publish executable or opaque caller state."""
+    try:
+        signature = _declared_signature(target)
+    except ToolGovernanceError:
+        # A callable with no establishable signature publishes no signature; its
+        # existing invocation-time refusal remains the fail-closed boundary.
+        return
+    for parameter in signature.parameters.values():
+        _attest_public_value(parameter.default)
+
+
+def _strip_frozen_callable_attributes(source: Any) -> None:
+    """Remove caller-owned function attributes copied into a fresh frozen source."""
+    function = source.__func__ if type(source) is types.MethodType else source
+    if type(function) is types.FunctionType:
+        function.__dict__.clear()
 
 
 def _peek(source: object, attribute: str) -> Any:
@@ -718,7 +844,9 @@ def _declared_signature(target: Any) -> inspect.Signature:
         raise ToolGovernanceError("this callable's own signature cannot be established") from error
 
 
-def _published_signature(target: Any) -> inspect.Signature:
+def _published_signature(
+    target: Any, annotations: Mapping[str, Any] | None = None
+) -> inspect.Signature:
     """Return the executable's real call shape with its declared type metadata.
 
     :func:`_declared_signature` deliberately reads parameter shape and defaults
@@ -729,7 +857,8 @@ def _published_signature(target: Any) -> inspect.Signature:
     caller-supplied signature object.
     """
     signature = _declared_signature(target)
-    annotations = getattr(target, "__annotations__", None)
+    if annotations is None:
+        annotations = getattr(target, "__annotations__", None)
     if type(annotations) is not dict:
         return signature
     parameters = [
@@ -804,8 +933,27 @@ def _effective_call(
     return _EffectiveCall(_call_arguments((), bound.arguments), bound.args, bound.kwargs)
 
 
+def _callable_facts(plan: _CallablePlan) -> _ToolFacts:
+    """Re-snapshot a frozen source and rebuild identity facts from immutable metadata."""
+    body = snapshot_callable(plan.source)
+    metadata = plan.metadata
+    return _ToolFacts(
+        name=metadata.name,
+        description=metadata.description,
+        args_schema=None,
+        material={
+            "surface": _CALLABLE_SURFACE,
+            "description": metadata.description,
+            "arguments": list(metadata.arguments),
+            "schema": metadata.schema,
+            "implementation": callable_implementation_digest(body),
+        },
+        body=body,
+    )
+
+
 def _governed_action(
-    plan: _GovernedPlan, arguments: Mapping[str, Any]
+    plan: _GovernedPlan | _CallablePlan, arguments: Mapping[str, Any]
 ) -> tuple[ToolAction, object, _ToolFacts]:
     """Snapshot the tool, decide about the snapshot, and hand it back to be executed.
 
@@ -850,21 +998,26 @@ def _governed_action(
         ToolGovernanceError: If the arguments are not canonically representable.
     """
     context = _resolve_context(plan.seams.context)
-    facts = plan.describe(plan.target)
+    if type(plan) is _CallablePlan:
+        facts = _callable_facts(plan)
+        resolver_target = plan.source
+    else:
+        facts = plan.describe(plan.target)
+        resolver_target = plan.target
     action = normalize_tool_action(
         name=facts.name,
         arguments=arguments,
         context=context,
         identity_material=facts.material,
-        contract_ref=_resolved(plan.seams.contract_ref, plan.target),
-        side_effect=_resolved(plan.seams.side_effect, plan.target),
+        contract_ref=_resolved(plan.seams.contract_ref, resolver_target),
+        side_effect=_resolved(plan.seams.side_effect, resolver_target),
     )
     if action.identity != plan.binding.identity:
         raise UnstableToolIdentityError("the tool's identity changed after it was governed")
     return action, context, facts
 
 
-def _enforcement_seams(plan: _GovernedPlan) -> dict[str, Any]:
+def _enforcement_seams(plan: _GovernedPlan | _CallablePlan) -> dict[str, Any]:
     """Render the plan's seams as the keyword arguments the enforcement core takes."""
     seams = plan.seams
     return {
@@ -1142,8 +1295,30 @@ def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) 
         raise ToolGovernanceError("this tool's declared surface cannot be governed") from error
 
 
-def _sync_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
-    """Return a governed function that calls *target* exactly once on an allow.
+def _sync_callable_call(token: object, args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> Any:
+    """Resolve one sync wrapper's private plan, govern the call, and execute it."""
+    plan = _callable_plan(token)
+    call = _effective_call(plan.source, args, kwargs)
+    action, context, facts = _governed_action(plan, call.arguments)
+    body = facts.body
+    return guard_tool_call(
+        action, context, lambda: body(*call.args, **call.kwargs), **_enforcement_seams(plan)
+    )
+
+
+async def _async_callable_call(
+    token: object, args: tuple[Any, ...], kwargs: Mapping[str, Any]
+) -> Any:
+    """Resolve one async wrapper's private plan, govern the call, and execute it."""
+    plan = _callable_plan(token)
+    call = _effective_call(plan.source, args, kwargs)
+    action, context, facts = _governed_action(plan, call.arguments)
+    authorize_tool_call(action, context, **_enforcement_seams(plan))
+    return await facts.body(*call.args, **call.kwargs)
+
+
+def _sync_callable_wrapper(token: object) -> Any:
+    """Return a governed function whose sole closure value is an opaque token.
 
     The body is invoked with the call :func:`_effective_call` resolved, never with
     the caller's own ``args`` / ``kwargs``: re-passing the originals would run the
@@ -1151,40 +1326,29 @@ def _sync_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
     default is materialized by the binding and by nothing else.
     """
 
-    @functools.wraps(target, updated=())
     def governed(*args: Any, **kwargs: Any) -> Any:
         """Govern this call, then invoke the snapshotted body exactly once on an allow."""
-        call = _effective_call(target, args, kwargs)
-        action, context, facts = _governed_action(plan, call.arguments)
-        body = facts.body
-        return guard_tool_call(
-            action, context, lambda: body(*call.args, **call.kwargs), **_enforcement_seams(plan)
-        )
+        return _sync_callable_call(token, args, kwargs)
 
     return governed
 
 
-def _async_callable_wrapper(target: Any, plan: _GovernedPlan) -> Any:
-    """Return a governed coroutine function that awaits *target* once on an allow.
+def _async_callable_wrapper(token: object) -> Any:
+    """Return a governed coroutine whose sole closure value is an opaque token.
 
     Invokes the same resolved call the sync wrapper does, for the same reason.
     The two lines are identical on purpose: an argument-handling fix applied to
     one of them leaves the other surface deciding one call and running another.
     """
 
-    @functools.wraps(target, updated=())
     async def governed(*args: Any, **kwargs: Any) -> Any:
         """Govern this call, then await the snapshotted body exactly once on an allow."""
-        call = _effective_call(target, args, kwargs)
-        action, context, facts = _governed_action(plan, call.arguments)
-        body = facts.body
-        authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await body(*call.args, **call.kwargs)
+        return await _async_callable_call(token, args, kwargs)
 
     return governed
 
 
-def _govern_callable(target: Any, facts: _ToolFacts, plan: _GovernedPlan) -> Any:
+def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
     """Wrap a plain callable so that calling it decides first, calling it second.
 
     The wrapper stays directly callable -- that is a bare callable's whole
@@ -1192,27 +1356,56 @@ def _govern_callable(target: Any, facts: _ToolFacts, plan: _GovernedPlan) -> Any
     that reads ``name`` / ``description`` / ``args_schema`` off a tool list sees
     the same values it saw before.
 
-    **No handle to the target or the plan is published.** Both are closed over by
-    the governed function and nothing else, so there is no attribute an attacker
-    can rebind to have something other than the authorized callable executed. The
-    binding is published, because the inventory stage reads it, and nothing is
-    executed through it.
+    **No handle to the target, frozen source or plan is published.** The returned
+    function closes over only an opaque non-callable token; a private registry
+    resolves that token to the source-free plan. The binding is published because
+    the inventory stage reads it, and nothing is executed through it.
     """
-    if inspect.iscoroutinefunction(target):
-        governed = _async_callable_wrapper(target, plan)
-    else:
-        governed = _sync_callable_wrapper(target, plan)
-    del governed.__wrapped__
-    # Preserve the existing fail-closed boundary for admitted callables whose
-    # executable cannot describe a valid call (an over-bound partial, for
-    # example): construction succeeds, and every attempted call is refused by
-    # ``_effective_call`` before a policy is consulted.
-    with contextlib.suppress(ToolGovernanceError):
-        governed.__signature__ = _published_signature(target)
-    governed.name = plan.binding.identity.name
-    governed.description = facts.description
-    governed.args_schema = facts.args_schema
-    governed.zeroth_binding = plan.binding
+    annotations = _attested_annotations(target)
+    _attest_signature_defaults(target)
+    _attest_args_schema(facts.args_schema)
+    source = facts.body
+    _strip_frozen_callable_attributes(source)
+    arguments = tuple(facts.material["arguments"])
+    binding = _pin(facts)
+    plan = _CallablePlan(
+        source=source,
+        metadata=_CallableMetadata(
+            name=binding.identity.name,
+            description=facts.description,
+            arguments=arguments,
+            schema=schema_digest(facts.args_schema),
+        ),
+        binding=binding,
+        seams=seams,
+    )
+    token = object()
+    _CALLABLE_PLANS[token] = plan
+    try:
+        governed = (
+            _async_callable_wrapper(token)
+            if inspect.iscoroutinefunction(target)
+            else _sync_callable_wrapper(token)
+        )
+        governed.__name__ = _text(_peek(target, "__name__")) or plan.metadata.name
+        governed.__qualname__ = _text(_peek(target, "__qualname__")) or governed.__name__
+        governed.__module__ = _text(_peek(target, "__module__")) or governed.__module__
+        governed.__doc__ = _text(_peek(target, "__doc__"))
+        governed.__annotations__ = dict(annotations)
+        # Preserve the existing fail-closed boundary for admitted callables whose
+        # executable cannot describe a valid call (an over-bound partial, for
+        # example): construction succeeds, and every attempted call is refused by
+        # ``_effective_call`` before a policy is consulted.
+        with contextlib.suppress(ToolGovernanceError):
+            governed.__signature__ = _published_signature(source, annotations)
+        governed.name = plan.binding.identity.name
+        governed.description = facts.description
+        governed.args_schema = facts.args_schema
+        governed.zeroth_binding = plan.binding
+        weakref.finalize(governed, _drop_callable_plan, token)
+    except Exception:
+        _drop_callable_plan(token)
+        raise
     return governed
 
 
@@ -1235,10 +1428,10 @@ def _govern_one(target: Any, seams: _Seams) -> Any:
         raise ToolGovernanceError("govern_tools accepts BaseTool instances and plain callables")
     describe = _describe_base_tool if is_tool else _describe_callable
     facts = describe(target)
-    plan = _GovernedPlan(target=target, describe=describe, binding=_pin(facts), seams=seams)
     if is_tool:
+        plan = _GovernedPlan(target=target, describe=describe, binding=_pin(facts), seams=seams)
         return _govern_base_tool(target, facts, plan)
-    return _govern_callable(target, facts, plan)
+    return _govern_callable(target, facts, seams)
 
 
 def govern_tools(
