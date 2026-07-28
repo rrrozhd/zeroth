@@ -457,6 +457,33 @@ def _reaches_forbidden_static_value(
     """Traverse owned static dictionaries and exact containers without dispatch."""
     if depth > _MAX_STATIC_ATTESTATION_DEPTH:
         raise ToolGovernanceError("callable argument schema attestation exceeded its depth bound")
+    if any(value is candidate for candidate in forbidden):
+        return True
+    identity = id(value)
+    if identity in seen:
+        return False
+    seen[identity] = value
+    try:
+        return _reaches_forbidden_active_value(
+            value,
+            forbidden,
+            seen,
+            depth,
+            opaque_is_safe=opaque_is_safe,
+        )
+    finally:
+        seen.pop(identity)
+
+
+def _reaches_forbidden_active_value(
+    value: Any,
+    forbidden: tuple[Any, ...],
+    seen: dict[int, Any],
+    depth: int,
+    *,
+    opaque_is_safe: bool,
+) -> bool:
+    """Traverse one value already retained in the active recursion path."""
 
     def descend(item: Any) -> bool:
         return _reaches_forbidden_static_value(
@@ -467,12 +494,6 @@ def _reaches_forbidden_static_value(
             opaque_is_safe=opaque_is_safe,
         )
 
-    if any(value is candidate for candidate in forbidden):
-        return True
-    identity = id(value)
-    if identity in seen:
-        return False
-    seen[identity] = value
     kind = type(value)
     if kind in (str, bytes, int, float, bool, complex, type(None), types.CodeType):
         return False

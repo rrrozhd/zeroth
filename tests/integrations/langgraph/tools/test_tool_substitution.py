@@ -2244,6 +2244,43 @@ def test_an_args_schema_carrier_reaching_the_source_is_refused(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("ordering", ["exempt_first", "strict_first"])
+def test_an_exempt_schema_alias_cannot_poison_a_strict_attestation(
+    is_async: bool, ordering: str
+) -> None:
+    """An opaque generated-field visit must not satisfy a later public visit."""
+    calls: list[str] = []
+
+    def sync_target(*_args: object) -> str:
+        calls.append("sync")
+        return EVIL
+
+    async def async_target(*_args: object) -> str:
+        calls.append("async")
+        return EVIL
+
+    target = async_target if is_async else sync_target
+    carrier = target.__call__
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    if ordering == "exempt_first":
+        CarrierSchema.__signature__ = carrier
+        CarrierSchema.escape = carrier
+    else:
+        type.__delattr__(CarrierSchema, "__signature__")
+        CarrierSchema.escape = carrier
+        type.__setattr__(CarrierSchema, "__signature__", carrier)
+
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 def test_an_args_schema_same_code_function_carrier_is_refused(is_async: bool) -> None:
     """A distinct function object with the source's code is still the executable body."""
 
