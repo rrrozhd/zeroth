@@ -392,32 +392,58 @@ def _callable_plan(token: object) -> _CallablePlan:
         ) from error
 
 
-def _attest_public_value(value: Any, *, annotation: bool = False) -> None:
+def _attest_public_value(
+    value: Any,
+    *,
+    annotation: bool = False,
+    _active: set[int] | None = None,
+    _depth: int = 0,
+) -> None:
     """Refuse values whose recursively published graph is executable or opaque."""
+    if _depth > _MAX_STATIC_ATTESTATION_DEPTH:
+        raise ToolGovernanceError(
+            "callable publication metadata attestation exceeded its depth bound"
+        )
     if value is inspect.Signature.empty or value is Any or value is None or value is Ellipsis:
         return
     if type(value) in (str, bytes, int, float, bool, complex):
         return
+    items: Iterable[Any]
     if type(value) in (tuple, list, set, frozenset):
-        for item in value:
-            _attest_public_value(item, annotation=annotation)
+        items = value
+    elif type(value) is dict:
+        items = (item for pair in value.items() for item in pair)
+    elif annotation and any(value is atom for atom in _SAFE_ANNOTATION_ATOMS):
         return
-    if type(value) is dict:
-        for key, item in value.items():
-            _attest_public_value(key, annotation=annotation)
-            _attest_public_value(item, annotation=annotation)
-        return
-    if annotation and any(value is atom for atom in _SAFE_ANNOTATION_ATOMS):
-        return
-    if annotation:
+    elif annotation:
         origin = get_origin(value)
         if origin is not None:
             if not any(origin is safe for safe in _SAFE_ANNOTATION_ORIGINS):
                 raise ToolGovernanceError("callable annotations must be recursively attestable")
-            for item in get_args(value):
-                _attest_public_value(item, annotation=True)
-            return
-    raise ToolGovernanceError("callable publication metadata must be recursively attestable")
+            items = get_args(value)
+            annotation = True
+        else:
+            raise ToolGovernanceError(
+                "callable publication metadata must be recursively attestable"
+            )
+    else:
+        raise ToolGovernanceError("callable publication metadata must be recursively attestable")
+
+    active = set() if _active is None else _active
+    identity = id(value)
+    if identity in active:
+        raise ToolGovernanceError("callable publication metadata cannot be cyclic")
+    active.add(identity)
+    try:
+        for item in items:
+            _attest_public_value(
+                item,
+                annotation=annotation,
+                _active=active,
+                _depth=_depth + 1,
+            )
+    finally:
+        active.remove(identity)
 
 
 def _reaches_forbidden_static_value(

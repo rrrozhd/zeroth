@@ -2136,6 +2136,34 @@ def test_an_unsafe_annotation_is_refused_before_publication(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("shape", ["cycle", "over_depth"])
+def test_an_unbounded_annotation_graph_is_refused_with_a_governance_error(
+    is_async: bool, shape: str
+) -> None:
+    """Cyclic or over-depth publication metadata must fail closed with a typed error."""
+
+    def sync_target(value: object) -> object:
+        return value
+
+    async def async_target(value: object) -> object:
+        return value
+
+    target = async_target if is_async else sync_target
+    annotation: object = []
+    if shape == "cycle":
+        assert isinstance(annotation, list)
+        annotation.append(annotation)
+    else:
+        annotation = str
+        for _ in range(64):
+            annotation = [annotation]
+    target.__annotations__ = {"value": annotation, "return": object}
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 def test_safe_typing_annotations_are_preserved_by_publication(is_async: bool) -> None:
     """Ordinary typing compositions remain available to framework schema inference."""
 
