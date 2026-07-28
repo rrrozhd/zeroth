@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import inspect
 import json
 import os
 from collections.abc import Mapping
@@ -65,6 +66,7 @@ class ServiceAuthConfig(BaseModel):
 
     api_keys: list[StaticApiKeyCredential] = Field(default_factory=list)
     bearer: BearerTokenConfig | None = None
+    custom_roles: dict[str, list[str]] = Field(default_factory=dict)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ServiceAuthConfig:
@@ -74,7 +76,19 @@ class ServiceAuthConfig(BaseModel):
             payload["api_keys"] = json.loads(source["ZEROTH_SERVICE_API_KEYS_JSON"])
         if source.get("ZEROTH_SERVICE_BEARER_JSON"):
             payload["bearer"] = json.loads(source["ZEROTH_SERVICE_BEARER_JSON"])
+        if source.get("ZEROTH_SERVICE_ROLES_JSON"):
+            payload["custom_roles"] = json.loads(source["ZEROTH_SERVICE_ROLES_JSON"])
         return cls.model_validate(payload)
+
+
+_auth_parameters = inspect.signature(ServiceAuthConfig).parameters
+ServiceAuthConfig.__signature__ = inspect.signature(ServiceAuthConfig).replace(
+    parameters=[
+        parameter
+        for name, parameter in _auth_parameters.items()
+        if name != "custom_roles"
+    ]
+)
 
 
 class JWTBearerTokenVerifier:

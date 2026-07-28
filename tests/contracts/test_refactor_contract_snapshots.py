@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from zeroth.governance.approvals import ApprovalRecord, ApprovalRepository
+from zeroth.governance.audit.capture_policy import AuditCapturePolicy
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.contracts.registry import ContractNotFoundError, ContractRegistryError
 from zeroth.contracts.graph.validation_errors import (
@@ -288,13 +289,19 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
     )
     persisted_audit = await AuditRepository(sqlite_db).write(audit)
     assert persisted_audit is not None
+    # The durable write is the capture boundary, so what round-trips is exactly
+    # what the capture policy produced -- not what the producer submitted. The
+    # comparison stays byte-for-byte: storage adds nothing and drops nothing of
+    # its own beyond the chain fields excluded below.
+    expected = AuditCapturePolicy().apply(audit)
     assert persisted_audit.model_dump(
         mode="json",
         exclude={"chain_sequence", "digest_version", "pii_commitments", "record_digest"},
-    ) == audit.model_dump(
+    ) == expected.model_dump(
         mode="json",
         exclude={"chain_sequence", "digest_version", "pii_commitments", "record_digest"},
     )
+    assert persisted_audit.input_snapshot == {}
     assert persisted_audit.chain_sequence == 1
     assert persisted_audit.digest_version == 3
     assert re.fullmatch(r"[0-9a-f]{64}", persisted_audit.record_digest or "")

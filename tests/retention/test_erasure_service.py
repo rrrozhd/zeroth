@@ -9,7 +9,11 @@ from datetime import UTC, datetime
 import pytest
 
 from tests.conftest import requires_docker
-from tests.retention.conftest import _build_env, make_audit_record, seed_token_snapshot
+from tests.retention.conftest import (
+    _build_env,
+    make_audit_record,
+    seed_token_snapshot,
+)
 from zeroth.governance.audit.verifier import _compute_pii_commitments, compute_chained_record
 from zeroth.governance.retention.erasure_service import LegalHoldError
 from zeroth.integrations.persistence.runs import RunRepository
@@ -182,7 +186,7 @@ async def test_erasure_succeeds_on_encrypted_deployment(encrypted_env) -> None:
 
 
 async def test_full_surface_erasure(env) -> None:
-    ssn = "999-88-7777"
+    ssn = "nnn-88-7777"
     await env.seed_run("run-full", n_audits=3, artifact_key="run-full/n0/blob", ssn=ssn)
     token_artifact = "run-full/token/blob"
     await seed_token_snapshot(env, "run-full", artifact_key=token_artifact, ssn=ssn)
@@ -240,14 +244,14 @@ async def test_erasure_is_idempotent(env) -> None:
 
 
 async def test_legal_hold_refuses_right_to_erasure(env) -> None:
-    await env.seed_run("run-held", n_audits=2, ssn="222-22-2222")
+    await env.seed_run("run-held", n_audits=2, ssn="hld-22-2222")
     await env.hold_repo.place("default", run_id="run-held", reason="litigation")
 
     with pytest.raises(LegalHoldError):
         await env.service.erase_run("run-held", "rte")
 
     # PII untouched while held.
-    present = await _pii_present(env.database, "222-22-2222")
+    present = await _pii_present(env.database, "hld-22-2222")
     assert present["node_audits"] is True
 
     # Release, then erasure proceeds.
@@ -255,7 +259,7 @@ async def test_legal_hold_refuses_right_to_erasure(env) -> None:
     await env.hold_repo.release(holds[0].hold_id)
     result = await env.service.erase_run("run-held", "rte")
     assert result.audits_erased == 2
-    after = await _pii_present(env.database, "222-22-2222")
+    after = await _pii_present(env.database, "hld-22-2222")
     assert after["node_audits"] is False
 
 

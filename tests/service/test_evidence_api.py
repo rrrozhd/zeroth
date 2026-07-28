@@ -9,6 +9,8 @@ from zeroth.governance.audit import MemoryAccessRecord, NodeAuditRecord, ToolCal
 from zeroth.runtime.runs import Run
 from zeroth.core.service.bootstrap import bootstrap_app
 
+from tests.conftest import content_capture
+
 
 async def _seed_run_evidence(service) -> Run:
     run = await service.run_repository.create(
@@ -26,7 +28,7 @@ async def _seed_run_evidence(service) -> Run:
         node=service.graph.nodes[0],
         input_payload={"secret": "hidden", "value": 7},
     )
-    await service.audit_repository.write(
+    await content_capture(service.audit_repository).write(
         NodeAuditRecord(
             audit_id="audit:evidence:1",
             run_id=run.run_id,
@@ -76,6 +78,9 @@ async def _seed_run_evidence(service) -> Run:
             workspace_id=run.workspace_id,
             attempt=1,
             status="rejected",
+            # The denial's verdict lives in structural metadata, not in the
+            # free-form error the capture boundary replaces.
+            execution_metadata={"decision": "deny", "reason_code": "capability_denied"},
             error="capability denied: secret_access",
             started_at=datetime(2026, 3, 27, 0, 0, 2, tzinfo=UTC),
             completed_at=datetime(2026, 3, 27, 0, 0, 3, tzinfo=UTC),
@@ -108,7 +113,7 @@ async def test_run_and_deployment_evidence_bundles_include_governance_lineage(sq
     assert run_payload["summary"]["tool_call_count"] == 1
     assert run_payload["summary"]["memory_interaction_count"] == 1
     assert run_payload["summary"]["approval_count"] == 1
-    assert run_payload["policy_events"] == ["capability denied: secret_access"]
+    assert run_payload["policy_events"] == ["service.authorization deny: capability_denied"]
     assert run_payload["approvals"][0]["run_id"] == run.run_id
 
     assert deployment_response.status_code == 200

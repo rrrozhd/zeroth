@@ -23,11 +23,57 @@ from typing import Any
 from zeroth.contracts.graph import Node
 from zeroth.core.runs import Run, RunHistoryEntry
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
+from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
 from zeroth.governance.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRecord
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.parallel.models import BranchContext
 
 logger = logging.getLogger(__name__)
+
+# The enforcement modes that survive the audit capture boundary as decision
+# metadata. The evaluation result they come from is a nested dict, and a nested
+# dict is not a kind any allowlisted metadata key declares, so the modes are
+# promoted to their own top-level keys or they are not persisted at all.
+_ENFORCEMENT_MODE_KEYS = ("network_mode", "sandbox_strictness_mode")
+
+
+def enforcement_audit_fields(
+    context: Mapping[str, Any],
+    *,
+    applied: bool,
+) -> dict[str, Any]:
+    """Flatten a policy evaluation's decision metadata onto audit-retained keys.
+
+    Args:
+        context: The policy evaluation result, as ``model_dump(mode="json")``.
+        applied: Whether the enforcement context was actually applied to the
+            node's execution -- ``False`` on the denial path, where the node
+            never ran.
+
+    Returns:
+        A flat mapping of ``enforcement_applied``, the evaluation ``decision``
+        and whichever enforcement modes the result declared as strings.
+    """
+    fields: dict[str, Any] = {"enforcement_applied": applied}
+    decision = context.get("decision")
+    if type(decision) is str:
+        fields["decision"] = decision
+    for key in _ENFORCEMENT_MODE_KEYS:
+        value = context.get(key)
+        if type(value) is str:
+            fields[key] = value
+    return fields
+
+
+def bare_error_audit_record(error: BaseException) -> dict[str, Any]:
+    """Describe an error that carried no audit record, as decision metadata only.
+
+    The exception's *message* is content -- it carries whatever the raising code
+    was holding -- and the capture boundary replaces it. Its class *name* is the
+    outcome, so it is normalized into a stable lower-case reason code that the
+    metadata allowlist retains.
+    """
+    return {"reason_code": normalize_reason_code(type(error).__name__) or "unknown_error"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +258,7 @@ class RuntimeAuditRecorder:
         # indistinguishable from a node that never ran.
         is_rejection = isinstance(carried_audit, Mapping)
         audit_record: dict[str, Any] = (
-            dict(carried_audit) if is_rejection else {"error_type": type(error).__name__}
+            dict(carried_audit) if is_rejection else bare_error_audit_record(error)
         )
         audit_refs = list(run.audit_refs)
         audit_ref = f"audit:{len(audit_refs) + 1}"
@@ -293,10 +339,7 @@ class RuntimeAuditRecorder:
                 input_snapshot=self.redact(dict(input_payload)),
                 output_snapshot={},
                 execution_metadata=self.redact(
-                    {
-                        "enforcement": dict(decision_payload),
-                        "enforcement_applied": False,
-                    }
+                    enforcement_audit_fields(decision_payload, applied=False)
                 ),
                 error=reason,
             )
@@ -324,7 +367,7 @@ class RuntimeAuditRecorder:
         carried_audit = getattr(error, "audit_record", None)
         is_rejection = isinstance(carried_audit, Mapping)
         audit_record: dict[str, Any] = (
-            dict(carried_audit) if is_rejection else {"error_type": type(error).__name__}
+            dict(carried_audit) if is_rejection else bare_error_audit_record(error)
         )
         audit_record["branch_id"] = ctx.branch_id
         audit_record["branch_index"] = ctx.branch_index

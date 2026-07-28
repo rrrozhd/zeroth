@@ -9,6 +9,7 @@ from zeroth.governance.policy.models import (
     EnforcementResult,
     PolicyDecision,
     PolicyDefinition,
+    RunAdmissionResult,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "EnforcementResult",
     "PolicyDecision",
     "PolicyDefinition",
+    "RunAdmissionResult",
 ]

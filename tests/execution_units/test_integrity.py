@@ -154,4 +154,7 @@ async def test_executable_unit_admission_denials_are_recorded_in_audit(
     audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     assert audits[0].status == "rejected"
-    assert audits[0].execution_metadata["admission"]["admitted"] is False
+    assert audits[0].execution_metadata["admitted"] is False
+    assert audits[0].execution_metadata["decision"] == "deny"
+    assert audits[0].execution_metadata["reason_code"] == "runtime_not_allowed"
+    assert len(audits[0].execution_metadata["admission_digest"]) == 64

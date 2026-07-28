@@ -10,13 +10,24 @@ from zeroth.contracts.graph import GraphRepository
 from zeroth.contracts.graph.serialization import hydrate_deployed_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.registry import ContractRegistry
+from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
+from zeroth.core.langgraph_gateway.compatibility import CompatibilityDetector
+from zeroth.core.langgraph_gateway.context import ReservedContextCodec
+from zeroth.core.langgraph_gateway.events import AuditGatewayEventSink
+from zeroth.core.langgraph_gateway.models import CompatibilityResult
+from zeroth.core.langgraph_gateway.proxy import GatewayProxy
+from zeroth.core.langgraph_gateway.routes import WebSocketGatewayHandler
+from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
+from zeroth.governance.approvals.notifications import build_approval_notifier
 from zeroth.governance.audit import AuditRepository
+from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.governance.guardrails.dead_letter import DeadLetterManager
 from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.governance.policy import PolicyGuard, PolicyRegistry, default_capability_registry
 from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
@@ -30,7 +41,7 @@ from zeroth.platform.observability.metrics import MetricsCollector
 from zeroth.platform.observability.queue_gauge import QueueDepthGauge
 from zeroth.platform.observability.tracing import configure_tracing
 from zeroth.platform.secrets import SecretProvider, build_secret_provider
-from zeroth.platform.signing import build_signing_provider_async
+from zeroth.platform.signing import NullSigner, build_signing_provider_async
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
@@ -42,6 +53,7 @@ from zeroth.service.api.authentication import (
     ServiceAuthConfig,
     ServiceAuthenticator,
 )
+from zeroth.service.api.authorization import RoleRegistry
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap.container import DeploymentBootstrapError, ServiceBootstrap
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
@@ -118,6 +130,7 @@ async def bootstrap_service(
         resolved_auth_config,
         bearer_verifier=bearer_token_verifier,
     )
+    role_registry = RoleRegistry.from_config(resolved_auth_config.custom_roles)
 
     # Phase 9: durable dispatch, guardrails, observability.
     resolved_guardrail_config = guardrail_config or GuardrailConfig()
@@ -150,6 +163,7 @@ async def bootstrap_service(
 
     # Phase 13: Regulus economics integration.
     settings = get_settings()
+    approval_service.notifier = build_approval_notifier(settings.approval_notifications)
     # OBS: enable OpenTelemetry tracing when configured (no-op when disabled).
     configure_tracing(settings.tracing)
     regulus_client: RegulusClient | None = None
@@ -277,11 +291,12 @@ async def bootstrap_service(
     # (capability_bindings=["memory_read", ...]). Apps that override
     # orchestrator.policy_guard after bootstrap (e.g. with a bespoke ref scheme)
     # are unaffected — this only sets a default.
+    policy_guard = PolicyGuard(
+        policy_registry=PolicyRegistry(),
+        capability_registry=default_capability_registry(),
+    )
     if settings.policy.enforce_capabilities:
-        orchestrator.policy_guard = PolicyGuard(
-            policy_registry=PolicyRegistry(),
-            capability_registry=default_capability_registry(),
-        )
+        orchestrator.policy_guard = policy_guard
     # Local per-run cost ceiling — wired INDEPENDENT of regulus.enabled so the
     # tighter, control-plane-free guard works even without the backend.
     orchestrator.per_run_cap_usd = settings.regulus.per_run_cap_usd
@@ -472,53 +487,146 @@ async def bootstrap_service(
             poll_interval=settings.retention.worker_poll_interval,
         )
 
-    return ServiceBootstrap(
-        database=database,
-        graph_repository=graph_repository,
-        deployment_service=deployment_service,
-        deployment=deployment,
-        graph=graph,
-        run_repository=run_repository,
-        thread_repository=thread_repository,
-        approval_service=approval_service,
-        audit_repository=audit_repository,
-        contract_registry=contract_registry,
-        orchestrator=orchestrator,
-        auth_config=resolved_auth_config,
-        authenticator=authenticator,
-        worker=worker,
-        lease_manager=lease_manager,
-        guardrail_config=resolved_guardrail_config,
-        rate_limiter=rate_limiter,
-        quota_enforcer=quota_enforcer,
-        dead_letter_manager=dead_letter_manager,
-        metrics_collector=metrics_collector,
-        queue_gauge=queue_gauge,
-        regulus_client=regulus_client,
-        budget_enforcer=budget_enforcer,
-        memory_registry=memory_registry,
-        memory_connector_config_repository=memory_connector_config_repository,
-        memory_resolver=memory_resolver,
-        webhook_service=webhook_service_obj,
-        webhook_repository=webhook_repository,
-        delivery_worker=delivery_worker_obj,
-        sla_checker=sla_checker_obj,
-        webhook_http_client=webhook_http_client,
-        cost_estimator=cost_estimator,
-        arq_pool=arq_pool,
-        redis_client=redis_client,
-        artifact_store=artifact_store,
-        http_client=http_client_instance,
-        template_registry=template_registry,
-        subgraph_executor=subgraph_executor,
-        secret_provider=secret_provider,
-        signer=signer,
-        retention_policy_repository=retention_policy_repository,
-        legal_hold_repository=legal_hold_repository,
-        retention_log_repository=retention_log_repository,
-        retention_erasure_service=retention_erasure_service,
-        retention_worker=retention_worker_obj,
-    )
+    gateway_proxy: object | None = None
+    gateway_transport: HTTPGatewayTransport | None = None
+    gateway_compatibility: CompatibilityResult | None = None
+    gateway_capability_reporter: object | None = None
+    gateway_websocket_handler: object | None = None
+    audit_delivery_queue: AuditDeliveryQueue | None = None
+    gateway_settings = settings.langgraph_gateway
+    if gateway_settings.enabled:
+        if signer is None or isinstance(signer, NullSigner):
+            raise DeploymentBootstrapError(
+                "LangGraph gateway requires an available provenance signer"
+            )
+        if budget_enforcer is None:
+            from zeroth.core.econ.budget import BudgetEnforcer
+
+            budget_enforcer = BudgetEnforcer(
+                regulus_base_url=settings.regulus.base_url,
+                cache_ttl=settings.regulus.budget_cache_ttl,
+                timeout=settings.regulus.request_timeout,
+                fail_closed=settings.regulus.fail_closed,
+            )
+            orchestrator.budget_enforcer = budget_enforcer
+
+        context_codec = ReservedContextCodec(
+            signer,
+            max_ttl_seconds=gateway_settings.context_ttl_seconds,
+        )
+        gateway_transport = HTTPGatewayTransport(gateway_settings, secret_provider)
+        try:
+            # Reuse the transport's sole long-lived client for the one bounded
+            # compatibility probe instead of allocating a second client.
+            gateway_transport.client.base_url = gateway_settings.upstream_url
+            detector = CompatibilityDetector(
+                gateway_transport.client,
+                tested_langgraph_versions=gateway_settings.supported_langgraph_versions,
+                tested_agent_server_versions=gateway_settings.supported_agent_server_versions,
+                timeout_seconds=gateway_settings.connect_timeout_seconds,
+            )
+            gateway_compatibility = await detector.detect()
+            gateway_capability_reporter = CapabilityReporter(
+                stale_after_seconds=gateway_settings.stale_threshold_seconds,
+                expected_graph_version=deployment.graph_version_ref,
+            )
+            # Constructed here rather than left to the sink's private fallback:
+            # that fallback builds its own MetricsCollector, so every delivery
+            # counter -- queued, retried, rejected, failed -- would increment
+            # onto a registry nothing scrapes, and the delivery stage would be
+            # invisible on /v1/metrics. The same instance is what the lifespan
+            # drains and what the health surface reports.
+            audit_delivery_queue = AuditDeliveryQueue(audit_repository, metrics=metrics_collector)
+            event_sink = AuditGatewayEventSink(
+                audit_repository,
+                actor_for=lambda event: ActorIdentity(
+                    subject=event.correlation.principal_id,
+                    auth_method=AuthMethod.API_KEY,
+                    tenant_id=event.correlation.tenant_id,
+                ),
+                delivery=audit_delivery_queue,
+            )
+            gateway_proxy = GatewayProxy(
+                settings=gateway_settings,
+                transport=gateway_transport,
+                context_codec=context_codec,
+                policy_guard=policy_guard,
+                budget_checker=budget_enforcer,
+                compatibility=gateway_compatibility,
+                event_sink=event_sink,
+            )
+            gateway_websocket_handler = WebSocketGatewayHandler(
+                settings=gateway_settings,
+                transport=gateway_transport,
+                context_codec=context_codec,
+                policy_guard=policy_guard,
+                budget_checker=budget_enforcer,
+            )
+        except BaseException:
+            await gateway_transport.aclose()
+            raise
+
+    try:
+        bootstrap = ServiceBootstrap(
+            database=database,
+            graph_repository=graph_repository,
+            deployment_service=deployment_service,
+            deployment=deployment,
+            graph=graph,
+            run_repository=run_repository,
+            thread_repository=thread_repository,
+            approval_service=approval_service,
+            audit_repository=audit_repository,
+            contract_registry=contract_registry,
+            orchestrator=orchestrator,
+            auth_config=resolved_auth_config,
+            authenticator=authenticator,
+            worker=worker,
+            lease_manager=lease_manager,
+            guardrail_config=resolved_guardrail_config,
+            rate_limiter=rate_limiter,
+            quota_enforcer=quota_enforcer,
+            dead_letter_manager=dead_letter_manager,
+            metrics_collector=metrics_collector,
+            queue_gauge=queue_gauge,
+            regulus_client=regulus_client,
+            budget_enforcer=budget_enforcer,
+            memory_registry=memory_registry,
+            memory_connector_config_repository=memory_connector_config_repository,
+            memory_resolver=memory_resolver,
+            webhook_service=webhook_service_obj,
+            webhook_repository=webhook_repository,
+            delivery_worker=delivery_worker_obj,
+            sla_checker=sla_checker_obj,
+            webhook_http_client=webhook_http_client,
+            cost_estimator=cost_estimator,
+            arq_pool=arq_pool,
+            redis_client=redis_client,
+            artifact_store=artifact_store,
+            http_client=http_client_instance,
+            template_registry=template_registry,
+            subgraph_executor=subgraph_executor,
+            secret_provider=secret_provider,
+            signer=signer,
+            policy_guard=policy_guard,
+            langgraph_gateway_proxy=gateway_proxy,
+            langgraph_gateway_transport=gateway_transport,
+            langgraph_gateway_compatibility=gateway_compatibility,
+            langgraph_gateway_capability_reporter=gateway_capability_reporter,
+            langgraph_gateway_websocket_handler=gateway_websocket_handler,
+            audit_delivery_queue=audit_delivery_queue,
+            retention_policy_repository=retention_policy_repository,
+            legal_hold_repository=legal_hold_repository,
+            retention_log_repository=retention_log_repository,
+            retention_erasure_service=retention_erasure_service,
+            retention_worker=retention_worker_obj,
+        )
+    except BaseException:
+        if gateway_transport is not None:
+            await gateway_transport.aclose()
+        raise
+    bootstrap.role_registry = role_registry
+    return bootstrap
 
 
 async def bootstrap_app(

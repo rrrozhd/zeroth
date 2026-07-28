@@ -21,6 +21,7 @@ from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.core.orchestrator.runtime import NodeDispatcherError
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.runs import RunStatus
+from tests.conftest import content_capture
 
 
 class _RecordingConnector:
@@ -177,7 +178,7 @@ async def test_retrieval_audit_record_is_persisted_with_sources(sqlite_db) -> No
     orch = _orchestrator(
         _resolver(connector),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository(sqlite_db)),
     )
     graph = Graph(
         graph_id="g-rag-audit",

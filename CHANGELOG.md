@@ -7,6 +7,1462 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.8] - 2026-07-28
+
+### Fixed
+
+- Prevent governed plain callables from publishing an executable source through
+  annotations, signature defaults, or schema carriers. Callable plans now sit behind opaque
+  registry tokens, and unsafe metadata is refused rather than copied onto the public wrapper.
+- Refuse a governed execution if a shared closure cell changes from ordinary state into an
+  implementation after authorization, while preserving legitimate stateful closures.
+- Execute an authorized frozen tool body directly instead of entering a second LangChain tool
+  layer. Ambient configuration copies and process-global callback hooks can no longer run
+  between the policy verdict and the body or rewrite the authorized arguments.
+
+### Changed
+
+- Emit one caller-visible outer callback tree per governed call. Tool-attached callbacks remain
+  excluded, while genuine nested LangChain operations inherit the outer run context normally.
+- Carry `response_format` and `handle_tool_error` on the governed outer wrapper so content and
+  artifact shaping and `ToolException` handling happen exactly once.
+
+## [0.13.14.7] - 2026-07-27
+
+### Fixed
+
+- Stop governed plain callables from publishing the original, ungoverned callable through
+  `__wrapped__` or attributes copied by `functools.wraps`. The governed sync and async
+  functions retain their name, documentation, module, qualified name, truthful signature,
+  and exact LangChain-derived argument schema without exposing a direct policy bypass.
+- Keep the existing fail-closed boundary for callables whose executable has no valid call
+  signature. An over-bound `functools.partial` is still admitted at wrapping time, then
+  refused before policy evaluation when invoked.
+
+### Changed
+
+- Remove the unused `ToolSnapshot.kind` field now that class-defined bodies are frozen and
+  bound during snapshot capture. Update wrapper documentation to describe the
+  framework-owned executing twin rather than the obsolete delegate invocation path.
+
+## [0.13.14.6] - 2026-07-27
+
+### Fixed
+
+- Invoke the post-authorization executor with an explicitly callback-free config, on both the
+  sync and the async path. An invocation with no config is not an invocation with no callbacks:
+  `ensure_config` fills a missing one from `var_child_runnable_config`, the variable
+  `BaseTool.run` republishes its own child config into, so the internal executor inherited every
+  handler attached to the outer run and fired `on_tool_start` a second time — after the verdict,
+  and before `_to_args_and_kwargs`. The mapping that hook is handed is a shallow filtered copy,
+  so a policy that inspected `["safe", "evil"]` had the body run on `["safe", "evil", "evil"]`,
+  the extra entry appended by a handler that had already, legitimately, run once before the
+  decision. Dropping `callbacks` from the executing tool's carried fields closed the delegate's
+  route to that hook and did nothing to this one. `{"callbacks": []}` rather than
+  `{"callbacks": None}`: `ensure_config` merges the contextvar first and overlays an explicit
+  config only for keys whose value is not `None`, so a `None` is filtered back out and the
+  ambient handlers still win.
+
+### Changed
+
+- A caller's own run-level callbacks no longer fire twice per governed tool call. They see the
+  governed tool's start and end exactly once, which is the tool they invoked; the internal
+  executor beneath it is no longer a second traced run. No other ambient config key is
+  overridden — `configurable` and the rest still reach a body through `get_config()`.
+- **Tracing stops at the governed body, not only at the executor.** The executor's child config
+  is what a body's own context carries, so anything the body goes on to invoke — a nested tool,
+  a model, a `RunnableLambda` — is no longer seen by the caller's ambient handlers either. A
+  body calling one inner tool used to produce three `on_tool_start` events for that handler and
+  now produces one. Those handlers run after the body has already started and cannot change the
+  authorized call, so this is a disclosed cost of the fix rather than part of it, and
+  `test_what_a_governed_body_invokes_is_not_traced_by_the_callers_handler` pins it so that
+  moving it is a decision.
+- **Withdrawn as wrong, not superseded.** `_tool_execution`'s module docstring disclosed the
+  handlers a caller attaches to their own run as acceptable, on the grounds that installing one
+  is attacking yourself. Who installed a handler has no bearing on whether the body ran on the
+  arguments the policy inspected, and that is the whole invariant; the paragraph has been
+  replaced rather than amended.
+
+## [0.13.14.5] - 2026-07-27
+
+### Fixed
+
+- Bind a governed call against the signature of the thing that runs, not against the label it
+  carries. `inspect.signature` answers from `__signature__` when there is one and follows
+  `__wrapped__` when there is one, and both are ordinary writable attributes on an ordinary
+  admitted Python function — so a plain callable could describe itself as taking no parameters
+  while its body went on materializing its own defaults. `remove(path="/danger")` with
+  `__signature__ = "opaque"` was decided as `{}` and executed with `"/danger"`; a *valid*
+  `inspect.Signature` naming fewer parameters did the same thing without raising anywhere, and
+  a `functools.wraps` pointing at a narrower facade was a third way to say it. The binding is
+  now taken from the frozen snapshot of the executable, which no longer carries either
+  attribute, so the parameters a call is bound against are whatever the body's `__code__`,
+  `__defaults__` and `__kwdefaults__` say they are.
+- Drop `__signature__` and `__wrapped__` when freezing a function. The rebuild carries a
+  function's `__dict__` across because a tool's own attributes are its state; these two are not
+  state but *descriptions* of an implementation, and this module exists to stop a description
+  and an implementation being two separately-readable things. The execution adapter already
+  refused to write either of them for that reason.
+- Delete the no-signature fallback on the plain-callable surface. It named arguments
+  positionally and re-issued the caller's originals, on the stated grounds that only a builtin
+  or a C function could reach it — and none can: every C-implemented shape is refused by
+  `callable_implementation_digest` at `govern_tools` time. What actually reached it was an
+  admitted Python function that had been told to have no signature. A call that will not bind
+  is now refused as well, which loses nothing that could have executed and means no mapping the
+  wrapper could not derive from the executable is put in front of a policy.
+
+### Changed
+
+- A `(*args, **kwargs)` decorator built with `functools.wraps` is now decided under the
+  variadic parameters it really declares rather than under the inner function's parameter
+  names. The argument is still in the mapping, one level down; a policy matching a decorated
+  tool's inner parameter names must match `kwargs` instead.
+
+## [0.13.14.4] - 2026-07-27
+
+### Fixed
+
+- Freeze what a governed body *captured*, not only the body itself. The snapshot rebuilt the
+  outermost callable and then handed it the delegate's own containers, which left four ways to
+  move what runs without moving anything the snapshot pointed at: a `functools.partial` was
+  returned unchanged, so `partial.func.__code__` swapped the body underneath it; a callable
+  object was returned unchanged, so `type(obj).__call__.__code__` did the same; a rebuilt
+  function received the delegate's own `__closure__` tuple, so `cell.cell_contents = other`
+  replaced the helper it called or the code object it executed; and `__kwdefaults__` was
+  assigned across by reference, so one `__setitem__` rewrote a default the executing body
+  materializes for itself. The snapshot now walks into every shape identity walks — it imports
+  the fingerprint's own `_is_implementation` predicate and `_guard_depth` bound rather than
+  restating either — rebuilding partials around a frozen `func` with copied argument
+  containers, binding a statically resolved frozen `__call__` to the same instance, and giving
+  a rebuilt function new cells for the implementation it closes over.
+- Freezing stops at the line identity draws. A closure cell holding **state** stays the
+  delegate's own cell, so a body that rebinds a counter through `nonlocal` still sees its own
+  count on its next call; a `partial`'s bound arguments and a body's non-implementation
+  defaults are carried across by reference; module globals stay shared; and a frozen `__call__`
+  is re-bound to the same instance, so a tool that reads its own attributes goes on reading
+  them. A `__call__` that is C-implemented is left alone and refused by the fingerprint a
+  moment later, as it always was.
+
+## [0.13.14.3] - 2026-07-27
+
+### Fixed
+
+- Decide a governed plain callable on the call it will actually run. The wrapper bound the
+  arguments against the callable's own signature to *describe* the call, then re-passed the
+  caller's original `args`/`kwargs` to *execute* it — two reads, with a parameter default
+  materialized by only one of them. A callable `remove(path="/danger")` invoked with **no
+  arguments** was therefore authorized as `{}` and executed with `"/danger"`: the policy
+  approved an empty call and a destructive one ran. The binding now applies its defaults and
+  is re-issued as `bound.args` / `bound.kwargs`, so every parameter arrives explicitly and
+  the body's own `__defaults__` are never consulted a second time. A callable with no
+  retrievable signature — a builtin, most C functions — still executes with the caller's
+  arguments untouched, because there is no binding there to have described anything else.
+  The empty `()` / `{}` entries `apply_defaults()` invents for `*args` / `**kwargs`
+  parameters are suppressed, so no existing variadic tool's decided shape moves; a non-empty
+  variadic keeps the nested shape it reports today.
+
+### Removed
+
+- Deleted the unused `_ENTRY_HOOKS` copy in `_tool_wrappers.py`. The authoritative table is
+  the one `refuse_delegate_dispatch` reads in `_tool_execution.py`, and a second copy nothing
+  imports is a table that can silently fall out of step with the one that enforces.
+
+## [0.13.14.2] - 2026-07-27
+
+### Fixed
+
+- Stop carrying the delegate's `callbacks` onto the tool that executes after approval.
+  `on_tool_start` fired between the decision and the body, and `BaseTool.run` hands that
+  hook a **shallow** filtered copy of the tool input — so every container one level down
+  is the same object the body is about to receive. A handler that appended to a list the
+  policy had inspected as `["safe"]` had the body run on `["safe", "evil"]`, with nothing
+  reassigned and nothing visible on the tool. Governed execution therefore does not run a
+  delegate tool's own callbacks at all; observability comes from the governance audit
+  trail, not from a hook that runs between the verdict and the call. `response_format` is
+  still carried, so a `content_and_artifact` tool keeps its artifact.
+- Install each snapshotted body behind an internal `(*args, **kwargs)` adapter, so
+  `StructuredTool` has nowhere to inject arguments no policy inspected. Both `_run` and
+  `_arun` read the *body's own* signature and add a live child callback manager under a
+  declared `callbacks` parameter and the whole run configuration under a
+  `RunnableConfig`-annotated one. The adapter carries neither that parameter name nor any
+  annotation — and deliberately no `functools.wraps`, `__wrapped__` or `__signature__`,
+  each of which would hand the framework the body's real signature straight back. Proved
+  on all four driver combinations — `govern_tools` and `ZerothMiddleware`, sync and async
+  — across the `func` field, a `functools.partial` field and a hand-written `_run`.
+
+## [0.13.14.1] - 2026-07-27
+
+### Fixed
+
+- Freeze every captured tool body **by value**, and bind a class-defined one **before**
+  any caller-supplied code runs. The snapshot that closed the moved-field vector still
+  stored the delegate's own callables, so `body.__code__ = other` swapped what executed
+  while the field, the signature and the snapshot itself all stayed put — half-covered by
+  chance on the plain-callable surface, which rebuilt functions, and not covered at all
+  on the `BaseTool` surface, which froze nothing. Every captured slot is now rebuilt
+  through `snapshot_callable`, bound methods included, so the wrapper holds code nothing
+  else has a reference to.
+- Move method binding out of execution and into the snapshot. A `_run` used to be bound
+  by calling the delegate's own `__get__` *after* the side-effect classifier, the
+  contract resolver and the decision client had run, and a descriptor that is
+  fingerprinted through `__call__` and invoked through `__get__` could answer the two
+  reads with two different bodies. Only a plain function, a `staticmethod` and a
+  `classmethod` are admitted — what a hand-written tool actually declares — and any other
+  descriptor is refused with `UnstableToolIdentityError` rather than bound by its own
+  code. `langchain_core`'s own `_run`/`_arun` boilerplate is still skipped rather than
+  captured, so an ordinary tool never reaches that refusal. `ToolSnapshot.delegate` is
+  gone with its only reader: no delegate-written code runs after authorization to produce
+  the body. Both vectors are proved on all four driver combinations — `govern_tools` and
+  `ZerothMiddleware`, sync and async.
+
+## [0.13.14] - 2026-07-27
+
+### Fixed
+
+- Establish, and prove, that **the body which runs is the body whose identity was
+  authorized, and the arguments it receives are the arguments the policy saw**. Identity
+  was previously derived from the live tool and the body fetched from it again at
+  execution time, with the caller's contract resolver, side-effect classifier and
+  decision client running in between — so anything that moved the tool in that window
+  executed under a fingerprint pinned before it moved, and every read governance made
+  could be answered by the delegate itself. A `BaseTool` overriding `model_copy` returned
+  an evil same-schema `StructuredTool` that ran in place of the authorized one; a
+  classifier replacing `target.func` when consulted ran a substituted body under the
+  unchanged pin; an `invoke` entry in the delegate's instance `__dict__` and a custom
+  `__getattribute__` both bypassed a refusal that read only class-level attributes. All
+  four reproduced on both enforcement surfaces, sync and async.
+
+### Added
+
+- `zeroth.integrations.langgraph._tool_execution`, which makes identity derivation and
+  execution one fact instead of two reads. Reads are **static** — the real `__mro__`
+  walked through `type`'s own descriptors, instance state through
+  `object.__getattribute__` — so neither a hostile `__getattribute__` nor a metaclass can
+  author them. A **per-call snapshot** captures body and surface by value before any
+  caller-supplied code runs, identity is digested from that snapshot
+  (`tool_slots_digest`), and execution runs a **framework-constructed** `StructuredTool`
+  carrying the snapshotted callables rather than a copy the delegate produced — an object
+  the delegate has no attribute on.
+
+### Changed
+
+- The entry-hook refusal is widened to `model_copy`, `__copy__`, `__deepcopy__`,
+  `__getattribute__` and per-instance shadows of every hook, plus a metaclass allowlist,
+  checked at wrap time and again per call. `__getattr__` is permitted by identity rather
+  than refused, because `BaseModel` defines it. This refusal is deliberately **defence in
+  depth and not the guarantee**: a list of banned attributes is a list the next probe
+  walks around, which is why the snapshot carries the invariant.
+- A delegate whose entry path governance cannot execute past is now refused **before** the
+  policy is consulted rather than after. That is the ordering every other fail-closed
+  refusal already used, and it stops a live decision client from spending an answer on a
+  call that can never execute.
+- A governed plain callable now executes a function rebuilt from its own parts, so a later
+  `__code__` reassignment cannot move the body the wrapper holds.
+
+## [0.13.13.3] - 2026-07-27
+
+### Documentation
+
+- Document the exact boundary of the injected-argument refusal, and record the
+  decision not to project injected arguments away. An injected argument is
+  projected by the same canonical rule as every other argument, so its **value**
+  decides the outcome: the whole graph state (`Annotated[dict, InjectedState]`) and
+  an `InjectedStore` handle are refused, while a narrowed
+  `InjectedState("user_id")` and an `InjectedToolCallId` are representable and are
+  governed normally. The cookbook now states the workaround — narrow the injection
+  to the slice the body needs, which is also the declaration a policy can be
+  written against — and why eliding the value is not an option: a policy that
+  denies `path="/etc/shadow"` must not be shown a call with the path removed. This
+  narrows the `0.13.13` note below, which claimed the refusal covered
+  `InjectedState` / `InjectedStore` as such.
+
+### Tests
+
+- Cover all four injected-argument shapes in the cross-surface parity table,
+  driven through a real `create_agent` invocation on both surfaces — the argument
+  table above hands tools their arguments directly, so it could not observe
+  injection at all. Confirms that `govern_tools` and `ZerothMiddleware` refuse and
+  allow the same shapes, and that the two representable shapes really are governed
+  rather than merely tolerated.
+- Extract the scripted tool-calling model into
+  `tests/integrations/langgraph/tools/_agents.py`, so the middleware suite and the
+  parity table drive one definition instead of two copies.
+
+## [0.13.13.2] - 2026-07-26
+
+### Documentation
+
+- Document that tool identity covers implementation code and the declared surface,
+  not instance configuration: two instances of the same configurable `BaseTool`
+  subclass — one pointed at a benign endpoint, one at a hostile one — carry the
+  same fingerprint, so a reconfigured instance is not a detected substitution. The
+  trade-off is forced, because identity is re-derived and compared on every call
+  and digesting mutable bound state would make a stateful tool refuse its own
+  second call. Records what to do instead: pass the configuration as a tool
+  argument, pin it in `contract_ref`, or give each configuration its own
+  implementation.
+
+## [0.13.13.1] - 2026-07-26
+
+### Fixed
+
+- Pin the async half of the un-substitution limitation: a middleware nested inside
+  `ZerothMiddleware` can strip the governed twin from `awrap_tool_call` exactly as
+  it can from `wrap_tool_call`, leaving no decision and no audit record. Both are
+  now asserted against a pass-through control, so neither test can go vacuous.
+
+## [0.13.13] - 2026-07-26
+
+### Fixed
+
+- `ZerothMiddleware` no longer authorizes the raw arguments the model emitted. It
+  now substitutes a per-call governed twin of `request.tool` into the request it
+  hands downstream, so `BaseTool` validation, coercion, defaulting and `ToolNode`
+  argument injection all happen **before** the shared guard runs. Policy
+  previously saw the string `"7"` while the body received the integer `7`, and
+  never saw a defaulted or injected argument at all.
+- The middleware carries no enforcement branch of its own any more: its calls to
+  `guard_tool_call` / `authorize_tool_call` are removed, so both install surfaces
+  reach the enforcement core at one point (R8).
+- A tool that overrides a pre-body entry point (`_parse_input`, `invoke`, ...) is
+  now refused on the middleware surface too, as it already was on `govern_tools`.
+- Passing an already-governed tool to `ZerothMiddleware` is now refused with
+  `UnstableToolIdentityError` instead of being decided and recorded twice.
+- A retry middleware nested *inside* governance now gets a decision and an audit
+  record per physical execution, retiring a previously documented limitation.
+
+### Changed
+
+- **Breaking for mis-installed chains.** The verdict now travels back up *through*
+  the LangChain `handler`: a denial raises, and an approval interrupts, inside the
+  tool's execution rather than before the handler is reached. A middleware nested
+  inside `ZerothMiddleware` therefore observes calls governance goes on to refuse,
+  and one that rewrites `request.tool` removes governance entirely. Install
+  `ZerothMiddleware` last.
+- A tool whose injected argument carries an unrepresentable value — the whole graph
+  state, an `InjectedStore` handle — is now refused on the middleware surface,
+  because the injected value reaches the canonical argument projection. This
+  matches what `govern_tools` already did. A narrowed injection whose value is
+  representable, such as `InjectedState("user_id")` or `InjectedToolCallId`, is
+  governed normally; see the cookbook for the boundary.
+
+## [0.13.12] - 2026-07-26
+
+### Fixed
+
+- **A governed tool executed a second, mutable reference to its delegate.**
+  `GovernedTool` carried `zeroth_delegate` and `zeroth_plan` as public,
+  assignable pydantic fields while re-deriving the *identity* it enforces from
+  the plan — so assigning a same-schema tool over `zeroth_delegate` after
+  `govern_tools` returned made that tool execute under the original's authorized
+  fingerprint. A confused deputy, reproduced by probe. The plan is now sealed in
+  private state, execution goes through `plan.target`, `__setattr__` refuses
+  every name a call is executed or reported through, and the callable surface
+  publishes no handle to its target or plan at all.
+- **A delegate overriding a pre-body entry point could run arguments policy never
+  saw.** Clearing `args_schema` on the per-call executing twin makes `BaseTool`'s
+  `_parse_input` a pass-through, but does nothing about a subclass that
+  *overrides* it: policy authorized `{"query": "safe"}` while the body received
+  `"danger"`. **Breaking, deliberately:** a delegate whose class overrides
+  `_parse_input`, `_to_args_and_kwargs`, `invoke`, `ainvoke`, `run` or `arun`
+  is now refused with `UnstableToolIdentityError`, at `govern_tools` and again
+  before every execution. `langchain-core`'s own `BaseTool` and `StructuredTool`
+  implementations are permitted, so the `@tool` decorator's output — the normal
+  case — is unaffected; hand-written subclasses that override one of those six
+  hooks, `langchain_core.tools.Tool`, and re-governing an already-governed tool
+  are not. See the cookbook's "What `govern_tools` refuses to wrap". The ban can
+  be lifted once a neutral execution adapter exists that bypasses those hooks.
+- **Tool identity ignored exception handling.** The code projection omitted
+  `co_exceptiontable`. Since Python 3.11 exception handling is zero-cost —
+  entering a `try` emits no opcode — so two bodies with byte-identical
+  `co_code`, constants and names can differ in whether a `ZeroDivisionError` is
+  caught or propagates, and they fingerprinted identically. The table is now part
+  of the projection. Every other `co_*` attribute is documented as projected or
+  excluded, with the reason, in `_tool_fingerprint`'s module docstring.
+- **Recording a tool inventory consumed live authorization resolvers.** Both
+  install surfaces asked the caller's `side_effect` classifier and `contract_ref`
+  resolver for a reading at construction. A resolver is allowed to be live, and
+  asking one *consumes* an answer — so every later call was decided under the
+  following answer. On `ZerothMiddleware` this meant the same installation denied
+  a call **without** `expected_tools` and allowed it **with** it; on
+  `govern_tools` the first real call was decided under the classification meant
+  for the second. Neither surface resolves anything while recording now: the
+  inventory carries the identity, `SideEffectClass.UNKNOWN` and no contract, and
+  both facts are resolved live on every call as before. A caller that wants a
+  classified inventory builds `GovernedToolBinding` values from its own
+  observations and passes them to `record_binding_inventory`.
+
+## [0.13.11] - 2026-07-26
+
+### Added
+
+- **The LangGraph tool-governance vocabulary is now public API.** The
+  enforcement path gates on *exact type* — a verdict counts only when it is
+  exactly a `ToolDecision` carrying exactly a `ToolDecisionKind` — so the types
+  needed to call the enforcement surfaces were mandatory, not optional
+  implementation details, yet only `govern_tools` / `GovernedTool` /
+  `ZerothMiddleware` were exported. A user could not construct an *allowing*
+  decision client through supported imports at all. `zeroth.integrations.langgraph`
+  now exports the vocabulary a caller provably needs: `ToolGovernanceContext`,
+  `ToolIdentity`, `ToolAction`, `ToolDecision`, `ToolDecisionKind`,
+  `SideEffectClass`, `ToolDecisionClient`, `FailClosedToolDecisionClient`,
+  `UnknownSideEffectPolicy`, `ToolAuditSubmitter`, the five typed refusals
+  (`ToolGovernanceError`, `PolicyViolation`, `GovernanceContextError`,
+  `UnstableToolIdentityError`, `ApprovalRequiresThreadError`) and the inventory
+  reporting surface (`ToolInventory`, `ToolInventoryEntry`, `InventoryCoverage`,
+  `ToolInventoryMatch`, `ToolEnforcementReport`, `record_tool_inventory`,
+  `report_tool_enforcement`, `match_tool_inventory`,
+  `attest_complete_inventory`). The normalizers, the fingerprint digests and the
+  enforcement entry points stay private: normalization is done *for* a client
+  before it is asked, identities are derived rather than caller-asserted, and
+  enforcement lives in exactly one place. All of it is imported **eagerly** —
+  none of it touches `langchain` at module scope — so the guarantee that
+  importing the package pulls in neither `langgraph` nor `langchain` is
+  unchanged.
+- **`zeroth-core[langgraph]` extra.** `langchain` and `langgraph` existed only in
+  the `gateway-conformance` *dependency group*, so the documented middleware
+  capability was not installable from the published package. They are now a real
+  project extra (`pip install "zeroth-core[langgraph]"`), ranged rather than
+  pinned to the Agent Server conformance versions, and deliberately not part of
+  `[all]` (the headless runtime bundle). The imports stay lazy: the extra is how
+  a user opts in, not a licence to import eagerly.
+
+### Fixed
+
+- **The default-interrupt test could not fail.** It only inspected
+  `_langgraph_interrupt.__code__.co_names`, so it passed even if the approval
+  path never selected that function. The approval branch now patches the module
+  seam, invokes the guard with no `interrupt` argument, and asserts the
+  substitute received the real payload before a zero-count downstream; the
+  bytecode check survives as a separate, genuinely different claim (that the
+  default *is* LangGraph's `interrupt`). Both stay Tier B — making the seam
+  injectable is precisely what freed the approval branch from needing
+  `langgraph`.
+- **The cookbook misstated which tier the compatibility matrix runs in.** It
+  said all matrix tests were conformance-tier; the eight `test_cell_*` wrapper
+  cases deliberately run in the default (base) tier, and only the cross-surface
+  parity table is Tier A. Operators following the page ran the wrong suite. The
+  recipe also now uses only public imports and documents the install extra.
+
+## [0.13.10] - 2026-07-26
+
+### Fixed
+
+- **Tool identity was too weak to detect substitution.** A governed tool's
+  fingerprint covered only its *surface* — name, description and argument
+  *names* — so two functions returning different results, bound under one name
+  with one description and one schema, received the same identity. A substituted
+  tool therefore passed inventory matching and inherited the authorization
+  granted to the original. Identity is now bound to the code the tool will
+  actually run (`_tool_fingerprint.py`): a SHA-256 digest over the callable's
+  own code object — bytecode, constants, names and parameter shape, recursing
+  through closures, bound methods, `functools.partial` and decorators — plus a
+  digest of the *complete* declared schema, field types and constraints
+  included, rather than field names. Derived rather than caller-asserted,
+  because a fingerprint the caller supplies is a claim the substituting party is
+  best placed to make. A tool whose implementation cannot be fingerprinted
+  stably — a builtin, a C extension function, a tool whose body slot raises
+  rather than answering — now raises `UnstableToolIdentityError` instead of
+  falling back to the weak surface identity.
+- **The substitution test proved the wrong thing.** The R11
+  "same-name-different-fingerprint" case varied the tool's *description*, which
+  is metadata a real substitution simply copies. It now varies the
+  implementation with name, description and declared schema held identical and
+  asserted identical first.
+
+## [0.13.9] - 2026-07-26
+
+### Fixed
+
+- **"Exactly once" was asserted on the handler, not on the tool body.**
+  `ZerothMiddleware.wrap_tool_call` calls its downstream once per decision, and
+  every test counted that downstream — the same layer the assertion was about.
+  But LangChain hands each middleware a handler its own body may call repeatedly
+  (`_chain_tool_call_wrappers.compose_two`: "Outer can call call_inner multiple
+  times"), so a retrying middleware declared *after* `ZerothMiddleware` nests
+  inside it and runs the tool body N times against one decision and one audit
+  record. `ZerothMiddleware` is now documented as a hard **install-last**
+  requirement: innermost, every attempt re-enters `wrap_tool_call`, so every
+  physical tool execution gets its own decision and its own audit record. The
+  contract is pinned by tests that count executions of the tool function itself
+  — below `ToolNode` and below every middleware — driven through a real
+  `create_agent` with a real retrying middleware, sync and async. The
+  nested-retry limitation is pinned by its own test so it can never silently
+  become a claim, and no unqualified "exactly once" about the *body* remains in
+  the docs or docstrings. No position check is attempted: `AgentMiddleware`
+  exposes no hook carrying the middleware list, and the only observable
+  difference between the two arrangements is whether the handler is the tool
+  executor or LangChain's private `compose_two.<locals>.call_inner` — a guard
+  built on another library's local closures would stop guarding silently.
+- **The middleware had no inventory and no enforcement report.** The R13 report
+  was only ever exercised through `record_tool_inventory(govern_tools(...))` —
+  the wrapper path — which proves nothing about a middleware-only install, where
+  no tool is wrapped and no `zeroth_binding` exists to read.
+  `ZerothMiddleware(expected_tools=...)` now records a declared inventory,
+  exposed as `tool_inventory` and reported by `enforcement_report()`. The tools
+  are **not injected**: they are not added to `middleware.tools`, not handed to
+  the agent, and not wrapped. They are pinned through the same
+  `_describe_base_tool` a live call is described through, so an entry carries the
+  fingerprint the decision is actually made under. The report goes through the
+  one `report_tool_enforcement` the wrapper surface uses, so it can never be
+  `enforced` and mints no capability evidence: a tool-only install reports
+  `observed` (or `admission` when nothing was declared) with `partial` coverage
+  and an explicit enforced-tool list. The inventory gates nothing — an
+  undeclared tool is decided exactly as any other call is.
+- **The optional-dependency guard named the wrong module.** The middleware and
+  surface-parity suites called `importorskip("langgraph")` and then imported
+  `langchain.agents`. Marked modules are imported at collection, so an
+  environment with `langgraph` but without `langchain` errored instead of
+  skipping. Both suites now guard `langchain.agents` directly, which covers both
+  dependencies.
+
+## [0.13.8] - 2026-07-26
+
+### Fixed
+
+- **Tool enforcement authorized arguments the tool body did not receive.**
+  `GovernedTool._run` / `._arun` built the policy action from the arguments
+  `BaseTool` had already parsed and then handed them back through
+  `delegate.invoke`, which validated them a *second* time. A validator that is
+  stateful or otherwise non-idempotent answers differently on the second pass,
+  so policy authorized one value while the body executed another. The delegate
+  is now driven through a per-call pass-through twin
+  (`_tool_wrappers._executing_delegate`), so exactly one validation happens per
+  governed call and the values the body receives are the values the decision was
+  made about. The delegate is still driven through its own `invoke`, so it keeps
+  building its own `ToolMessage` and a `content_and_artifact` tool's artifact
+  still survives the wrapping. The original tool is not mutated: the
+  pass-through is arranged on a copy.
+- **The two install surfaces resolved authorization facts at different times.**
+  `govern_tools` pinned both the side-effect classification and the contract
+  binding at wrap time, while `ZerothMiddleware` resolved both per call, so a
+  tool that became `SIDE_EFFECTING` (or moved onto another contract) after it
+  was wrapped was still decided as what it used to be on the wrapper surface —
+  and the stale reading is always the permissive one. Both surfaces now resolve
+  every authorization fact per call. `GovernedToolBinding.side_effect` /
+  `.contract_ref` survive as the inventory's wrap-time *observation* and nothing
+  decides against them.
+- **The unclassified gate was not exact-type safe.** `_denies_unclassified`
+  treated every value other than the `UNKNOWN` member as classified. Because
+  `SideEffectClass` is a `StrEnum`, an exactly-typed `ToolAction` carrying the
+  bare string `"read_only"`, `None`, or any other non-member reached the
+  decision client as a *classified* tool. Anything that is not an actual enum
+  member is now unknown, and unknown is denied unless the named opt-in says
+  otherwise.
+- **Non-finite floats broke the canonical-JSON promise.** `NaN` and the
+  infinities passed the argument projection although `json.dumps` spells them
+  `NaN` / `Infinity`, which no other parser reads back — so the argument
+  fingerprint and every audit record built from it stopped round-tripping, and
+  `NaN` compares unequal to itself, which no policy can decide by comparison.
+  They are now refused like every other unrepresentable value.
+
+### Added
+
+- Cross-surface parity scenarios for stateful resolvers:
+  `a-classification-that-changes-after-the-tool-is-installed` and
+  `a-contract-binding-that-changes-after-the-tool-is-installed`. The table
+  previously avoided stateful resolvers by design, and that exclusion is what
+  hid the resolution-timing divergence; `Scenario` now carries `resolvers` /
+  `mutate` hooks so a fact can be changed in the window between installing a
+  tool and calling it.
+
+## [0.13.7] - 2026-07-26
+
+### Added
+
+- `tests/integrations/langgraph/tools/test_surface_parity.py`: a cross-surface
+  parity suite built on one shared scenario table. Every scenario is driven
+  through `govern_tools` **and** `ZerothMiddleware` inside the same test body,
+  and the first assertion is that the two outcomes are equal — exception class,
+  returned value, downstream call count, every audit projection, and every
+  interrupt payload. The table covers allow, deny, require-approval,
+  require-approval-without-a-thread, unknown-side-effect denied, unknown
+  side-effect admitted by the named opt-in, absent governance context, and a
+  decision client that raises. Sync and async halves of both surfaces are held
+  to the same equality, and one surface's own sync/async pair is compared too,
+  so the four edges of the square are pinned rather than three.
+- `docs/how-to/cookbook/govern-langgraph-tools.md`: the tool enforcement
+  documentation page, nested under the existing How-to Guides / Cookbook nav
+  section. It carries the `govern_graph(create_agent(..., middleware=[...]))`
+  composition example, the supported middleware nesting order
+  (first-defined-outermost), the compatibility matrix with each documented cell
+  mapped to its named test, and the two known divergences.
+
+### Documented
+
+- Tool-level enforcement is **not** graph-level or cumulative enforcement.
+  `ENFORCED` requires capability evidence that is both `ENFORCED` and
+  `tool_manifest_complete`; nothing in `src/` mints evidence with
+  `tool_manifest_complete=True`, and this integration states in four places that
+  it never promotes a run above `admission` (FA5). A tool-only run therefore
+  reports `observed` with `partial` coverage plus an explicit enforced-tool list.
+- `response_format` is deliberately not carried onto a governed wrapper: an
+  attribute divergence with behavioral equivalence, because the delegate is
+  handed the whole tool call and builds its own `ToolMessage`. Carried fields are
+  `return_direct`, `tags`, `metadata`, `handle_validation_error`; not carried are
+  `callbacks`, `handle_tool_error`, `response_format` — split by who reads them.
+- Two callback trees fire per governed call: the wrapper's `run()` and the
+  delegate's `run()` each emit `on_tool_start` / `on_tool_end`. Telemetry
+  divergence, not a governance gap — the body still runs once and the decision is
+  still recorded once.
+
+### Fixed
+
+- The parity suite's first run surfaced `ApprovalActionRecord.occurred_at` as a
+  nested per-record wall clock, so the audit projection excludes it alongside
+  `audit_id` and `started_at`. Those three — two timestamps and a nonce — are the
+  only excluded fields; every other field is compared.
+
+## [0.13.6] - 2026-07-26
+
+### Added
+
+- `_middleware.py`: `ZerothMiddleware`, the `create_agent` install surface for
+  tool enforcement. It implements both `wrap_tool_call` and `awrap_tool_call`,
+  and carries no enforcement branch of its own — the sync path calls
+  `guard_tool_call`, the async path calls `authorize_tool_call` and then awaits
+  its own downstream, exactly as the `govern_tools` wrappers do. LangChain hands
+  the tool's execution in as a `handler` callback, so a denial and an approval
+  are literally "the handler was never called" rather than a verdict inferred
+  from a return value.
+- A denial propagates as `PolicyViolation` and is never rendered as an error
+  `ToolMessage`. Governance decides whether a call happens, not what it means; a
+  second representation of the verdict is exactly the drift that lets two
+  surfaces disagree.
+- Identity is read off the *resolved* tool through the same `_describe_base_tool`
+  the wrapper surface uses, so one tool fingerprints identically on both install
+  surfaces, and a request naming one tool while carrying another is refused. A
+  call the agent could not resolve to a tool (`request.tool is None`) is refused
+  rather than decided against a bare name.
+- The supported nesting order is documented on the class: LangChain composes
+  `wrap_tool_call` middleware first-defined-outermost, so governance sees every
+  call the middleware ahead of it let through, and everything nested inside it
+  only ever runs on a call governance allowed.
+- `ZerothMiddleware` is exported lazily from `zeroth.integrations.langgraph`, for
+  two independent reasons: it needs `langchain.agents`, which ships only in the
+  optional `gateway-conformance` group, and importing that drags in the
+  OpenTelemetry SDK by way of `langsmith`.
+
+### Fixed
+
+- The eager-import guard now forbids `langchain` as well as `langgraph`. It
+  previously checked only the latter, so a module-scope `langchain.agents` import
+  in the package's `__init__.py` would have sailed past it and instead
+  hard-`ImportError`ed the package for every caller installed without the
+  optional group. The match is `== "langchain"` / `startswith("langchain.")`:
+  `langchain_core` is a *core* dependency imported eagerly on purpose, and a bare
+  `startswith("langchain")` would fail on the 54 modules it already pulls in — a
+  second test pins that distinction rather than leaving it to a comment.
+- `test_tool_inventory.py`: replaced a vacuous assertion in
+  `test_the_module_mints_no_capability_evidence`. It checked that
+  `"tool_manifest_complete"` was not a *key* in the module namespace, which no
+  module-level binding could ever be; it now checks the namespace's values, which
+  is where such a claim could actually be minted.
+
+## [0.13.5] - 2026-07-26
+
+### Added
+
+- `_tool_inventory.py`: records the governed tool inventory from what
+  `govern_tools` pinned, and reports the enforcement level that honestly
+  supports. `record_tool_inventory` reads each wrapper's binding structurally —
+  no `langchain_core` import, so the module pulls in neither `langsmith` nor the
+  OpenTelemetry SDK — and refuses a tool that carries no governed binding rather
+  than skipping it, because a tool that cannot be read must not become a tool
+  that cannot be seen.
+- `match_tool_inventory` compares an inventory against the tool list an operator
+  declared on name **and** fingerprint, order-insensitively, and reports the three
+  ways it can differ as three separate findings: a missing tool, an unexpected
+  tool, and a *substituted* one — same name, different fingerprint. The third is
+  the direction a name-keyed inventory waves through, so it is kept apart from
+  the other two rather than folded into them. `inventory_fingerprint` digests the
+  sorted name/fingerprint pairs through the existing canonical projection, so it
+  inherits that projection's exact-type refusals.
+- A repeated tool name is refused on both sides: a name two tools answer to
+  identifies neither, and makes "extra or substitution?" ambiguous.
+- `attest_complete_inventory` is the only place `InventoryCoverage.COMPLETE` is
+  minted, and it mints it only against a declared list that matched exactly.
+- `report_tool_enforcement` returns `observed` with the names of the tools
+  actually governed, and `admission` when there are none. It has no branch that
+  can return `enforced`: that needs signed, fresh, `tool_manifest_complete` run
+  evidence, this package mints none, and an inventory's coverage is not a
+  substitute for it — an attested `COMPLETE` inventory reports exactly what a
+  partial one does. The report is a description of the tool surface, not a run
+  attestation, and is not fed to a `CapabilityReporter`.
+- `ToolEnforcementReport.level_term` is the plain `str` an audit writer must use:
+  `execution_metadata["governance_level"]` is vocabulary-gated with
+  `type(value) is str`, and a `StrEnum` member's type is the enum class, so
+  writing the member itself passes the membership test and is then summarized
+  away at capture time.
+- Every identity is rebuilt from fields that passed `normalize_identifier`, on
+  the recorded side and the declared side alike, so a `str` subclass smuggled
+  into a caller-constructed `ToolIdentity` cannot forge a match, and a hostile
+  container that injects a value through `__iter__` refuses the recording.
+
+## [0.13.4] - 2026-07-26
+
+### Added
+
+- `_tool_wrappers.py`: `govern_tools`, the install surface for a raw tool list.
+  It returns governed twins of sync and async `BaseTool` instances and of plain
+  callables, each invocable through exactly the interfaces its original was —
+  `invoke` / `ainvoke` / `run` / `arun` for a tool, a direct call for a callable —
+  and each preserving `name`, `description` and `args_schema`. A wrapper also
+  reports the wrapped tool's own input schema rather than one inferred from the
+  wrapper's signature, so a schema-less tool stays schema-less through the
+  wrapping. `return_direct`, `tags`, `metadata` and `handle_validation_error` are
+  carried too — the caller reads those off the wrapper and never off the delegate
+  behind it — while `callbacks`, `handle_tool_error` and `response_format` stay
+  with the delegate, which is the layer that runs, formats and therefore fails.
+- A governed call that arrived as a tool call is handed on as a tool call, id
+  included, so a `content_and_artifact` tool builds its own `ToolMessage` and its
+  artifact survives the wrapping instead of being dropped for want of a call id.
+- The wrappers are adapters, not a second enforcement path: the sync surfaces
+  call `guard_tool_call` and the async surfaces call `authorize_tool_call` and
+  then await their own downstream, so every allow, deny and approval branch stays
+  in the one shared core. `_run` / `_arun` are the choke point, which is what
+  makes every `BaseTool` entry point governed at once.
+- Wrapping mutates nothing: the original tool object is never written to, its
+  `.func` / `.coroutine` are never rebound, and the supplied container is copied
+  rather than governed in place, so any other holder of a wrapped tool keeps the
+  behaviour it had.
+- Identity is pinned at wrap time and re-derived from the live tool on every
+  call; a name or declared schema that moved refuses the call with
+  `UnstableToolIdentityError` rather than deciding against an identity that will
+  not hold.
+- Optional per-tool `side_effect` and `contract_ref` resolvers. Only a real
+  `SideEffectClass` member classifies a tool, and a resolver that raises leaves
+  the tool unclassified — which the default policy denies.
+- `govern_tools` declares `partial` coverage and takes no coverage parameter:
+  claiming a complete inventory needs an expected tool list whose fingerprints
+  match at startup, and a parameter would let a caller assert completeness
+  nothing verified.
+
+### Changed
+
+- `govern_tools` / `GovernedTool` are exported from
+  `zeroth.integrations.langgraph` **lazily**, alongside `emit_genai_spans`:
+  `from langchain_core.tools import BaseTool` pulls `langsmith`, which imports
+  the OpenTelemetry SDK at module scope, so an eager export would drag
+  OpenTelemetry into every `import zeroth.integrations.langgraph`.
+
+## [0.13.3] - 2026-07-26
+
+### Added
+
+- `_tool_guard.py`: the shared tool-enforcement core both governance surfaces
+  call, so the fail-closed rules cannot diverge between them. `guard_tool_call`
+  is the entry point — it invokes the downstream tool exactly once on an allow,
+  outside any `try` and any loop, so a tool's own failure propagates unchanged
+  and is never retried. A denial raises `PolicyViolation` and an approval
+  suspends the run, both *before* the tool body, which runs zero times either
+  way. `authorize_tool_call` is the same enforcement without the invocation, for
+  a surface whose downstream call is awaited.
+- LangGraph's `interrupt` is an injected parameter defaulting to a lazy import,
+  the same seam shape as the decision client: an import inside the enforcement
+  function would leave nothing for a test to substitute, so the approval branch
+  would be untestable without the dependency. The interrupt payload is versioned
+  and carries only plain `str`/`int`/`None` values, so it survives a checkpoint's
+  JSON round trip; the call's arguments are represented by their fingerprint
+  rather than their content. Requesting an approval is all this stage does —
+  resume-time revalidation is ZER-10's, and an `interrupt` that returns instead
+  of suspending is refused rather than followed by the invocation.
+- Two further fail-closed rules: a tool with no stable identity raises
+  `UnstableToolIdentityError`, and an approval on a run with no thread to resume
+  into raises `ApprovalRequiresThreadError` rather than quietly becoming an
+  allow. Both refusals happen before anything is recorded or interrupted.
+- An action normalized against one governance context can no longer be enforced
+  against another: the principal is checked and a mismatch raises
+  `GovernanceContextError`. Not attacker-reachable, but it is attribution an
+  auditor could not unpick afterwards.
+
+### Changed
+
+- The decision record travels the typed `tool_calls` and `approval_actions`
+  fields, never a new `execution_metadata` key: the metadata allowlist has no key
+  for a tool name, tool reference or approval id, and drops unrecognized keys
+  silently, so writing one produces a record that looks audited and carries no
+  evidence. Only `decision` and `reason_code` — both long-standing allowlisted
+  keys — go into the metadata, and `reason_code` only for a denial. Emission
+  never raises: a projection that will not validate and a submitter that fails
+  each cost one record, not the call.
+- `capture_vocabulary`: added `require_approval` to
+  `METADATA_VOCABULARIES["decision"]`. `allow` and `deny` were already retained,
+  and the existing `approve`/`reject` are `ApprovalDecisionType` *resolutions* —
+  what a human answered — so neither could stand in for "waiting on a human".
+  Without a term of its own, the one verdict that pauses a run is the one whose
+  record loses it.
+
+## [0.13.2] - 2026-07-26
+
+### Added
+
+- `_tool_normalize.py`: builds the complete `ToolAction` a tool-governance
+  decision is made about *before* any policy runs — tool identity, canonical
+  argument projection with a stable SHA-256 fingerprint, contract binding,
+  injected principal, side-effect classification. Every gate is an exact-type
+  gate (`type(x) is str`), every container is copied before it is validated,
+  and mappings are read by iterating `items()` rather than keying back into
+  them, so a hostile `str` / `dict` / `tuple` / `list` subclass cannot reach
+  the descriptor. An argument the projection cannot represent is refused, never
+  elided or replaced: a placeholder would show a policy a different call from
+  the one about to run.
+- `_tool_decisions.py`: the decision seam — a `ToolDecisionClient` protocol and
+  `FailClosedToolDecisionClient`, the default that denies every call.
+  `resolve_tool_decision` turns a missing client, a raising client, a `None`, a
+  duck-typed impostor and an unrecognized verdict all into denials; an
+  unclassified (`SideEffectClass.UNKNOWN`) tool is denied before a client is
+  even asked. The only escape is `UnknownSideEffectPolicy.ALLOW_UNCLASSIFIED_TOOLS`,
+  an enum member compared by identity so no boolean, default or bare string can
+  trip it. Every reason code the seam mints is registered in `REASON_CODES`,
+  and repairing an unregistered client-supplied code never changes the verdict.
+- The principal and tenant are injected, never read from the unverified
+  correlation carrier: a test pins that a forged correlation id cannot become a
+  principal, structurally (no import edge) and behaviourally.
+
+### Changed
+
+- Two tool reason-code assertions that passed trivially are now discriminating:
+  the caller-facing `code` is pinned to the audit code it must derive
+  (`zeroth.<condition>` ↔ `<condition>_error`, with `PolicyViolation` branched
+  separately), and the content-leak probe now smuggles a secret through an
+  unallowlisted `execution_metadata` key instead of asserting on a field the
+  secret was never written to.
+
+## [0.13.1] - 2026-07-26
+
+### Added
+
+- Tool-governance vocabulary for the LangGraph integration:
+  `_tool_types.py` declares `SideEffectClass`, `ToolDecisionKind`,
+  `InventoryCoverage`, `ToolIdentity`, `ToolAction`, `ToolDecision`,
+  `ToolGovernanceContext`, `ToolInventoryEntry` and `ToolInventory` as frozen
+  dataclasses and `StrEnum`s. `ToolDecisionKind` carries the third verdict
+  (`require_approval`) *locally*, so the platform-wide `PolicyDecision` stays
+  ALLOW/DENY and no `is PolicyDecision.ALLOW` branch turns a pending approval
+  into a hard failure.
+- `_tool_errors.py` with `ToolGovernanceError` and its four subclasses
+  (`PolicyViolation`, `GovernanceContextError`, `ApprovalRequiresThreadError`,
+  `UnstableToolIdentityError`), each carrying a `zeroth.`-namespaced caller
+  facing `code`.
+- Audit reason codes for those failures, without which a tool denial writes a
+  record whose reason is summarized away rather than retained: `policy_violation`
+  joins the denial reason codes (a verdict a governance stage returned), and
+  `tool_governance_error`, `governance_context_error`,
+  `approval_requires_thread_error` and `unstable_tool_identity_error` join the
+  package failure codes.
+- `tests/integrations/langgraph/tools/test_tool_reason_codes.py` drives each of
+  those exceptions through `AuditRepository.write` and asserts the reason code
+  survives into storage, with an unregistered probe as the negative control. The
+  registration check walks `_tool_errors.__all__`, so an exception added later
+  fails the suite until its code is registered too.
+
+## [0.13] - 2026-07-26
+
+### Added
+
+- `langchain` (`>=1,<2`) joins the `gateway-conformance` dependency group. The
+  LangGraph tool-enforcement surfaces are built on the agent middleware that
+  ships in `langchain` proper — `AgentMiddleware`, `wrap_tool_call`, and
+  `ToolCallRequest` — which the already-pinned `langgraph` packages do not
+  provide. The resolution moves nothing else: `langchain-core` stays where it
+  was, so the existing gateway conformance pins are untouched.
+- `tests/integrations/langgraph/tools/` test package, the home for the
+  tool-enforcement suites that land on top of this dependency.
+
+## [0.12.4.5.1] - 2026-07-25
+
+### Fixed
+
+- `capture_vocabulary` claimed that `tests/governance/audit/test_capture_vocabulary.py`
+  "pins each mirror against the enum it mirrors so the two cannot drift". That file
+  did not exist, so the hand-transcribed vocabularies were unpinned. A drift here
+  fails *open* in the direction that matters: a new enum member is summarized away,
+  so a real decision silently stops being retained and the audit row loses evidence
+  it is meant to keep. The test now exists and imports both sides — tests are not
+  bound by the layering rule that forces the transcription in the first place.
+  The comment's reasoning was also wrong for two of the mirrors: `PolicyDecision`
+  lives in `governance` itself and `ApprovalDecisionType` in `contracts`, both
+  importable; only `SandboxStrictnessMode` (`integrations`) and `GovernanceLevel`
+  (gateway package) genuinely have to be copied. Corrected to say so.
+
+## [0.12.4.5] - 2026-07-25
+
+### Fixed
+
+- Closed the startup-failure hole the bounded-shutdown reorder opened. Moving the
+  gateway stop and the audit drain *inside* the runtime lifespan is what made
+  them bounded — outside it, the drain queued behind every unbounded post-yield
+  await (a run worker's graceful shutdown, the ARQ consumer and pool, the webhook
+  client, the secret provider), so one hung predecessor postponed it for as long
+  as the hang lasted, which is the lost backlog R10 forbids reached by a slower
+  route. But a startup that fails never reaches the body, and an inner-only
+  shutdown therefore never ran at all: the transport the bootstrap had already
+  built was left open and the accepted audit backlog was left unpersisted and
+  unreported. `service_lifespan` now runs the stop and the drain for that case
+  through an outer guard, and — because a normal shutdown already ran them —
+  exactly once either way. A transport close that fails while a startup is
+  already failing is logged under a fixed code and an exception type, never
+  re-raised over the startup error an operator actually needs.
+
+### Added
+
+- Failing-before probes for both halves of that guard: a runtime lifespan that
+  refuses to start still closes its transport exactly once and still drains the
+  events already accepted, a close that fails during a failed startup never masks
+  it and never puts its own message in the log, and a normal shutdown does not
+  close a transport the inner stop already closed. The existing hung-predecessor
+  and abandoned-close probes round out the ordering suite.
+
+## [0.12.4.4] - 2026-07-25
+
+### Fixed
+
+- Realigned the audit-capture suites with the collision-free canonical mapping.
+  A canonical mapping is now an entry *sequence* (`{"<entries>": [[key, value],
+  …]}`) rather than a flat `{hashed_key: type_name}` dict, because unsafe and
+  non-string keys all rendered to the same `***REDACTED***` marker and therefore
+  overwrote one another: two submitted entries were persisted as a count of one
+  and a schema missing a branch, which broke R4's promise that the hashes and
+  counts of dropped content are retained. Five assertions still described the old
+  flat shape and were updated to the new one; each still fails if the property it
+  was written for breaks. The `operation` assertion moved with the metadata
+  vocabulary — its text is filled partly from a client-supplied protocol method,
+  so it is now replaced by a stable correlating digest rather than retained.
+
+### Added
+
+- Failing-before probes for the three capture gaps that shipped without one:
+  a registered secret nested inside a `set` (the container type none of the three
+  stacked walkers traversed), a label-shaped credential filed under `reason_code`
+  / `decision` / `status` (a shape check is not a provenance check), and an
+  artifact reference whose `store`, `content_type` and nested `metadata` used to
+  ride into a metadata-only capture alongside the one key retention needs. Each
+  probe leaks its seeded value against the pre-fix source and is clean against
+  the current one. A collision probe pins the entry-sequence fix directly: two
+  entries whose keys both canonicalize unsafely must count as two, and must
+  digest differently from one of them alone.
+
+## [0.12.4.3.1] - 2026-07-25
+
+### Fixed
+
+- Restored the retention suite's opt-in to content capture. Collapsing capture to
+  a single unconditional point at `AuditRepository.write` left the retention
+  fixtures stamping a capture marker onto each seeded record — a genuine opt-in
+  before the seal was deleted, a no-op that still read like one afterwards. The
+  seeded PII those eleven tests assert is present *before* a sweep was therefore
+  stripped at write time, and the pre-sweep assertions failed. The fixtures now
+  install a content-retaining `CaptureClassifier` on the repository via
+  `configure_capture`, which is the surviving legitimate mechanism: a deployment
+  picks between two fixed outcomes and cannot author the transform, and no record
+  influences whether it is captured. The marker-stamping helper is deleted rather
+  than left in place under a name it no longer earns.
+
+### Fixed
+
+- Made "decision metadata is retained" true rather than merely claimed. The
+  metadata-only capture keeps an allowlisted, per-key-typed projection of
+  `execution_metadata`, but every denial producer filed its verdict in a *nested*
+  dict (`admission`, `enforcement`, `extra`, `response`) or in the free-form
+  `error` the capture replaces — so admission denials, per-branch identifiers,
+  enforcement modes, retry counts and cache dispositions all vanished at the
+  durable write. Producers now promote those onto flat, allowlisted keys:
+  `admitted`, `admission_digest`, `decision`, `reason_code`, `network_mode`,
+  `sandbox_strictness_mode`, `branch_id`, `branch_index`, `attempt` and
+  `disposition`. `AdmissionController.admit` returns a stable `snake_case`
+  reason code on every branch instead of a rendered message.
+- `collect_policy_events` was silently inert: it substring-matched
+  `denied`/`forbidden`/`policy` against `NodeAuditRecord.error`, which capture
+  replaces with a fixed redaction marker, so both `/evidence` endpoints returned
+  an always-empty `policy_events` list. It now reads the structural decision
+  fields, and each event names the node, the decision and the reason code.
+- Retention erasure lost its join key: `join_key` was not on the metadata
+  allowlist, so `RetentionErasureService` could not find the econ events an
+  erased run produced. `join_key` and the branch identifiers are retained
+  verbatim under a new `MetadataKind.IDENTIFIER` — hashing them would satisfy a
+  presence check while breaking every consumer that compares them.
+
+### Added
+
+- `MetadataKind.IDENTIFIER`, for the ids this codebase mints from a record's own
+  identity, and `normalize_reason_code`, which renders a producer's failure or
+  denial *name* as a stable label-shaped code.
+
+## [0.12.4.2] - 2026-07-25
+
+### Fixed
+
+- Collapsed audit capture to a single point. `AuditRepository.write` is now the
+  sole, unconditional capture boundary: it always applies the capture policy and
+  reads nothing off the record it is handed. Capture previously ran twice — once
+  on the delivery worker and once on the durable write — which forced the second
+  pass to recognise the first pass's work through a marker on producer-supplied
+  `execution_metadata`. A caller could obtain a genuine marker, alter the content
+  around it, and have the repository skip capture entirely, bypassing R3/R5.
+
+### Removed
+
+- `zeroth.governance.audit.capture_seal` in full — the per-process nonce,
+  `seal_metadata`, `is_sealed`, `strip_seal`, `capture_for_write` and
+  `CAPTURE_SEAL_KEY`. With one capture point there is nothing to attest and
+  nothing to forge. `CAPTURE_METADATA_KEY` moved to
+  `zeroth.governance.audit.capture_policy`.
+- The delivery worker no longer classifies or redacts; `AuditDeliveryQueue` no
+  longer accepts `classifier`, `redaction` or `known_secrets`, and
+  `DeliveryFailure.CAPTURE_FAILED` is gone. `redaction` and `known_secrets` were
+  dropped along with the worker's policy and have **no** configuration path:
+  `AuditRepository.configure_capture` takes a classifier only, and the
+  repository builds its own `AuditCapturePolicy` with the default redaction
+  chain and no registered secrets. `AuditRecordWriter` implementations are now
+  required to be capture-applying durable sinks; production injects only
+  `AuditRepository`.
+
+## [0.12.4.1.1] - 2026-07-25
+
+### Fixed
+
+- Regenerated the console's derived contracts, which the ZER-5 audit-delivery work
+  left stale: `frontend/openapi.json` and `frontend/app/lib/api-types.ts` were
+  missing the additive `AuditDeliveryHealth` schema and the `audit_delivery` block
+  on `HealthResponse`, and `frontend/app/lib/version.ts` still carried the previous
+  version. Both drift gates (`docs` → `check:api`, `verify-extras` → `check:version`)
+  were failing on `main` as a result.
+
+## [0.12.4.1] - 2026-07-25
+
+### Fixed
+
+- The durable audit write is now the capture boundary. `AuditRepository.write`
+  applies the capture policy itself, so the orchestration runtime, the approvals
+  service and the service API can no longer reach storage around it: node
+  prompts, results, error text, policy denials and approval audits are
+  classified and redacted before the digest is computed, whatever the producer
+  submitted and whether or not a secret resolver was ever injected (R3, R4, R5).
+  A record produced by a capture policy in this process carries a process-local
+  nonce and is written unchanged, so the delivery stage's output is not
+  transformed twice; the nonce is stripped before the write, so it never reaches
+  storage and cannot be replayed. `AuditRepository.configure_capture` installs a
+  deployment's classifier once, at wiring time, for deployments that opt into
+  retaining content.
+- Allowlisted `execution_metadata` keys are now projected per key by declared
+  kind -- number, boolean, digest, bounded lower-case label, or an opaque
+  identifier that is only ever hashed -- instead of accepting any short scalar.
+  A credential pasted into the client-supplied `X-Correlation-ID` header is no
+  longer persisted verbatim (R4, R5).
+- Mapping key text supplied by a producer is never persisted in a dropped-content
+  schema: schema keys are truncated SHA-256 digests, and schema type names come
+  from a closed set. An identifier-shaped credential used as a mapping key was
+  previously stored as a "shape" (R5).
+- The capture redaction chain masks mapping keys as well as values, and the
+  payload sanitizer accepts only exact `str` keys instead of calling `str(key)`.
+  A registered secret used as a mapping key survived content-mode capture (R5).
+- `AuditDeliveryQueue.submit` rejects a whitespace-only tenant and counts a
+  dedicated `invalid_record` rejection before raising, so a refused event is
+  visible on `/v1/metrics` and `/health` instead of disappearing with every
+  counter at zero (R7, R8, R9).
+- Each audit write attempt now runs under a finite deadline; an attempt that
+  overruns it is cancelled, released without being awaited, counted, and retried
+  under the same `audit_id`. One hung write previously owned the stage's only
+  worker indefinitely, with no retry, no failure and no counter movement.
+  `zeroth_audit_delivery_in_flight_seconds` reports the age of an outstanding
+  attempt.
+- Shutdown claims an in-flight event's terminal state before cancelling, so a
+  write that lands after abandonment is recorded under
+  `zeroth_audit_delivery_reconciled_total` rather than counted a second time as
+  delivered. "Abandoned" and "delivered" are mutually exclusive again (R7).
+- The service lifespan bounds the gateway transport's shutdown and drains the
+  audit-delivery queue in an unconditional `finally`. A transport close that
+  raised skipped the drain entirely and one that hung postponed it forever,
+  losing the accepted backlog; the transport error is now preserved and re-raised
+  only after the drain has reported (R10).
+- `AuditGatewayEventSink.emit` counts a refused or unprojectable terminal event
+  through the delivery stage's counters and returns, instead of raising into the
+  gateway proxy's generic handler -- which logged a full traceback per refusal on
+  the response-completion path, exactly under saturation. `GatewayAuditRefusedError`
+  is removed.
+
+### Changed
+
+- Artifact references owned by a run (`{run_id}/...`) are retained as addressing
+  under the capture marker, so retention can still find and destroy a run's
+  artifacts after its content channels are emptied.
+- `AuditRecordSubmitter` documents as a hard requirement that an implementation
+  must be non-blocking and synchronous at the hand-off; the proxy's
+  `asyncio.timeout` around the sink is a cooperative guard and cannot make a
+  blocking or cancellation-swallowing sink safe.
+
+## [0.12.4] - 2026-07-25
+
+### Added
+
+- The gateway's audit-delivery stage is now built by the service factory with the
+  application `MetricsCollector`, so `zeroth_audit_delivery_queued_total`,
+  `_retried_total`, `_rejected_total`, `_failed_total`, `_abandoned_total` and the
+  `zeroth_audit_delivery_queue_depth` gauge are rendered by `GET /v1/metrics`
+  instead of accumulating on a private collector nothing scrapes (R7).
+- `GET /health` carries an `audit_delivery` block (queue depth, the per-outcome
+  counts and `losing_events`), and `GET /health/ready` carries a matching
+  `audit_delivery` dependency check that degrades readiness when the stage has
+  lost an event. A loss is never rendered as a delivery (R8).
+- `ServiceBootstrap.audit_delivery_queue` exposes the stage the gateway event
+  sink submits into, giving it a lifecycle owner outside the sink.
+
+### Changed
+
+- `service_lifespan` now drains the audit-delivery queue during teardown, after
+  the gateway transport has stopped and while the audit repository is still
+  open, and logs every `audit_id` the bounded drain could not persist rather
+  than abandoning it silently (R10).
+
+## [0.12.3.5.1] - 2026-07-25
+
+### Fixed
+
+- Restored the audit capture/redaction test names that the ZER-5 requirement
+  manifest pins as proof for R3, so the requirement checks resolve again.
+
+## [0.12.3.5] - 2026-07-25
+
+### Fixed
+
+- `AuditDeliveryQueue` no longer accepts a `capture_policy`. The stage constructs
+  its own `AuditCapturePolicy` and applies it before every write; callers may
+  still inject a `classifier` and widen `redaction`/`known_secrets`, but they
+  cannot substitute a pass-through for the redaction transform (R3).
+- A capture transform that raises no longer kills the delivery worker. The worker
+  falls back to `blank_record()` and, if even that fails, counts and names the
+  event as failed before continuing (R3, R7).
+- Metadata-only capture now projects `execution_metadata`, approval metadata and
+  every free-form error string through an allowlist
+  (`capture_projection.ContentFreeProjection`). Unrecognised keys, containers and
+  error text are replaced by a digest, a schema and a count instead of surviving
+  best-effort key redaction (R4).
+- Dropped-content schemas no longer render mapping keys with `str(key)`. Keys are
+  gated by exact type, length and shape, and digests are computed from a
+  canonical form that never invokes user `__str__`/`__repr__`, so a payload that
+  previously produced `sha256=None` now always produces a digest (R4, R5).
+- Capture, classifier and writer failures are logged as a fixed error code plus
+  the exception type. Exception messages, which can carry the value that caused
+  them, no longer reach the log stream (R5).
+- `AuditRepository.write` raises `DuplicateAuditIdError` (a `ValueError`
+  subclass, so existing callers are unaffected) and the delivery queue counts
+  only that type as "already delivered". A pre-commit validation `ValueError` is
+  now retried and then failed rather than reported as a durable write (R8).
+- `aclose()` retains the ids of events that exhausted their retries, includes
+  them in the close report with `drained=False`, and keeps `failed` distinct from
+  `abandoned` (R7, R10).
+- `aclose()` applies one absolute deadline to the drain *and* the worker
+  cancellation, so a writer that swallows `CancelledError` is reported instead of
+  awaited past the bound; the writer contract now requires cancellability (R10).
+- Concurrent `aclose()` calls share one close task and one cached report, so an
+  in-flight event can no longer be abandoned and counted twice (R7).
+- Retry delays and the shutdown timeout reject `NaN` and infinity.
+- The delivery stage's task set is now a real supervised registry with a done
+  callback that retrieves task exceptions.
+
+### Changed
+
+- Extracted `zeroth.governance.audit.capture_projection`, `delivery_state`,
+  `delivery_worker` and `errors` from `capture_policy.py` and `delivery.py`.
+
+## [0.12.3.4] - 2026-07-25
+
+### Changed
+
+- The LangGraph gateway's audit sink (`AuditGatewayEventSink`) now hands terminal
+  events to `AuditDeliveryQueue.submit()` instead of awaiting
+  `AuditRepository.write()` from inside the streaming response's `finally`. The
+  durable write, its retries and its backoff run on the delivery worker, so a
+  slow or wedged audit repository can no longer stall, truncate or reorder a
+  streamed body; a refused hand-off raises `GatewayAuditRefusedError`, which the
+  proxy counts in `sink_failure_count` rather than dropping silently. The
+  `audit_id` is minted once per terminal event and fixed on the record before the
+  hand-off, so every delivery attempt rewrites the same identity and a retry
+  after a partially succeeded write is absorbed by the append-only duplicate
+  check. Deriving it from `correlation_id` was rejected: that value can be
+  client-supplied, so two unrelated requests could collapse into one record.
+- Tenancy is explicit on the audit delivery path: the sink always threads
+  `correlation.tenant_id` onto the record, and `AuditDeliveryQueue.submit()` now
+  rejects a blank `tenant_id` with `ValueError`. The delivery worker has no
+  ambient tenant, and `"default"` is both the model default and the reserved
+  tenant owning the fallback retention policy, so an absent tenant would be
+  misattributed and given the wrong TTL without surfacing anywhere. No field was
+  added to `NodeAuditRecord`.
+
+## [0.12.3.3] - 2026-07-25
+
+### Added
+
+- Capture classification and redaction on the audit delivery path
+  (`zeroth.governance.audit.capture_policy`). `AuditDeliveryQueue` now applies
+  `AuditCapturePolicy` itself, once per event and before the first write
+  attempt, so no record -- on the first attempt, on a retry, or on a retry after
+  a partially succeeded write -- can reach the durable writer uncaptured.
+  Content capture is off by default: prompt, argument and result values
+  (`input_snapshot`, `output_snapshot`, `validation_results`,
+  `condition_results`, `stdout`, `stderr`, each tool call's `arguments` and
+  `outcome`, each memory interaction's `value`) are emptied and replaced by a
+  SHA-256 digest, a key-and-type schema and an entry count filed under
+  `execution_metadata["audit_capture"]`, while identity, `status`, timing,
+  token usage, cost, actor, approval actions and the digest-chain fields are
+  retained. The default is fail-closed in both directions: a queue built with
+  no policy still redacts, and a policy that fails mid-transform emits a record
+  stripped of every content channel rather than the submitted one. Redaction
+  reuses `PayloadSanitizer`, `SecretRedactor` and `PIIFilter`; no field was
+  added to `NodeAuditRecord`.
+
+## [0.12.3.2] - 2026-07-25
+
+### Added
+
+- Bounded audit-event delivery stage (`zeroth.governance.audit.delivery`). It sits
+  between an audit-event producer and the append-only audit write: `submit()` is a
+  synchronous `put_nowait` onto a finite queue, so a slow or wedged writer can never
+  suspend a producer, and a saturated queue rejects the newest event with accounting
+  instead of growing. A single worker retries each event with jittered exponential
+  backoff, reusing the `audit_id` minted at submit time, so a retry persists exactly
+  one record -- the repository's duplicate-`audit_id` `ValueError` is read as "already
+  durable", not as an error. Queued, delivered, retried, rejected, failed and
+  abandoned events are counted on an injectable `MetricsCollector`, and
+  `aclose(timeout=...)` drains within a bound and names what it could not deliver.
+
+## [0.12.3.1.2] - 2026-07-25
+
+### Fixed
+
+- The GenAI mapper no longer looks metadata up by key. A `Mapping` lookup runs the
+  stored key's `__hash__`/`__eq__`, so a `str` subclass key could execute its own
+  code inside the mapper -- spoofing an allowlisted name, or raising an exception
+  carrying arbitrary text (`CausalSpan` filters metadata by value type only, so
+  such a key survives). Entries are now iterated and `type(key) is str` is checked
+  before any comparison.
+
+## [0.12.3.1.1] - 2026-07-25
+
+### Fixed
+
+- The GenAI mapper now gates the `tags` *container* type, not just its entries: a
+  `tuple` subclass could override `__iter__` and yield entries it never stored,
+  injecting them into `langgraph.tags`. `CausalSpan` normalises only `metadata`,
+  so such a container reaches the mapper intact; anything but an exact `tuple`
+  is now omitted.
+
+## [0.12.3.1] - 2026-07-25
+
+### Fixed
+
+- Replayed causal trees no longer attach to the ambient span. `emit_genai_spans`
+  starts every root — and every orphan, whose dangling parent makes it a root —
+  against an explicitly empty OpenTelemetry `Context` instead of inheriting
+  whatever span happens to be active at emit time. The records are historical
+  (their start/end are past `perf_counter` readings), so inheriting the ambient
+  span misattributed a replayed tree to an unrelated caller and made two
+  independent roots siblings of one trace, breaking the one-trace-per-tree
+  guarantee. Children still carry their in-batch parent's context.
+- Blank strings are treated as absent throughout the GenAI mapper. An empty or
+  whitespace-only value for the resolved target/name, `thread_id`
+  (`gen_ai.conversation.id`), `correlation_id` (`zeroth.correlation_id`), an
+  allowlisted metadata string or a tag entry now omits the attribute entirely
+  rather than emitting `""`; a span whose only target source is blank falls back
+  to an operation-only span name. Integers are unaffected — `langgraph.step=0` is
+  still emitted.
+- Exact-type gates at the mapper boundary. Every value admitted into a span
+  attribute, the span name, the OTel status or `MappedGenAiSpan` is checked with
+  `type(x) is str` / `type(x) is int` rather than `isinstance`, so a `str`
+  subclass can no longer override `__format__` / `__str__` / `__repr__` to inject
+  unrelated content while itself reaching a `gen_ai.*` attribute. Optional values
+  failing the gate are dropped; the structural identity (`run_id`,
+  `parent_run_id`, `kind`, `status`) cannot be dropped without silently
+  reparenting an orphan, so such a record is rejected before any span is started.
+  Untrusted `perf_counter` readings yield no `duration_ns` or `start_time`.
+
+## [0.12.3] - 2026-07-25
+
+### Added
+
+- Versioned mapper from the neutral LangGraph causal-span records to standard
+  OpenTelemetry GenAI spans (ZER-4). `map_causal_span` is pure and imports no
+  OpenTelemetry: it resolves `gen_ai.operation.name` from the record's kind
+  (`tool` → `execute_tool`, `llm`/`chat_model` → `chat`, root `chain` →
+  `invoke_workflow`, nested `chain` → `invoke_agent`), names the span
+  `"{operation} {target}"`, and emits three disjoint namespaces — standard
+  `gen_ai.*` identifiers only, `langgraph.*` ancestry and structure, and
+  `zeroth.*` governance metadata that keeps the unverified gateway correlation id
+  out of `gen_ai.*`. Every span is stamped with the mapping's
+  `zeroth.convention_version`, so consumers pin the attribute shape by that value
+  alone and a bump never touches the collection contract.
+- `emit_genai_spans` rebuilds the real parent/child span tree on the OpenTelemetry
+  SDK, starting each child with its parent's context and treating a parent absent
+  from the batch as a root. Batch topology is validated before the first span is
+  started (empty or duplicate run ids and parent cycles are rejected) and
+  emission order is computed in one iterative pass, so a deeply nested or
+  reverse-ordered batch cannot recurse. Timestamps are never fabricated: mapped
+  spans expose only a `perf_counter`-derived `duration_ns`, and absolute times
+  are derived solely from an explicit caller-supplied clock anchor. Exported
+  lazily, so importing the integration package still works without the `otel`
+  extra.
+- Privacy is structural rather than configurable: the records carry no prompts,
+  tool arguments or results, so the mapper has no content channel and
+  deliberately no `capture_content` switch. Golden fixtures and exporter
+  integration tests pin the emitted attribute sets, the allowlisted-metadata type
+  gates (`bool` and `str` subclasses rejected), and the absence of any content
+  channel; a drift test compares the vendored `gen_ai.*` constants against
+  `opentelemetry.semconv` whenever it is importable.
+
+## [0.12.2.4] - 2026-07-23
+
+### Fixed
+
+- Governed LangGraph streaming now scopes the correlation `ContextVar` to each
+  individual chunk pull rather than holding it across `yield` (ZER-3 audit-3): the
+  correlation is reset before a chunk reaches the consumer, so it never leaks into
+  the caller's context, an abandoned iterator leaks nothing, interleaved streams
+  cannot observe each other's correlation, and every token stays confined to the
+  context that created it (closing a stream from another task no longer raises).
+  `astream` additionally closes the delegate iterator it wraps, so early close and
+  cancellation run the delegate's own cleanup.
+
+## [0.12.2.3] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry audit-2. Correlation now rides a wrapper-owned
+  `ContextVar` that only the langgraph integration package sets and reads,
+  replacing the `config["metadata"]["zeroth_correlation_id"]` channel (F8,
+  security). Metadata is caller-reachable — via `config["metadata"]`, a
+  callback-manager's `metadata`/`inheritable_metadata`, or a preceding callback
+  mutating it at runtime — so sanitizing each path was whack-a-mole; the carrier
+  is now never exposed to callers and caller metadata can no longer forge the
+  gateway correlation. `GovernedGraph` sets the carrier around each run (reset in
+  `finally`) and wraps the returned `stream`/`astream` generators so it is
+  published at iteration start and reset at exhaustion/cancellation, preserving
+  chunk order, laziness and cancellation. The extract-only, unverified token
+  parsing (8 KiB cap + `RecursionError` guard) is unchanged. `CausalSpan` now
+  always copies its incoming metadata instead of retaining a caller's
+  `MappingProxyType` (whose backing dict stays mutable) and drops non-scalar
+  values defensively (F9).
+
+## [0.12.2.2] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry audit hardening (audit-1). Closed a correlation trust-
+  boundary hole: the `govern_graph` wrapper now strips any caller-supplied
+  `metadata["zeroth_correlation_id"]` before injection and re-sets it only from a
+  valid gateway `_zeroth` token, so an untrusted caller can no longer forge the
+  gateway correlation (absent/malformed token now yields `None`, never the
+  caller's value). Bounded reserved-context token parsing against denial of
+  service — oversized tokens are rejected by length before decoding and
+  `RecursionError` from a deeply nested payload is swallowed to `None` instead of
+  propagating out of graph invocation. Span names now resolve from the callback
+  `name` kwarg then the serialized runnable/tool/model name before falling back
+  to the LangGraph node, so a nested sub-runnable keeps its own name and tool/LLM
+  spans are no longer nameless. `CausalSpan.metadata` is now an immutable
+  `MappingProxyType`, so a consumer cannot mutate a returned span or defeat the
+  metadata whitelist. The LLM callbacks mirror the pinned langchain-core 1.5.0
+  signatures (`tags` on `on_llm_end`/`on_llm_error`, upstream `LLMResult` /
+  chunk / `BaseMessage` types). Added stronger dedup (full run id vs shared
+  prefix) and live concurrent-read coverage.
+
+## [0.12.2.1] - 2026-07-23
+
+### Fixed
+
+- ZER-3 causal-ancestry orphan classification. The `govern_graph` governance
+  handler previously classified a start whose `parent_run_id` was `None` as an
+  `orphan` whenever another root was still open on the shared handler — so two
+  genuinely concurrent (or sequential) top-level runs through the one handler
+  instance could mislabel a legitimate root as an orphan depending on
+  scheduling, corrupting ancestry. Now every `parent_run_id is None` start is a
+  root (many roots coexist cleanly on one handler), and an `orphan` is instead a
+  span whose non-`None` `parent_run_id` names a run id that was never observed (a
+  dangling reference). Orphan is determined at read time (in the
+  `completed_spans` / `open_spans` accessors) against every observed run id, not
+  frozen at the start callback — so an out-of-order child delivered before its
+  parent resolves to the real parent, while a truly dangling parent is marked
+  `orphan` (status override) and never reparented to a root.
+
+## [0.12.2] - 2026-07-23
+
+### Added
+
+- Causal LangGraph callback ancestry capture (ZER-3): the `govern_graph`
+  governance handler now reconstructs a run's causal `run_id` / `parent_run_id`
+  tree into neutral, OpenTelemetry-agnostic `CausalSpan` records (kind, status,
+  timings, tags and a whitelisted structural-metadata subset) held in an
+  in-memory sink. Concurrency-safe under a single shared handler: lock-guarded
+  state keyed by full run ids (never truncated), one span per run id, exactly
+  one terminal per run, and detached starts flagged `orphan` rather than
+  reparented. The wrapper also carries the gateway correlation id onto every
+  span by extracting it (extract-only, unverified) from the reserved-context
+  token and merging it into `config["metadata"]`, riding LangGraph's native
+  metadata inheritance. Capture only — no delivery/persistence (ZER-5) and no
+  OpenTelemetry mapping (ZER-4).
+
+## [0.12.1.3] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` callback-manager governance normalization (ZER-2 audit-3): when a
+  `BaseCallbackManager`'s `handlers` and `inheritable_handlers` lists hold divergent
+  governance-handler instances, or pre-existing duplicates, the merge now collapses
+  them to a single canonical governance identity present exactly once in each list,
+  instead of leaving the lists divergent.
+
+## [0.12.1.2] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` with_config chaining and manager inheritance (ZER-2 audit-2):
+  - Chained `GovernedGraph.with_config(...)` now shallow-overwrites previously
+    bound top-level keys (tags/metadata/configurable/callbacks/run_name/...)
+    wholesale, matching `RunnableBinding.with_config`, instead of merging and
+    accumulating them. `merge_configs` still layers the bound config under the
+    call config at invoke time, unchanged.
+  - Governance callback-manager dedup now keeps exactly one governance handler in
+    **both** `handlers` and `inheritable_handlers` (same identity), regardless of
+    which list a pre-installed handler started in — so governance always
+    propagates to child runs and is never duplicated.
+  - Broadened the audit gate tests: telemetry-failure safety is now exercised
+    across all four entrypoints (invoke/stream/ainvoke/astream) with the failing
+    transport asserted to actually run, plus chained-with_config equivalence and
+    asymmetric callback-manager layouts.
+
+## [0.12.1.1] - 2026-07-23
+
+### Fixed
+
+- `govern_graph` transparency and callback-merge hardening (ZER-2 audit-1):
+  - `GovernedGraph.with_config(...)` now stays governed. Previously it delegated
+    through `__getattr__` and handed back a bare, ungoverned `RunnableBinding`,
+    silently dropping governance. It now returns a governed wrapper that binds the
+    config into every run while preserving attribute delegation and the
+    `on_run_start` seam. `|` composition raises a clear, actionable error.
+  - Callback-merge dedup keys on governance-handler **type/identity**, never on
+    user-callback equality. Nested `govern_graph(govern_graph(g))` or a
+    pre-installed handler no longer double-installs governance, and a user
+    callback with a hostile `__eq__` can no longer suppress the Zeroth handler
+    (both list and `BaseCallbackManager` config shapes).
+  - Econ telemetry emission in `InstrumentedLangGraph` is now best-effort: a
+    failing transport can never replace the graph's result, mask its exception,
+    or alter cancellation.
+
+## [0.12.1] - 2026-07-23
+
+### Added
+
+- `govern_graph`, a transparent observed-mode wrapper around a compiled
+  LangGraph, exported from `zeroth.integrations.langgraph`. One-line install
+  (`graph = govern_graph(graph)`) reuses the econ instrumentation delegation for
+  cost capture and merges a Zeroth governance callback handler into each run's
+  config without replacing or duplicating user callbacks. Results, streamed
+  chunks and exceptions are byte-for-byte equivalent to the bare graph. The
+  wrapper honours the FA5 capability floor — it mints no attestation and adds no
+  path that promotes a run above `admission` (promotion to `observed` is
+  deferred) — and exposes an optional no-op `on_run_start` stability seam.
+  Importing the package never imports the optional `langgraph` dependency.
+
 ## [0.12.0] - 2026-07-21
 
 ### Added

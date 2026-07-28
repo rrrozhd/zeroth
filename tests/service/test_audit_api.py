@@ -8,6 +8,8 @@ from tests.service.helpers import admin_headers, agent_graph, deploy_service
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.core.service.bootstrap import bootstrap_app
 
+from tests.conftest import content_capture
+
 
 def _record(
     *,
@@ -68,7 +70,7 @@ async def test_run_and_deployment_metadata_expose_phase7_discoverability_refs(sq
 
 async def test_audit_api_lists_deployment_audits_with_redaction(sqlite_db) -> None:
     service, deployment = await deploy_service(sqlite_db, agent_graph(graph_id="graph-audit-list"))
-    await service.audit_repository.write(
+    await content_capture(service.audit_repository).write(
         _record(
             audit_id="audit:1",
             run_id="run-1",

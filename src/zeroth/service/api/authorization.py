@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
 
 from fastapi import HTTPException, Request, status
@@ -72,11 +73,60 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
     ServiceRole.PLATFORM_ADMIN: set(Permission),
 }
 
+BUILTIN_ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
+    role.value: frozenset(permissions) for role, permissions in ROLE_PERMISSIONS.items()
+}
+
+
+class RoleRegistry:
+    """Resolve built-in and configured role names to permission sets."""
+
+    def __init__(self, custom_roles: Mapping[str, Iterable[Permission]] | None = None) -> None:
+        table = dict(BUILTIN_ROLE_PERMISSIONS)
+        for name, permissions in (custom_roles or {}).items():
+            if name in BUILTIN_ROLE_PERMISSIONS:
+                raise ValueError(f"custom role {name!r} collides with a built-in role")
+            table[name] = frozenset(permissions)
+        self._table = table
+
+    @classmethod
+    def from_config(cls, custom_roles: Mapping[str, Iterable[str]] | None) -> RoleRegistry:
+        resolved: dict[str, set[Permission]] = {}
+        for name, permission_names in (custom_roles or {}).items():
+            permissions: set[Permission] = set()
+            for permission_name in permission_names:
+                try:
+                    permissions.add(Permission(permission_name))
+                except ValueError as exc:
+                    raise ValueError(
+                        f"custom role {name!r} references unknown permission {permission_name!r}"
+                    ) from exc
+            resolved[name] = permissions
+        return cls(resolved)
+
+    def permissions_for(self, roles: Iterable[str]) -> set[Permission]:
+        allowed: set[Permission] = set()
+        for role in roles:
+            allowed.update(self._table.get(role, ()))
+        return allowed
+
+    def known_roles(self) -> frozenset[str]:
+        return frozenset(self._table)
+
+
+DEFAULT_ROLE_REGISTRY = RoleRegistry()
+
+
+def _role_registry(request: Request) -> RoleRegistry:
+    bootstrap = getattr(request.app.state, "bootstrap", None)
+    registry = getattr(bootstrap, "role_registry", None)
+    return registry if isinstance(registry, RoleRegistry) else DEFAULT_ROLE_REGISTRY
+
 
 async def require_permission(request: Request, permission: Permission) -> AuthenticatedPrincipal:
     """Require that the authenticated principal holds the requested permission."""
     principal = current_principal(request)
-    allowed = set().union(*(ROLE_PERMISSIONS.get(role, set()) for role in principal.roles))
+    allowed = _role_registry(request).permissions_for(principal.roles)
     if permission in allowed:
         return principal
     bootstrap = getattr(request.app.state, "bootstrap", None)

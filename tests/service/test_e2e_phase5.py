@@ -57,6 +57,8 @@ from zeroth.governance.policy import (
     PolicyRegistry,
 )
 
+from tests.conftest import content_capture
+
 
 class NumberInput(BaseModel):
     value: int
@@ -461,6 +463,9 @@ print(json.dumps({"value": payload["value"] * 2}))
         _linear_graph(graph_id="graph-phase5-linear"),
         extra_contract_models={"contract://number": NumberOutput},
     )
+    # These assertions read stored prompts, tool outcomes and denial
+    # reasons, which only a deployment that classifies into content keeps.
+    content_capture(service.audit_repository)
     service.orchestrator.agent_runners["start"] = FunctionalRunner(
         lambda payload, _thread_id, _context: {"value": payload["value"]}
     )
@@ -602,6 +607,9 @@ async def test_phase5_approval_pause_and_resume_via_api(sqlite_db) -> None:
         sqlite_db,
         approval_resume_graph(graph_id="graph-phase5-approval"),
     )
+    # These assertions read stored prompts, tool outcomes and denial
+    # reasons, which only a deployment that classifies into content keeps.
+    content_capture(service.audit_repository)
     finish_runner = CountingFinishRunner()
     service.orchestrator.agent_runners["finish-step"] = finish_runner
     app = await service_app(sqlite_db, service.deployment.deployment_ref, service)
@@ -725,6 +733,9 @@ async def test_phase5_shared_memory_connector_between_agents_via_api(sqlite_db) 
     service, _ = await deploy_service(
         sqlite_db, _shared_memory_graph(graph_id="graph-phase5-memory")
     )
+    # These assertions read stored prompts, tool outcomes and denial
+    # reasons, which only a deployment that classifies into content keeps.
+    content_capture(service.audit_repository)
     registry = InMemoryConnectorRegistry()
     registry.register(
         "memory://shared",
@@ -826,6 +837,9 @@ async def test_phase5_deploy_and_invoke_via_service_wrapper_api(sqlite_db) -> No
 
 async def test_phase5_policy_violation_fails_execution_and_records_audit(sqlite_db) -> None:
     service, _ = await deploy_service(sqlite_db, _policy_graph(graph_id="graph-phase5-policy"))
+    # These assertions read stored prompts, tool outcomes and denial
+    # reasons, which only a deployment that classifies into content keeps.
+    content_capture(service.audit_repository)
     runner = FunctionalRunner(lambda payload, _thread_id, _context: {"value": payload["value"]})
     service.orchestrator.agent_runners["policy-agent"] = runner
 

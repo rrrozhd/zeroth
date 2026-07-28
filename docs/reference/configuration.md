@@ -134,6 +134,14 @@ Approval SLA timeout and escalation configuration.
 | `ZEROTH_APPROVAL_SLA__ENABLED` | `bool` | `True` |  |  |
 | `ZEROTH_APPROVAL_SLA__CHECKER_POLL_INTERVAL` | `float` | `10.0` |  |  |
 
+## Approval Notifications
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__ENABLED` | `bool` | `False` |  |  |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__SLACK` | `SlackNotificationSettings` | `SlackNotificationSettings(webhook_url=None, timeout=10.0)` |  |  |
+| `ZEROTH_APPROVAL_NOTIFICATIONS__EMAIL` | `EmailNotificationSettings` | `EmailNotificationSettings(smtp_host=None, smtp_port=587, from_address=None, to_addresses=[], username=None, password=None, use_tls=True, timeout=10.0)` |  |  |
+
 ## Dispatch
 
 Dispatch and horizontal scaling configuration.
@@ -241,3 +249,29 @@ WS-E retention / right-to-erasure configuration.
 | `ZEROTH_RETENTION__WORKER_POLL_INTERVAL` | `float` | `3600.0` |  |  |
 | `ZEROTH_RETENTION__DEFAULT_AUDIT_TTL_SECONDS` | `int \| None` | `None` |  |  |
 | `ZEROTH_RETENTION__DEFAULT_RUN_TTL_SECONDS` | `int \| None` | `None` |  |  |
+
+## Langgraph Gateway
+
+Configuration for the optional Agent Server-compatible gateway.
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_LANGGRAPH_GATEWAY__ENABLED` | `bool` | `False` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL` | `str \| None` | `None` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE` | `str \| None` | `None` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__DEPLOYMENT_REF` | `str \| None` | `None` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_CREDENTIAL_REF` | `str \| None` | `None` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_CREDENTIAL_HEADER` | `str` | `"Authorization"` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_CREDENTIAL_SCHEME` | `str` | `"Bearer"` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__CONNECT_TIMEOUT_SECONDS` | `float` | `5.0` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__READ_TIMEOUT_SECONDS` | `float` | `60.0` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__WRITE_TIMEOUT_SECONDS` | `float` | `60.0` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__POOL_TIMEOUT_SECONDS` | `float` | `5.0` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__CONTEXT_TTL_SECONDS` | `int` | `300` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__MAX_GOVERNED_BODY_BYTES` | `int` | `1048576` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__UNKNOWN_ENDPOINT_MODE` | `Literal[deny, pass_ungoverned]` | `"deny"` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__POLICY_BINDINGS` | `tuple[str, Ellipsis]` | `()` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__SUPPORTED_LANGGRAPH_VERSIONS` | `tuple[str, Ellipsis]` | `('1.2.9',)` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__SUPPORTED_AGENT_SERVER_VERSIONS` | `tuple[str, Ellipsis]` | `('0.11.1',)` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__HEARTBEAT_INTERVAL_SECONDS` | `int` | `30` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__STALE_THRESHOLD_SECONDS` | `int` | `90` |  |  |
