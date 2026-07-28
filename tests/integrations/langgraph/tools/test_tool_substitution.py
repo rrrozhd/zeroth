@@ -2096,6 +2096,16 @@ class _AnnotationCarrier:
         self.source = source
 
 
+def _spoofed_builtin_annotation(source: object) -> type:
+    """Build a custom class that lies about being defined by ``builtins``."""
+
+    class SpoofedBuiltin:
+        retained_source = source
+
+    SpoofedBuiltin.__module__ = "builtins"
+    return SpoofedBuiltin
+
+
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 @pytest.mark.parametrize(
     "annotation",
@@ -2104,6 +2114,7 @@ class _AnnotationCarrier:
         pytest.param(lambda target: {"nested": [target]}, id="builtin_container"),
         pytest.param(lambda target: Annotated[str, target], id="annotated_metadata"),
         pytest.param(lambda target: _AnnotationCarrier(target), id="custom_carrier"),
+        pytest.param(_spoofed_builtin_annotation, id="spoofed_builtin_class"),
     ],
 )
 def test_an_unsafe_annotation_is_refused_before_publication(
@@ -2170,7 +2181,10 @@ def test_an_unsafe_signature_default_is_refused_before_publication(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
-def test_an_args_schema_carrier_reaching_the_source_is_refused(is_async: bool) -> None:
+@pytest.mark.parametrize("attribute", ["source", "__escape__", "model_escape"])
+def test_an_args_schema_carrier_reaching_the_source_is_refused(
+    is_async: bool, attribute: str
+) -> None:
     """Static Pydantic class state must not smuggle the original into the wrapper."""
 
     def sync_target(query: str) -> str:
@@ -2185,7 +2199,7 @@ def test_an_args_schema_carrier_reaching_the_source_is_refused(is_async: bool) -
         query: str
         source: ClassVar[object]
 
-    CarrierSchema.source = target
+    setattr(CarrierSchema, attribute, target)
     target.args_schema = CarrierSchema
 
     with pytest.raises(ToolGovernanceError):

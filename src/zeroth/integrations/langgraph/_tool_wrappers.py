@@ -102,6 +102,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import types
+import typing
 import weakref
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -303,6 +304,40 @@ class _CallablePlan:
 _CALLABLE_PLANS: dict[object, _CallablePlan] = {}
 """Callable plans keyed by fresh, non-callable tokens closed over by wrappers."""
 
+_SAFE_ANNOTATION_ATOMS = (
+    str,
+    bytes,
+    int,
+    float,
+    bool,
+    complex,
+    object,
+    type,
+    list,
+    dict,
+    tuple,
+    set,
+    frozenset,
+    type(None),
+)
+"""Exact builtin type objects admitted as annotation atoms."""
+
+_SAFE_ANNOTATION_ORIGINS = _SAFE_ANNOTATION_ATOMS + (
+    types.UnionType,
+    Callable,
+    typing.Annotated,
+    typing.Union,
+    typing.Literal,
+    typing.ClassVar,
+    typing.Final,
+    typing.Required,
+    typing.NotRequired,
+    typing.TypeGuard,
+    typing.Unpack,
+    typing.Concatenate,
+)
+"""Exact origins whose recursively attested arguments define a safe typing graph."""
+
 
 def _drop_callable_plan(token: object) -> None:
     """Remove one collected callable wrapper's plan without retaining the wrapper."""
@@ -334,13 +369,12 @@ def _attest_public_value(value: Any, *, annotation: bool = False) -> None:
             _attest_public_value(key, annotation=annotation)
             _attest_public_value(item, annotation=annotation)
         return
-    if annotation and type(value) is type and value.__module__ == "builtins":
+    if annotation and any(value is atom for atom in _SAFE_ANNOTATION_ATOMS):
         return
     if annotation:
         origin = get_origin(value)
         if origin is not None:
-            origin_module = getattr(origin, "__module__", None)
-            if origin_module not in ("builtins", "typing", "types"):
+            if not any(origin is safe for safe in _SAFE_ANNOTATION_ORIGINS):
                 raise ToolGovernanceError("callable annotations must be recursively attestable")
             for item in get_args(value):
                 _attest_public_value(item, annotation=True)
@@ -348,7 +382,39 @@ def _attest_public_value(value: Any, *, annotation: bool = False) -> None:
     raise ToolGovernanceError("callable publication metadata must be recursively attestable")
 
 
-def _attest_args_schema(schema: Any) -> None:
+def _reaches_forbidden_static_value(
+    value: Any,
+    forbidden: tuple[Any, ...],
+    seen: set[int],
+) -> bool:
+    """Traverse owned static dictionaries and exact containers without dispatch."""
+    if any(value is candidate for candidate in forbidden):
+        return True
+    identity = id(value)
+    if identity in seen:
+        return False
+    seen.add(identity)
+    if type(value) is dict:
+        return any(
+            _reaches_forbidden_static_value(item, forbidden, seen)
+            for pair in value.items()
+            for item in pair
+        )
+    if type(value) in (tuple, list, set, frozenset):
+        return any(_reaches_forbidden_static_value(item, forbidden, seen) for item in value)
+    if isinstance(value, type):
+        namespace = type.__dict__["__dict__"].__get__(value)
+    else:
+        try:
+            namespace = object.__getattribute__(value, "__dict__")
+        except (AttributeError, TypeError):
+            return False
+    if type(namespace) is not dict and type(namespace) is not types.MappingProxyType:
+        return False
+    return _reaches_forbidden_static_value(dict(namespace), forbidden, seen)
+
+
+def _attest_args_schema(schema: Any, forbidden: tuple[Any, ...]) -> None:
     """Attest schemas that will be published by identity on a callable wrapper."""
     if schema is None:
         return
@@ -357,15 +423,8 @@ def _attest_args_schema(schema: Any) -> None:
         return
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         namespace = type.__dict__["__dict__"].__get__(schema)
-        for name, value in namespace.items():
-            if (
-                type(name) is not str
-                or name.startswith("__")
-                or name.startswith("model_")
-                or name == "_abc_impl"
-            ):
-                continue
-            _attest_public_value(value, annotation=name == "__annotations__")
+        if _reaches_forbidden_static_value(dict(namespace), forbidden, set()):
+            raise ToolGovernanceError("callable argument schemas cannot retain executable sources")
         return
     raise ToolGovernanceError("callable argument schemas must be recursively attestable")
 
@@ -1363,7 +1422,7 @@ def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
     """
     annotations = _attested_annotations(target)
     _attest_signature_defaults(target)
-    _attest_args_schema(facts.args_schema)
+    _attest_args_schema(facts.args_schema, (target, facts.body))
     source = facts.body
     _strip_frozen_callable_attributes(source)
     arguments = tuple(facts.material["arguments"])
