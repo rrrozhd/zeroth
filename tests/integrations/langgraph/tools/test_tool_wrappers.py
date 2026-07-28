@@ -348,7 +348,13 @@ def test_cell_plain_callable_sync_with_args_schema_preserves_interface_and_invok
 
     assert governed.name == "delete_row"
     assert governed.description == original.__doc__
-    assert governed.args_schema is Args
+    assert governed.args_schema is not Args
+    assert governed.args_schema.model_json_schema() == Args.model_json_schema()
+    assert governed.args_schema.model_config == Args.model_config
+    assert (
+        governed.args_schema.model_validate({"table": "invoices", "row": 3}).model_dump()
+        == Args(table="invoices", row=3).model_dump()
+    )
     assert governed(table="invoices", row=3) == "body-result"
     assert body.calls == 1
     assert client.calls == 1
@@ -372,7 +378,15 @@ def test_cell_plain_callable_sync_without_args_schema_preserves_interface_and_in
     assert dict(client.seen[0].arguments) == {"query": "cats"}
     assert body.calls == 1
     assert client.calls == 1
-    assert inspect.signature(governed) == inspect.signature(original)
+    original_signature = inspect.signature(original)
+    governed_signature = inspect.signature(governed)
+    assert tuple(governed_signature.parameters) == tuple(original_signature.parameters)
+    assert (
+        governed_signature.parameters["query"].kind is original_signature.parameters["query"].kind
+    )
+    assert governed_signature.parameters["query"].default is inspect.Parameter.empty
+    assert governed_signature.parameters["query"].annotation is str
+    assert governed_signature.return_annotation is str
 
 
 def test_cell_plain_callable_async_with_args_schema_preserves_interface_and_invokes_once() -> None:
@@ -383,7 +397,13 @@ def test_cell_plain_callable_async_with_args_schema_preserves_interface_and_invo
     governed = wrap(original, client=client)
 
     assert governed.name == "adelete_row"
-    assert governed.args_schema is Args
+    assert governed.args_schema is not Args
+    assert governed.args_schema.model_json_schema() == Args.model_json_schema()
+    assert governed.args_schema.model_config == Args.model_config
+    assert (
+        governed.args_schema.model_validate({"table": "invoices", "row": 3}).model_dump()
+        == Args(table="invoices", row=3).model_dump()
+    )
     assert inspect.iscoroutinefunction(governed)
     assert asyncio.run(governed(table="invoices", row=3)) == "body-result"
     assert body.calls == 1
