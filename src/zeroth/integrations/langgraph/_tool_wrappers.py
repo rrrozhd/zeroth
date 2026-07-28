@@ -471,12 +471,15 @@ def _trusted_generated_carrier_types() -> frozenset[type]:
             types.MemberDescriptorType,
             types.MethodDescriptorType,
             types.MethodType,
-            types.MethodWrapperType,
             types.WrapperDescriptorType,
         }
     )
-    trusted.update(type(value) for value in vars(inspect).values())
-    trusted.update(type(value) for value in vars(typing).values())
+    for module in (inspect, typing):
+        trusted.update(
+            type(value)
+            for value in vars(module).values()
+            if type(value) is not types.MethodWrapperType
+        )
     seen: dict[int, Any] = {}
     for owner in (BaseModel, _PristineGeneratedSchema, type(BaseModel)):
         namespace = type.__dict__["__dict__"].__get__(owner)
@@ -626,6 +629,8 @@ def _reaches_forbidden_active_value(
         return descend(value.__func__)
     if kind is types.MethodType:
         return descend(value.__func__) or descend(value.__self__)
+    if kind is types.MethodWrapperType:
+        return descend(value.__self__)
     if kind is functools.partial:
         return any(
             descend(item) for item in (value.func, value.args, value.keywords, value.__dict__)
