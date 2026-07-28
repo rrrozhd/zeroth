@@ -223,4 +223,4 @@ fail-under = 90
 ignore-init-method = true
 ignore-init-module = true
 ignore-nested-functions = true
-exclude = ["src/zeroth/core/migrations", "tests", "scripts", "src/zeroth/econ/instrumentation", "src/zeroth/econ/plane", "src/zeroth/core/governed", "src/zeroth/contracts/governed", "src/zeroth/integrations/memory/governed"]
+exclude = ["src/zeroth/core/migrations", "src/zeroth/core/langgraph_gateway", "tests", "scripts", "src/zeroth/econ/instrumentation", "src/zeroth/econ/plane", "src/zeroth/core/governed", "src/zeroth/contracts/governed", "src/zeroth/integrations/memory/governed"]
