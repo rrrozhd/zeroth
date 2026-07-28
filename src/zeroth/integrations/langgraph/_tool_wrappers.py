@@ -538,7 +538,6 @@ def _reaches_forbidden_active_value(
         raise ToolGovernanceError("callable argument schema carries unknown executable state")
     if isinstance(value, type):
         return any(descend(namespace) for namespace in _class_namespaces(value))
-    attest_carrier_type = False
     descriptor_get = None
     for owner in type.__dict__["__mro__"].__get__(type(value)):
         owner_namespace = type.__dict__["__dict__"].__get__(owner)
@@ -552,35 +551,24 @@ def _reaches_forbidden_active_value(
             types.WrapperDescriptorType,
             types.MethodDescriptorType,
         )
-        if not _is_implementation(descriptor_get):
-            if not opaque_is_safe and not builtin_descriptor:
-                raise ToolGovernanceError(
-                    "callable argument schema carries an uninspectable descriptor"
-                )
-        elif descend(descriptor_get):
-            return True
-        attest_carrier_type = not builtin_descriptor
-    if callable(value):
+        if not _is_implementation(descriptor_get) and not opaque_is_safe and not builtin_descriptor:
+            raise ToolGovernanceError(
+                "callable argument schema carries an uninspectable descriptor"
+            )
+    is_callable = callable(value)
+    if is_callable:
         call = None
         for owner in type.__dict__["__mro__"].__get__(type(value)):
             owner_namespace = type.__dict__["__dict__"].__get__(owner)
             if "__call__" in owner_namespace:
                 call = owner_namespace["__call__"]
                 break
-        if call is None or not _is_implementation(call):
-            if not opaque_is_safe:
-                raise ToolGovernanceError(
-                    "callable argument schema carries an uninspectable executable"
-                )
-        else:
-            if descend(call):
-                return True
-            attest_carrier_type = True
-    if attest_carrier_type:
-        for owner in type.__dict__["__mro__"].__get__(type(value)):
-            if owner in _BUILTIN_CARRIER_BASES or owner in _PYDANTIC_CARRIER_BASES:
-                continue
-            owner_namespace = type.__dict__["__dict__"].__get__(owner)
+        if (call is None or not _is_implementation(call)) and not opaque_is_safe:
+            raise ToolGovernanceError(
+                "callable argument schema carries an uninspectable executable"
+            )
+    if not opaque_is_safe:
+        for owner_namespace in _class_namespaces(type(value)):
             if descend(owner_namespace):
                 return True
     namespace = None

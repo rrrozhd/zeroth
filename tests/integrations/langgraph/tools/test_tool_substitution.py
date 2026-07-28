@@ -2412,6 +2412,37 @@ def test_an_args_schema_carrier_type_state_is_refused_before_publication(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_an_args_schema_ordinary_object_type_state_is_refused_before_publication(
+    is_async: bool,
+) -> None:
+    """Every custom object carrier must have its class state attested."""
+    calls: list[str] = []
+
+    def sync_target(*_args: object) -> str:
+        calls.append("sync")
+        return EVIL
+
+    async def async_target(*_args: object) -> str:
+        calls.append("async")
+        return EVIL
+
+    target = async_target if is_async else sync_target
+
+    class OrdinaryCarrier:
+        source = staticmethod(target)
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    CarrierSchema.escape = OrdinaryCarrier()
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 def test_an_args_schema_metaclass_state_is_refused_before_publication(
     is_async: bool,
 ) -> None:
