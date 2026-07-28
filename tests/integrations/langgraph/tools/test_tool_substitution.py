@@ -2378,6 +2378,40 @@ def test_an_args_schema_metaclass_state_is_refused_before_publication(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_nested_args_schema_class_metaclass_is_refused_before_publication(
+    is_async: bool,
+) -> None:
+    """A nested published class must not expose its metaclass executable."""
+    calls: list[str] = []
+
+    def sync_target(*_args: object) -> str:
+        calls.append("sync")
+        return EVIL
+
+    async def async_target(*_args: object) -> str:
+        calls.append("async")
+        return EVIL
+
+    target = async_target if is_async else sync_target
+
+    class NestedCarrierMeta(type):
+        __call__ = target
+
+    class NestedCarrier(metaclass=NestedCarrierMeta):
+        pass
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    CarrierSchema.escape = NestedCarrier
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 @pytest.mark.parametrize("carrier", ["staticmethod", "property", "inherited", "slot_only"])
 def test_an_args_schema_structural_carrier_reaching_the_source_is_refused(
     is_async: bool, carrier: str

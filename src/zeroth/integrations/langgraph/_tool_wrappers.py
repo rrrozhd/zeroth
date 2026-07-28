@@ -490,13 +490,7 @@ def _reaches_forbidden_static_value(
     if _is_implementation(value):
         raise ToolGovernanceError("callable argument schema carries unknown executable state")
     if isinstance(value, type):
-        for base in type.__dict__["__mro__"].__get__(value):
-            if base is object:
-                break
-            namespace = type.__dict__["__dict__"].__get__(base)
-            if descend(namespace):
-                return True
-        return False
+        return any(descend(namespace) for namespace in _class_namespaces(value))
     attest_carrier_type = False
     descriptor_get = None
     for owner in type.__dict__["__mro__"].__get__(type(value)):
@@ -648,13 +642,13 @@ def _collect_executable_codes(
         _collect_executable_codes(call, codes, seen, depth + 1)
 
 
-def _schema_namespaces(schema: type[BaseModel]) -> Iterable[Mapping[str, Any]]:
-    """Yield caller-owned schema and metaclass namespaces, derived statically."""
-    for base in type.__dict__["__mro__"].__get__(schema):
-        if base in (BaseModel, object):
-            break
+def _class_namespaces(value: type) -> Iterable[Mapping[str, Any]]:
+    """Yield caller-owned class and metaclass namespaces, derived statically."""
+    for base in type.__dict__["__mro__"].__get__(value):
+        if base in _BUILTIN_CARRIER_BASES or base in _PYDANTIC_CARRIER_BASES:
+            continue
         yield type.__dict__["__dict__"].__get__(base)
-    for metaclass in type.__dict__["__mro__"].__get__(type(schema)):
+    for metaclass in type.__dict__["__mro__"].__get__(type(value)):
         if metaclass in _PYDANTIC_METACLASS_BASES:
             continue
         yield type.__dict__["__dict__"].__get__(metaclass)
@@ -686,7 +680,7 @@ def _attest_args_schema(schema: Any, forbidden: tuple[Any, ...]) -> None:
         return
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         seen: dict[int, Any] = {}
-        for namespace in _schema_namespaces(schema):
+        for namespace in _class_namespaces(schema):
             _attest_schema_namespace(namespace, forbidden, seen)
         return
     raise ToolGovernanceError("callable argument schemas must be recursively attestable")
