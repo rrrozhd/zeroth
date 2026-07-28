@@ -487,6 +487,26 @@ def _reaches_forbidden_static_value(
             if descend(namespace):
                 return True
         return False
+    descriptor_get = None
+    for owner in type.__dict__["__mro__"].__get__(type(value)):
+        owner_namespace = type.__dict__["__dict__"].__get__(owner)
+        if "__get__" in owner_namespace:
+            descriptor_get = owner_namespace["__get__"]
+            break
+    if descriptor_get is not None:
+        builtin_descriptor = kind in (
+            types.MemberDescriptorType,
+            types.GetSetDescriptorType,
+            types.WrapperDescriptorType,
+            types.MethodDescriptorType,
+        )
+        if not _is_implementation(descriptor_get):
+            if not opaque_is_safe and not builtin_descriptor:
+                raise ToolGovernanceError(
+                    "callable argument schema carries an uninspectable descriptor"
+                )
+        elif descend(descriptor_get):
+            return True
     if callable(value):
         call = None
         for owner in type.__dict__["__mro__"].__get__(type(value)):
