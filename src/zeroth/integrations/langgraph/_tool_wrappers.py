@@ -131,6 +131,7 @@ from zeroth.integrations.langgraph._tool_execution import (
     snapshot_tool,
 )
 from zeroth.integrations.langgraph._tool_fingerprint import (
+    _is_implementation,
     callable_implementation_digest,
     schema_digest,
     tool_slots_digest,
@@ -451,6 +452,12 @@ def _reaches_forbidden_static_value(
         )
     if kind in (staticmethod, classmethod):
         return descend(value.__func__)
+    if kind is types.MethodType:
+        return descend(value.__func__) or descend(value.__self__)
+    if kind is functools.partial:
+        return any(
+            descend(item) for item in (value.func, value.args, value.keywords, value.__dict__)
+        )
     if kind is types.CellType:
         try:
             captured = value.cell_contents
@@ -470,6 +477,8 @@ def _reaches_forbidden_static_value(
             )
             if item is not None
         )
+    if _is_implementation(value):
+        raise ToolGovernanceError("callable argument schema carries unknown executable state")
     if isinstance(value, type):
         for base in type.__dict__["__mro__"].__get__(value):
             if base is object:
@@ -478,6 +487,21 @@ def _reaches_forbidden_static_value(
             if descend(namespace):
                 return True
         return False
+    if callable(value):
+        call = None
+        for owner in type.__dict__["__mro__"].__get__(type(value)):
+            owner_namespace = type.__dict__["__dict__"].__get__(owner)
+            if "__call__" in owner_namespace:
+                call = owner_namespace["__call__"]
+                break
+        if call is None or not _is_implementation(call):
+            if opaque_is_safe:
+                return False
+            raise ToolGovernanceError(
+                "callable argument schema carries an uninspectable executable"
+            )
+        if descend(call):
+            return True
     namespace = None
     with contextlib.suppress(AttributeError, TypeError):
         namespace = object.__getattribute__(value, "__dict__")

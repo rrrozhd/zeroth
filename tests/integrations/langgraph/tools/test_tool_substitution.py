@@ -2239,6 +2239,39 @@ def test_an_args_schema_same_code_function_carrier_is_refused(is_async: bool) ->
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("carrier", ["partial", "method", "callable_object"])
+def test_an_args_schema_executable_shape_carrier_is_refused(is_async: bool, carrier: str) -> None:
+    """Every executable shape in the fingerprint taxonomy is attested by its code."""
+
+    def sync_target(query: object, *_args: object) -> str:
+        return str(query)
+
+    async def async_target(query: object, *_args: object) -> str:
+        return str(query)
+
+    target = async_target if is_async else sync_target
+    if carrier == "partial":
+        hidden = functools.partial(target)
+    elif carrier == "method":
+        hidden = types.MethodType(target, object())
+    else:
+
+        class CallableCarrier:
+            __call__ = target
+
+        hidden = CallableCarrier()
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    CarrierSchema.escape = hidden
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 @pytest.mark.parametrize("carrier", ["staticmethod", "property", "inherited", "slot_only"])
 def test_an_args_schema_structural_carrier_reaching_the_source_is_refused(
     is_async: bool, carrier: str
