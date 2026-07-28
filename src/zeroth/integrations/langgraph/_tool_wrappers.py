@@ -349,6 +349,9 @@ _BUILTIN_CARRIER_BASES = frozenset(
 _PYDANTIC_CARRIER_BASES = frozenset(type.__dict__["__mro__"].__get__(BaseModel))
 """Exact framework and builtin bases whose implementation namespaces are trusted."""
 
+_PYDANTIC_METACLASS_BASES = frozenset(type.__dict__["__mro__"].__get__(type(BaseModel)))
+"""Exact Pydantic and builtin metaclasses whose namespaces are framework-owned."""
+
 _PYDANTIC_GENERATED_ATTRIBUTES = frozenset(
     {
         "_abc_impl",
@@ -646,11 +649,15 @@ def _collect_executable_codes(
 
 
 def _schema_namespaces(schema: type[BaseModel]) -> Iterable[Mapping[str, Any]]:
-    """Yield every user-schema namespace from the real MRO, derived statically."""
+    """Yield caller-owned schema and metaclass namespaces, derived statically."""
     for base in type.__dict__["__mro__"].__get__(schema):
         if base in (BaseModel, object):
             break
         yield type.__dict__["__dict__"].__get__(base)
+    for metaclass in type.__dict__["__mro__"].__get__(type(schema)):
+        if metaclass in _PYDANTIC_METACLASS_BASES:
+            continue
+        yield type.__dict__["__dict__"].__get__(metaclass)
 
 
 def _attest_schema_namespace(

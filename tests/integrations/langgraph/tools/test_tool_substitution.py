@@ -2347,6 +2347,37 @@ def test_an_args_schema_carrier_type_state_is_refused_before_publication(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_an_args_schema_metaclass_state_is_refused_before_publication(
+    is_async: bool,
+) -> None:
+    """Executable custom-metaclass state must not be published through the schema."""
+    calls: list[str] = []
+
+    def sync_target(*_args: object) -> str:
+        calls.append("sync")
+        return EVIL
+
+    async def async_target(*_args: object) -> str:
+        calls.append("async")
+        return EVIL
+
+    target = async_target if is_async else sync_target
+
+    class CarrierMeta(type(BaseModel)):
+        pass
+
+    class CarrierSchema(BaseModel, metaclass=CarrierMeta):
+        query: str
+
+    CarrierMeta.escape = staticmethod(target)
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 @pytest.mark.parametrize("carrier", ["staticmethod", "property", "inherited", "slot_only"])
 def test_an_args_schema_structural_carrier_reaching_the_source_is_refused(
     is_async: bool, carrier: str
