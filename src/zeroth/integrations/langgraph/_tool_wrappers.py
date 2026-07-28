@@ -101,6 +101,7 @@ from __future__ import annotations
 
 import builtins
 import contextlib
+import enum
 import functools
 import inspect
 import types
@@ -377,6 +378,118 @@ _PYDANTIC_GENERATED_ATTRIBUTES = frozenset(
 """Exact framework-generated class fields, never caller-defined name patterns."""
 
 
+def _pristine_generated_schema() -> type[BaseModel]:
+    """Build a nested baseline that includes Pydantic's generated parent namespace."""
+    marker = str
+
+    class PristineGeneratedSchema(BaseModel):
+        value: marker
+
+    return PristineGeneratedSchema
+
+
+_PristineGeneratedSchema = _pristine_generated_schema()
+
+
+def _collect_trusted_generated_types(
+    value: Any,
+    trusted: set[type],
+    seen: dict[int, Any],
+    depth: int = 0,
+) -> None:
+    """Collect exact value types from pristine generated state without type dispatch."""
+    if depth > _MAX_STATIC_ATTESTATION_DEPTH:
+        return
+    identity = id(value)
+    if identity in seen:
+        return
+    seen[identity] = value
+    kind = type(value)
+    trusted.add(kind)
+    if kind in (dict, types.MappingProxyType):
+        for pair in value.items():
+            for item in pair:
+                _collect_trusted_generated_types(item, trusted, seen, depth + 1)
+        return
+    if kind in (tuple, list, set, frozenset):
+        for item in value:
+            _collect_trusted_generated_types(item, trusted, seen, depth + 1)
+        return
+    if kind in (
+        str,
+        bytes,
+        int,
+        float,
+        bool,
+        complex,
+        type(None),
+        types.CodeType,
+        types.FunctionType,
+        types.MethodType,
+    ) or isinstance(value, type):
+        return
+    namespace = None
+    with contextlib.suppress(AttributeError, TypeError):
+        namespace = object.__getattribute__(value, "__dict__")
+    if type(namespace) is dict:
+        _collect_trusted_generated_types(namespace, trusted, seen, depth + 1)
+    for owner in type.__dict__["__mro__"].__get__(kind):
+        if owner is object:
+            break
+        owner_namespace = type.__dict__["__dict__"].__get__(owner)
+        slots = owner_namespace.get("__slots__")
+        if type(slots) is str:
+            slot_names = (slots,)
+        elif type(slots) is tuple and all(type(name) is str for name in slots):
+            slot_names = slots
+        else:
+            continue
+        for slot in slot_names:
+            if slot in ("__dict__", "__weakref__"):
+                continue
+            with contextlib.suppress(AttributeError):
+                item = object.__getattribute__(value, slot)
+                _collect_trusted_generated_types(item, trusted, seen, depth + 1)
+
+
+def _trusted_generated_carrier_types() -> frozenset[type]:
+    """Derive exact trusted types from pristine framework and standard-library state."""
+    trusted = set(_BUILTIN_CARRIER_BASES)
+    trusted.update(
+        {
+            enum.property,
+            type(enum._not_given),
+            inspect.Parameter,
+            inspect.Signature,
+            types.BuiltinFunctionType,
+            types.CellType,
+            types.ClassMethodDescriptorType,
+            types.CodeType,
+            types.FunctionType,
+            types.GetSetDescriptorType,
+            types.MappingProxyType,
+            types.MemberDescriptorType,
+            types.MethodDescriptorType,
+            types.MethodType,
+            types.MethodWrapperType,
+            types.WrapperDescriptorType,
+        }
+    )
+    trusted.update(type(value) for value in vars(inspect).values())
+    trusted.update(type(value) for value in vars(typing).values())
+    seen: dict[int, Any] = {}
+    for owner in (BaseModel, _PristineGeneratedSchema, type(BaseModel)):
+        namespace = type.__dict__["__dict__"].__get__(owner)
+        for name, value in namespace.items():
+            if owner is type(BaseModel) or name in _PYDANTIC_GENERATED_ATTRIBUTES:
+                _collect_trusted_generated_types(value, trusted, seen)
+    return frozenset(trusted)
+
+
+_TRUSTED_GENERATED_CARRIER_TYPES = _trusted_generated_carrier_types()
+"""Exact value types allowed to retain generated-field opaque traversal semantics."""
+
+
 def _drop_callable_plan(token: object) -> None:
     """Remove one collected callable wrapper's plan without retaining the wrapper."""
     _CALLABLE_PLANS.pop(token, None)
@@ -457,6 +570,8 @@ def _reaches_forbidden_static_value(
     """Traverse owned static dictionaries and exact containers without dispatch."""
     if depth > _MAX_STATIC_ATTESTATION_DEPTH:
         raise ToolGovernanceError("callable argument schema attestation exceeded its depth bound")
+    if opaque_is_safe and type(value) not in _TRUSTED_GENERATED_CARRIER_TYPES:
+        opaque_is_safe = False
     if any(value is candidate for candidate in forbidden):
         return True
     identity = id(value)

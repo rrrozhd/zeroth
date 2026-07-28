@@ -2281,6 +2281,37 @@ def test_an_exempt_schema_alias_cannot_poison_a_strict_attestation(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_custom_carrier_in_a_generated_schema_field_is_attested_strictly(
+    is_async: bool,
+) -> None:
+    """Generated field names must not exempt caller-defined carrier types."""
+    calls: list[str] = []
+
+    def sync_target(*_args: object) -> str:
+        calls.append("sync")
+        return EVIL
+
+    async def async_target(*_args: object) -> str:
+        calls.append("async")
+        return EVIL
+
+    target = async_target if is_async else sync_target
+
+    class GeneratedCarrier:
+        source = staticmethod(target)
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    CarrierSchema.__signature__ = GeneratedCarrier()
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 def test_an_args_schema_same_code_function_carrier_is_refused(is_async: bool) -> None:
     """A distinct function object with the source's code is still the executable body."""
 
