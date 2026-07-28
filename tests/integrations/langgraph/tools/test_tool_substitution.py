@@ -137,6 +137,7 @@ import functools
 import gc
 import inspect
 import types
+import typing
 import weakref
 from collections.abc import Iterator, Mapping
 from typing import Annotated, Any, ClassVar
@@ -2053,10 +2054,10 @@ def test_a_governed_callable_publishes_no_reference_to_the_ungoverned_target(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
-def test_a_governed_callables_signature_and_derived_schema_are_unchanged(
+def test_a_governed_callables_signature_and_derived_schema_are_equivalent(
     is_async: bool,
 ) -> None:
-    """Removing the escape hatch must preserve framework schema inference exactly."""
+    """Resolved annotations preserve call shape and framework schema inference."""
 
     def sync_target(path: str = DANGER, *, force: bool = False) -> str:
         """Return the supplied path synchronously."""
@@ -2081,9 +2082,16 @@ def test_a_governed_callables_signature_and_derived_schema_are_unchanged(
         description="Remove a path.",
     )
 
-    assert inspect.signature(governed, follow_wrapped=False) == inspect.signature(
-        target, follow_wrapped=False
-    )
+    original_signature = inspect.signature(target, follow_wrapped=False)
+    governed_signature = inspect.signature(governed, follow_wrapped=False)
+    assert tuple(governed_signature.parameters) == tuple(original_signature.parameters)
+    for name, parameter in governed_signature.parameters.items():
+        original_parameter = original_signature.parameters[name]
+        assert parameter.kind is original_parameter.kind
+        assert parameter.default == original_parameter.default
+    assert governed_signature.parameters["path"].annotation is str
+    assert governed_signature.parameters["force"].annotation is bool
+    assert governed_signature.return_annotation is str
     assert governed_tool.args_schema.model_json_schema() == (
         original_tool.args_schema.model_json_schema()
     )
@@ -2183,6 +2191,103 @@ def test_safe_typing_annotations_are_preserved_by_publication(is_async: bool) ->
     signature = inspect.signature(governed, follow_wrapped=False)
     assert signature.parameters["path"].annotation == annotations["path"]
     assert signature.return_annotation == annotations["return"]
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_safe_postponed_annotations_are_resolved_before_publication(
+    is_async: bool,
+) -> None:
+    """Safe future-style annotations publish objects that wrapper globals can use."""
+
+    def sync_target(path: str) -> list[str]:
+        return [path]
+
+    async def async_target(path: str) -> list[str]:
+        return [path]
+
+    target = async_target if is_async else sync_target
+    assert target.__annotations__ == {"path": "str", "return": "list[str]"}
+
+    governed = govern_tools([target], **_seams())[0]
+
+    assert governed.__annotations__ == {"path": str, "return": list[str]}
+    signature = inspect.signature(governed, follow_wrapped=False)
+    assert signature.parameters["path"].annotation is str
+    assert signature.return_annotation == list[str]
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize(
+    "annotation",
+    ["MissingForwardType", "__import__('builtins').str"],
+    ids=["unresolved", "unsafe_expression"],
+)
+def test_unsafe_postponed_annotations_are_refused_before_publication(
+    is_async: bool, annotation: str
+) -> None:
+    """Unknown names and executable expressions never reach wrapper annotations."""
+
+    def sync_target(value: object) -> str:
+        return str(value)
+
+    async def async_target(value: object) -> str:
+        return str(value)
+
+    target = async_target if is_async else sync_target
+    target.__annotations__ = {"value": annotation, "return": "str"}
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_local_quoted_forward_annotation_is_refused_before_publication(
+    is_async: bool,
+) -> None:
+    """A future-style quoted local name cannot resolve in the wrapper module."""
+
+    class LocalPayload:
+        pass
+
+    def sync_target(value: "LocalPayload") -> str:  # noqa: UP037 - exercise quoted forward
+        return str(value)
+
+    async def async_target(
+        value: "LocalPayload",  # noqa: UP037 - exercise quoted forward
+    ) -> str:
+        return str(value)
+
+    target = async_target if is_async else sync_target
+    assert target.__annotations__["value"] == "'LocalPayload'"
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_common_typing_postponed_annotations_are_resolved(is_async: bool) -> None:
+    """Common non-dispatching typing aliases remain compatible after normalization."""
+
+    def sync_target(callback: object, values: object) -> object:
+        return callback, values
+
+    async def async_target(callback: object, values: object) -> object:
+        return callback, values
+
+    target = async_target if is_async else sync_target
+    target.__annotations__ = {
+        "callback": "typing.Callable[[str], int]",
+        "values": "typing.Sequence[str]",
+        "return": "typing.Mapping[str, int]",
+    }
+
+    governed = govern_tools([target], **_seams())[0]
+
+    assert governed.__annotations__ == {
+        "callback": typing.Callable[[str], int],
+        "values": typing.Sequence[str],
+        "return": typing.Mapping[str, int],
+    }
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
@@ -2667,8 +2772,10 @@ def test_an_args_schema_structural_carrier_reaching_the_source_is_refused(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
-def test_an_ordinary_args_schema_is_published_by_identity(is_async: bool) -> None:
-    """Attestation preserves the identity LangChain uses for an ordinary Pydantic schema."""
+def test_an_ordinary_args_schema_is_published_as_an_equivalent_snapshot(
+    is_async: bool,
+) -> None:
+    """Publication snapshots ordinary Pydantic behavior without retaining its identity."""
 
     def sync_target(query: str) -> str:
         return query
@@ -2680,7 +2787,207 @@ def test_an_ordinary_args_schema_is_published_by_identity(is_async: bool) -> Non
     target.args_schema = Args
     governed = govern_tools([target], **_seams())[0]
 
-    assert governed.args_schema is Args
+    assert governed.args_schema is not Args
+    assert governed.args_schema.model_json_schema() == Args.model_json_schema()
+    assert governed.args_schema.model_config == Args.model_config
+    assert governed.args_schema.model_validate({"query": "safe"}).query == "safe"
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_post_wrap_schema_mutation_cannot_change_the_published_schema(is_async: bool) -> None:
+    """Later mutation of the caller's class cannot inject state into the publication."""
+
+    class MutableSchema(BaseModel):
+        query: str
+
+    def sync_target(query: str) -> str:
+        return query
+
+    async def async_target(query: str) -> str:
+        return query
+
+    target = async_target if is_async else sync_target
+    target.args_schema = MutableSchema
+    governed = govern_tools([target], **_seams())[0]
+    published = governed.args_schema
+
+    MutableSchema.escape = target
+
+    assert published is not MutableSchema
+    assert "escape" not in vars(published)
+    assert published.model_validate({"query": "safe"}).query == "safe"
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_nested_schema_snapshot_preserves_behavior_without_sharing_models(
+    is_async: bool,
+) -> None:
+    """Nested fields, aliases, constraints, containers, and config survive isolation."""
+
+    class ChildSchema(BaseModel):
+        value: int = Field(ge=1)
+
+    class ParentSchema(BaseModel):
+        model_config = {"extra": "forbid", "populate_by_name": True}
+
+        child: ChildSchema | None = None
+        labels: list[str] = Field(alias="tags", min_length=1)
+        options: dict[str, str] = Field(default_factory=dict)
+        retries: int = 3
+        flags: list[str] = []
+
+    def sync_target(child: object, labels: object) -> str:
+        return f"{child}:{labels}"
+
+    async def async_target(child: object, labels: object) -> str:
+        return f"{child}:{labels}"
+
+    target = async_target if is_async else sync_target
+    target.args_schema = ParentSchema
+    governed = govern_tools([target], **_seams())[0]
+    published = governed.args_schema
+
+    assert published is not ParentSchema
+    assert published.model_json_schema() == ParentSchema.model_json_schema()
+    validated = published.model_validate({"child": {"value": 2}, "tags": ["safe"]})
+    assert validated.child.value == 2
+    assert validated.labels == ["safe"]
+    assert validated.options == {}
+    assert validated.retries == 3
+    assert validated.flags == []
+    assert published.model_config == ParentSchema.model_config
+    published_child = published.model_fields["child"].annotation.__args__[0]
+    assert published_child is not ChildSchema
+
+    ChildSchema.escape = target
+    ParentSchema.model_fields["flags"].default.append("mutated")
+
+    assert "escape" not in vars(published_child)
+    assert published.model_validate({"tags": ["safe"]}).flags == []
+
+
+def test_schema_snapshot_never_dispatches_a_default_copy_hook() -> None:
+    """Unsupported defaults fail closed without invoking caller copy protocols."""
+    calls: list[str] = []
+
+    class HostileDefault:
+        def __deepcopy__(self, _memo: object) -> object:
+            calls.append("deepcopy")
+            return self
+
+    hostile = HostileDefault()
+
+    class HostileSchema(BaseModel):
+        model_config = {"arbitrary_types_allowed": True}
+
+        payload: HostileDefault = hostile
+
+    def target(payload: object) -> str:
+        return str(payload)
+
+    target.args_schema = HostileSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+def test_schema_snapshot_rejects_a_custom_metaclass_without_hashing_it() -> None:
+    """Identity tracking must not dispatch a caller-owned metaclass hash/equality hook."""
+    calls: list[str] = []
+
+    class HostileModelMeta(type(BaseModel)):
+        def __getattribute__(cls, name: str) -> object:
+            calls.append(f"get:{name}")
+            return super().__getattribute__(name)
+
+        def __hash__(cls) -> int:
+            calls.append("hash")
+            return type.__hash__(cls)
+
+        def __eq__(cls, other: object) -> bool:
+            calls.append("eq")
+            return type.__eq__(cls, other)
+
+    class HostileSchema(BaseModel, metaclass=HostileModelMeta):
+        query: str
+
+    calls.clear()
+
+    def target(query: str) -> str:
+        return query
+
+    target.args_schema = HostileSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+def test_schema_snapshot_preserves_literal_and_callable_annotations() -> None:
+    """Literal values and Callable parameter lists are data inside safe typing forms."""
+
+    class TypingSchema(BaseModel):
+        mode: typing.Literal["safe", "strict"] = "safe"
+        callback: typing.Callable[[str], int]
+
+    def target(mode: object, callback: object) -> object:
+        return mode, callback
+
+    target.args_schema = TypingSchema
+    published = govern_tools([target], **_seams())[0].args_schema
+
+    assert published is not TypingSchema
+    assert published.model_fields["mode"].annotation == TypingSchema.model_fields["mode"].annotation
+    assert (
+        published.model_fields["callback"].annotation
+        == TypingSchema.model_fields["callback"].annotation
+    )
+    validated = published.model_validate({"mode": "strict", "callback": len})
+    assert validated.mode == "strict"
+    assert validated.callback is len
+
+
+@pytest.mark.parametrize(
+    ("width", "refused"),
+    [(2_026, False), (2_027, True)],
+    ids=["largest_admitted_graph", "smallest_refused_graph"],
+)
+def test_a_wide_generated_schema_graph_has_a_total_work_bound(width: int, refused: bool) -> None:
+    """The exact work ceiling rejects only otherwise-valid oversized traversals."""
+
+    def target(query: str) -> str:
+        return query
+
+    class WideSchema(BaseModel):
+        query: str
+
+    shared: list[object] = [{"safe": "value"}]
+    WideSchema.__pydantic_parent_namespace__ = {"wide": [shared] * width}
+    target.args_schema = WideSchema
+
+    if refused:
+        with pytest.raises(ToolGovernanceError, match="work bound"):
+            govern_tools([target], **_seams())
+    else:
+        governed = govern_tools([target], **_seams())[0]
+        assert governed.args_schema.model_validate({"query": "safe"}).query == "safe"
+
+
+@pytest.mark.parametrize(
+    ("prior_work", "refused"),
+    [(8_191, False), (8_192, True)],
+    ids=["visit_8192", "visit_8193"],
+)
+def test_schema_attestation_work_bound_is_exact(prior_work: int, refused: bool) -> None:
+    """Visit 8,192 is admitted and visit 8,193 is the first refused visit."""
+    work = [prior_work]
+    if refused:
+        with pytest.raises(ToolGovernanceError, match="work bound"):
+            tool_wrappers._reaches_forbidden_static_value("safe", (), {}, work=work)
+    else:
+        assert not tool_wrappers._reaches_forbidden_static_value("safe", (), {}, work=work)
+    assert work == [prior_work + 1]
 
 
 def _owned_publication_graph(root: Any) -> list[Any]:

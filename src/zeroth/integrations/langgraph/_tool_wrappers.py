@@ -99,6 +99,7 @@ startup, and a parameter would let a caller assert completeness nothing verified
 
 from __future__ import annotations
 
+import ast
 import builtins
 import contextlib
 import functools
@@ -106,13 +107,15 @@ import inspect
 import types
 import typing
 import weakref
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, get_args, get_origin
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, create_model
+from pydantic.fields import FieldInfo
+from pydantic_core import PydanticUndefined
 
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.langgraph._tool_decisions import (
@@ -328,6 +331,8 @@ _SAFE_ANNOTATION_ATOMS = (
 _SAFE_ANNOTATION_ORIGINS = _SAFE_ANNOTATION_ATOMS + (
     types.UnionType,
     Callable,
+    Sequence,
+    Mapping,
     typing.Annotated,
     typing.Union,
     typing.Literal,
@@ -341,7 +346,25 @@ _SAFE_ANNOTATION_ORIGINS = _SAFE_ANNOTATION_ATOMS + (
 )
 """Exact origins whose recursively attested arguments define a safe typing graph."""
 
+_SAFE_ANNOTATION_SUBSCRIPT_BASES = _SAFE_ANNOTATION_ORIGINS + tuple(
+    vars(typing)[name]
+    for name in (
+        "Optional",
+        "List",
+        "Dict",
+        "Tuple",
+        "Set",
+        "FrozenSet",
+        "Type",
+        "Callable",
+        "Sequence",
+        "Mapping",
+    )
+)
+"""Exact builtin and typing values whose subscription cannot dispatch caller code."""
+
 _MAX_STATIC_ATTESTATION_DEPTH = 32
+_MAX_ATTESTATION_WORK = 8_192
 
 _BUILTIN_CARRIER_BASES = frozenset(
     value for value in vars(builtins).values() if isinstance(value, type)
@@ -504,8 +527,15 @@ def _attest_public_value(
     annotation: bool = False,
     _active: set[int] | None = None,
     _depth: int = 0,
+    _work: list[int] | None = None,
 ) -> None:
     """Refuse values whose recursively published graph is executable or opaque."""
+    work = [0] if _work is None else _work
+    work[0] += 1
+    if work[0] > _MAX_ATTESTATION_WORK:
+        raise ToolGovernanceError(
+            "callable publication metadata attestation exceeded its work bound"
+        )
     if _depth > _MAX_STATIC_ATTESTATION_DEPTH:
         raise ToolGovernanceError(
             "callable publication metadata attestation exceeded its depth bound"
@@ -547,6 +577,7 @@ def _attest_public_value(
                 annotation=annotation,
                 _active=active,
                 _depth=_depth + 1,
+                _work=work,
             )
     finally:
         active.remove(identity)
@@ -559,8 +590,13 @@ def _reaches_forbidden_static_value(
     depth: int = 0,
     *,
     opaque_is_safe: bool = False,
+    work: list[int] | None = None,
 ) -> bool:
     """Traverse owned static dictionaries and exact containers without dispatch."""
+    work = [0] if work is None else work
+    work[0] += 1
+    if work[0] > _MAX_ATTESTATION_WORK:
+        raise ToolGovernanceError("callable argument schema attestation exceeded its work bound")
     if depth > _MAX_STATIC_ATTESTATION_DEPTH:
         raise ToolGovernanceError("callable argument schema attestation exceeded its depth bound")
     generated_context = opaque_is_safe
@@ -579,6 +615,7 @@ def _reaches_forbidden_static_value(
             depth,
             opaque_is_safe=opaque_is_safe,
             generated_context=generated_context,
+            work=work,
         )
     finally:
         seen.pop(identity)
@@ -592,6 +629,7 @@ def _reaches_forbidden_active_value(
     *,
     opaque_is_safe: bool,
     generated_context: bool,
+    work: list[int],
 ) -> bool:
     """Traverse one value already retained in the active recursion path."""
 
@@ -602,6 +640,7 @@ def _reaches_forbidden_active_value(
             seen,
             depth + 1,
             opaque_is_safe=generated_context,
+            work=work,
         )
 
     kind = type(value)
@@ -692,6 +731,12 @@ def _reaches_forbidden_active_value(
     if _is_implementation(value):
         raise ToolGovernanceError("callable argument schema carries unknown executable state")
     if isinstance(value, type):
+        mro = type.__dict__["__mro__"].__get__(value)
+        if generated_context and any(base is BaseModel for base in mro):
+            # Nested models are independently attested and rebuilt when their
+            # containing FieldInfo is published. Descending them from a generated
+            # Pydantic graph instead walks framework caches unrelated to the field.
+            return False
         return any(descend(namespace) for namespace in _class_namespaces(value))
     descriptor_get = None
     for owner in type.__dict__["__mro__"].__get__(type(value)):
@@ -845,40 +890,411 @@ def _class_namespaces(value: type) -> Iterable[Mapping[str, Any]]:
 
 
 def _attest_schema_namespace(
-    namespace: Mapping[str, Any], forbidden: tuple[Any, ...], seen: dict[int, Any]
+    namespace: Mapping[str, Any],
+    forbidden: tuple[Any, ...],
+    seen: dict[int, Any],
+    work: list[int],
 ) -> None:
     """Attest caller-owned schema entries while exempting exact framework products."""
     for name, value in namespace.items():
+        if name == "__annotations__":
+            if type(value) is not dict or any(type(field_name) is not str for field_name in value):
+                raise ToolGovernanceError("callable argument schema annotations are malformed")
+            # Field annotations are normalized from Pydantic's exact FieldInfo
+            # mapping during publication; traversing typing aliases here reaches
+            # interpreter-owned caches that are neither retained nor published.
+            continue
         if name in _PYDANTIC_GENERATED_ATTRIBUTES:
             expected = _GENERATED_ATTRIBUTE_TYPES.get(name, ())
             if type(value) not in expected:
                 raise ToolGovernanceError(
                     "callable argument schema generated fields have unexpected values"
                 )
-            if _reaches_forbidden_static_value(value, forbidden, seen, opaque_is_safe=True):
+            if name == "__pydantic_fields__":
+                # Every retained FieldInfo component is independently read,
+                # normalized, bounded, and rebuilt by _snapshot_field.
+                continue
+            if name == "__signature__" and type(value) is not inspect.Signature:
+                # Pydantic's lazy signature descriptor closes over generated
+                # field caches. The snapshot creates its own descriptor; only an
+                # explicitly installed concrete Signature is publication input.
+                continue
+            if _reaches_forbidden_static_value(
+                value, forbidden, seen, opaque_is_safe=True, work=work
+            ):
                 raise ToolGovernanceError(
                     "callable argument schemas cannot retain executable sources"
                 )
             continue
-        if _reaches_forbidden_static_value(name, forbidden, seen) or (
-            _reaches_forbidden_static_value(value, forbidden, seen)
+        if _reaches_forbidden_static_value(name, forbidden, seen, work=work) or (
+            _reaches_forbidden_static_value(value, forbidden, seen, work=work)
         ):
             raise ToolGovernanceError("callable argument schemas cannot retain executable sources")
 
 
-def _attest_args_schema(schema: Any, forbidden: tuple[Any, ...]) -> None:
-    """Attest schemas that will be published by identity on a callable wrapper."""
+def _attest_pydantic_schema(schema: type[BaseModel], forbidden: tuple[Any, ...]) -> None:
+    """Attest one Pydantic class graph before using or publishing it."""
+    seen: dict[int, Any] = {}
+    work = [0]
+    for namespace in _class_namespaces(schema):
+        _attest_schema_namespace(namespace, forbidden, seen, work)
+
+
+def _schema_has_custom_behavior(namespace: Mapping[str, Any]) -> bool:
+    """Return whether rebuilding fields/config alone would lose schema behavior."""
+    if namespace["__private_attributes__"] or namespace["__pydantic_computed_fields__"]:
+        return True
+    decorators = namespace["__pydantic_decorators__"]
+    slots = type(decorators).__dict__.get("__slots__", ())
+    return any(bool(object.__getattribute__(decorators, slot)) for slot in slots)
+
+
+_SAFE_FIELD_FACTORIES = (list, dict, set, tuple, frozenset)
+_SAFE_FIELD_METADATA = frozenset(
+    {
+        "strict",
+        "gt",
+        "ge",
+        "lt",
+        "le",
+        "multiple_of",
+        "allow_inf_nan",
+        "max_digits",
+        "decimal_places",
+        "min_length",
+        "max_length",
+        "pattern",
+        "coerce_numbers_to_str",
+        "union_mode",
+        "fail_fast",
+    }
+)
+_SAFE_FIELD_ATTRIBUTES = frozenset(
+    {
+        "alias",
+        "alias_priority",
+        "validation_alias",
+        "serialization_alias",
+        "title",
+        "description",
+        "examples",
+        "exclude",
+        "discriminator",
+        "deprecated",
+        "json_schema_extra",
+        "frozen",
+        "validate_default",
+        "repr",
+        "init",
+        "init_var",
+        "kw_only",
+    }
+)
+
+
+def _snapshot_public_data(value: Any, *, work: list[int]) -> Any:
+    """Rebuild exact data containers without invoking a caller copy protocol."""
+    work[0] += 1
+    if work[0] > _MAX_ATTESTATION_WORK:
+        raise ToolGovernanceError("callable argument schema snapshot exceeded its work bound")
+    kind = type(value)
+    if value is PydanticUndefined or kind in (str, bytes, int, float, bool, complex, type(None)):
+        return value
+    if kind is list:
+        return [_snapshot_public_data(item, work=work) for item in value]
+    if kind is tuple:
+        return tuple(_snapshot_public_data(item, work=work) for item in value)
+    if kind is dict:
+        return {
+            _snapshot_public_data(key, work=work): _snapshot_public_data(item, work=work)
+            for key, item in value.items()
+        }
+    if kind is set:
+        return {_snapshot_public_data(item, work=work) for item in value}
+    if kind is frozenset:
+        return frozenset(_snapshot_public_data(item, work=work) for item in value)
+    raise ToolGovernanceError("callable argument schema carries unsupported public data")
+
+
+def _field_metadata_arguments(field: FieldInfo, *, work: list[int]) -> dict[str, Any]:
+    """Translate a closed set of immutable Pydantic constraints into Field kwargs."""
+    arguments: dict[str, Any] = {}
+    metadata = object.__getattribute__(field, "metadata")
+    if type(metadata) is not list:
+        raise ToolGovernanceError("callable argument schema field metadata is unsupported")
+    for item in metadata:
+        namespace = None
+        with contextlib.suppress(AttributeError):
+            namespace = object.__getattribute__(item, "__dict__")
+        pairs: list[tuple[str, Any]] = []
+        if type(namespace) is dict:
+            pairs.extend(namespace.items())
+        for owner in type.__dict__["__mro__"].__get__(type(item)):
+            slots = type.__dict__["__dict__"].__get__(owner).get("__slots__", ())
+            if type(slots) is str:
+                slots = (slots,)
+            if type(slots) is not tuple:
+                raise ToolGovernanceError("callable argument schema field metadata is unsupported")
+            for slot in slots:
+                if slot in ("__dict__", "__weakref__"):
+                    continue
+                with contextlib.suppress(AttributeError):
+                    pairs.append((slot, object.__getattribute__(item, slot)))
+        if not pairs:
+            raise ToolGovernanceError("callable argument schema field metadata is unsupported")
+        for name, value in pairs:
+            if name not in _SAFE_FIELD_METADATA or name in arguments:
+                raise ToolGovernanceError("callable argument schema field metadata is unsupported")
+            arguments[name] = _snapshot_public_data(value, work=work)
+    return arguments
+
+
+def _snapshot_annotation(
+    annotation: Any,
+    forbidden: tuple[Any, ...],
+    memo: list[tuple[type[BaseModel], type[BaseModel]]],
+    active: list[type[BaseModel]],
+    work: list[int],
+) -> Any:
+    """Rebuild typing graphs, recursively replacing every nested model class."""
+    if isinstance(annotation, type):
+        mro = type.__dict__["__mro__"].__get__(annotation)
+        if any(base is BaseModel for base in mro):
+            return _snapshot_pydantic_schema(annotation, forbidden, memo, active, work)
+    if any(annotation is atom for atom in (*_SAFE_ANNOTATION_ATOMS, Any)):
+        return annotation
+    origin = get_origin(annotation)
+    if origin is None or not any(origin is safe for safe in _SAFE_ANNOTATION_ORIGINS):
+        raise ToolGovernanceError("callable argument schema annotations are unsupported")
+    raw_arguments = get_args(annotation)
+    if origin is typing.Literal:
+        arguments = tuple(_snapshot_public_data(item, work=work) for item in raw_arguments)
+        return typing.Literal[arguments]
+    if origin is Callable:
+        parameters, result = raw_arguments
+        if parameters is Ellipsis:
+            published_parameters: Any = Ellipsis
+        elif type(parameters) in (list, tuple):
+            published_parameters = [
+                _snapshot_annotation(item, forbidden, memo, active, work) for item in parameters
+            ]
+        else:
+            raise ToolGovernanceError("callable argument schema annotations are unsupported")
+        published_result = _snapshot_annotation(result, forbidden, memo, active, work)
+        return typing.Callable[published_parameters, published_result]
+    arguments = tuple(
+        _snapshot_annotation(item, forbidden, memo, active, work)
+        if item is not Ellipsis
+        else Ellipsis
+        for item in get_args(annotation)
+    )
+    if origin is types.UnionType:
+        rebuilt = arguments[0]
+        for item in arguments[1:]:
+            rebuilt = rebuilt | item
+        return rebuilt
+    base = typing.Union if origin is typing.Union else origin
+    try:
+        return base[arguments if len(arguments) != 1 else arguments[0]]
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ToolGovernanceError("callable argument schema annotations are unsupported") from error
+
+
+def _snapshot_field(
+    field: FieldInfo,
+    forbidden: tuple[Any, ...],
+    memo: list[tuple[type[BaseModel], type[BaseModel]]],
+    active: list[type[BaseModel]],
+    work: list[int],
+) -> tuple[Any, FieldInfo]:
+    if type(field) is not FieldInfo:
+        raise ToolGovernanceError("callable argument schema field type is unsupported")
+    annotation = _snapshot_annotation(
+        object.__getattribute__(field, "annotation"), forbidden, memo, active, work
+    )
+    arguments = _field_metadata_arguments(field, work=work)
+    for name in _SAFE_FIELD_ATTRIBUTES:
+        value = object.__getattribute__(field, name)
+        if value is not None:
+            arguments[name] = _snapshot_public_data(value, work=work)
+    for callback_name in ("field_title_generator", "exclude_if"):
+        if object.__getattribute__(field, callback_name) is not None:
+            raise ToolGovernanceError("callable argument schema field callbacks are unsupported")
+    factory = object.__getattribute__(field, "default_factory")
+    default = object.__getattribute__(field, "default")
+    if factory is not None:
+        if not any(factory is candidate for candidate in _SAFE_FIELD_FACTORIES):
+            raise ToolGovernanceError("callable argument schema default factories are unsupported")
+        arguments["default_factory"] = factory
+        published = Field(**arguments)
+    else:
+        published = Field(_snapshot_public_data(default, work=work), **arguments)
+    return annotation, published
+
+
+def _snapshot_pydantic_schema(
+    schema: type[BaseModel],
+    forbidden: tuple[Any, ...],
+    memo: list[tuple[type[BaseModel], type[BaseModel]]],
+    active: list[type[BaseModel]],
+    work: list[int],
+) -> type[BaseModel]:
+    if type(schema) is not type(BaseModel):
+        raise ToolGovernanceError("custom argument schema metaclasses are unsupported")
+    for original, published in memo:
+        if schema is original:
+            return published
+    if any(schema is candidate for candidate in active):
+        raise ToolGovernanceError("recursive callable argument schemas are unsupported")
+    active.append(schema)
+    try:
+        _attest_pydantic_schema(schema, forbidden)
+        namespace = type.__dict__["__dict__"].__get__(schema)
+        if _schema_has_custom_behavior(namespace):
+            raise ToolGovernanceError(
+                "callable argument schemas with custom behavior cannot be snapshotted"
+            )
+        source_fields = namespace.get("__pydantic_fields__")
+        if type(source_fields) is not dict:
+            raise ToolGovernanceError("callable argument schema fields are unsupported")
+        fields = {
+            name: _snapshot_field(field, forbidden, memo, active, work)
+            for name, field in source_fields.items()
+        }
+        source_config = namespace.get("model_config", {})
+        if type(source_config) is not dict:
+            raise ToolGovernanceError("callable argument schema config is unsupported")
+        config = _snapshot_public_data(source_config, work=work)
+        snapshot = create_model(
+            type.__dict__["__name__"].__get__(schema),
+            __config__=config,
+            __doc__=type.__dict__["__doc__"].__get__(schema),
+            __module__=type.__dict__["__module__"].__get__(schema),
+            __qualname__=type.__dict__["__qualname__"].__get__(schema),
+            **fields,
+        )
+        memo.append((schema, snapshot))
+        _attest_pydantic_schema(snapshot, forbidden)
+        return snapshot
+    except ToolGovernanceError:
+        raise
+    except Exception as error:
+        raise ToolGovernanceError(
+            "callable argument schema cannot be snapshotted safely"
+        ) from error
+    finally:
+        active.pop()
+
+
+def _snapshot_args_schema(schema: Any, forbidden: tuple[Any, ...]) -> Any:
+    """Return an independent, attestable publication schema or fail closed."""
+    _gate_args_schema(schema)
     if schema is None:
-        return
+        return None
     if type(schema) is dict:
         _attest_public_value(schema)
-        return
-    if isinstance(schema, type) and issubclass(schema, BaseModel):
-        seen: dict[int, Any] = {}
-        for namespace in _class_namespaces(schema):
-            _attest_schema_namespace(namespace, forbidden, seen)
-        return
+        return _snapshot_public_data(schema, work=[0])
+    if isinstance(schema, type):
+        mro = type.__dict__["__mro__"].__get__(schema)
+        if any(base is BaseModel for base in mro):
+            return _snapshot_pydantic_schema(schema, forbidden, [], [], [0])
     raise ToolGovernanceError("callable argument schemas must be recursively attestable")
+
+
+def _gate_args_schema(schema: Any) -> None:
+    """Reject unsupported schema carriers before any carrier-owned dispatch."""
+    if schema is None or type(schema) is dict:
+        return
+    if not isinstance(schema, type) or type(schema) is not type(BaseModel):
+        raise ToolGovernanceError("callable argument schema carrier is unsupported")
+    mro = type.__dict__["__mro__"].__get__(schema)
+    if not any(base is BaseModel for base in mro):
+        raise ToolGovernanceError("callable argument schema carrier is unsupported")
+
+
+def _annotation_namespace(target: Any) -> Mapping[str, Any]:
+    """Return one exact function global mapping for static annotation name lookup."""
+    function = target.__func__ if type(target) is types.MethodType else target
+    if type(function) is not types.FunctionType:
+        return {}
+    namespace = object.__getattribute__(function, "__globals__")
+    return namespace if type(namespace) is dict else {}
+
+
+def _resolve_annotation_node(node: ast.AST, namespace: Mapping[str, Any]) -> Any:
+    """Interpret a closed annotation grammar without evaluating caller expressions."""
+    if type(node) is ast.Name:
+        name = node.id
+        for atom in (*_SAFE_ANNOTATION_ATOMS, Any):
+            if getattr(atom, "__name__", None) == name:
+                return atom
+        if name in namespace:
+            return namespace[name]
+        raise ToolGovernanceError("callable annotation names must resolve statically")
+    if type(node) is ast.Attribute:
+        if type(node.value) is not ast.Name or node.value.id != "typing":
+            raise ToolGovernanceError("callable annotation attributes must be typing members")
+        if node.attr.startswith("_") or node.attr not in vars(typing):
+            raise ToolGovernanceError("callable annotation names must resolve statically")
+        return vars(typing)[node.attr]
+    if type(node) is ast.Constant:
+        if (
+            node.value is None
+            or node.value is Ellipsis
+            or type(node.value)
+            in (
+                str,
+                bytes,
+                int,
+                float,
+                bool,
+                complex,
+            )
+        ):
+            return node.value
+        raise ToolGovernanceError("callable annotation literals must be recursively safe")
+    if type(node) is ast.Tuple:
+        return tuple(_resolve_annotation_node(item, namespace) for item in node.elts)
+    if type(node) is ast.List:
+        return [_resolve_annotation_node(item, namespace) for item in node.elts]
+    if type(node) is ast.BinOp and type(node.op) is ast.BitOr:
+        left = _resolve_annotation_node(node.left, namespace)
+        right = _resolve_annotation_node(node.right, namespace)
+        if not any(left is atom for atom in _SAFE_ANNOTATION_ATOMS) and get_origin(left) is None:
+            raise ToolGovernanceError("callable annotation unions must be recursively safe")
+        if not any(right is atom for atom in _SAFE_ANNOTATION_ATOMS) and get_origin(right) is None:
+            raise ToolGovernanceError("callable annotation unions must be recursively safe")
+        return left | right
+    if type(node) is ast.Subscript:
+        origin = _resolve_annotation_node(node.value, namespace)
+        if not any(origin is candidate for candidate in _SAFE_ANNOTATION_SUBSCRIPT_BASES):
+            raise ToolGovernanceError("callable annotation subscriptions must be recursively safe")
+        arguments = _resolve_annotation_node(node.slice, namespace)
+        try:
+            return origin[arguments]
+        except (AttributeError, TypeError, ValueError) as error:
+            raise ToolGovernanceError("callable annotation subscription is invalid") from error
+    raise ToolGovernanceError("callable annotations cannot contain executable expressions")
+
+
+def _resolve_annotation(value: Any, target: Any) -> Any:
+    """Normalize a postponed annotation into a safe object or fail closed."""
+    if type(value) is not str:
+        return value
+    namespace = _annotation_namespace(target)
+    pending = value
+    for _ in range(4):
+        try:
+            expression = ast.parse(pending, mode="eval")
+        except SyntaxError as error:
+            raise ToolGovernanceError(
+                "callable annotation strings must be valid expressions"
+            ) from error
+        resolved = _resolve_annotation_node(expression.body, namespace)
+        if type(resolved) is not str:
+            return resolved
+        pending = resolved
+    raise ToolGovernanceError("callable forward annotations must resolve statically")
 
 
 def _attested_annotations(target: Any) -> dict[str, Any]:
@@ -889,10 +1305,12 @@ def _attested_annotations(target: Any) -> dict[str, Any]:
     if type(annotations) is not dict:
         raise ToolGovernanceError("callable annotations must be an exact dictionary")
     copied: dict[str, Any] = {}
+    work = [0]
     for name, value in annotations.items():
         if type(name) is not str:
             raise ToolGovernanceError("callable annotation names must be exactly str")
-        _attest_public_value(value, annotation=True)
+        value = _resolve_annotation(value, target)
+        _attest_public_value(value, annotation=True, _work=work)
         copied[name] = value
     return copied
 
@@ -905,8 +1323,9 @@ def _attest_signature_defaults(target: Any) -> None:
         # A callable with no establishable signature publishes no signature; its
         # existing invocation-time refusal remains the fail-closed boundary.
         return
+    work = [0]
     for parameter in signature.parameters.values():
-        _attest_public_value(parameter.default)
+        _attest_public_value(parameter.default, _work=work)
 
 
 def _strip_frozen_callable_attributes(source: Any) -> None:
@@ -1087,6 +1506,7 @@ def _describe_base_tool(tool: Any) -> _ToolFacts:
     snapshot = snapshot_tool(tool)
     description = _text(snapshot.description)
     args_schema = snapshot.args_schema
+    _gate_args_schema(args_schema)
     return _ToolFacts(
         name=snapshot.name,
         description=description,
@@ -1127,6 +1547,7 @@ def _describe_callable(target: Any) -> _ToolFacts:
     """
     description = _text(_peek(target, "description")) or _text(_peek(target, "__doc__"))
     args_schema = _peek(target, "args_schema")
+    _gate_args_schema(args_schema)
     name = _peek(target, "name")
     if normalize_identifier(name) is None:
         name = _peek(target, "__name__")
@@ -1877,7 +2298,9 @@ def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
     forbidden_codes: list[types.CodeType] = []
     _collect_executable_codes(target, forbidden_codes, set())
     _collect_executable_codes(facts.body, forbidden_codes, set())
-    _attest_args_schema(facts.args_schema, (target, facts.body, *forbidden_codes))
+    published_schema = _snapshot_args_schema(
+        facts.args_schema, (target, facts.body, *forbidden_codes)
+    )
     source = facts.body
     _strip_frozen_callable_attributes(source)
     arguments = tuple(facts.material["arguments"])
@@ -1888,7 +2311,7 @@ def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
             name=binding.identity.name,
             description=facts.description,
             arguments=arguments,
-            schema=schema_digest(facts.args_schema),
+            schema=schema_digest(published_schema),
         ),
         binding=binding,
         seams=seams,
@@ -1914,7 +2337,7 @@ def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
             governed.__signature__ = _published_signature(source, annotations)
         governed.name = plan.binding.identity.name
         governed.description = facts.description
-        governed.args_schema = facts.args_schema
+        governed.args_schema = published_schema
         governed.zeroth_binding = plan.binding
         weakref.finalize(governed, _drop_callable_plan, token)
     except Exception:
