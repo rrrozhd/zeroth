@@ -2181,7 +2181,16 @@ def test_an_unsafe_signature_default_is_refused_before_publication(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
-@pytest.mark.parametrize("attribute", ["source", "__escape__", "model_escape"])
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "source",
+        "__escape__",
+        "model_escape",
+        "__signature__",
+        "__pydantic_parent_namespace__",
+    ],
+)
 def test_an_args_schema_carrier_reaching_the_source_is_refused(
     is_async: bool, attribute: str
 ) -> None:
@@ -2200,6 +2209,29 @@ def test_an_args_schema_carrier_reaching_the_source_is_refused(
         source: ClassVar[object]
 
     setattr(CarrierSchema, attribute, target)
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_an_args_schema_same_code_function_carrier_is_refused(is_async: bool) -> None:
+    """A distinct function object with the source's code is still the executable body."""
+
+    def sync_target(query: str) -> str:
+        return query
+
+    async def async_target(query: str) -> str:
+        return query
+
+    target = async_target if is_async else sync_target
+    rebuilt = types.FunctionType(target.__code__, target.__globals__, target.__name__)
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    CarrierSchema.escape = rebuilt
     target.args_schema = CarrierSchema
 
     with pytest.raises(ToolGovernanceError):

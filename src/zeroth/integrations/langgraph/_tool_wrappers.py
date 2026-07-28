@@ -100,6 +100,7 @@ startup, and a parameter would let a caller assert completeness nothing verified
 from __future__ import annotations
 
 import contextlib
+import functools
 import inspect
 import types
 import typing
@@ -413,10 +414,22 @@ def _reaches_forbidden_static_value(
     forbidden: tuple[Any, ...],
     seen: set[int],
     depth: int = 0,
+    *,
+    opaque_is_safe: bool = False,
 ) -> bool:
     """Traverse owned static dictionaries and exact containers without dispatch."""
     if depth > _MAX_STATIC_ATTESTATION_DEPTH:
         raise ToolGovernanceError("callable argument schema attestation exceeded its depth bound")
+
+    def descend(item: Any) -> bool:
+        return _reaches_forbidden_static_value(
+            item,
+            forbidden,
+            seen,
+            depth + 1,
+            opaque_is_safe=opaque_is_safe,
+        )
+
     if any(value is candidate for candidate in forbidden):
         return True
     identity = id(value)
@@ -429,33 +442,26 @@ def _reaches_forbidden_static_value(
     if any(value is atom for atom in _SAFE_ANNOTATION_ATOMS):
         return False
     if kind in (dict, types.MappingProxyType):
-        return any(
-            _reaches_forbidden_static_value(item, forbidden, seen, depth + 1)
-            for pair in value.items()
-            for item in pair
-        )
+        return any(descend(item) for pair in value.items() for item in pair)
     if kind in (tuple, list, set, frozenset):
-        return any(
-            _reaches_forbidden_static_value(item, forbidden, seen, depth + 1) for item in value
-        )
+        return any(descend(item) for item in value)
     if kind is property:
         return any(
-            _reaches_forbidden_static_value(item, forbidden, seen, depth + 1)
-            for item in (value.fget, value.fset, value.fdel)
-            if item is not None
+            descend(item) for item in (value.fget, value.fset, value.fdel) if item is not None
         )
     if kind in (staticmethod, classmethod):
-        return _reaches_forbidden_static_value(value.__func__, forbidden, seen, depth + 1)
+        return descend(value.__func__)
     if kind is types.CellType:
         try:
             captured = value.cell_contents
         except ValueError:
             return False
-        return _reaches_forbidden_static_value(captured, forbidden, seen, depth + 1)
+        return descend(captured)
     if kind is types.FunctionType:
         return any(
-            _reaches_forbidden_static_value(item, forbidden, seen, depth + 1)
+            descend(item)
             for item in (
+                value.__code__,
                 value.__defaults__,
                 value.__kwdefaults__,
                 value.__annotations__,
@@ -469,7 +475,7 @@ def _reaches_forbidden_static_value(
             if base is object:
                 break
             namespace = type.__dict__["__dict__"].__get__(base)
-            if _reaches_forbidden_static_value(namespace, forbidden, seen, depth + 1):
+            if descend(namespace):
                 return True
         return False
     namespace = None
@@ -478,7 +484,7 @@ def _reaches_forbidden_static_value(
     if namespace is not None:
         if type(namespace) is not dict:
             raise ToolGovernanceError("callable argument schema carries an opaque dictionary")
-        if _reaches_forbidden_static_value(namespace, forbidden, seen, depth + 1):
+        if descend(namespace):
             return True
     found_static_state = namespace is not None
     for owner in type.__dict__["__mro__"].__get__(type(value)):
@@ -502,7 +508,7 @@ def _reaches_forbidden_static_value(
                 slot_value = object.__getattribute__(value, slot)
             except AttributeError:
                 continue
-            if _reaches_forbidden_static_value(slot_value, forbidden, seen, depth + 1):
+            if descend(slot_value):
                 return True
     if found_static_state:
         return False
@@ -514,7 +520,68 @@ def _reaches_forbidden_static_value(
         types.BuiltinFunctionType,
     ):
         return False
+    if opaque_is_safe:
+        return False
     raise ToolGovernanceError("callable argument schema carries opaque static state")
+
+
+def _collect_executable_codes(
+    value: Any,
+    codes: list[types.CodeType],
+    seen: set[int],
+    depth: int = 0,
+) -> None:
+    """Collect code identities from statically reachable executable shapes."""
+    if depth > _MAX_STATIC_ATTESTATION_DEPTH:
+        raise ToolGovernanceError(
+            "callable implementation code collection exceeded its depth bound"
+        )
+    identity = id(value)
+    if identity in seen:
+        return
+    seen.add(identity)
+    kind = type(value)
+    if kind is types.CodeType:
+        if not any(value is code for code in codes):
+            codes.append(value)
+        return
+    if kind is types.FunctionType:
+        _collect_executable_codes(value.__code__, codes, seen, depth + 1)
+        for captured in (value.__defaults__, value.__kwdefaults__, value.__closure__):
+            if captured is not None:
+                _collect_executable_codes(captured, codes, seen, depth + 1)
+        return
+    if kind is types.MethodType:
+        _collect_executable_codes(value.__func__, codes, seen, depth + 1)
+        return
+    if kind is functools.partial:
+        _collect_executable_codes(value.func, codes, seen, depth + 1)
+        return
+    if kind in (staticmethod, classmethod):
+        _collect_executable_codes(value.__func__, codes, seen, depth + 1)
+        return
+    if kind is types.CellType:
+        with contextlib.suppress(ValueError):
+            _collect_executable_codes(value.cell_contents, codes, seen, depth + 1)
+        return
+    if kind in (tuple, list, set, frozenset):
+        for item in value:
+            _collect_executable_codes(item, codes, seen, depth + 1)
+        return
+    if kind is dict:
+        for item in value.values():
+            _collect_executable_codes(item, codes, seen, depth + 1)
+        return
+    if not callable(value):
+        return
+    call = None
+    for owner in type.__dict__["__mro__"].__get__(type(value)):
+        namespace = type.__dict__["__dict__"].__get__(owner)
+        if "__call__" in namespace:
+            call = namespace["__call__"]
+            break
+    if call is not None:
+        _collect_executable_codes(call, codes, seen, depth + 1)
 
 
 def _schema_namespaces(schema: type[BaseModel]) -> Iterable[Mapping[str, Any]]:
@@ -531,6 +598,10 @@ def _attest_schema_namespace(
     """Attest caller-owned schema entries while exempting exact framework products."""
     for name, value in namespace.items():
         if name in _PYDANTIC_GENERATED_ATTRIBUTES:
+            if _reaches_forbidden_static_value(value, forbidden, seen, opaque_is_safe=True):
+                raise ToolGovernanceError(
+                    "callable argument schemas cannot retain executable sources"
+                )
             continue
         if _reaches_forbidden_static_value(name, forbidden, seen) or (
             _reaches_forbidden_static_value(value, forbidden, seen)
@@ -1546,7 +1617,10 @@ def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
     """
     annotations = _attested_annotations(target)
     _attest_signature_defaults(target)
-    _attest_args_schema(facts.args_schema, (target, facts.body))
+    forbidden_codes: list[types.CodeType] = []
+    _collect_executable_codes(target, forbidden_codes, set())
+    _collect_executable_codes(facts.body, forbidden_codes, set())
+    _attest_args_schema(facts.args_schema, (target, facts.body, *forbidden_codes))
     source = facts.body
     _strip_frozen_callable_attributes(source)
     arguments = tuple(facts.material["arguments"])
