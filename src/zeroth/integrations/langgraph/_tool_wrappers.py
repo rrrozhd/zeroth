@@ -101,7 +101,6 @@ from __future__ import annotations
 
 import builtins
 import contextlib
-import enum
 import functools
 import inspect
 import types
@@ -391,6 +390,22 @@ def _pristine_generated_schema() -> type[BaseModel]:
 _PristineGeneratedSchema = _pristine_generated_schema()
 
 
+def _generated_attribute_types() -> Mapping[str, frozenset[type]]:
+    """Derive each generated field's exact top-level shapes from pristine Pydantic state."""
+    expected: dict[str, set[type]] = {}
+    for owner in (BaseModel, _PristineGeneratedSchema):
+        namespace = type.__dict__["__dict__"].__get__(owner)
+        for name in _PYDANTIC_GENERATED_ATTRIBUTES:
+            if name in namespace:
+                expected.setdefault(name, set()).add(type(namespace[name]))
+    expected.setdefault("__signature__", set()).add(inspect.Signature)
+    return {name: frozenset(kinds) for name, kinds in expected.items()}
+
+
+_GENERATED_ATTRIBUTE_TYPES = _generated_attribute_types()
+"""Per-name framework shapes allowed before recursive generated-state attestation."""
+
+
 def _collect_trusted_generated_types(
     value: Any,
     trusted: set[type],
@@ -453,33 +468,8 @@ def _collect_trusted_generated_types(
 
 
 def _trusted_generated_carrier_types() -> frozenset[type]:
-    """Derive exact trusted types from pristine framework and standard-library state."""
-    trusted = set(_BUILTIN_CARRIER_BASES)
-    trusted.update(
-        {
-            enum.property,
-            type(enum._not_given),
-            inspect.Parameter,
-            inspect.Signature,
-            types.BuiltinFunctionType,
-            types.CellType,
-            types.ClassMethodDescriptorType,
-            types.CodeType,
-            types.FunctionType,
-            types.GetSetDescriptorType,
-            types.MappingProxyType,
-            types.MemberDescriptorType,
-            types.MethodDescriptorType,
-            types.MethodType,
-            types.WrapperDescriptorType,
-        }
-    )
-    for module in (inspect, typing):
-        trusted.update(
-            type(value)
-            for value in vars(module).values()
-            if type(value) is not types.MethodWrapperType
-        )
+    """Derive exact trusted types only from pristine framework-generated values."""
+    trusted: set[type] = set()
     seen: dict[int, Any] = {}
     for owner in (BaseModel, _PristineGeneratedSchema, type(BaseModel)):
         namespace = type.__dict__["__dict__"].__get__(owner)
@@ -573,8 +563,8 @@ def _reaches_forbidden_static_value(
     """Traverse owned static dictionaries and exact containers without dispatch."""
     if depth > _MAX_STATIC_ATTESTATION_DEPTH:
         raise ToolGovernanceError("callable argument schema attestation exceeded its depth bound")
-    if opaque_is_safe and type(value) not in _TRUSTED_GENERATED_CARRIER_TYPES:
-        opaque_is_safe = False
+    generated_context = opaque_is_safe
+    opaque_is_safe = generated_context and type(value) in _TRUSTED_GENERATED_CARRIER_TYPES
     if any(value is candidate for candidate in forbidden):
         return True
     identity = id(value)
@@ -588,6 +578,7 @@ def _reaches_forbidden_static_value(
             seen,
             depth,
             opaque_is_safe=opaque_is_safe,
+            generated_context=generated_context,
         )
     finally:
         seen.pop(identity)
@@ -600,6 +591,7 @@ def _reaches_forbidden_active_value(
     depth: int,
     *,
     opaque_is_safe: bool,
+    generated_context: bool,
 ) -> bool:
     """Traverse one value already retained in the active recursion path."""
 
@@ -609,7 +601,7 @@ def _reaches_forbidden_active_value(
             forbidden,
             seen,
             depth + 1,
-            opaque_is_safe=opaque_is_safe,
+            opaque_is_safe=generated_context,
         )
 
     kind = type(value)
@@ -641,6 +633,33 @@ def _reaches_forbidden_active_value(
         except ValueError:
             return False
         return descend(captured)
+    if kind is weakref.ReferenceType:
+        referent = value()
+        callback = value.__callback__
+        return (referent is not None and descend(referent)) or (
+            callback is not None and descend(callback)
+        )
+    if kind is inspect.Signature:
+        return descend(object.__getattribute__(value, "_parameters")) or descend(
+            object.__getattribute__(value, "_return_annotation")
+        )
+    if kind is inspect.Parameter:
+        parameter_kind = object.__getattribute__(value, "_kind")
+        if not any(
+            parameter_kind is candidate
+            for candidate in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.KEYWORD_ONLY,
+                inspect.Parameter.VAR_KEYWORD,
+            )
+        ):
+            raise ToolGovernanceError("callable argument schema carries an invalid parameter")
+        return any(
+            descend(object.__getattribute__(value, slot))
+            for slot in ("_name", "_default", "_annotation")
+        )
     if kind is types.FunctionType:
         return any(
             descend(item)
@@ -654,6 +673,22 @@ def _reaches_forbidden_active_value(
             )
             if item is not None
         )
+    if kind is types.BuiltinFunctionType:
+        owner = value.__self__
+        if owner is None or any(owner is base for base in _BUILTIN_CARRIER_BASES):
+            return False
+        return descend(owner)
+    if kind in (
+        types.MemberDescriptorType,
+        types.GetSetDescriptorType,
+        types.WrapperDescriptorType,
+        types.MethodDescriptorType,
+        types.ClassMethodDescriptorType,
+    ):
+        owner = value.__objclass__
+        if any(owner is base for base in _BUILTIN_CARRIER_BASES):
+            return False
+        return descend(owner)
     if _is_implementation(value):
         raise ToolGovernanceError("callable argument schema carries unknown executable state")
     if isinstance(value, type):
@@ -815,6 +850,11 @@ def _attest_schema_namespace(
     """Attest caller-owned schema entries while exempting exact framework products."""
     for name, value in namespace.items():
         if name in _PYDANTIC_GENERATED_ATTRIBUTES:
+            expected = _GENERATED_ATTRIBUTE_TYPES.get(name, ())
+            if type(value) not in expected:
+                raise ToolGovernanceError(
+                    "callable argument schema generated fields have unexpected values"
+                )
             if _reaches_forbidden_static_value(value, forbidden, seen, opaque_is_safe=True):
                 raise ToolGovernanceError(
                     "callable argument schemas cannot retain executable sources"

@@ -2342,6 +2342,62 @@ def test_a_method_wrapper_in_a_generated_schema_field_is_attested_strictly(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_builtin_iterator_in_a_generated_schema_field_is_attested_strictly(
+    is_async: bool,
+) -> None:
+    """A generated field must not publish a builtin iterator retaining the source."""
+    calls: list[str] = []
+
+    def sync_target(value: str) -> str:
+        calls.append("sync")
+        return value
+
+    async def async_target(value: str) -> str:
+        calls.append("async")
+        return value
+
+    target = async_target if is_async else sync_target
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    CarrierSchema.__signature__ = map(target, ["x"])
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
+def test_a_weak_reference_in_generated_schema_state_is_attested_strictly(
+    is_async: bool,
+) -> None:
+    """Generated containers must not publish weak references to the source."""
+    calls: list[str] = []
+
+    def sync_target(*_args: object) -> str:
+        calls.append("sync")
+        return EVIL
+
+    async def async_target(*_args: object) -> str:
+        calls.append("async")
+        return EVIL
+
+    target = async_target if is_async else sync_target
+
+    class CarrierSchema(BaseModel):
+        query: str
+
+    CarrierSchema.__pydantic_parent_namespace__ = {"escape": weakref.ref(target)}
+    target.args_schema = CarrierSchema
+
+    with pytest.raises(ToolGovernanceError):
+        govern_tools([target], **_seams())
+    assert calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 def test_an_args_schema_same_code_function_carrier_is_refused(is_async: bool) -> None:
     """A distinct function object with the source's code is still the executable body."""
 
