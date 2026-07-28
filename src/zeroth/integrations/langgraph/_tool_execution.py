@@ -898,14 +898,16 @@ def _frozen_cell(cell: Any, depth: int, collector: _StateCellCollector) -> Any:
     recording a non-implementation cell as a bare type name, and a tool that
     rebinds a ``nonlocal`` between calls keeps working only because of it.
 
-    An **unbound** cell is also handed back untouched. A fresh cell would have to
-    hold something, and putting ``None`` in it would turn a body's ``NameError``
-    into a silent ``None`` -- a behaviour change, in the one direction this module
-    must never make one.
+    An **unbound** cell is also handed back untouched, but recorded so a later
+    state-to-implementation transition is refused. A fresh cell would have to hold
+    something, and putting ``None`` in it would turn a body's ``NameError`` into a
+    silent ``None`` -- a behaviour change, in the one direction this module must
+    never make one.
     """
     try:
         captured = cell.cell_contents
     except ValueError:
+        collector.add(cell)
         return cell
     if not _is_implementation(captured):
         collector.add(cell)

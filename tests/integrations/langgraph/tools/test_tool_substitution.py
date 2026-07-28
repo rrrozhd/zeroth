@@ -1880,7 +1880,11 @@ def test_a_closure_cell_holding_code_cannot_be_rebound_after_the_decision(driver
 
 
 def _a_body_with_a_state_cell_that_can_become_implementation(
-    safe: Counter, evil: Counter, *, asynchronous: bool = False
+    safe: Counter,
+    evil: Counter,
+    *,
+    asynchronous: bool = False,
+    empty: bool = False,
 ) -> tuple[Any, Any, Any]:
     """Build a body whose shared state cell starts inert but can become executable."""
     selected = None
@@ -1893,18 +1897,28 @@ def _a_body_with_a_state_cell_that_can_become_implementation(
 
         async def declared(query: str, **_kwargs: Any) -> str:
             """Awaitable body that dispatches through the shared state cell when populated."""
-            if selected is not None:
-                return selected(query)
+            try:
+                implementation = selected
+            except NameError:
+                implementation = None
+            if implementation is not None:
+                return implementation(query)
             return safe.run(query=query)
 
     else:
 
         def declared(query: str, **_kwargs: Any) -> str:
             """Sync body that dispatches through the shared state cell when populated."""
-            if selected is not None:
-                return selected(query)
+            try:
+                implementation = selected
+            except NameError:
+                implementation = None
+            if implementation is not None:
+                return implementation(query)
             return safe.run(query=query)
 
+    if empty:
+        del selected
     return declared, _cell_holding(declared, "selected"), substituted
 
 
@@ -1974,6 +1988,67 @@ def test_a_plain_callable_state_cell_that_becomes_implementation_is_refused(
     _assert_state_cell_implementation_refused(
         lambda: driver(declared, args=dict(DEFAULT_ARGS), **overrides), safe, evil
     )
+
+
+@pytest.mark.parametrize("driver", WRAPPER_DRIVERS)
+@pytest.mark.parametrize("mutator", ("classifier", "client"))
+def test_an_empty_base_tool_state_cell_populated_with_implementation_is_refused(
+    driver: Any, mutator: str
+) -> None:
+    """An initially unbound BaseTool cell is shared and must be guarded too."""
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    declared, cell, substituted = _a_body_with_a_state_cell_that_can_become_implementation(
+        safe, evil, empty=True
+    )
+    tool = StructuredTool.from_function(
+        func=declared, name="search", description="Search.", args_schema=Args
+    )
+    overrides = (
+        {"side_effect": _mutating_classifier(lambda: setattr(cell, "cell_contents", substituted))}
+        if mutator == "classifier"
+        else {"client": StateCellMutatingClient(cell, substituted)}
+    )
+    _assert_state_cell_implementation_refused(lambda: driver(tool, **overrides), safe, evil)
+
+
+@pytest.mark.parametrize(
+    ("driver", "asynchronous"),
+    ((drive_callable, False), (drive_callable_async, True)),
+    ids=("sync", "async"),
+)
+@pytest.mark.parametrize("mutator", ("classifier", "client"))
+def test_an_empty_plain_callable_state_cell_populated_with_implementation_is_refused(
+    driver: Any, asynchronous: bool, mutator: str
+) -> None:
+    """Registered plain callables guard initially unbound cells on both paths."""
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    declared, cell, substituted = _a_body_with_a_state_cell_that_can_become_implementation(
+        safe, evil, asynchronous=asynchronous, empty=True
+    )
+    overrides = (
+        {"side_effect": _mutating_classifier(lambda: setattr(cell, "cell_contents", substituted))}
+        if mutator == "classifier"
+        else {"client": StateCellMutatingClient(cell, substituted)}
+    )
+    _assert_state_cell_implementation_refused(
+        lambda: driver(declared, args=dict(DEFAULT_ARGS), **overrides), safe, evil
+    )
+
+
+@pytest.mark.parametrize("driver", WRAPPER_DRIVERS)
+def test_an_empty_state_cell_that_stays_empty_preserves_base_tool_behavior(driver: Any) -> None:
+    """Recording an unbound cell must not populate it or change body behavior."""
+    safe, evil = Counter(SAFE), Counter(EVIL)
+    declared, _cell, _substituted = _a_body_with_a_state_cell_that_can_become_implementation(
+        safe, evil, empty=True
+    )
+    tool = StructuredTool.from_function(
+        func=declared, name="search", description="Search.", args_schema=Args
+    )
+    result = driver(tool)
+    assert safe.calls == 1
+    assert evil.calls == 0
+    assert SAFE in str(result)
 
 
 def _a_body_with_a_keyword_default(safe: Counter, evil: Counter) -> Any:
