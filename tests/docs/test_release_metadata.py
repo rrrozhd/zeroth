@@ -7,7 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-EXPECTED_VERSION = "0.13.14.7"
+EXPECTED_VERSION = "0.13.14.8"
 
 
 def test_project_version_matches_release() -> None:
@@ -18,6 +18,11 @@ def test_project_version_matches_release() -> None:
 def test_uv_lock_tracks_project_version() -> None:
     lock = (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
     assert f'version = "{EXPECTED_VERSION}"' in lock
+
+
+def test_frontend_version_tracks_project_version() -> None:
+    frontend = (REPO_ROOT / "frontend/app/lib/version.ts").read_text(encoding="utf-8")
+    assert f'export const VERSION = "{EXPECTED_VERSION}";' in frontend
 
 
 def test_changelog_documents_the_hardening_release() -> None:

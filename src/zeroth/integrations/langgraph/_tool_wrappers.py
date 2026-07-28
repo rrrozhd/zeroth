@@ -1865,7 +1865,7 @@ def _enforcement_seams(plan: _GovernedPlan | _CallablePlan) -> dict[str, Any]:
 
 
 class GovernedTool(BaseTool):
-    """A ``BaseTool`` that decides before it runs a frozen twin, and mutates nothing.
+    """A ``BaseTool`` that decides before directly running a frozen body.
 
     Preserves ``name``, ``description`` and ``args_schema`` from the tool it
     wraps, and reports the wrapped tool's own input schema rather than one
@@ -1903,7 +1903,8 @@ class GovernedTool(BaseTool):
 
         Args:
             zeroth_plan: The pinned binding and the live seams a call is decided
-                through, including the one tool this wrapper executes.
+                through, including the source whose frozen body this wrapper
+                executes directly.
             data: The ``BaseTool`` fields the wrapper carries.
 
         Raises:

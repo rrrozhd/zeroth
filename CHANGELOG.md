@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.14.8] - 2026-07-28
+
+### Fixed
+
+- Prevent governed plain callables from publishing an executable source through
+  annotations, signature defaults, or schema carriers. Callable plans now sit behind opaque
+  registry tokens, and unsafe metadata is refused rather than copied onto the public wrapper.
+- Refuse a governed execution if a shared closure cell changes from ordinary state into an
+  implementation after authorization, while preserving legitimate stateful closures.
+- Execute an authorized frozen tool body directly instead of entering a second LangChain tool
+  layer. Ambient configuration copies and process-global callback hooks can no longer run
+  between the policy verdict and the body or rewrite the authorized arguments.
+
+### Changed
+
+- Emit one caller-visible outer callback tree per governed call. Tool-attached callbacks remain
+  excluded, while genuine nested LangChain operations inherit the outer run context normally.
+- Carry `response_format` and `handle_tool_error` on the governed outer wrapper so content and
+  artifact shaping and `ToolException` handling happen exactly once.
+
 ## [0.13.14.7] - 2026-07-27
 
 ### Fixed

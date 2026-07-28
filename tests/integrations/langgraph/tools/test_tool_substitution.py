@@ -59,7 +59,7 @@ The vectors, and why each is a distinct hole rather than a restatement:
   and
   :func:`test_a_run_level_callback_cannot_edit_an_agents_tool_call_after_the_decision`).
   Dropping the delegate's own ``callbacks`` deleted one route to ``on_tool_start``
-  and left the other wide open: the internal executor was invoked with *no config
+  and left the other wide open: the former inner executor was invoked with *no config
   at all*, and ``ensure_config`` fills a missing one from the run's own
   ``ContextVar``. Every handler attached to the outer run therefore fired a second
   time, after the verdict, holding the same nested containers -- the policy
@@ -838,7 +838,7 @@ class MutatingHandler(BaseCallbackHandler):
     One class, two carriers, because the mutation is the same and only the
     *installation* differs: :func:`_mutating_callback_tool` hangs it off the
     delegate's own ``callbacks`` field, and :func:`ambient_callbacks` installs it
-    as a run-level handler the internal executor used to inherit. Writing a second
+    as a run-level handler the former inner executor used to inherit. Writing a second
     copy for the second carrier would have made them look like two vectors, when
     what the two probes actually establish is that closing one carrier left the
     other untouched.
@@ -934,7 +934,7 @@ def ambient_callbacks(*handlers: BaseCallbackHandler) -> Iterator[None]:
     republishes its own child config into that same variable around the body. A
     handler installed here is therefore inherited by every runnable the governed
     call reaches, which is the whole of the vector -- the wrapper's own ``run``
-    fires it once *before* the verdict, legitimately, and the internal executor
+    fires it once *before* the verdict, legitimately, and the former inner executor
     used to fire it a second time *after*.
 
     Setting the variable directly rather than passing ``config=`` to each driver is
@@ -977,7 +977,7 @@ def test_a_run_level_callback_cannot_edit_the_arguments_after_the_decision(drive
     ``{"items": ["safe", "evil", "evil"]}``. The first ``"evil"`` is the handler
     firing on the wrapper's own ``run``, *before* the verdict -- allowed, and the
     reason the two mappings are compared rather than either being compared to a
-    literal. The second is the same handler firing again on the internal executor,
+    literal. The second is the same handler firing again on the former inner executor,
     which was invoked with no config at all and so inherited the outer run's
     callbacks from the ``ContextVar``.
 
@@ -1138,18 +1138,15 @@ def test_a_run_level_callback_cannot_edit_an_agents_tool_call_after_the_decision
 
 @dataclasses.dataclass
 class WatchingHandler(BaseCallbackHandler):
-    """A run-level handler that only *watches*, so over-suppression is visible.
+    """A run-level handler that proves the governed outer span stays visible.
 
     Every probe in this file passes when a call is refused, and a fix that answered
     C5-3 by emptying the callback chain outright would satisfy all of them while
     silently deleting the caller's tracing. What that fix cannot satisfy is a
     *count*: the governed tool is itself a ``BaseTool``, so a handler attached to
-    the run must see its start and its end exactly once. Two of each is the
-    unfixed hole -- the wrapper's run and the internal executor's, one nested
-    inside the other -- and zero is the over-suppression this class exists to
-    catch. Both names are ``search``, because the executing tool is constructed
-    from the snapshot's own name, so the count is the discriminator rather than
-    the names.
+    the run must see its start and its end exactly once. The former inner
+    framework execution produced a second nested span; direct frozen-body
+    execution removes that duplicate without suppressing the outer span.
     """
 
     started: list[str] = dataclasses.field(default_factory=list)
@@ -1166,12 +1163,11 @@ class WatchingHandler(BaseCallbackHandler):
 
 @pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
 def test_a_run_level_handler_still_observes_the_governed_tool_exactly_once(driver: Any) -> None:
-    """The over-suppression control: suppressing the executor must not blind the caller.
+    """Direct body execution must leave the caller-visible outer span intact.
 
-    Only the *internal*, post-authorization executor runs callback-free. The
-    governed twin is the tool the caller invoked and the tool the audit trail names,
-    and a handler on the run has to go on seeing it. This is the one assertion in
-    the file that fails in both directions.
+    The governed twin is the tool the caller invoked and the tool the audit trail
+    names. Its outer callback tree remains observable even though no framework
+    callback manager is created between authorization and the frozen body call.
     """
     log: list[dict[str, Any]] = []
     watcher = WatchingHandler()
@@ -1233,11 +1229,9 @@ def test_what_a_governed_body_invokes_inherits_the_callers_handler(driver: Any) 
 def _callbacks_in_a_func_field(log: list[Any]) -> BaseTool:
     """Build a ``StructuredTool`` whose ``func`` declares a ``callbacks`` parameter.
 
-    ``StructuredTool._run`` inspects ``signature(self.func).parameters`` for that
-    exact name and, when it finds it, hands the body a child callback manager. The
-    value is manufactured by the framework between the decision and the call, so no
-    policy has ever seen it -- and it is a live handle a body can drive, not an
-    inert label.
+    The former inner ``StructuredTool._run`` inspected this name and manufactured
+    a child callback manager between the decision and the call. Direct snapshot
+    execution must leave the declared default untouched.
     """
 
     def body(items: list[str], callbacks: Any = NOT_INJECTED) -> str:
@@ -1253,11 +1247,10 @@ def _callbacks_in_a_func_field(log: list[Any]) -> BaseTool:
 def _callbacks_in_a_run_method(log: list[Any]) -> BaseTool:
     """Build a hand-written ``BaseTool`` whose ``_run`` declares a ``callbacks`` parameter.
 
-    The same injection reached through the other capture path: a class-defined body
-    is frozen and bound by :func:`~zeroth.integrations.langgraph._tool_execution.snapshot_tool`
-    and then installed on the executing tool's ``func`` field, so the signature the
-    framework reads is this method's. Covering only the field shape would leave the
-    surface a hand-written tool uses untested.
+    This covers the class-defined capture path as well as the ``func`` field shape.
+    The method is frozen and bound by
+    :func:`~zeroth.integrations.langgraph._tool_execution.snapshot_tool`, then
+    called directly without another framework signature-inspection pass.
     """
 
     class Direct(BaseTool):
@@ -1283,21 +1276,10 @@ def _config_in_a_partial_field(log: list[Any]) -> BaseTool:
     parameter's name -- a mapping that carries the run's whole callback manager,
     among everything else, and that no policy inspected.
 
-    A ``functools.partial`` is the shape that reached the injection when this probe
-    was written, and the reason is worth keeping straight because it has since
-    changed underneath it. ``snapshot_callable`` rebuilds a plain function from its
-    own parts and the rebuilt object carries no ``__annotations__``, so the
-    framework's hint lookup comes up empty *by accident*; a partial used to be
-    returned unchanged, so ``_get_type_hints`` unwrapped it to the annotated
-    function underneath and the accident did not apply. C5-1 closed that -- a
-    partial is now rebuilt around a frozen ``func``, and the annotations go the
-    same way the plain function's do -- so this shape is covered twice over rather
-    than once. The probe stays exactly as it is: the property asserted is "no value
-    the policy never saw reaches the body", which must hold however the framework's
-    hint lookup happens to come out. The annotation must still resolve against this
-    module's globals, since ``from __future__ import annotations`` makes every
-    annotation a string; that is why ``RunnableConfig`` is imported at module level
-    rather than under ``TYPE_CHECKING``.
+    A ``functools.partial`` is the shape that originally reached the framework
+    injection. It is now rebuilt around a frozen ``func`` and invoked directly,
+    so no post-decision type-hint lookup can inject the ambient config. The probe
+    stays at the body boundary: no value the policy never saw may reach the call.
     """
 
     def body(prefix: str, items: list[str], config: RunnableConfig = NOT_INJECTED) -> str:  # type: ignore[assignment]
@@ -1368,15 +1350,12 @@ def assert_body_received_no_injected_value(
 @pytest.mark.parametrize("build", INJECTION_BODIES)
 @pytest.mark.parametrize("driver", CONFORMANCE_DRIVERS)
 def test_a_body_declaring_a_framework_parameter_is_not_handed_one(driver: Any, build: Any) -> None:
-    """``StructuredTool`` must not inject a value into the body off the body's own signature.
+    """Direct snapshot execution must not manufacture framework parameters.
 
-    Dropping the delegate's ``callbacks`` from the fields the executing tool carries
-    closes the *handler* vector and none of this one: these tools set no callbacks
-    at all. ``StructuredTool._run`` and ``._arun`` read the body's signature
-    themselves and add a callback manager under a declared ``callbacks`` and the
-    live run config under a ``RunnableConfig``-annotated parameter, both of them
-    values invented after the decision. The executing tool therefore has to present
-    the framework a signature with nowhere for either to land.
+    These tools set no callbacks of their own. A former inner ``StructuredTool``
+    layer read the body signature and injected either a callback manager or live
+    run config after the decision. Calling the frozen body directly removes that
+    second interpretation of its signature.
     """
     assert_body_received_no_injected_value(driver, build, {"items": ["safe"]})
 

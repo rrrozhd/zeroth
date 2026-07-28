@@ -507,43 +507,35 @@ one a policy cannot read unambiguously.
 
 ## Known divergences
 
-Three things are deliberately *not* identical between a governed wrapper and the
-tool it wraps. All three are known and none is a governance gap.
+One surface detail is deliberately *not* identical between a governed wrapper and
+the tool it wraps. It is known and is not a governance gap.
 
-### `response_format` is not carried
+### One outer callback tree; direct frozen-body execution
 
-The wrapper reads `"content"` even when the delegate reads
-`"content_and_artifact"`. This is an attribute divergence with behavioral
-**equivalence**: the wrapper forwards the whole tool call, id included, so the
-delegate builds its own `ToolMessage`, and the wrapper's output formatting passes
-a `ToolOutputMixin` straight through. Carrying `response_format` made the wrapper
-re-format already-formatted output and reject the delegate's own `ToolMessage`
-for not being a two-tuple. Backed by
-`test_content_and_artifact_survives_the_wrapping_and_the_artifact_is_not_dropped`.
+The governed wrapper is the only LangChain `BaseTool` execution layer. Its outer
+`run()` / `arun()` validates the input and emits one caller-visible
+`on_tool_start` / `on_tool_end` tree. After Zeroth authorizes the normalized call,
+the wrapper invokes the frozen body directly; it does not invoke a second inner
+tool through `run`, `invoke`, `arun`, or `ainvoke`.
 
-The split is by *who reads the field*:
+Fields are carried according to which layer owns their behavior. `return_direct`,
+`tags`, `metadata`, and `handle_validation_error` remain on the outer wrapper.
+Because there is no inner execution layer, the wrapper also carries
+`handle_tool_error` and `response_format`, so a `ToolException` or
+`content_and_artifact` result is handled exactly once.
 
-- **Carried**: `return_direct`, `tags`, `metadata`, `handle_validation_error`.
-  The agent loop reads `return_direct` off the tool object it was handed — the
-  wrapper — and never off the delegate it cannot see. The wrapper parses input
-  first, with the same schema, so it is the only layer that can fail validation.
-- **Not carried**: `callbacks`, `handle_tool_error`, `response_format`. The
-  delegate is the layer that runs, formats, and therefore fails.
-
-### Two callback trees fire per governed call
-
-The wrapper's `run()` and the executing tool's `run()` each emit `on_tool_start`
-/ `on_tool_end`, so a callback-based observer sees two tool spans for one
-governed call. This is telemetry divergence, not a governance gap: the tool body
-still executes exactly once per governed call, and that call is still recorded
-exactly once.
+The direct body runs inside the outer tool's existing child context. If that body
+starts a genuine nested LangChain operation — another tool, model, or runnable —
+the nested operation inherits the outer run's handlers normally. That nested span
+is real application work, not a duplicate span around the governed body.
 
 ### A tool's own `callbacks` do not fire under governance
 
 A handler attached to the *tool object* — `StructuredTool.from_function(...,
 callbacks=[handler])` — is not run by a governed call. Handlers you attach to the
 **run**, through `config={"callbacks": [...]}` on the graph or agent, are
-unaffected and still fire.
+unaffected: they see the one governed outer span and any genuine nested LangChain
+work the body starts.
 
 The reason is ordering, not tidiness. `on_tool_start` runs after the policy
 decision and before `BaseTool.run` turns the tool input into the body's
