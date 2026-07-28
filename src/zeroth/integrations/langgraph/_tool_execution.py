@@ -386,6 +386,28 @@ def refuse_delegate_dispatch(delegate: Any) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class FrozenCallableSnapshot:
+    """A detached callable plus the shared state cells it still depends on."""
+
+    body: Any
+    state_cells: tuple[Any, ...]
+
+
+class _StateCellCollector:
+    """Collect shared closure cells once by identity across a recursive freeze."""
+
+    def __init__(self) -> None:
+        self.cells: list[Any] = []
+        self._identities: set[int] = set()
+
+    def add(self, cell: Any) -> None:
+        identity = id(cell)
+        if identity not in self._identities:
+            self._identities.add(identity)
+            self.cells.append(cell)
+
+
+@dataclass(frozen=True, slots=True)
 class ToolSnapshot:
     """One tool's body and surface, captured by value before any caller code ran.
 
@@ -408,6 +430,8 @@ class ToolSnapshot:
         bodies: Every implementation slot found, by name, already frozen and
             already bound -- the material the fingerprint digests and the exact
             material execution runs.
+        state_cells: Shared non-implementation closure cells, grouped by body
+            slot so execution checks only the body it is about to enter.
         carried: The output-shaping fields the executing tool needs.
     """
 
@@ -415,6 +439,7 @@ class ToolSnapshot:
     description: Any
     args_schema: Any
     bodies: Mapping[str, Any]
+    state_cells: Mapping[str, tuple[Any, ...]]
     carried: Mapping[str, Any]
 
 
@@ -435,7 +460,9 @@ def _is_framework_boilerplate(implementation: Any, method: str) -> bool:
     )
 
 
-def _bound_method_body(implementation: Any, delegate: Any, kind: Any, method: str) -> Any:
+def _bound_method_body(
+    implementation: Any, delegate: Any, kind: Any, method: str
+) -> FrozenCallableSnapshot:
     """Freeze one class-defined body and bind it, before any caller code has run.
 
     Binding is the step that used to be delegate-controlled: execution called
@@ -464,11 +491,13 @@ def _bound_method_body(implementation: Any, delegate: Any, kind: Any, method: st
             find out what governance had just authorized.
     """
     if type(implementation) is types.FunctionType:
-        return types.MethodType(snapshot_callable(implementation), delegate)
+        frozen = snapshot_guarded_callable(implementation)
+        return FrozenCallableSnapshot(types.MethodType(frozen.body, delegate), frozen.state_cells)
     if type(implementation) is staticmethod:
-        return snapshot_callable(implementation.__func__)
+        return snapshot_guarded_callable(implementation.__func__)
     if type(implementation) is classmethod:
-        return types.MethodType(snapshot_callable(implementation.__func__), kind)
+        frozen = snapshot_guarded_callable(implementation.__func__)
+        return FrozenCallableSnapshot(types.MethodType(frozen.body, kind), frozen.state_cells)
     raise UnstableToolIdentityError(
         f"this tool keeps its body behind a descriptor governance cannot bind "
         f"without executing the tool's own code: {method}"
@@ -506,20 +535,26 @@ def snapshot_tool(delegate: Any) -> ToolSnapshot:
     refuse_delegate_dispatch(delegate)
     kind = type(delegate)
     bodies: dict[str, Any] = {}
+    state_cells: dict[str, tuple[Any, ...]] = {}
     for field in _BODY_FIELDS:
         body = static_instance_field(delegate, field)
         if body is not None:
-            bodies[field] = snapshot_callable(body)
+            frozen = snapshot_guarded_callable(body)
+            bodies[field] = frozen.body
+            state_cells[field] = frozen.state_cells
     for method in _BODY_METHODS:
         implementation = static_class_attribute(kind, method)
         if implementation is None or _is_framework_boilerplate(implementation, method):
             continue
-        bodies[method] = _bound_method_body(implementation, delegate, kind, method)
+        frozen = _bound_method_body(implementation, delegate, kind, method)
+        bodies[method] = frozen.body
+        state_cells[method] = frozen.state_cells
     return ToolSnapshot(
         name=static_instance_field(delegate, "name"),
         description=static_instance_field(delegate, "description"),
         args_schema=static_instance_field(delegate, "args_schema"),
         bodies=bodies,
+        state_cells=state_cells,
         carried={
             field: static_instance_field(delegate, field)
             for field in _CARRIED_FIELDS
@@ -545,7 +580,30 @@ def _snapshot_body(snapshot: ToolSnapshot, field: str, method: str) -> Any:
     return snapshot.bodies.get(method)
 
 
-def _adapted(body: Any) -> Any:
+def _snapshot_body_with_state(
+    snapshot: ToolSnapshot, field: str, method: str
+) -> tuple[Any, tuple[Any, ...]]:
+    """Select one body slot together with only that slot's shared state cells."""
+    body = snapshot.bodies.get(field)
+    if body is not None:
+        return body, snapshot.state_cells.get(field, ())
+    return snapshot.bodies.get(method), snapshot.state_cells.get(method, ())
+
+
+def refuse_state_cell_escalation(state_cells: tuple[Any, ...]) -> None:
+    """Refuse when shared state became executable after authorization."""
+    for cell in state_cells:
+        try:
+            value = cell.cell_contents
+        except ValueError:
+            continue
+        if _is_implementation(value):
+            raise ToolGovernanceError(
+                "a shared state cell became implementation after authorization"
+            )
+
+
+def _adapted(body: Any, state_cells: tuple[Any, ...]) -> Any:
     """Present a snapshotted sync body to the framework behind an opaque signature.
 
     ``StructuredTool._run`` reads the *body's own signature* and adds arguments to
@@ -578,6 +636,7 @@ def _adapted(body: Any) -> Any:
 
     Args:
         body: The snapshotted callable to forward to.
+        state_cells: Shared cells to reclassify immediately before forwarding.
 
     Returns:
         A plain function that forwards its arguments unchanged.
@@ -585,6 +644,7 @@ def _adapted(body: Any) -> Any:
 
     def governed_body(*args: Any, **kwargs: Any) -> Any:
         """Forward exactly what the authorized call carried, and nothing else."""
+        refuse_state_cell_escalation(state_cells)
         return body(*args, **kwargs)
 
     # Deliberately *not* ``functools.wraps``, and deliberately no ``__signature__``.
@@ -598,7 +658,7 @@ def _adapted(body: Any) -> Any:
     return governed_body
 
 
-def _adapted_async(body: Any) -> Any:
+def _adapted_async(body: Any, state_cells: tuple[Any, ...]) -> Any:
     """Present a snapshotted async body to the framework behind an opaque signature.
 
     The ``coroutine`` half of :func:`_adapted`, and it exists because
@@ -608,6 +668,7 @@ def _adapted_async(body: Any) -> Any:
 
     Args:
         body: The snapshotted awaitable-returning callable to forward to.
+        state_cells: Shared cells to reclassify immediately before forwarding.
 
     Returns:
         A coroutine function that forwards its arguments unchanged.
@@ -615,6 +676,7 @@ def _adapted_async(body: Any) -> Any:
 
     async def governed_body(*args: Any, **kwargs: Any) -> Any:
         """Await exactly what the authorized call carried, and nothing else."""
+        refuse_state_cell_escalation(state_cells)
         return await body(*args, **kwargs)
 
     return governed_body
@@ -662,8 +724,8 @@ def executing_tool(snapshot: ToolSnapshot) -> BaseTool:
             build an executing tool. Refusing is the only outcome that does not
             run something the guard could not pin.
     """
-    func = _snapshot_body(snapshot, "func", "_run")
-    coroutine = _snapshot_body(snapshot, "coroutine", "_arun")
+    func, func_state_cells = _snapshot_body_with_state(snapshot, "func", "_run")
+    coroutine, coroutine_state_cells = _snapshot_body_with_state(snapshot, "coroutine", "_arun")
     if func is None and coroutine is None:
         raise ToolGovernanceError(
             "this tool exposes no body that can be executed under the identity it was authorized by"
@@ -673,8 +735,10 @@ def executing_tool(snapshot: ToolSnapshot) -> BaseTool:
             name=str(snapshot.name),
             description=str(snapshot.description or ""),
             args_schema=None,
-            func=None if func is None else _adapted(func),
-            coroutine=None if coroutine is None else _adapted_async(coroutine),
+            func=None if func is None else _adapted(func, func_state_cells),
+            coroutine=(
+                None if coroutine is None else _adapted_async(coroutine, coroutine_state_cells)
+            ),
             **dict(snapshot.carried),
         )
     except Exception as error:
@@ -754,10 +818,17 @@ def snapshot_callable(target: Any) -> Any:
         UnstableToolIdentityError: If the implementation is nested past the
             fingerprint's depth bound.
     """
-    return _frozen_implementation(target, 0)
+    return snapshot_guarded_callable(target).body
 
 
-def _frozen_implementation(target: Any, depth: int) -> Any:
+def snapshot_guarded_callable(target: Any) -> FrozenCallableSnapshot:
+    """Freeze *target* and retain every non-implementation cell left shared."""
+    collector = _StateCellCollector()
+    body = _frozen_implementation(target, 0, collector)
+    return FrozenCallableSnapshot(body, tuple(collector.cells))
+
+
+def _frozen_implementation(target: Any, depth: int, collector: _StateCellCollector) -> Any:
     """Return *target* with every implementation it captured detached from the delegate.
 
     Shape for shape, this is ``_implementation_material``'s walk with a rebuild
@@ -771,6 +842,7 @@ def _frozen_implementation(target: Any, depth: int) -> Any:
     Args:
         target: The implementation to freeze.
         depth: How deep in the implementation this value sits.
+        collector: The identity-deduplicating shared-state cell collector.
 
     Returns:
         The frozen equivalent, callable exactly as *target* was.
@@ -781,21 +853,24 @@ def _frozen_implementation(target: Any, depth: int) -> Any:
     _guard_depth(depth)
     kind = type(target)
     if kind is types.FunctionType:
-        return _frozen_function(target, depth)
+        return _frozen_function(target, depth, collector)
     if kind is types.MethodType:
-        return types.MethodType(_frozen_implementation(target.__func__, depth + 1), target.__self__)
+        return types.MethodType(
+            _frozen_implementation(target.__func__, depth + 1, collector),
+            target.__self__,
+        )
     if kind is functools.partial:
-        return _frozen_partial(target, depth)
+        return _frozen_partial(target, depth, collector)
     if kind is types.CodeType:
         return target
     if kind is staticmethod:
-        return staticmethod(_frozen_implementation(target.__func__, depth + 1))
+        return staticmethod(_frozen_implementation(target.__func__, depth + 1, collector))
     if kind is classmethod:
-        return classmethod(_frozen_implementation(target.__func__, depth + 1))
-    return _frozen_callable_object(target, depth)
+        return classmethod(_frozen_implementation(target.__func__, depth + 1, collector))
+    return _frozen_callable_object(target, depth, collector)
 
 
-def _frozen_capture(value: Any, depth: int) -> Any:
+def _frozen_capture(value: Any, depth: int, collector: _StateCellCollector) -> Any:
     """Freeze one captured entry when it is implementation, else keep it as it is.
 
     The projection ``_bound_material`` makes, inverted: it hands an
@@ -806,11 +881,11 @@ def _frozen_capture(value: Any, depth: int) -> Any:
     a function inside a list default is not walked by identity either.
     """
     if _is_implementation(value):
-        return _frozen_implementation(value, depth + 1)
+        return _frozen_implementation(value, depth + 1, collector)
     return value
 
 
-def _frozen_cell(cell: Any, depth: int) -> Any:
+def _frozen_cell(cell: Any, depth: int, collector: _StateCellCollector) -> Any:
     """Return the cell a rebuilt function should close over in place of *cell*.
 
     A cell holding implementation is replaced by a **new** cell holding the frozen
@@ -833,8 +908,9 @@ def _frozen_cell(cell: Any, depth: int) -> Any:
     except ValueError:
         return cell
     if not _is_implementation(captured):
+        collector.add(cell)
         return cell
-    return types.CellType(_frozen_implementation(captured, depth + 1))
+    return types.CellType(_frozen_implementation(captured, depth + 1, collector))
 
 
 _DISOWNING_ATTRIBUTES = frozenset({"__signature__", "__wrapped__"})
@@ -856,7 +932,7 @@ across a freeze was the same mistake in the other direction.
 """
 
 
-def _frozen_function(target: Any, depth: int) -> Any:
+def _frozen_function(target: Any, depth: int, collector: _StateCellCollector) -> Any:
     """Rebuild a plain function around frozen code, frozen cells and copied defaults.
 
     ``__globals__`` is deliberately shared. A module's globals are the world a
@@ -876,13 +952,23 @@ def _frozen_function(target: Any, depth: int) -> Any:
         target.__code__,
         target.__globals__,
         target.__name__,
-        None if defaults is None else tuple(_frozen_capture(item, depth) for item in defaults),
-        None if closure is None else tuple(_frozen_cell(cell, depth) for cell in closure),
+        (
+            None
+            if defaults is None
+            else tuple(_frozen_capture(item, depth, collector) for item in defaults)
+        ),
+        (
+            None
+            if closure is None
+            else tuple(_frozen_cell(cell, depth, collector) for cell in closure)
+        ),
     )
     rebuilt.__kwdefaults__ = (
         None
         if keyword_defaults is None
-        else {key: _frozen_capture(value, depth) for key, value in keyword_defaults.items()}
+        else {
+            key: _frozen_capture(value, depth, collector) for key, value in keyword_defaults.items()
+        }
     )
     rebuilt.__qualname__ = target.__qualname__
     rebuilt.__doc__ = target.__doc__
@@ -893,7 +979,7 @@ def _frozen_function(target: Any, depth: int) -> Any:
     return rebuilt
 
 
-def _frozen_partial(target: Any, depth: int) -> Any:
+def _frozen_partial(target: Any, depth: int, collector: _StateCellCollector) -> Any:
     """Rebuild a ``functools.partial`` around a frozen callable and its own arguments.
 
     Only ``func`` is implementation. The bound arguments are the configuration
@@ -904,13 +990,13 @@ def _frozen_partial(target: Any, depth: int) -> Any:
     call resolves against is one the delegate can still write into.
     """
     return functools.partial(
-        _frozen_implementation(target.func, depth + 1),
-        *(_frozen_capture(item, depth) for item in target.args),
-        **{key: _frozen_capture(value, depth) for key, value in target.keywords.items()},
+        _frozen_implementation(target.func, depth + 1, collector),
+        *(_frozen_capture(item, depth, collector) for item in target.args),
+        **{key: _frozen_capture(value, depth, collector) for key, value in target.keywords.items()},
     )
 
 
-def _frozen_callable_object(target: Any, depth: int) -> Any:
+def _frozen_callable_object(target: Any, depth: int, collector: _StateCellCollector) -> Any:
     """Bind a frozen copy of an instance's ``__call__`` to that same instance.
 
     ``__call__`` is read off the **type**, through the same static walk every
@@ -933,7 +1019,7 @@ def _frozen_callable_object(target: Any, depth: int) -> Any:
     call = static_class_attribute(type(target), "__call__")
     if not _is_implementation(call):
         return target
-    frozen = _frozen_implementation(call, depth + 1)
+    frozen = _frozen_implementation(call, depth + 1, collector)
     if type(call) is types.FunctionType:
         return types.MethodType(frozen, target)
     if type(call) is classmethod:

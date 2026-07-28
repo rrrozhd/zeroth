@@ -131,7 +131,9 @@ from zeroth.integrations.langgraph._tool_execution import (
     ToolSnapshot,
     executing_tool,
     refuse_delegate_dispatch,
+    refuse_state_cell_escalation,
     snapshot_callable,
+    snapshot_guarded_callable,
     snapshot_tool,
 )
 from zeroth.integrations.langgraph._tool_fingerprint import (
@@ -261,6 +263,7 @@ class _ToolFacts:
     material: Mapping[str, Any]
     snapshot: ToolSnapshot | None = None
     body: Any = None
+    state_cells: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,6 +305,7 @@ class _CallablePlan:
     """A plain callable's source-free execution plan, held behind an opaque token."""
 
     source: Any
+    state_cells: tuple[Any, ...]
     metadata: _CallableMetadata
     binding: GovernedToolBinding
     seams: _Seams
@@ -1552,7 +1556,8 @@ def _describe_callable(target: Any) -> _ToolFacts:
     if normalize_identifier(name) is None:
         name = _peek(target, "__name__")
     arguments = _schema_argument_names(args_schema) or _signature_argument_names(target)
-    body = snapshot_callable(target)
+    guarded = snapshot_guarded_callable(target)
+    body = guarded.body
     return _ToolFacts(
         name=name,
         description=description,
@@ -1565,6 +1570,7 @@ def _describe_callable(target: Any) -> _ToolFacts:
             "implementation": callable_implementation_digest(body),
         },
         body=body,
+        state_cells=guarded.state_cells,
     )
 
 
@@ -1867,7 +1873,11 @@ def _effective_call(
 
 def _callable_facts(plan: _CallablePlan) -> _ToolFacts:
     """Re-snapshot a frozen source and rebuild identity facts from immutable metadata."""
-    body = snapshot_callable(plan.source)
+    guarded = snapshot_guarded_callable(plan.source)
+    body = guarded.body
+    state_cells = tuple(
+        {id(cell): cell for cell in (*plan.state_cells, *guarded.state_cells)}.values()
+    )
     metadata = plan.metadata
     return _ToolFacts(
         name=metadata.name,
@@ -1881,6 +1891,7 @@ def _callable_facts(plan: _CallablePlan) -> _ToolFacts:
             "implementation": callable_implementation_digest(body),
         },
         body=body,
+        state_cells=state_cells,
     )
 
 
@@ -2233,9 +2244,12 @@ def _sync_callable_call(token: object, args: tuple[Any, ...], kwargs: Mapping[st
     call = _effective_call(plan.source, args, kwargs)
     action, context, facts = _governed_action(plan, call.arguments)
     body = facts.body
-    return guard_tool_call(
-        action, context, lambda: body(*call.args, **call.kwargs), **_enforcement_seams(plan)
-    )
+
+    def execute() -> Any:
+        refuse_state_cell_escalation(facts.state_cells)
+        return body(*call.args, **call.kwargs)
+
+    return guard_tool_call(action, context, execute, **_enforcement_seams(plan))
 
 
 async def _async_callable_call(
@@ -2246,6 +2260,7 @@ async def _async_callable_call(
     call = _effective_call(plan.source, args, kwargs)
     action, context, facts = _governed_action(plan, call.arguments)
     authorize_tool_call(action, context, **_enforcement_seams(plan))
+    refuse_state_cell_escalation(facts.state_cells)
     return await facts.body(*call.args, **call.kwargs)
 
 
@@ -2307,6 +2322,7 @@ def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
     binding = _pin(facts)
     plan = _CallablePlan(
         source=source,
+        state_cells=facts.state_cells,
         metadata=_CallableMetadata(
             name=binding.identity.name,
             description=facts.description,
