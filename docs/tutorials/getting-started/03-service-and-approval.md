@@ -41,7 +41,7 @@ terminal. Production and the tutorial use the exact same code path.
 Run it:
 
 ```bash
-python examples/20_approval_gate.py
+uv run python examples/20_approval_gate.py
 ```
 
 ## Expected output

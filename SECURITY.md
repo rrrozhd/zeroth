@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report suspected vulnerabilities privately via
-[GitHub Security Advisories](https://github.com/rrrozhd/zeroth-core/security/advisories/new).
+[GitHub Security Advisories](https://github.com/rrrozhd/zeroth/security/advisories/new).
 Do not open public issues for security reports. You should receive an initial
 response within a few days.
 

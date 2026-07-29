@@ -2,7 +2,7 @@
 # Zeroth quickstart — clone, install, and serve a demo deployment (API + web
 # console) in one command:
 #
-#   curl -fsSL https://raw.githubusercontent.com/rrrozhd/zeroth-core/main/scripts/quickstart.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/rrrozhd/zeroth/main/scripts/quickstart.sh | bash
 #
 # or, from a checkout:
 #
@@ -17,13 +17,13 @@
 #      http://127.0.0.1:8000 with the console at /console/.
 #
 # Environment overrides:
-#   ZEROTH_DIR           checkout directory (default: zeroth-core)
+#   ZEROTH_DIR           checkout directory (default: zeroth)
 #   ZEROTH_EXAMPLE_PORT  port to serve on (default: 8000)
 #   OPENAI_API_KEY       LLM key for the demo agent (prompted if unset)
 set -euo pipefail
 
-REPO_URL="https://github.com/rrrozhd/zeroth-core.git"
-DIR="${ZEROTH_DIR:-zeroth-core}"
+REPO_URL="https://github.com/rrrozhd/zeroth.git"
+DIR="${ZEROTH_DIR:-zeroth}"
 PORT="${ZEROTH_EXAMPLE_PORT:-8000}"
 
 say()  { printf '\033[1m[zeroth]\033[0m %s\n' "$*"; }

@@ -132,10 +132,11 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rrrozhd/zeroth-core"
-Source = "https://github.com/rrrozhd/zeroth-core"
-Issues = "https://github.com/rrrozhd/zeroth-core/issues"
-Changelog = "https://github.com/rrrozhd/zeroth-core/blob/main/CHANGELOG.md"
+Homepage = "https://rrrozhd.github.io/zeroth/"
+Documentation = "https://rrrozhd.github.io/zeroth/"
+Source = "https://github.com/rrrozhd/zeroth"
+Issues = "https://github.com/rrrozhd/zeroth/issues"
+Changelog = "https://github.com/rrrozhd/zeroth/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling>=1.27"]

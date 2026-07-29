@@ -25,6 +25,12 @@ The nodes, edges, and runners that move a payload through a graph.
   manifests, admission control, and environment preparation.
 - [Conditions](conditions.md) — edge-bound expressions,
   `BranchResolver`, and safe AST evaluation.
+- [Parallel execution](parallel.md) — concurrent fan-out/fan-in with
+  isolated branch state and deterministic merging.
+- [Subgraph composition](subgraph.md) — nested published graphs with
+  inherited governance and approval propagation.
+- [Context window management](context-window.md) — token tracking and
+  automatic compaction strategies for long-running agents.
 
 ## Data and state
 
@@ -40,6 +46,8 @@ The models, contracts, and stores that carry run state between steps.
   schemas resolved through `ContractRegistry`.
 - [Runs](runs.md) — `Run`, `RunStatus`, failure state, threads, and
   the repository that persists every transition.
+- [Templates](templates.md) — versioned, sandbox-rendered prompt content.
+- [Artifacts](artifacts.md) — external storage for large node outputs.
 
 ## Governance
 
@@ -71,4 +79,5 @@ webhooks.
   and the uvicorn entrypoint.
 - [Webhooks](webhooks.md) — `WebhookService`, delivery worker, and
   HMAC-SHA256 signing.
-
+- [Resilient HTTP client](http-client.md) — retries, circuit breaking,
+  rate limiting, and pooled outbound HTTP.

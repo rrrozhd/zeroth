@@ -18,8 +18,9 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/rrrozhd/zeroth-core"
-Source = "https://github.com/rrrozhd/zeroth-core"
+Homepage = "https://rrrozhd.github.io/zeroth/"
+Documentation = "https://rrrozhd.github.io/zeroth/"
+Source = "https://github.com/rrrozhd/zeroth"
 
 [build-system]
 requires = ["hatchling>=1.27"]

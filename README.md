@@ -5,6 +5,14 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://rrrozhd.github.io/zeroth/"><img alt="Documentation" src="https://img.shields.io/badge/docs-live-4f46e5"></a>
+  <a href="https://github.com/rrrozhd/zeroth/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rrrozhd/zeroth/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://pypi.org/project/zeroth-core/"><img alt="PyPI" src="https://img.shields.io/pypi/v/zeroth-core"></a>
+  <a href="https://pypi.org/project/zeroth-core/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/zeroth-core"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+</p>
+
 A governed medium-code platform for building, running, and deploying production-grade multi-agent systems as standalone API services.
 
 Zeroth treats an agentic application as an **explicit executable graph** rather than an opaque prompt chain. Every node boundary is typed, executable units can run inside a hardened Docker/sidecar sandbox (the default local backend is for development), memory is attachable and shareable, and audits are recorded per node. The result is a system you can reason about, govern, and deploy with confidence.
@@ -13,9 +21,14 @@ Zeroth treats an agentic application as an **explicit executable graph** rather 
 
 ## Documentation
 
-Full documentation lives at **<https://rrrozhd.github.io/zeroth-core/>** —
-start with the [Getting Started tutorial](https://rrrozhd.github.io/zeroth-core/tutorials/getting-started/)
-or the [Governance Walkthrough](https://rrrozhd.github.io/zeroth-core/tutorials/governance-walkthrough/).
+Full documentation lives at **<https://rrrozhd.github.io/zeroth/>** —
+start with the [Getting Started tutorial](https://rrrozhd.github.io/zeroth/tutorials/getting-started/)
+or the [Governance Walkthrough](https://rrrozhd.github.io/zeroth/tutorials/governance-walkthrough/).
+
+Project links: [source](https://github.com/rrrozhd/zeroth) ·
+[releases](https://github.com/rrrozhd/zeroth/releases) ·
+[changelog](CHANGELOG.md) · [issues](https://github.com/rrrozhd/zeroth/issues) ·
+[security](SECURITY.md)
 
 ---
 
@@ -26,7 +39,7 @@ deployment — a deployed Q&A graph on `http://127.0.0.1:8000` with the web
 console at `/console/`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rrrozhd/zeroth-core/main/scripts/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/rrrozhd/zeroth/main/scripts/quickstart.sh | bash
 ```
 
 (Prefer to read before you run? `curl -fsSLO …/quickstart.sh`, inspect it, then
@@ -39,13 +52,13 @@ Studio), and starts the service. Open **<http://127.0.0.1:8000/console/>** and
 connect with the demo key `demo-operator-key` — the console's Guide page and
 workflow templates take it from there.
 
-No clone needed — the pip install alone can serve a runnable demo:
+From a current source checkout, the CLI can seed and serve a runnable demo
+without writing an application first:
 
 ```bash
-pip install zeroth-core
-zeroth-core seed-demo   # creates schema + a deployed single-agent graph;
-                        # prints the export + curl commands for your first run
-zeroth-core serve
+uv run zeroth-core seed-demo   # creates schema + a deployed single-agent graph;
+                               # prints the export + curl commands for your first run
+uv run zeroth-core serve
 ```
 
 Or containerized: `docker build -t zeroth-core . && docker run -p 8000:8000 zeroth-core`
@@ -55,14 +68,27 @@ Or containerized: `docker build -t zeroth-core . && docker run -p 8000:8000 zero
 
 ## Install
 
+Install the latest published release from [PyPI](https://pypi.org/project/zeroth-core/):
+
 ```bash
 pip install zeroth-core
+```
+
+The documentation site tracks `main`, which can be ahead of PyPI. To use the
+current source documented here, install from a checkout:
+
+```bash
+git clone https://github.com/rrrozhd/zeroth.git
+cd zeroth
+uv sync
 ```
 
 Optional extras pull in swappable backends (base install stays minimal):
 
 ```bash
 pip install "zeroth-core[console]"       # Bundled web console UI (no Node needed)
+pip install "zeroth-core[langgraph]"     # Govern LangGraph and create_agent tool calls
+pip install "zeroth-core[langgraph-gateway]" # Agent Server gateway transport
 pip install "zeroth-core[memory-pg]"     # Postgres + pgvector memory backend
 pip install "zeroth-core[memory-chroma]" # Chroma memory backend
 pip install "zeroth-core[memory-es]"     # Elasticsearch memory backend
@@ -70,10 +96,11 @@ pip install "zeroth-core[dispatch]"      # Distributed worker (redis + arq)
 pip install "zeroth-core[sandbox]"       # Sandbox sidecar marker
 pip install "zeroth-core[otel]"          # OpenTelemetry trace/metric export
 pip install "zeroth-core[regulus]"       # Bundled economic control plane backend
-pip install "zeroth-core[all]"           # Everything above except console
+pip install "zeroth-core[all]"           # Headless runtime bundle; excludes console and langgraph middleware
 ```
 
-Available extras: `console`, `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `otel`, `regulus`, `all`.
+Available extras: `console`, `langgraph`, `langgraph-gateway`, `memory-pg`,
+`memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `otel`, `regulus`, `all`.
 
 ---
 
@@ -141,7 +168,7 @@ Zeroth enforces governance at multiple layers:
 
 ### Platform Extensions
 
-Six further subsystems support production agentic workflows:
+Seven further subsystems support production agentic workflows:
 
 - **Resilient HTTP Client** — Platform-provided async HTTP with retry, circuit breaking, and connection pooling for external API calls
 - **Prompt Templates** — Versioned prompt template registry with Jinja2 sandboxed rendering and automatic secret redaction in audit records
@@ -149,6 +176,7 @@ Six further subsystems support production agentic workflows:
 - **Parallel Fan-Out/Fan-In** — Spawn N concurrent branches from a node's output with isolated execution contexts, deterministic merge, and per-branch cost attribution
 - **Subgraph Composition** — Reference published graphs as nested nodes with inherited governance, configurable thread sharing, and approval propagation
 - **Artifact Store** — Externalize large binary outputs from nodes; retrieve via `GET /v1/artifacts/{id}`
+- **LangGraph Governance** — Wrap compiled graphs for causal-span capture, govern raw tool lists, or install `ZerothMiddleware` in `create_agent` so tool calls are allowed, denied, or suspended for approval before the tool body runs
 
 REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template management (`GET/POST/DELETE /v1/templates`) are available under `/v1/`.
 
@@ -199,8 +227,8 @@ Zeroth is implemented as a **modular monolith** — all subsystems live in a sin
 
 ```bash
 # Clone the repository
-git clone https://github.com/rrrozhd/zeroth-core.git
-cd zeroth-core
+git clone https://github.com/rrrozhd/zeroth.git
+cd zeroth
 
 # Install dependencies
 uv sync
@@ -235,47 +263,25 @@ uv run ruff format src/
 ## Project Structure
 
 ```
-src/zeroth/core/
-├── agent_runtime/      # Agent execution, LLM providers, tool attachments
-├── approvals/          # Human approval workflows and decision tracking
-├── artifacts/          # Artifact externalization and retrieval
-├── audit/              # Per-node event tracking, redaction, evidence
-├── cli.py              # zeroth-core CLI (serve, seed-demo, migrate)
-├── conditions/         # Branch evaluation and traversal logging
-├── config/             # Runtime settings and configuration reference
-├── context_window/     # Token tracking and context compaction
-├── contracts/          # Pydantic-based schema registration and versioning
-├── deployments/        # Immutable graph snapshots and version management
-├── dispatch/           # Durable run dispatch and worker supervision
-├── econ/               # Cost estimation, budget enforcement, econ integration
-├── eval/               # Agent evaluation harness: datasets, scorers, CI gate
-├── execution_units/    # Sandboxed code execution (Docker, Python, shell)
-├── governed/           # Vendored governed-runtime primitives (absorbed governai): memory types, tool contracts, run-state, audit emitters
-├── graph/              # Workflow DAG structure and persistence
-├── guardrails/         # Rate limiting, quotas, dead-letter queues
-├── http/               # Resilient async HTTP client with retry and circuit breaking
-├── identity/           # Authentication, principals, roles, scoping
-├── mappings/           # Data flow definitions between graph nodes
-├── memory/             # Persistent agent memory connectors
-├── migrations/         # Schema migrations applied at boot
-├── observability/      # Metrics, correlation IDs, structured logging
-├── orchestrator/       # Core workflow execution engine
-├── parallel/           # Fan-out/fan-in concurrent branch execution
-├── policy/             # Capability-based access control
-├── rag/                # Document ingestion for retrieval (chunk + embed)
-├── runs/               # Run and thread state persistence
-├── sandbox_sidecar/    # Sidecar sandbox backend
-├── secrets/            # Secret resolution and redaction
-├── service/            # FastAPI HTTP API, console mount, bootstrap
-├── storage/            # SQLite, Redis, migrations, encryption
-├── subgraph/           # Nested graph composition and resolution
-├── templates/          # Versioned prompt template registry
-└── webhooks/           # Webhook subscriptions, signed delivery, dead-letter
-
-    econ_plane/         # Economic control plane backend (absorbed Regulus)
-    core/econ/instrumentation/  # Cost-instrumentation SDK used by core/econ/
-frontend/               # Next.js web console (static export, see below)
+src/zeroth/
+├── platform/       # Config, storage, artifacts, dispatch, secrets, signing
+├── contracts/      # Graph, condition, mapping, template, and registry models
+├── governance/     # Policy, approvals, audit, identity, guardrails, retention
+├── runtime/        # Agents, orchestration, runs, parallelism, context, subgraphs
+├── econ/           # Cost analytics, instrumentation, and the control plane
+├── integrations/   # Persistence, execution, HTTP, memory, RAG, and sandbox adapters
+├── eval/           # Datasets, scorers, evaluation runner, and CI gates
+├── service/        # FastAPI app, APIs, deployment bootstrap, and webhooks
+└── core/           # Backward-compatible import surface and CLI
+frontend/           # Next.js static web console
+packaging/console/  # Pre-built zeroth-console Python distribution
+docs/               # MkDocs documentation source
 ```
+
+New code should use the canonical domain packages. `zeroth.core` remains a
+supported compatibility surface; see the
+[backend import migration map](docs/backend-import-migration.md) for the
+canonical equivalent of each legacy import.
 
 ---
 

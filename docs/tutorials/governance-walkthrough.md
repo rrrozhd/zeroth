@@ -6,9 +6,9 @@ review, an **auditor** that makes every node's decisions inspectable,
 and a **policy** that blocks a tool call before it executes.
 
 All three scenarios are driven by focused, single-purpose scripts
-([`examples/20_approval_gate.py`](#scenario-1--approval-gate),
-[`examples/21_policy_block.py`](#scenario-3--policy-block),
-[`examples/24_audit_query.py`](#scenario-2--auditor)) plus an umbrella
+([`examples/20_approval_gate.py`](#scenario-1-approval-gate),
+[`examples/21_policy_block.py`](#scenario-3-policy-block),
+[`examples/24_audit_query.py`](#scenario-2-auditor-reviews-the-trail)) plus an umbrella
 runner [`examples/26_governance_walkthrough.py`](#full-example) that
 sequences them. No mocks: each script talks to the real orchestrator
 and, in the approval case, a real uvicorn instance.

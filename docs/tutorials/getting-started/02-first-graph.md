@@ -42,7 +42,7 @@ Run it (OpenAI this time, so Section 3 can reuse the same key):
 
 ```bash
 export OPENAI_API_KEY=sk-...
-python examples/01_first_graph.py
+uv run python examples/01_first_graph.py
 ```
 
 ## Expected output
