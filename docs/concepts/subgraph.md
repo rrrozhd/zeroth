@@ -1,7 +1,5 @@
 # Subgraph Composition
 
-*Added in v4.0*
-
 A graph can reference another published graph as a nested subgraph node. The orchestrator enters the subgraph as a scoped execution that inherits governance, optionally shares thread memory, and propagates approvals back to the parent.
 
 ## How It Works

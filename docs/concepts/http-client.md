@@ -1,7 +1,5 @@
 # Resilient HTTP Client
 
-*Added in v4.0*
-
 The platform-provided async HTTP client gives agent tools and execution units a resilient way to make external HTTP calls with automatic retry, circuit breaking, rate limiting, and connection pooling.
 
 ## How It Works

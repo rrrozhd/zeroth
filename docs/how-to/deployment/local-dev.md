@@ -19,28 +19,26 @@ tutorials, or exercising the examples shipped with the repository.
 
 ## Install
 
-Pick either a PyPI install or a checkout of the repository.
+The documentation site tracks `main`, so a repository checkout is the
+recommended way to run the current service and console:
 
 ```bash
-# Option A — from PyPI
-pip install zeroth-core
-
-# Option A (with extras)
-pip install "zeroth-core[memory-pg,dispatch]"
-
-# Option B — from a local checkout
 git clone https://github.com/rrrozhd/zeroth.git
 cd zeroth
 uv sync
 ```
 
+For library use, the latest published package is available from
+[PyPI](https://pypi.org/project/zeroth-core/), but it can lag the current docs:
+
+```bash
+pip install zeroth-core
+```
+
 ## Run
 
 ```bash
-# From a pip install
-zeroth-core serve
-
-# From a uv-managed checkout
+# From the uv-managed checkout
 uv run zeroth-core serve
 ```
 
@@ -52,7 +50,7 @@ A fresh database has no deployment to serve yet. Seed a runnable demo
 deployment (contracts + published single-agent graph) once:
 
 ```bash
-zeroth-core seed-demo
+uv run zeroth-core seed-demo
 ```
 
 It prints the exact `export ZEROTH_SERVICE_API_KEYS_JSON=...` and `curl`

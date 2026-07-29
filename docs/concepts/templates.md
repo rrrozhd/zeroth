@@ -1,7 +1,5 @@
 # Templates
 
-*Added in v4.0*
-
 The template registry stores and versions prompt templates by name, enabling teams to manage prompt content separately from graph structure. Templates support Jinja2 variable interpolation in a sandboxed environment that prevents injection attacks. Secret variables are automatically identified and redacted in audit records.
 
 ## How It Works

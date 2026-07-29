@@ -1,7 +1,5 @@
 # Artifacts
 
-*Added in v4.0*
-
 The artifact store lets execution units and agents externalize large binary outputs (files, images, serialized models) so they travel outside the normal node output payload. Artifacts are stored on a pluggable backend (filesystem or Redis) and retrievable via the REST API.
 
 ## How It Works

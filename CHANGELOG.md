@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Point the README, documentation site, package metadata, quickstart, security,
+  and contribution links at the canonical `rrrozhd/zeroth` repository and live
+  `/zeroth/` GitHub Pages site.
+- Distinguish the latest PyPI release from the current `main` documentation,
+  document the canonical eight-domain backend layout and LangGraph extras, and
+  restore current platform concepts to the docs navigation.
+
 ## [0.13.14.8] - 2026-07-28
 
 ### Fixed
@@ -1875,6 +1884,15 @@ reconstructed as full entries.
 - Runtime connector management, publish/deploy from the API and console
   (the canvas→run loop closes), hardened Docker sandbox defaults.
 
+## [0.4.1] - 2026-07-06
+
+### Fixed
+
+- Cap FastAPI below 0.136 to preserve the flattened router layout required by
+  OpenAPI and generated client checks.
+- Install `testcontainers[postgres]` in wheel-test CI so Docker-gated backend
+  tests run during releases.
+
 ## [0.4] - 2026-07-06
 
 - Econ-plane auth holes closed, Studio/cost RBAC, console onboarding
@@ -1948,5 +1966,8 @@ pipeline required for a stable PyPI presence.
   unchanged after confirming it produces a correctly-rooted `zeroth/core/`
   wheel with no stray top-level `zeroth/__init__.py`.
 
-[Unreleased]: https://github.com/rrrozhd/zeroth-core/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/rrrozhd/zeroth-core/releases/tag/v0.1.1
+[Unreleased]: https://github.com/rrrozhd/zeroth/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/rrrozhd/zeroth/releases/tag/v0.4.1
+[0.4]: https://github.com/rrrozhd/zeroth/releases/tag/v0.4
+[0.2.0]: https://github.com/rrrozhd/zeroth/releases/tag/v0.2.0
+[0.1.1]: https://github.com/rrrozhd/zeroth/releases/tag/v0.1.1

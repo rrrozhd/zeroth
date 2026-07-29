@@ -1,7 +1,5 @@
 # Context Window Management
 
-*Added in v4.0*
-
 Context window management tracks token usage per agent node and triggers automatic compaction when a configurable threshold is reached, preventing LLM context overflow without manual intervention.
 
 ## How It Works

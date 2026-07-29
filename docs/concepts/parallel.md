@@ -1,7 +1,5 @@
 # Parallel Execution
 
-*Added in v4.0*
-
 Parallel fan-out/fan-in lets a single node spawn N parallel branches from its output, execute them concurrently via asyncio, and merge results at a synchronization barrier with deterministic ordering.
 
 ## How It Works

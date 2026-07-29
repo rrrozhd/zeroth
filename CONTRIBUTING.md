@@ -10,8 +10,8 @@ request, and file issues.
 and task runner.
 
 ```bash
-git clone https://github.com/rrrozhd/zeroth-core.git
-cd zeroth-core
+git clone https://github.com/rrrozhd/zeroth.git
+cd zeroth
 uv sync --all-extras --all-groups     # install base + every extra + dev deps
 uv run pytest -v                      # run the test suite
 uv run ruff check src tests           # lint
@@ -26,7 +26,7 @@ If you only need the base runtime (no optional backends), drop
 The repository ships a minimal end-to-end fixture at `examples/00_hello.py`:
 
 ```bash
-python examples/00_hello.py
+uv run python examples/00_hello.py
 ```
 
 The example requires an `OPENAI_API_KEY` environment variable to talk to
@@ -54,7 +54,7 @@ forked pull requests will not fail for missing credentials.
 
 Please file bug reports and feature requests on GitHub:
 
-https://github.com/rrrozhd/zeroth-core/issues
+https://github.com/rrrozhd/zeroth/issues
 
 When reporting a bug, include:
 

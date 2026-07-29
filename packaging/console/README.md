@@ -10,5 +10,5 @@ pip install "zeroth-core[console]"
 ```
 
 Any Zeroth service then serves the console at `/console/` on the same origin as
-its API. See the [zeroth-core repository](https://github.com/rrrozhd/zeroth-core)
+its API. See the [Zeroth repository](https://github.com/rrrozhd/zeroth)
 for documentation.
