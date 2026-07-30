@@ -6,7 +6,7 @@ legacy ``zeroth.core.governed`` app and models paths keep republishing, and
 both packages must stay cold-importable from a fresh interpreter in either
 order. Only the contract slice of the vendored governai bundle moves — the
 audit, integrations, memory, runtime, and tools implementations stay put
-(see docs/governed-capability-disposition.md).
+(see docs/backend-import-migration.md).
 """
 
 from __future__ import annotations

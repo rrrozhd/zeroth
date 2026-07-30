@@ -5,10 +5,6 @@ repo_url: https://github.com/rrrozhd/zeroth
 repo_name: rrrozhd/zeroth
 edit_uri: edit/main/docs/
 
-# Internal design notes are excluded from the public site.
-exclude_docs: |
-  specs/
-
 theme:
   name: material
   # White-stroke mark for the indigo header (both schemes); SVG favicon.
@@ -155,8 +151,11 @@ nav:
     - Service: concepts/service.md
     - Webhooks: concepts/webhooks.md
     - Resilient HTTP client: concepts/http-client.md
+    - Provenance trust model: provenance-trust-model.md
+    - Retention and erasure: retention-and-erasure.md
   - Reference:
     - reference/index.md
+    - Backend import migration: backend-import-migration.md
     - Python API:
       - reference/python-api.md
       - Graph: reference/python-api/graph.md

@@ -4,7 +4,7 @@ This package provides everything you need to record, store, query, and
 review audit trails: data models, a SQLite-backed repository, payload
 sanitization (to strip secrets), a timeline assembler for viewing events
 in order, and the governed audit emitters consolidated from the vendored
-governai bundle (see docs/governed-capability-disposition.md).
+governai bundle (see docs/backend-import-migration.md).
 """
 
 from zeroth.governance.audit.emitter import AuditEmitter, emit_event
