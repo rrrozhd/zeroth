@@ -9,7 +9,7 @@ The consolidation also folds the vendored governed audit emitters into the
 same canonical package: ``AuditEmitter``, ``emit_event``, and
 ``RedisAuditEmitter`` must be identical through ``zeroth.governance.audit``
 and the legacy ``zeroth.core.governed.audit`` modules, per their disposition
-rows in docs/governed-capability-disposition.md.
+rows in docs/backend-import-migration.md.
 """
 
 from __future__ import annotations

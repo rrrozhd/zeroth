@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- Remove internal implementation specifications, refactor work logs, deferred
+  decomposition plans, and task-ledger documents from the user documentation.
 - Point the README, documentation site, package metadata, quickstart, security,
   and contribution links at the canonical `rrrozhd/zeroth` repository and live
   `/zeroth/` GitHub Pages site.
@@ -1575,7 +1577,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     incl. the documented shared-schema merge-clobber xfail) and
     `test_join_barrier_stress.py`.
   - **Surface fixture amendment (first use of the additive-amendment policy,
-    now documented in `docs/backend-library-surface.md`):**
+    now documented in `docs/backend-import-migration.md`):**
     `ExecutionSettings` and `NodeBase` (+ its six node subclasses) gain the
     new optional fields in both surface fixtures — 32 signature updates plus
     the `JoinConfig` registration on both surfaces; the legacy shim

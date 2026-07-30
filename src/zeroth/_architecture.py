@@ -118,7 +118,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -134,7 +134,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -171,7 +171,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -189,7 +189,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -205,7 +205,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -222,7 +222,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -239,7 +239,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -258,7 +258,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -279,7 +279,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(
@@ -295,7 +295,7 @@ TEMPORARY_EXCEPTIONS = {
             "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
             "legacy surface. The pinned legacy fixture walls this edge off, so "
             "it ends with the legacy surface itself; see "
-            "docs/backend-library-surface.md."
+            "docs/backend-import-migration.md."
         ),
     ),
     **_exception_group(

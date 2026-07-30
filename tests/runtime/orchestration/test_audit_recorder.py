@@ -219,7 +219,7 @@ def test_the_package_imports_in_a_cold_interpreter(statement: str) -> None:
     ``tests/conftest.py`` imports ``zeroth.core`` at collection time, so the
     in-process suite structurally cannot see an import cycle between the legacy
     orchestrator module and the canonical runtime package. Only a subprocess
-    can. See docs/backend-refactor-eager-import-blocker.md.
+    can exercise both cold-import directions reliably.
     """
     result = subprocess.run(
         [sys.executable, "-c", statement],
