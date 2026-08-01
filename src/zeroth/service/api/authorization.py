@@ -33,6 +33,14 @@ class Permission(StrEnum):
     # Deliberately admin-tier (ADMIN holds all permissions); erasure is
     # irreversible and destroys the plaintext behind the audit trail.
     RETENTION_ADMIN = "retention:admin"
+    # ZER-8: the tool-enforcement surface an SDK adapter talks to -- ask for a
+    # decision, declare a tool inventory, attest a run, report liveness, read
+    # back the level the server computed. Deliberately NOT admin-tier: the
+    # caller is a running deployment, not an operator, and every route is
+    # scoped to the caller's own tenant and deployment. It grants no ability to
+    # raise a governance level -- the server recomputes that from state it
+    # holds -- so the blast radius is writing evidence about oneself.
+    ENFORCEMENT_REPORT = "enforcement:report"
     # Global economic-control-plane mutations are deliberately excluded from
     # tenant/deployment administrators.
     ECON_ADMIN = "econ:admin"
@@ -56,6 +64,10 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # graphs depend on -- memory connector CRUD is part of that
         # authoring surface. Reviewers stay read-only.
         Permission.CONNECTOR_ADMIN,
+        # A deployment reporting its own enforcement evidence sits at the same
+        # tier as starting a run (RUN_CREATE): it is the running system talking
+        # about itself, not an operator changing what is governed.
+        Permission.ENFORCEMENT_REPORT,
     },
     ServiceRole.REVIEWER: {
         Permission.DEPLOYMENT_READ,

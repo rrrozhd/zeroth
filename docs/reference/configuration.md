@@ -229,6 +229,7 @@ Keyed provenance-signing configuration (WS-D).
 | `ZEROTH_PROVENANCE__SIGNING_KEY_REF` | `str \| None` | `None` |  |  |
 | `ZEROTH_PROVENANCE__SIGNING_KEY_ID` | `str` | `"dev-local"` |  |  |
 | `ZEROTH_PROVENANCE__PUBLIC_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ |  |
+| `ZEROTH_PROVENANCE__RETIRED_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ |  |
 
 ## Policy
 

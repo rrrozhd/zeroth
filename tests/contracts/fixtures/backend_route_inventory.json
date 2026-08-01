@@ -622,6 +622,54 @@
   {
     "kind": "APIRoute",
     "methods": [
+      "POST"
+    ],
+    "name": "decide_tool_call",
+    "path": "/v1/enforcement/decisions"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "register_tool_inventory",
+    "path": "/v1/enforcement/registrations"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "attest_run_start",
+    "path": "/v1/enforcement/attestations"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "report_heartbeat",
+    "path": "/v1/enforcement/heartbeats"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "read_deployment_status",
+    "path": "/v1/enforcement/deployments/{deployment_ref}/status"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "read_run_status",
+    "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
       "GET"
     ],
     "name": "regulus_dashboard_kpis",
@@ -1378,6 +1426,54 @@
     ],
     "name": "request_erasure",
     "path": "/retention/erasure-requests"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "decide_tool_call",
+    "path": "/enforcement/decisions"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "register_tool_inventory",
+    "path": "/enforcement/registrations"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "attest_run_start",
+    "path": "/enforcement/attestations"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "report_heartbeat",
+    "path": "/enforcement/heartbeats"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "read_deployment_status",
+    "path": "/enforcement/deployments/{deployment_ref}/status"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "read_run_status",
+    "path": "/enforcement/deployments/{deployment_ref}/runs/{correlation_id}"
   },
   {
     "kind": "APIRoute",

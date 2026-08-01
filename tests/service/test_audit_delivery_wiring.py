@@ -28,7 +28,6 @@ from typing import Any
 from unittest import mock
 
 import pytest
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -134,9 +133,13 @@ class _CapturingProxy:
 
 
 class _InertHandler:
-    """Accepts whatever the factory passes and does nothing with it."""
+    """Accepts whatever the factory passes and does nothing with it.
 
-    def __init__(self, **_kwargs: Any) -> None:
+    Positional arguments are accepted because the factory hands the capability
+    reporter its evidence provider positionally (ZER-8 S8).
+    """
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         pass
 
 

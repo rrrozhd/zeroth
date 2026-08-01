@@ -86,6 +86,10 @@ from zeroth.integrations.langgraph._genai import (
 )
 from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
 from zeroth.integrations.langgraph._spans import CausalSpan, SpanKind, SpanStatus
+from zeroth.integrations.langgraph._tool_decision_http import (
+    DEFAULT_DECISION_TIMEOUT_SECONDS,
+    HttpToolDecisionClient,
+)
 from zeroth.integrations.langgraph._tool_decisions import (
     FailClosedToolDecisionClient,
     ToolDecisionClient,
@@ -190,6 +194,8 @@ __all__ = [
     "SideEffectClass",
     "ToolDecisionClient",
     "FailClosedToolDecisionClient",
+    "HttpToolDecisionClient",
+    "DEFAULT_DECISION_TIMEOUT_SECONDS",
     "UnknownSideEffectPolicy",
     "ToolAuditSubmitter",
     # --- tool governance: the typed refusals a governed call can raise --------

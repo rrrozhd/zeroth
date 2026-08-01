@@ -23,6 +23,7 @@ from zeroth.service.api.contracts_api import register_contract_routes
 from zeroth.service.api.cost_api import register_cost_routes
 from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
 from zeroth.service.api.econ_dashboard_api import register_econ_dashboard_routes
+from zeroth.service.api.enforcement_api import register_enforcement_routes
 from zeroth.service.api.health import (
     HealthResponse,
     audit_delivery_health,
@@ -194,6 +195,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_artifact_routes(v1_router)
     register_template_routes(v1_router)
     register_retention_routes(v1_router)
+    register_enforcement_routes(v1_router)
     register_regulus_proxy_routes(v1_router)
 
     from zeroth.service.api.connector_api import register_connector_routes
@@ -241,6 +243,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_artifact_routes(compat_router)
     register_template_routes(compat_router)
     register_retention_routes(compat_router)
+    register_enforcement_routes(compat_router)
     register_deployment_routes(compat_router)
     register_connector_routes(compat_router)
     register_manifest_routes(compat_router)

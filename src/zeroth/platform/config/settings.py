@@ -254,6 +254,16 @@ class ProvenanceSigningSettings(BaseModel):
     signing_key_id: str = "dev-local"
     # JSON object of ``{key_id: public-key-hex}`` for the Ed25519 verify path.
     public_keys_json: SecretStr | None = None
+    # JSON object of ``{key_id: key-material}`` naming keys this deployment has
+    # ROTATED AWAY FROM. Verify-only: ``sign`` always uses ``signing_key_id``, so
+    # listing a key here can never mint a new record under it. It exists because
+    # verification and signing have different lifetimes -- a row signed under a
+    # retired key must stay verifiable long after that key stops signing, and
+    # without retention the only honest answer about such a row is "cannot
+    # verify", which costs a legitimate caller its evidence. ``mode='kms'``
+    # needs nothing here: ``public_keys_json`` already names every acceptable
+    # verify key. See docs/provenance-trust-model.md.
+    retired_keys_json: SecretStr | None = None
 
 
 class RetentionSettings(BaseModel):

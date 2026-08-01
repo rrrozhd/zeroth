@@ -18,6 +18,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.15] - 2026-07-31
+
+### Added
+
+- Provenance verification is now a seam of its own, separate from signing: `provenance.retired_keys_json`
+  names the keys a deployment has rotated away from, and the verifier retains them so a record signed
+  under a retired key stays verifiable. The verifier is built even when signing is disabled, because
+  records signed earlier do not stop being the deployment's evidence.
+
+### Fixed
+
+- The run-attestation `409` no longer discloses another deployment's digest or expiry when a stored row
+  had its payload and `digest` column rewritten together. Re-deriving the digest cannot detect a
+  consistent rewrite; a deployment that holds verify keys now requires the stored signature to verify
+  before any evidence is reported.
+
+### Added
+
+- LangGraph decision API and enforcement attestations: a versioned, tenant-scoped and idempotent
+  policy decision boundary, plus the registration, signed run-start attestation, and heartbeat
+  evidence needed to classify a run as `admission`, `observed`, or `enforced` truthfully.
+
 ## [0.13.14.8] - 2026-07-28
 
 ### Fixed
@@ -1886,15 +1908,6 @@ reconstructed as full entries.
 - Runtime connector management, publish/deploy from the API and console
   (the canvas→run loop closes), hardened Docker sandbox defaults.
 
-## [0.4.1] - 2026-07-06
-
-### Fixed
-
-- Cap FastAPI below 0.136 to preserve the flattened router layout required by
-  OpenAPI and generated client checks.
-- Install `testcontainers[postgres]` in wheel-test CI so Docker-gated backend
-  tests run during releases.
-
 ## [0.4] - 2026-07-06
 
 - Econ-plane auth holes closed, Studio/cost RBAC, console onboarding
@@ -1968,8 +1981,5 @@ pipeline required for a stable PyPI presence.
   unchanged after confirming it produces a correctly-rooted `zeroth/core/`
   wheel with no stray top-level `zeroth/__init__.py`.
 
-[Unreleased]: https://github.com/rrrozhd/zeroth/compare/v0.4.1...HEAD
-[0.4.1]: https://github.com/rrrozhd/zeroth/releases/tag/v0.4.1
-[0.4]: https://github.com/rrrozhd/zeroth/releases/tag/v0.4
-[0.2.0]: https://github.com/rrrozhd/zeroth/releases/tag/v0.2.0
-[0.1.1]: https://github.com/rrrozhd/zeroth/releases/tag/v0.1.1
+[Unreleased]: https://github.com/rrrozhd/zeroth-core/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rrrozhd/zeroth-core/releases/tag/v0.1.1
