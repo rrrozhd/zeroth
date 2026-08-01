@@ -94,10 +94,33 @@ resolves through the **shared WS-F `SecretProvider`** (logical name
 ## Key rotation
 
 Signers verify by the `key_id` a signature claims, so a retired key can stay
-**verify-only** after rotation: keep the old public key (Ed25519) or the old HMAC
-key in the signer's key set, point the active `signing_key_id` at the new key,
-and previously-signed records continue to verify while new records are signed
-under the new key.
+**verify-only** after rotation: point the active `signing_key_id` at the new key
+and keep the old one available to verify, and previously-signed records continue
+to verify while new records are signed under the new key.
+
+Signing and verification are built as **separate providers**, because they have
+different lifetimes. The signer answers "what do we sign with now", and rotation
+moves that answer forward. The verifier answers "was this signed by a key we
+recognise", which stays true for keys that stopped signing long ago. Building one
+provider for both would make a rotation retroactively unverify every record
+written before it.
+
+Name the retired keys per mode:
+
+- `mode="kms"` — `public_keys_json` already carries every acceptable verify key;
+  add the retired `key_id` there and it keeps verifying.
+- `mode="env"` — `retired_keys_json`, a `{key_id: key-material}` object. This is
+  verify-only: signing always uses `signing_key_id`, so a key listed here can
+  never mint a new record.
+
+The verifier is built even when signing is off (`mode="off"`, or `env` with no
+resolvable key). A deployment that stops signing still holds records it signed
+earlier, and those do not become unverifiable because new ones are unsigned.
+
+Retention is not cosmetic. Verification is what the run-attestation `409` uses to
+decide whether a stored row's digest and expiry may be disclosed at all, so a
+rotation performed without naming the retired key makes legitimate conflicts
+answer opaquely — fail-closed, but it costs a caller evidence it was entitled to.
 
 ## Rounding out the honest claim
 

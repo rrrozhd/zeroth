@@ -115,6 +115,7 @@ nav:
       - Branch on a condition: how-to/cookbook/condition-branch.md
       - Inject a secret: how-to/cookbook/secret-injection.md
       - Govern LangGraph tool calls: how-to/cookbook/govern-langgraph-tools.md
+      - LangGraph enforcement evidence: how-to/cookbook/langgraph-enforcement-evidence.md
     - Deployment:
       - how-to/deployment/index.md
       - Local development: how-to/deployment/local-dev.md

@@ -305,6 +305,98 @@ async def build_signing_provider_async(
     return _signer_from_material(settings, mode, logical_name, key_material)
 
 
+async def build_verification_provider_async(
+    settings: ProvenanceSigningSettings,
+    secret_provider: SecretProvider,
+    *,
+    tenant_id: str | None = None,
+) -> SigningKeyProvider | None:
+    """Build the verify-side provider: active key plus every retired key.
+
+    Separate from :func:`build_signing_provider_async` because verification and
+    signing have different lifetimes. The signer answers "what key do we sign
+    with *now*", and rotation moves that answer forward. The verifier has to
+    answer "was this row signed by a key we recognise", which stays true for
+    keys that stopped signing long ago. Folding both into one provider makes a
+    rotation retroactively unverify every row written before it.
+
+    Consequently this is built even when signing is disabled (``mode='off'``, or
+    ``env`` with no resolvable key): a deployment that stops signing still holds
+    rows it signed earlier, and those rows do not become unreadable because new
+    ones are unsigned.
+
+    Never signs: the returned provider is handed only to verify paths, and its
+    active ``key_id`` is used solely to satisfy the constructor invariant.
+
+    Returns:
+        A provider that verifies any key named in ``retired_keys_json`` or by
+        the active key, or ``None`` when no key material is available at all.
+    """
+    from zeroth.platform.secrets.provider import resolve_secret_async
+
+    mode = (settings.mode or "env").lower()
+    if mode not in ("env", "kms", "off"):
+        raise SigningConfigError(
+            f"unknown provenance.mode {settings.mode!r} (expected 'env', 'kms', or 'off')"
+        )
+    if mode == "kms":
+        # The kms path already retains: ``public_keys_json`` names every
+        # acceptable verify key, and the signer is verify-capable without the
+        # private key. Reuse it rather than build a second Ed25519 surface.
+        public_keys_hex = _parse_public_keys(settings)
+        if not public_keys_hex:
+            return None
+        return Ed25519Signer.from_raw(
+            key_id=(
+                settings.signing_key_id
+                if settings.signing_key_id in public_keys_hex
+                else sorted(public_keys_hex)[0]
+            ),
+            public_keys_hex=public_keys_hex,
+        )
+    logical_name = settings.signing_key_ref or "signing.deployment"
+    keys: dict[str, bytes] = {
+        key_id: material.encode("utf-8")
+        for key_id, material in _parse_retired_keys(settings).items()
+    }
+    if mode == "env":
+        active = await resolve_secret_async(secret_provider, logical_name, tenant_id=tenant_id)
+        if active:
+            keys[settings.signing_key_id] = active.encode("utf-8")
+    if not keys:
+        return None
+    # ``key_id`` picks the signing key, which this provider never uses; ``verify``
+    # selects by the id the signature carries. Prefer the active id when it is
+    # present so the object reads naturally, else any retained id satisfies the
+    # constructor without changing what verifies.
+    return EnvHmacSigner(
+        key_id=(settings.signing_key_id if settings.signing_key_id in keys else sorted(keys)[0]),
+        keys=keys,
+    )
+
+
+def _parse_retired_keys(settings: ProvenanceSigningSettings) -> dict[str, str]:
+    """Parse ``provenance.retired_keys_json`` into a ``key_id -> key-material`` map.
+
+    Mirrors :func:`_parse_public_keys`: accepts a pydantic secret or a plain
+    string, treats unset/empty as ``{}``, and fails closed on anything that is
+    not a JSON object.
+    """
+    raw = settings.retired_keys_json
+    if raw is None:
+        return {}
+    value = raw.get_secret_value() if hasattr(raw, "get_secret_value") else str(raw)
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise SigningConfigError("provenance.retired_keys_json is not valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise SigningConfigError("provenance.retired_keys_json must be a JSON object")
+    return {str(key_id): str(material) for key_id, material in parsed.items()}
+
+
 def _signer_from_material(
     settings: ProvenanceSigningSettings,
     mode: str,

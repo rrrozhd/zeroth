@@ -3,8 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
 from fastapi.responses import JSONResponse
+from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.routing import Match
 
@@ -210,7 +210,10 @@ async def test_gateway_enabled_reuses_shared_dependencies(sqlite_db, monkeypatch
             )
 
     class FakeReporter:
-        def __init__(self, **kwargs) -> None:
+        def __init__(self, *args, **kwargs) -> None:
+            # The factory hands the evidence provider positionally (ZER-8 S8),
+            # so a keyword-only double would reject the real call signature.
+            constructions["reporter_args"] = args
             constructions["reporter_kwargs"] = kwargs
 
     class FakeProxy:
@@ -228,6 +231,11 @@ async def test_gateway_enabled_reuses_shared_dependencies(sqlite_db, monkeypatch
     monkeypatch.setattr("zeroth.service.bootstrap.factory.get_settings", lambda: settings)
     monkeypatch.setattr(
         "zeroth.service.bootstrap.factory.build_signing_provider_async", fake_build_signer
+    )
+    # The verify side is built from the same shared secret provider, and this
+    # test hands in a bare sentinel rather than a real one.
+    monkeypatch.setattr(
+        "zeroth.service.bootstrap.factory.build_verification_provider_async", fake_build_signer
     )
     monkeypatch.setattr("zeroth.service.bootstrap.factory.HTTPGatewayTransport", FakeTransport)
     monkeypatch.setattr("zeroth.service.bootstrap.factory.CompatibilityDetector", FakeDetector)
@@ -307,6 +315,10 @@ async def test_later_bootstrap_failure_closes_gateway_transport_once(
     monkeypatch.setattr("zeroth.service.bootstrap.factory.get_settings", lambda: settings)
     monkeypatch.setattr(
         "zeroth.service.bootstrap.factory.build_signing_provider_async", fake_build_signer
+    )
+    # Same reason as above: no real secret provider is wired in this test.
+    monkeypatch.setattr(
+        "zeroth.service.bootstrap.factory.build_verification_provider_async", fake_build_signer
     )
     monkeypatch.setattr("zeroth.service.bootstrap.factory.HTTPGatewayTransport", FakeTransport)
     monkeypatch.setattr("zeroth.service.bootstrap.factory.CompatibilityDetector", FakeDetector)

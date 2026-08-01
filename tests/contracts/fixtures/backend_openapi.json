@@ -367,6 +367,69 @@
         ],
         "type": "string"
       },
+      "AttestationAck": {
+        "additionalProperties": false,
+        "properties": {
+          "authoritative": {
+            "type": "boolean"
+          },
+          "correlation_id": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "correlation_id",
+          "authoritative",
+          "status",
+          "digest",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "AttestationSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "type": "string"
+          },
+          "claimed_level": {
+            "type": "string"
+          },
+          "correlation_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "graph_version": {
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "correlation_id",
+          "deployment_ref",
+          "graph_version",
+          "adapter_version",
+          "inventory_fingerprint",
+          "claimed_level"
+        ],
+        "type": "object"
+      },
       "AttestationVerificationResponse": {
         "additionalProperties": false,
         "properties": {
@@ -861,6 +924,96 @@
         ],
         "type": "object"
       },
+      "DecisionKind": {
+        "enum": [
+          "allow",
+          "deny",
+          "require_approval"
+        ],
+        "type": "string"
+      },
+      "DecisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision_id": {
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DecisionKind"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "kind",
+          "reason_code",
+          "policy_version",
+          "tenant_id",
+          "issued_at"
+        ],
+        "type": "object"
+      },
+      "DecisionSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/NormalizedAction"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotency_key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "policy_bindings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deployment_ref",
+          "action",
+          "idempotency_key"
+        ],
+        "type": "object"
+      },
       "DependencyStatus": {
         "additionalProperties": false,
         "properties": {
@@ -1037,6 +1190,37 @@
         "required": [
           "deployment_ref",
           "total_cost_usd"
+        ],
+        "type": "object"
+      },
+      "DeploymentEnforcementStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "deployment_ref": {
+            "type": "string"
+          },
+          "governance_level": {
+            "type": "string"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stale_after_seconds": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "deployment_ref",
+          "governance_level",
+          "stale_after_seconds"
         ],
         "type": "object"
       },
@@ -1659,6 +1843,64 @@
         ],
         "type": "object"
       },
+      "HeartbeatAck": {
+        "additionalProperties": false,
+        "properties": {
+          "deployment_ref": {
+            "type": "string"
+          },
+          "heartbeat_id": {
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "heartbeat_id",
+          "deployment_ref",
+          "observed_at"
+        ],
+        "type": "object"
+      },
+      "HeartbeatSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "graph_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reported_level": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deployment_ref",
+          "reported_level"
+        ],
+        "type": "object"
+      },
       "HumanInteractionType": {
         "enum": [
           "approval",
@@ -1667,6 +1909,59 @@
           "notification"
         ],
         "type": "string"
+      },
+      "InventoryAck": {
+        "additionalProperties": false,
+        "properties": {
+          "deployment_ref": {
+            "type": "string"
+          },
+          "registered_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "registration_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "registration_id",
+          "deployment_ref",
+          "registered_at"
+        ],
+        "type": "object"
+      },
+      "InventorySubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "string"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "graph_version": {
+            "type": "string"
+          },
+          "tools": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RegisteredTool"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deployment_ref",
+          "graph_version",
+          "adapter_version",
+          "coverage"
+        ],
+        "type": "object"
       },
       "LangGraphCompatibilityHealth": {
         "additionalProperties": false,
@@ -2350,6 +2645,45 @@
         ],
         "type": "object"
       },
+      "NormalizedAction": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments_digest": {
+            "type": "string"
+          },
+          "contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "side_effect": {
+            "default": "unknown",
+            "enum": [
+              "read_only",
+              "side_effecting",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint",
+          "arguments_digest"
+        ],
+        "type": "object"
+      },
       "PortDefinitionResponse": {
         "properties": {
           "direction": {
@@ -2531,6 +2865,24 @@
         ],
         "type": "object"
       },
+      "RegisteredTool": {
+        "additionalProperties": false,
+        "properties": {
+          "fingerprint": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
       "RetentionPolicyBody": {
         "additionalProperties": false,
         "properties": {
@@ -2701,6 +3053,22 @@
         },
         "required": [
           "target_graph_version"
+        ],
+        "type": "object"
+      },
+      "RunEnforcementStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "correlation_id": {
+            "type": "string"
+          },
+          "governance_level": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "correlation_id",
+          "governance_level"
         ],
         "type": "object"
       },
@@ -6438,6 +6806,236 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WasteRollup"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/enforcement/attestations": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttestationSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttestationAck"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/enforcement/decisions": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "correlation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEnforcementStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/enforcement/deployments/{deployment_ref}/status": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentEnforcementStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/enforcement/heartbeats": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatAck"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/enforcement/registrations": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventorySubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryAck"
                 }
               }
             }

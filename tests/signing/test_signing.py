@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from pydantic import SecretStr
 
 from zeroth.platform.config.settings import ProvenanceSigningSettings
 from zeroth.platform.secrets import EnvSecretProvider
@@ -10,7 +11,9 @@ from zeroth.platform.signing import (
     Ed25519Signer,
     EnvHmacSigner,
     NullSigner,
+    SigningConfigError,
     build_signing_provider,
+    build_verification_provider_async,
     sign_digest,
     signable_bytes,
     verify_digest,
@@ -212,3 +215,94 @@ async def test_build_signing_provider_async_resolves_without_sync_call() -> None
     assert isinstance(signer, EnvHmacSigner)
     signature = signer.sign(signable_bytes(DIGEST, "k1", "hmac-sha256"))
     assert signer.verify(signable_bytes(DIGEST, "k1", "hmac-sha256"), signature, "k1")
+
+
+@pytest.mark.asyncio
+async def test_the_verifier_still_verifies_a_key_that_was_rotated_away_from() -> None:
+    """Rotation must not retroactively unverify rows the retired key signed.
+
+    The signer moves to ``k2``; ``retired_keys_json`` names ``k1``. A signature
+    ``k1`` produced before the rotation still verifies, which is the property
+    the 409-disclosure gate depends on to keep telling a legitimate retry the
+    truth.
+    """
+    settings = ProvenanceSigningSettings(
+        mode="env",
+        signing_key_id="k2",
+        retired_keys_json=SecretStr('{"k1": "first-key"}'),
+    )
+    old = EnvHmacSigner(key_id="k1", keys={"k1": b"first-key"})
+    signature = old.sign(signable_bytes(DIGEST, "k1", "hmac-sha256"))
+
+    verifier = await build_verification_provider_async(
+        settings,
+        EnvSecretProvider({"SIGNING_DEPLOYMENT": "second-key"}),
+    )
+
+    assert verifier is not None
+    assert verifier.verify(signable_bytes(DIGEST, "k1", "hmac-sha256"), signature, "k1")
+
+
+@pytest.mark.asyncio
+async def test_the_verifier_survives_signing_being_switched_off() -> None:
+    """Turning signing off does not make already-signed rows unreadable.
+
+    ``mode='off'`` yields no signer at all, but rows signed while it was on are
+    still this deployment's evidence, so the retired key keeps verifying them.
+    """
+    settings = ProvenanceSigningSettings(
+        mode="off",
+        signing_key_id="k1",
+        retired_keys_json=SecretStr('{"k1": "first-key"}'),
+    )
+    old = EnvHmacSigner(key_id="k1", keys={"k1": b"first-key"})
+    signature = old.sign(signable_bytes(DIGEST, "k1", "hmac-sha256"))
+
+    verifier = await build_verification_provider_async(settings, EnvSecretProvider({}))
+
+    assert verifier is not None
+    assert verifier.verify(signable_bytes(DIGEST, "k1", "hmac-sha256"), signature, "k1")
+
+
+@pytest.mark.asyncio
+async def test_the_verifier_is_absent_when_no_key_material_exists_at_all() -> None:
+    """No keys means no verifier, which is what puts the gate on its unsigned path."""
+    verifier = await build_verification_provider_async(
+        ProvenanceSigningSettings(mode="off", signing_key_id="k1"),
+        EnvSecretProvider({}),
+    )
+    assert verifier is None
+
+
+@pytest.mark.asyncio
+async def test_a_retired_key_never_becomes_a_signing_key() -> None:
+    """Retention is verify-only: ``sign`` uses the active key, never a retired one."""
+    settings = ProvenanceSigningSettings(
+        mode="env",
+        signing_key_id="k2",
+        retired_keys_json=SecretStr('{"k1": "first-key"}'),
+    )
+    verifier = await build_verification_provider_async(
+        settings,
+        EnvSecretProvider({"SIGNING_DEPLOYMENT": "second-key"}),
+    )
+
+    assert verifier is not None
+    signature = verifier.sign(signable_bytes(DIGEST, "k2", "hmac-sha256"))
+    # Signed under the active key, so the retired key cannot check it.
+    assert verifier.verify(signable_bytes(DIGEST, "k2", "hmac-sha256"), signature, "k2")
+    assert not verifier.verify(signable_bytes(DIGEST, "k1", "hmac-sha256"), signature, "k1")
+
+
+@pytest.mark.asyncio
+async def test_malformed_retired_keys_json_fails_closed() -> None:
+    """A key map that cannot be parsed raises rather than silently verifying nothing."""
+    with pytest.raises(SigningConfigError):
+        await build_verification_provider_async(
+            ProvenanceSigningSettings(
+                mode="env",
+                signing_key_id="k1",
+                retired_keys_json=SecretStr("not-json"),
+            ),
+            EnvSecretProvider({}),
+        )

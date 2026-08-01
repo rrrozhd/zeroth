@@ -22,17 +22,42 @@ from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.approvals.notifications import build_approval_notifier
+from zeroth.governance.attestations.heartbeat import HeartbeatRepository
+from zeroth.governance.attestations.provider import (
+    PersistedCapabilityEvidenceProvider,
+)
+from zeroth.governance.attestations.store import (
+    InventoryRegistrationRepository,
+    RunAttestationRepository,
+)
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
+from zeroth.governance.decisions.repository import DecisionRepository
+from zeroth.governance.decisions.resolvers import (
+    DeploymentRecordPolicyResolver,
+    PolicyApprovalGate,
+    RegisteredInventoryLookup,
+)
+from zeroth.governance.decisions.service import ToolDecisionService
 from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.governance.guardrails.dead_letter import DeadLetterManager
-from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.governance.guardrails.rate_limit import (
+    QuotaEnforcer,
+    TokenBucketRateLimiter,
+)
 from zeroth.governance.identity import ActorIdentity, AuthMethod
-from zeroth.governance.policy import PolicyGuard, PolicyRegistry, default_capability_registry
+from zeroth.governance.policy import (
+    PolicyGuard,
+    PolicyRegistry,
+    default_capability_registry,
+)
 from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.memory.factory import register_memory_connectors
-from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.integrations.memory.registry import (
+    InMemoryConnectorRegistry,
+    MemoryConnectorResolver,
+)
 from zeroth.integrations.memory.runtime_configs import load_persisted_connectors
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.config.settings import get_settings
@@ -41,7 +66,11 @@ from zeroth.platform.observability.metrics import MetricsCollector
 from zeroth.platform.observability.queue_gauge import QueueDepthGauge
 from zeroth.platform.observability.tracing import configure_tracing
 from zeroth.platform.secrets import SecretProvider, build_secret_provider
-from zeroth.platform.signing import NullSigner, build_signing_provider_async
+from zeroth.platform.signing import (
+    NullSigner,
+    build_signing_provider_async,
+    build_verification_provider_async,
+)
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
@@ -55,7 +84,10 @@ from zeroth.service.api.authentication import (
 )
 from zeroth.service.api.authorization import RoleRegistry
 from zeroth.service.app import create_app
-from zeroth.service.bootstrap.container import DeploymentBootstrapError, ServiceBootstrap
+from zeroth.service.bootstrap.container import (
+    DeploymentBootstrapError,
+    ServiceBootstrap,
+)
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 
@@ -347,6 +379,10 @@ async def bootstrap_service(
     import logging as _logging
 
     signer = await build_signing_provider_async(settings.provenance, secret_provider)
+    # The verify side is built independently: it retains keys this deployment has
+    # rotated away from, and survives signing being switched off, so rows signed
+    # earlier stay verifiable. Absent only when no key material exists at all.
+    verifier = await build_verification_provider_async(settings.provenance, secret_provider)
     if signer is None:
         _logging.getLogger(__name__).warning(
             "provenance signing key unresolved for mode=%r; deployment "
@@ -373,7 +409,10 @@ async def bootstrap_service(
     orchestrator.http_client = http_client_instance
 
     # Phase 36: Template registry and renderer.
-    from zeroth.contracts.templates import TemplateRegistry, TemplateRenderer  # noqa: PLC0415
+    from zeroth.contracts.templates import (
+        TemplateRegistry,
+        TemplateRenderer,  # noqa: PLC0415
+    )
 
     template_registry = TemplateRegistry()
     template_renderer = TemplateRenderer()
@@ -458,7 +497,10 @@ async def bootstrap_service(
         settings.retention.default_audit_ttl_seconds is not None
         or settings.retention.default_run_ttl_seconds is not None
     ):
-        from zeroth.governance.retention.models import SYSTEM_DEFAULT_TENANT, RetentionPolicy
+        from zeroth.governance.retention.models import (
+            SYSTEM_DEFAULT_TENANT,
+            RetentionPolicy,
+        )
 
         retention_default_policy = RetentionPolicy(
             tenant_id=SYSTEM_DEFAULT_TENANT,
@@ -486,6 +528,42 @@ async def bootstrap_service(
             policy_repository=retention_policy_repository,
             poll_interval=settings.retention.worker_poll_interval,
         )
+
+    # ZER-8: the tool-enforcement surface. Wired unconditionally -- an SDK
+    # adapter that cannot reach a decision endpoint falls back to its own
+    # deny-everything default, so leaving this behind a flag would make the
+    # governed path silently unusable rather than safely off.
+    decision_repository = DecisionRepository(database)
+    # ``budget_enforcer`` is ``None`` whenever the economics backend is not
+    # configured. That is deliberately not patched over here: ``admit`` turns an
+    # unreachable budget checker into ``zeroth.budget_unavailable``, which the
+    # decision service records as a denial. Fail-closed is the intended posture
+    # (see the module docstring of zeroth.governance.decisions.service), and
+    # substituting a permissive stand-in would be the one change that breaks it.
+    inventory_registration_repository = InventoryRegistrationRepository(database)
+    # The two facts a decision must not take from its caller (audit round 1):
+    # which tool is being called, and which policies apply. Both are read from
+    # server-held state -- the deployment's registered inventory, and the
+    # deployment record's own policy bindings. Passed unconditionally: a branch
+    # here would add a decision point to a function already at the complexity
+    # ceiling, and an unwired resolver is exactly the state the audit found.
+    tool_decision_service = ToolDecisionService(
+        repository=decision_repository,
+        policy_guard=policy_guard,
+        budget_checker=budget_enforcer,
+        inventory=RegisteredInventoryLookup(inventory_registration_repository),
+        deployment_policies=DeploymentRecordPolicyResolver(deployment_service.get),
+        # Without a gate the service defaults to ``NoApprovalRequired``,
+        # which answers "no hold" for every call -- so a policy carrying
+        # ``approval_required_for_side_effects`` was silently ignored for
+        # tool calls while being honoured everywhere else.
+        # The guard's OWN registry, so the gate and
+        # ``evaluate_run_admission`` cannot disagree about which policy a
+        # binding names.
+        approval_gate=PolicyApprovalGate(policy_guard.policy_registry),
+    )
+    run_attestation_repository = RunAttestationRepository(database)
+    enforcement_heartbeat_repository = HeartbeatRepository(database)
 
     gateway_proxy: object | None = None
     gateway_transport: HTTPGatewayTransport | None = None
@@ -526,7 +604,25 @@ async def bootstrap_service(
                 timeout_seconds=gateway_settings.connect_timeout_seconds,
             )
             gateway_compatibility = await detector.detect()
+            # ZER-8 S8: the reporter is given the VERIFYING provider, never left
+            # on its ``NoCapabilityEvidenceProvider`` default. That default
+            # returns no evidence, and no evidence can be ENFORCED -- so an
+            # unwired reporter silently classifies every attested run as
+            # ADMISSION while every component test stays green. Binding is safe
+            # at process scope because a deployment is tenant-pinned (see the
+            # WS-B note above): one tenant, one deployment, for this service's
+            # whole lifetime. ``expected_graph_version`` comes from the
+            # deployment record rather than the client-submitted registration,
+            # so a client cannot satisfy its own version check.
             gateway_capability_reporter = CapabilityReporter(
+                PersistedCapabilityEvidenceProvider(
+                    attestations=run_attestation_repository,
+                    registrations=inventory_registration_repository,
+                    signer=signer,
+                    tenant_id=deployment.tenant_id,
+                    deployment_ref=deployment.deployment_ref,
+                    expected_graph_version=deployment.graph_version_ref,
+                ),
                 stale_after_seconds=gateway_settings.stale_threshold_seconds,
                 expected_graph_version=deployment.graph_version_ref,
             )
@@ -608,6 +704,7 @@ async def bootstrap_service(
             subgraph_executor=subgraph_executor,
             secret_provider=secret_provider,
             signer=signer,
+            verifier=verifier,
             policy_guard=policy_guard,
             langgraph_gateway_proxy=gateway_proxy,
             langgraph_gateway_transport=gateway_transport,
@@ -620,6 +717,17 @@ async def bootstrap_service(
             retention_log_repository=retention_log_repository,
             retention_erasure_service=retention_erasure_service,
             retention_worker=retention_worker_obj,
+            decision_repository=decision_repository,
+            tool_decision_service=tool_decision_service,
+            inventory_registration_repository=inventory_registration_repository,
+            run_attestation_repository=run_attestation_repository,
+            enforcement_heartbeat_repository=enforcement_heartbeat_repository,
+            # The *configured* freshness window, so the status routes report
+            # the threshold this deployment actually runs with rather than the
+            # module default. Read unconditionally: the setting always has a
+            # value, and a branch here would add a decision point to a
+            # function already at the complexity ceiling.
+            enforcement_stale_after_seconds=float(gateway_settings.stale_threshold_seconds),
         )
     except BaseException:
         if gateway_transport is not None:

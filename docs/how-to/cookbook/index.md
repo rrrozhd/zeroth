@@ -37,3 +37,7 @@ already know the pieces and want to see them snapped together.
 - [Govern LangGraph tool calls](govern-langgraph-tools.md) — decide
   every tool call with `govern_tools` or `ZerothMiddleware`, plus the
   compatibility matrix and what tool enforcement does not claim.
+- [LangGraph enforcement evidence](langgraph-enforcement-evidence.md) —
+  how a run or deployment is classified `admission` / `observed` /
+  `enforced`, the 90-second stale threshold, and mixed-version
+  handling.

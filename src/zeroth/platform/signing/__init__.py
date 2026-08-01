@@ -16,6 +16,7 @@ from zeroth.platform.signing.provider import (
     SigningKeyProvider,
     build_signing_provider,
     build_signing_provider_async,
+    build_verification_provider_async,
     sign_digest,
     verify_digest,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "SigningKeyProvider",
     "build_signing_provider",
     "build_signing_provider_async",
+    "build_verification_provider_async",
     "sign_digest",
     "signable_bytes",
     "verify_digest",
