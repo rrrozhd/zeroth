@@ -322,6 +322,31 @@ def _optional_identifier(value: object) -> str | None:
     return None if value is None else normalize_identifier(value)
 
 
+def normalize_capability_refs(value: object) -> tuple[str, ...]:
+    """Return a canonical capability set or refuse metadata that could be dropped."""
+    if value is None:
+        return ()
+    if isinstance(value, (str, bytes)):
+        raise ToolGovernanceError("capability references must be an iterable of identifiers")
+    try:
+        supplied = tuple(value)  # type: ignore[arg-type]
+    except TypeError as error:
+        raise ToolGovernanceError(
+            "capability references must be an iterable of identifiers"
+        ) from error
+    normalized = tuple(normalize_identifier(item) for item in supplied)
+    if any(item is None for item in normalized):
+        raise ToolGovernanceError("capability references must be usable identifiers")
+    return tuple(sorted(set(normalized)))  # type: ignore[arg-type]
+
+
+def normalize_requires_approval(value: object) -> bool:
+    """Return an exact approval flag, refusing values whose truth is ambiguous."""
+    if type(value) is not bool:
+        raise ToolGovernanceError("requires_approval must be a boolean")
+    return value
+
+
 def require_governance_context(context: object) -> ToolGovernanceContext:
     """Return a normalized copy of *context*, or refuse to attribute the call.
 
@@ -384,6 +409,9 @@ def normalize_tool_action(
     identity_material: object = None,
     contract_ref: object = None,
     side_effect: object = None,
+    capability_refs: object = (),
+    requires_approval: object = False,
+    tool_call_id: object = None,
 ) -> ToolAction:
     """Build the complete, normalized descriptor of one attempted tool call.
 
@@ -400,6 +428,9 @@ def normalize_tool_action(
         identity_material: The tool's identifying material, when observable.
         contract_ref: The contract the tool is bound to, when declared.
         side_effect: The classifier's verdict, when it produced one.
+        capability_refs: Capability references required by this call.
+        requires_approval: Whether this call explicitly requires approval.
+        tool_call_id: The framework's stable per-call identity, when available.
 
     Returns:
         The action a decision may now be made about.
@@ -413,12 +444,18 @@ def normalize_tool_action(
     canonical = canonical_arguments(arguments)
     contract = normalize_contract_ref(contract_ref)
     governance = require_governance_context(context)
+    normalized_call_id = normalize_identifier(tool_call_id)
+    if tool_call_id is not None and normalized_call_id != tool_call_id:
+        raise UnstableToolIdentityError("tool-call id is not a stable identifier")
     return ToolAction(
         identity=identity,
         arguments=canonical,
         contract_ref=contract,
         principal_id=governance.principal_id,
         side_effect=classify_side_effect(side_effect),
+        capability_refs=normalize_capability_refs(capability_refs),
+        requires_approval=normalize_requires_approval(requires_approval),
+        tool_call_id=normalized_call_id,
     )
 
 
@@ -427,7 +464,9 @@ __all__ = [
     "canonical_arguments",
     "classify_side_effect",
     "normalize_contract_ref",
+    "normalize_capability_refs",
     "normalize_identifier",
+    "normalize_requires_approval",
     "normalize_tool_action",
     "normalize_tool_identity",
     "require_governance_context",

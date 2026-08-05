@@ -1,6 +1,75 @@
 {
   "components": {
     "schemas": {
+      "ActionDescriptorV1": {
+        "additionalProperties": false,
+        "description": "Canonical policy input for one tool call.",
+        "properties": {
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "capability_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Capability Refs",
+            "type": "array"
+          },
+          "contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Ref"
+          },
+          "fingerprint": {
+            "minLength": 1,
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "requires_approval": {
+            "default": false,
+            "title": "Requires Approval",
+            "type": "boolean"
+          },
+          "side_effect": {
+            "$ref": "#/components/schemas/SideEffectClass",
+            "default": "unknown"
+          },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Id"
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint"
+        ],
+        "title": "ActionDescriptorV1",
+        "type": "object"
+      },
       "ActorIdentity": {
         "additionalProperties": false,
         "description": "Stable actor identity recorded on runs, approvals, and audits.",
@@ -1105,6 +1174,80 @@
         "title": "DecisionKind",
         "type": "string"
       },
+      "DecisionRequestV1": {
+        "additionalProperties": false,
+        "description": "Authenticated, versioned decision request.",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ActionDescriptorV1"
+          },
+          "context_token": {
+            "minLength": 1,
+            "title": "Context Token",
+            "type": "string"
+          },
+          "correlation_id": {
+            "minLength": 1,
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "minLength": 1,
+            "title": "Inventory Fingerprint",
+            "type": "string"
+          },
+          "policy_version": {
+            "minLength": 1,
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "principal_id": {
+            "minLength": 1,
+            "title": "Principal Id",
+            "type": "string"
+          },
+          "run_id": {
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "context_token",
+          "tenant_id",
+          "principal_id",
+          "deployment_ref",
+          "correlation_id",
+          "run_id",
+          "policy_version",
+          "inventory_fingerprint",
+          "action"
+        ],
+        "title": "DecisionRequestV1",
+        "type": "object"
+      },
       "DecisionResponse": {
         "additionalProperties": false,
         "description": "One versioned verdict as it was recorded and is re-served.\n\nAttributes:\n    schema_version: The wire version, pinned to ``1``.\n    decision_id: The stored decision's identity. A replay returns the\n        original, so two calls sharing an id shared a decision.\n    kind: The verdict.\n    reason_code: The registered audit term the verdict is recorded under.\n    approval_ref: The approval the call waits on, when applicable.\n    policy_version: The policy revision the verdict was reached against.\n    tenant_id: The tenant the decision is scoped to.\n    issued_at: When the decision was first recorded -- not when it was\n        re-served, so a replay does not look like a fresh evaluation.",
@@ -1160,6 +1303,57 @@
           "issued_at"
         ],
         "title": "DecisionResponse",
+        "type": "object"
+      },
+      "DecisionResponseV1": {
+        "additionalProperties": false,
+        "description": "Stable idempotent decision result.",
+        "properties": {
+          "approval_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Ref"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ToolDecisionKind"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decision_id",
+          "idempotency_key",
+          "decision",
+          "reason_code",
+          "policy_version"
+        ],
+        "title": "DecisionResponseV1",
         "type": "object"
       },
       "DecisionSubmission": {
@@ -2254,6 +2448,64 @@
         "title": "HeartbeatSubmission",
         "type": "object"
       },
+      "HeartbeatV1": {
+        "additionalProperties": false,
+        "description": "Authenticated liveness signal for one registered adapter inventory.",
+        "properties": {
+          "adapter_version": {
+            "default": "1",
+            "minLength": 1,
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "context_token": {
+            "minLength": 1,
+            "title": "Context Token",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "graph_version": {
+            "minLength": 1,
+            "title": "Graph Version",
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "minLength": 1,
+            "title": "Inventory Fingerprint",
+            "type": "string"
+          },
+          "principal_id": {
+            "minLength": 1,
+            "title": "Principal Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "context_token",
+          "tenant_id",
+          "principal_id",
+          "deployment_ref",
+          "graph_version",
+          "inventory_fingerprint"
+        ],
+        "title": "HeartbeatV1",
+        "type": "object"
+      },
       "HumanInteractionType": {
         "description": "The kind of interaction the system is requesting from a human.\n\nFor example, \"approval\" means the system needs a yes/no decision,\nwhile \"clarification\" means it needs more information to proceed.",
         "enum": [
@@ -2289,6 +2541,135 @@
           "registered_at"
         ],
         "title": "InventoryAck",
+        "type": "object"
+      },
+      "InventoryCoverage": {
+        "description": "Whether a tool inventory saw every tool the run can reach.\n\nAn inventory built by walking a compiled graph can miss tools bound at call\ntime, so a consumer must be able to tell \"no dangerous tool is present\" from\n\"no dangerous tool was visible\".",
+        "enum": [
+          "partial",
+          "complete"
+        ],
+        "title": "InventoryCoverage",
+        "type": "string"
+      },
+      "InventoryEntryV1": {
+        "additionalProperties": false,
+        "description": "Server-registered identity and contract facts for one tool.",
+        "properties": {
+          "capability_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Capability Refs",
+            "type": "array"
+          },
+          "contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Ref"
+          },
+          "fingerprint": {
+            "minLength": 1,
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "requires_approval": {
+            "default": false,
+            "title": "Requires Approval",
+            "type": "boolean"
+          },
+          "side_effect": {
+            "$ref": "#/components/schemas/SideEffectClass",
+            "default": "unknown"
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint"
+        ],
+        "title": "InventoryEntryV1",
+        "type": "object"
+      },
+      "InventoryRegistrationV1": {
+        "additionalProperties": false,
+        "description": "Versioned tool-inventory registration.",
+        "properties": {
+          "adapter_version": {
+            "default": "1",
+            "minLength": 1,
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "context_token": {
+            "minLength": 1,
+            "title": "Context Token",
+            "type": "string"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/InventoryCoverage"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/InventoryEntryV1"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "graph_version": {
+            "minLength": 1,
+            "title": "Graph Version",
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "minLength": 1,
+            "title": "Inventory Fingerprint",
+            "type": "string"
+          },
+          "principal_id": {
+            "minLength": 1,
+            "title": "Principal Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "context_token",
+          "tenant_id",
+          "principal_id",
+          "deployment_ref",
+          "graph_version",
+          "coverage",
+          "entries",
+          "inventory_fingerprint"
+        ],
+        "title": "InventoryRegistrationV1",
         "type": "object"
       },
       "InventorySubmission": {
@@ -3615,6 +3996,152 @@
         "title": "RollbackDeploymentRequest",
         "type": "object"
       },
+      "RunAttestationV1": {
+        "additionalProperties": false,
+        "description": "Run-start claim authenticated by reserved context and signed by Zeroth.",
+        "properties": {
+          "adapter_version": {
+            "default": "1",
+            "minLength": 1,
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "claimed_level": {
+            "$ref": "#/components/schemas/GovernanceLevel",
+            "default": "observed"
+          },
+          "context_token": {
+            "minLength": 1,
+            "title": "Context Token",
+            "type": "string"
+          },
+          "correlation_id": {
+            "minLength": 1,
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "graph_version": {
+            "minLength": 1,
+            "title": "Graph Version",
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "minLength": 1,
+            "title": "Inventory Fingerprint",
+            "type": "string"
+          },
+          "principal_id": {
+            "minLength": 1,
+            "title": "Principal Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "context_token",
+          "tenant_id",
+          "principal_id",
+          "deployment_ref",
+          "correlation_id",
+          "graph_version",
+          "inventory_fingerprint"
+        ],
+        "title": "RunAttestationV1",
+        "type": "object"
+      },
+      "RunCapabilityEvidence": {
+        "description": "Attested evidence used to clamp a run's reported governance level.",
+        "properties": {
+          "adapter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter Version"
+          },
+          "correlation_id": {
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "governance_level": {
+            "$ref": "#/components/schemas/GovernanceLevel"
+          },
+          "graph_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Version"
+          },
+          "inventory_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Fingerprint"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "signature_valid": {
+            "default": false,
+            "title": "Signature Valid",
+            "type": "boolean"
+          },
+          "tool_manifest_complete": {
+            "default": false,
+            "title": "Tool Manifest Complete",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "correlation_id",
+          "governance_level",
+          "observed_at"
+        ],
+        "title": "RunCapabilityEvidence",
+        "type": "object"
+      },
       "RunEnforcementStatus": {
         "additionalProperties": false,
         "description": "One run's governance level, recomputed from stored evidence.",
@@ -4089,6 +4616,16 @@
         "title": "ServiceRole",
         "type": "string"
       },
+      "SideEffectClass": {
+        "description": "How consequential invoking a tool is, as far as the classifier can tell.\n\n``UNKNOWN`` is a real member, not a placeholder: an unclassified tool must\nbe distinguishable from one positively known to be read-only, because a\npolicy that waves through read-only calls must not wave through the ones\nnobody classified.",
+        "enum": [
+          "read_only",
+          "side_effecting",
+          "unknown"
+        ],
+        "title": "SideEffectClass",
+        "type": "string"
+      },
       "SpendReport": {
         "additionalProperties": false,
         "description": "Deployment-wide spend attribution, ranked by right-sizing opportunity.",
@@ -4496,6 +5033,16 @@
         ],
         "title": "ToolCallRecord",
         "type": "object"
+      },
+      "ToolDecisionKind": {
+        "description": "The verdicts tool governance can return for one attempted call.\n\nDeliberately *not*\n:class:`~zeroth.governance.policy.models.PolicyDecision`: see the module\ndocstring for why that enum stays two-valued.",
+        "enum": [
+          "allow",
+          "deny",
+          "require_approval"
+        ],
+        "title": "ToolDecisionKind",
+        "type": "string"
       },
       "UnitEconomicsReport": {
         "additionalProperties": false,
@@ -8301,6 +8848,200 @@
           }
         },
         "summary": "Register Tool Inventory",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/langgraph/deployments/{deployment_ref}/attestations": {
+      "post": {
+        "operationId": "attest_v1_langgraph_deployments__deployment_ref__attestations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunAttestationV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCapabilityEvidence"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attest",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/langgraph/deployments/{deployment_ref}/decisions": {
+      "post": {
+        "operationId": "decide_v1_langgraph_deployments__deployment_ref__decisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequestV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionResponseV1"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/langgraph/deployments/{deployment_ref}/heartbeat": {
+      "post": {
+        "operationId": "heartbeat_v1_langgraph_deployments__deployment_ref__heartbeat_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Heartbeat",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/langgraph/deployments/{deployment_ref}/inventories": {
+      "post": {
+        "operationId": "register_inventory_v1_langgraph_deployments__deployment_ref__inventories_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryRegistrationV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Inventory",
         "tags": [
           "v1"
         ]

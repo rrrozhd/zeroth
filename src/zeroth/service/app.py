@@ -29,6 +29,7 @@ from zeroth.service.api.health import (
     audit_delivery_health,
     langgraph_gateway_health,
 )
+from zeroth.service.api.langgraph_enforcement_api import register_langgraph_enforcement_routes
 from zeroth.service.api.regulus_proxy_api import register_regulus_proxy_routes
 from zeroth.service.api.retention_api import register_retention_routes
 from zeroth.service.api.rightsizing_api import register_rightsizing_routes
@@ -196,6 +197,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_template_routes(v1_router)
     register_retention_routes(v1_router)
     register_enforcement_routes(v1_router)
+    register_langgraph_enforcement_routes(v1_router)
     register_regulus_proxy_routes(v1_router)
 
     from zeroth.service.api.connector_api import register_connector_routes

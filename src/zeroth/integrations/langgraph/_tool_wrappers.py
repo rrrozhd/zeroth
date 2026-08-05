@@ -18,7 +18,7 @@ import types
 import typing
 import weakref
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, get_args, get_origin
 
 from langchain_core.tools import BaseTool
@@ -58,7 +58,11 @@ from zeroth.integrations.langgraph._tool_guard import (
     guard_tool_call,
 )
 from zeroth.integrations.langgraph._tool_normalize import (
+    classify_side_effect,
+    normalize_capability_refs,
+    normalize_contract_ref,
     normalize_identifier,
+    normalize_requires_approval,
     normalize_tool_action,
     normalize_tool_identity,
 )
@@ -114,19 +118,9 @@ class GovernedToolBinding:
     Attached to every wrapper as ``zeroth_binding`` so the inventory stage can
     report what was governed without re-deriving any of it.
 
-    **Only ``identity`` is an authorization fact.** It is pinned here and
-    re-derived on every call, and a call whose identity no longer matches is
-    refused. ``side_effect`` and ``contract_ref`` are inventory description and
-    nothing decides against them: :func:`_governed_action` runs the resolvers
-    live on every call, so a tool that becomes side-effecting after it was
-    wrapped is decided as what it is now, not as what it was.
-
-    **The wrapping never fills them in.** ``govern_tools`` leaves both at their
-    defaults rather than asking the caller's resolvers, because a live resolver
-    is *consumed* by being asked and every later call would then be decided under
-    the following answer -- see :func:`_pin`. A caller with its own classification
-    to report constructs these values itself and hands them to
-    :func:`~zeroth.integrations.langgraph._tool_inventory.record_binding_inventory`.
+    Identity and reviewed tool metadata are pinned into the inventory binding.
+    Every live action re-resolves the metadata and must match that binding before
+    policy evaluation, so drift cannot inherit the reviewed authorization.
 
     Attributes:
         identity: The name and fingerprint the tool is decided under.
@@ -134,6 +128,8 @@ class GovernedToolBinding:
             unknown -- which the default policy denies.
         contract_ref: The contract this tool is described as bound to, when a
             caller declared one.
+        capability_refs: Capabilities every call through this binding requires.
+        requires_approval: Whether every call through this binding requires approval.
         coverage: What this wrapping can support.
             ``govern_tools`` never sets it to
             :attr:`~zeroth.integrations.langgraph._tool_types.InventoryCoverage.COMPLETE`,
@@ -143,6 +139,8 @@ class GovernedToolBinding:
     identity: ToolIdentity
     side_effect: SideEffectClass = SideEffectClass.UNKNOWN
     contract_ref: str | None = None
+    capability_refs: tuple[str, ...] = ()
+    requires_approval: bool = False
     coverage: InventoryCoverage = InventoryCoverage.PARTIAL
 
 
@@ -179,6 +177,9 @@ class _Seams:
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None
     side_effect: Callable[[Any], Any] | None = None
     contract_ref: Callable[[Any], Any] | None = None
+    capability_refs: Callable[[Any], Any] | None = None
+    requires_approval: Callable[[Any], Any] | None = None
+    tool_call_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +188,8 @@ class _GovernedPlan:
 
     target: Any
     describe: Callable[[Any], _ToolFacts]
+    facts: _ToolFacts
+    observed_identity: ToolIdentity
     binding: GovernedToolBinding
     seams: _Seams
 
@@ -203,11 +206,14 @@ class _CallableMetadata:
 
 @dataclass(frozen=True, slots=True)
 class _CallablePlan:
-    """A plain callable's source-free execution plan, held behind an opaque token."""
+    """A plain callable's private execution plan, held behind an opaque token."""
 
+    target: Any
     source: Any
     state_cells: tuple[Any, ...]
     metadata: _CallableMetadata
+    facts: _ToolFacts
+    observed_identity: ToolIdentity
     binding: GovernedToolBinding
     seams: _Seams
 
@@ -1467,39 +1473,31 @@ def _describe_callable(target: Any) -> _ToolFacts:
 
 
 def _resolved(resolver: Callable[[Any], Any] | None, target: Any) -> object:
-    """Run an optional per-tool resolver, treating any failure as "it said nothing".
-
-    A classifier that raises has not classified the tool, and an unclassified
-    tool is denied by default. Turning the raise into a run failure would make a
-    broken classifier louder than the denial it should have produced.
-    """
+    """Run an optional per-tool resolver, refusing a failed metadata read."""
     if resolver is None:
         return None
     try:
         return resolver(target)
-    except Exception:
-        return None
+    except Exception as error:
+        raise ToolGovernanceError("tool metadata resolver failed") from error
 
 
-def _pin(facts: _ToolFacts) -> GovernedToolBinding:
-    """Fix the identity this tool is decided under, and consult nothing to do it.
+def _pin(
+    facts: _ToolFacts, target: object = None, seams: _Seams | None = None
+) -> GovernedToolBinding:
+    """Fix the identity and, for a live wrapper, its reviewed static metadata.
 
     The identity is the pin: every call re-derives it and refuses if it moved.
 
-    **No authorization resolver is invoked here.** Recording an inventory used to
-    ask the caller's classifier and contract resolver for their reading of the
-    tool, and a resolver is allowed to be *live*: one that answers from a queue,
-    a feature flag or a counter is consumed by the recording, so every later call
-    is decided under the answer *after* the one it should have had. That is not a
-    reporting defect -- it shifts the classification a policy denies on. The
-    binding therefore carries the unknown classification and no contract, and
-    :func:`_governed_action` resolves both, live, on every call. A caller who
-    wants a classified inventory builds
-    :class:`GovernedToolBinding` values from observations it made itself and
-    records those.
+    A declaration-only binding has no seams and therefore carries conservative
+    defaults. A wrapper binding resolves each tool-only metadata seam into the
+    reviewed inventory value; every live action rechecks those normalized values.
 
     Args:
         facts: The tool's already-gated identifying surface.
+        target: The tool handed to the metadata resolvers.
+        seams: The wrapper's metadata resolvers, or ``None`` for identity-only
+            declaration records.
 
     Returns:
         The binding whose identity every call through the wrapper is checked
@@ -1509,7 +1507,20 @@ def _pin(facts: _ToolFacts) -> GovernedToolBinding:
         UnstableToolIdentityError: If the tool carries no usable name, or its
             identifying material is not canonically representable.
     """
-    return GovernedToolBinding(identity=normalize_tool_identity(facts.name, facts.material))
+    identity = normalize_tool_identity(facts.name, facts.material)
+    if seams is None:
+        return GovernedToolBinding(identity=identity)
+    side_effect = _resolved(seams.side_effect, target)
+    contract = _resolved(seams.contract_ref, target)
+    capabilities = _resolved(seams.capability_refs, target)
+    approval = _resolved(seams.requires_approval, target)
+    return GovernedToolBinding(
+        identity=identity,
+        side_effect=classify_side_effect(side_effect),
+        contract_ref=normalize_contract_ref(contract),
+        capability_refs=normalize_capability_refs(() if capabilities is None else capabilities),
+        requires_approval=normalize_requires_approval(False if approval is None else approval),
+    )
 
 
 def _resolve_context(source: object) -> object:
@@ -1792,30 +1803,15 @@ def _governed_action(
 ) -> tuple[ToolAction, object, _ToolFacts]:
     """Snapshot the tool, decide about the snapshot, and hand it back to be executed.
 
-    **The snapshot is taken first, and it is what runs.** ``plan.describe`` reads
-    the tool's body and surface by value, statically, on the line below -- before
-    the contract resolver, the side-effect classifier and the decision client,
-    every one of which is *caller-supplied code this function calls*. That
-    ordering used to be a hole rather than a detail: a classifier that replaced
-    the tool's ``func`` when it was consulted moved the body after its identity
-    had been pinned and before execution read it again, and the new body then ran
-    under the old fingerprint. Nothing downstream re-reads the tool, so there is
-    no longer a second read to disagree with the first.
+    **The pre-resolver snapshot is what runs.** ``plan.facts`` captured the tool's
+    body and surface before any metadata resolver ran. The current source is
+    checked against the post-resolver baseline on every call, but execution uses
+    the original frozen body, so a resolver cannot substitute what runs while it
+    describes the tool.
 
-    **Every authorization fact is resolved now, not at wrap time.** The
-    classification and the contract binding are re-read from the live resolvers
-    on each call, exactly as
-    :meth:`~zeroth.integrations.langgraph._middleware.ZerothMiddleware._governed`
-    installs them, for two reasons that point the same way. The first is R8: two
-    surfaces that resolve the same fact at different *times* decide the same tool
-    differently the moment the fact moves, and a fact pinned before the tool
-    became side-effecting is the one that permits. The second is that staleness
-    here is always the unsafe direction -- a classification cached from when the
-    tool was read-only outlives the change that made it dangerous.
-
-    The wrap-time values on :class:`GovernedToolBinding` survive as the
-    inventory's *observation* of the tool and are deliberately not consulted
-    here.
+    The reviewed tool-only metadata is re-resolved and compared with the same
+    immutable binding the inventory recorder uses. Context and arguments remain
+    live per call.
 
     Args:
         plan: The wrapper's pinned identity and live seams.
@@ -1832,23 +1828,26 @@ def _governed_action(
         GovernanceContextError: If the call cannot be attributed.
         ToolGovernanceError: If the arguments are not canonically representable.
     """
+    observed = _callable_facts(plan) if type(plan) is _CallablePlan else plan.describe(plan.target)
+    if normalize_tool_identity(observed.name, observed.material) != plan.observed_identity:
+        raise UnstableToolIdentityError("the tool's identity changed after it was governed")
+    if _pin(plan.facts, plan.target, plan.seams) != plan.binding:
+        raise ToolGovernanceError("the tool metadata changed after it was governed")
     context = _resolve_context(plan.seams.context)
-    if type(plan) is _CallablePlan:
-        facts = _callable_facts(plan)
-        resolver_target = plan.source
-    else:
-        facts = plan.describe(plan.target)
-        resolver_target = plan.target
+    facts = plan.facts
     action = normalize_tool_action(
         name=facts.name,
         arguments=arguments,
         context=context,
         identity_material=facts.material,
-        contract_ref=_resolved(plan.seams.contract_ref, resolver_target),
-        side_effect=_resolved(plan.seams.side_effect, resolver_target),
+        contract_ref=plan.binding.contract_ref,
+        side_effect=plan.binding.side_effect,
+        capability_refs=plan.binding.capability_refs,
+        requires_approval=plan.binding.requires_approval,
+        tool_call_id=plan.seams.tool_call_id,
     )
     if action.identity != plan.binding.identity:
-        raise UnstableToolIdentityError("the tool's identity changed after it was governed")
+        raise UnstableToolIdentityError("the governed tool binding is inconsistent")
     return action, context, facts
 
 
@@ -2078,8 +2077,9 @@ def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
     source = facts.body
     _strip_frozen_callable_attributes(source)
     arguments = tuple(facts.material["arguments"])
-    binding = _pin(facts)
+    binding = _pin(facts, target, seams)
     plan = _CallablePlan(
+        target=target,
         source=source,
         state_cells=facts.state_cells,
         metadata=_CallableMetadata(
@@ -2088,8 +2088,15 @@ def _govern_callable(target: Any, facts: _ToolFacts, seams: _Seams) -> Any:
             arguments=arguments,
             schema=schema_digest(published_schema),
         ),
+        facts=facts,
+        observed_identity=binding.identity,
         binding=binding,
         seams=seams,
+    )
+    observed = _callable_facts(plan)
+    plan = replace(
+        plan,
+        observed_identity=normalize_tool_identity(observed.name, observed.material),
     )
     token = object()
     _CALLABLE_PLANS[token] = plan
@@ -2135,13 +2142,24 @@ def _govern_one(target: Any, seams: _Seams) -> Any:
         ToolGovernanceError: If *target* is neither a tool nor callable.
         UnstableToolIdentityError: If *target* carries no usable identity.
     """
+    if isinstance(target, GovernedTool):
+        raise UnstableToolIdentityError("an already governed tool cannot be governed again")
     is_tool = isinstance(target, BaseTool)
     if not is_tool and not callable(target):
         raise ToolGovernanceError("govern_tools accepts BaseTool instances and plain callables")
     describe = _describe_base_tool if is_tool else _describe_callable
     facts = describe(target)
     if is_tool:
-        plan = _GovernedPlan(target=target, describe=describe, binding=_pin(facts), seams=seams)
+        binding = _pin(facts, target, seams)
+        observed = describe(target)
+        plan = _GovernedPlan(
+            target=target,
+            describe=describe,
+            facts=facts,
+            observed_identity=normalize_tool_identity(observed.name, observed.material),
+            binding=binding,
+            seams=seams,
+        )
         return _govern_base_tool(target, facts, plan)
     return _govern_callable(target, facts, seams)
 
@@ -2157,6 +2175,8 @@ def govern_tools(
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
     side_effect: Callable[[Any], Any] | None = None,
     contract_ref: Callable[[Any], Any] | None = None,
+    capability_refs: Callable[[Any], Any] | None = None,
+    requires_approval: Callable[[Any], Any] | None = None,
 ) -> list[Any]:
     """Return governed twins of *tools*, without mutating any of them.
 
@@ -2186,13 +2206,15 @@ def govern_tools(
             without recording.
         actor: The authenticated actor to attribute records to, when there is one.
         interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
-        side_effect: An optional per-tool classifier, re-run on every call so a
-            tool that becomes side-effecting is decided as what it is now. Only a
+        side_effect: An optional per-tool classifier, reviewed when each wrapper
+            is built and rechecked before every action. Only a
             real :class:`~zeroth.integrations.langgraph._tool_types.SideEffectClass`
             member classifies a tool; anything else leaves it unknown, and
             unknown is denied unless *unknown_side_effect* says otherwise.
-        contract_ref: An optional per-tool contract resolver, also re-run on
-            every call.
+        contract_ref: An optional per-tool contract resolver, reviewed when each
+            wrapper is built and rechecked before every action.
+        capability_refs: An optional per-tool required-capability resolver.
+        requires_approval: An optional per-tool explicit-approval resolver.
 
     Returns:
         A new list of governed wrappers, in the order the tools were supplied.
@@ -2215,6 +2237,8 @@ def govern_tools(
         interrupt=interrupt,
         side_effect=side_effect,
         contract_ref=contract_ref,
+        capability_refs=capability_refs,
+        requires_approval=requires_approval,
     )
     return [_govern_one(target, seams) for target in supplied]
 

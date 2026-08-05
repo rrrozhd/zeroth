@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -125,11 +126,23 @@ class RunCapabilityEvidence(BaseModel):
     """Attested evidence used to clamp a run's reported governance level."""
 
     correlation_id: str
+    run_id: str | None = None
     governance_level: GovernanceLevel
     observed_at: datetime
     graph_version: str | None = None
+    adapter_version: str | None = None
+    inventory_fingerprint: str | None = None
     signature_valid: bool = False
     tool_manifest_complete: bool = False
+
+
+RunCapabilityEvidence.__signature__ = inspect.signature(RunCapabilityEvidence).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(RunCapabilityEvidence).parameters.items()
+        if name not in {"run_id", "adapter_version", "inventory_fingerprint"}
+    ]
+)
 
 
 class GatewayEvent(BaseModel):

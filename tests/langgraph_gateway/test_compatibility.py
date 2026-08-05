@@ -425,6 +425,11 @@ class StaticEvidenceProvider:
     async def evidence_for_run(self, correlation_id: str) -> RunCapabilityEvidence | None:
         return self.evidence
 
+    async def evidence_for_governance_run(
+        self, governance_run_id: str
+    ) -> RunCapabilityEvidence | None:
+        return self.evidence
+
 
 class FalsyEvidenceProvider(StaticEvidenceProvider):
     def __bool__(self) -> bool:
@@ -452,6 +457,7 @@ NOW = datetime(2026, 7, 22, tzinfo=UTC)
 def _evidence(**updates: object) -> RunCapabilityEvidence:
     values: dict[str, object] = {
         "correlation_id": "corr-1",
+        "run_id": "corr-1",
         "governance_level": GovernanceLevel.ENFORCED,
         "observed_at": NOW,
         "graph_version": "graph-v1",
@@ -460,6 +466,59 @@ def _evidence(**updates: object) -> RunCapabilityEvidence:
     }
     values.update(updates)
     return RunCapabilityEvidence(**values)
+
+
+@pytest.mark.asyncio
+async def test_explicit_run_lookup_differs_from_legacy_correlation_lookup() -> None:
+    class EvidenceByIdentity:
+        def __init__(self, evidence: tuple[RunCapabilityEvidence, ...]) -> None:
+            self.evidence = evidence
+
+        async def evidence_for_governance_run(
+            self, governance_run_id: str
+        ) -> RunCapabilityEvidence | None:
+            return next(
+                (item for item in self.evidence if item.run_id == governance_run_id), None
+            )
+
+        async def evidence_for_run(
+            self, correlation_id: str
+        ) -> RunCapabilityEvidence | None:
+            matches = [item for item in self.evidence if item.correlation_id == correlation_id]
+            return matches[0] if len(matches) == 1 else None
+
+    evidence = (
+        _evidence(correlation_id="shared", run_id="run-1"),
+        _evidence(correlation_id="shared", run_id="run-2"),
+        _evidence(correlation_id="unique", run_id="run-3"),
+    )
+    reporter = CapabilityReporter(EvidenceByIdentity(evidence), now=lambda: NOW)
+
+    assert (
+        await reporter.level_for_governance_run("run-1", graph_version="graph-v1")
+        is GovernanceLevel.ENFORCED
+    )
+    with pytest.warns(DeprecationWarning):
+        unique = await reporter.level_for_run("unique", graph_version="graph-v1")
+    with pytest.warns(DeprecationWarning):
+        ambiguous = await reporter.level_for_run("shared", graph_version="graph-v1")
+
+    assert unique is GovernanceLevel.ENFORCED
+    assert ambiguous is GovernanceLevel.ADMISSION
+
+
+@pytest.mark.asyncio
+async def test_distinct_legacy_and_signed_run_providers_are_routed_by_identity() -> None:
+    legacy = StaticEvidenceProvider(_evidence(correlation_id="legacy", run_id="legacy"))
+    signed = StaticEvidenceProvider(_evidence(correlation_id="signed", run_id="signed"))
+    reporter = CapabilityReporter(
+        legacy,
+        governance_evidence_provider=signed,
+        now=lambda: NOW,
+    )
+
+    assert await reporter.level_for_run("legacy") is GovernanceLevel.ENFORCED
+    assert await reporter.level_for_governance_run("signed") is GovernanceLevel.ENFORCED
 
 
 @pytest.mark.asyncio
@@ -505,6 +564,22 @@ async def test_complete_fresh_valid_evidence_reports_enforced() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_run_lookup_validates_signed_governance_run_identity() -> None:
+    reporter = CapabilityReporter(
+        StaticEvidenceProvider(_evidence(run_id="run-1")), now=lambda: NOW
+    )
+
+    assert (
+        await reporter.level_for_governance_run("run-1", graph_version="graph-v1")
+        is GovernanceLevel.ENFORCED
+    )
+    assert (
+        await reporter.level_for_governance_run("run-2", graph_version="graph-v1")
+        is GovernanceLevel.ADMISSION
+    )
+
+
 def test_stale_deployment_evidence_falls_back_to_admission() -> None:
     reporter = CapabilityReporter(
         NoCapabilityEvidenceProvider(), stale_after_seconds=90, now=lambda: NOW
@@ -537,7 +612,7 @@ async def test_invalid_or_mismatched_run_evidence_falls_back_to_admission(
 @pytest.mark.asyncio
 async def test_correlation_mismatch_falls_back_to_admission() -> None:
     reporter = CapabilityReporter(
-        StaticEvidenceProvider(_evidence(correlation_id="other-run")), now=lambda: NOW
+        StaticEvidenceProvider(_evidence(correlation_id="other-correlation")), now=lambda: NOW
     )
 
     assert (

@@ -835,7 +835,7 @@ async def test_governed_pipeline_order_and_signed_claims_are_exact():
         return request.state.principal
 
     request = governed_request(
-        b'{"assistant_id":"assistant-2","input":{"question":"hello"}}',
+        b'{"assistant_id":"assistant-2","run_id":"run-9","input":{"question":"hello"}}',
         receive_hook=lambda: order.append("bounded parse"),
     )
     proxy = GatewayProxy(
@@ -883,11 +883,120 @@ async def test_governed_pipeline_order_and_signed_claims_are_exact():
         "deployment_ref": "deployment-a",
         "audience": "agent-server:fixture",
         "correlation_id": "corr-1",
+        "run_id": "run-9",
         "policy_version": "sha256:policy",
         "issued_at": 1000,
         "expires_at": 1300,
         "content_classification": "internal",
     }
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_run_create_without_run_id_mints_signed_governance_run_identity():
+    captured = {}
+    signer = EnvHmacSigner(key_id="gateway", keys={"gateway": b"shared-key"})
+
+    async def upstream(request):
+        captured["body"] = await request.aread()
+
+        class ResultStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b'{"run_id":"upstream-generated"}'
+
+        return httpx.Response(200, stream=ResultStream())
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="agent-server:fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(signer, clock=lambda: 1000),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        clock=lambda: 1000,
+        correlation_factory=lambda: "corr-governance-run",
+    )
+
+    response = await proxy.handle_http(
+        governed_request(
+            b'{"assistant_id":"assistant-2","input":{"question":"hello"}}',
+            path="/threads/thread-4/runs",
+        )
+    )
+    _ = b"".join([chunk async for chunk in response.body_iterator])
+    forwarded = json.loads(captured["body"])
+    claims = ReservedContextCodec(signer, clock=lambda: 1000).decode(
+        forwarded["config"]["configurable"]["_zeroth"],
+        audience="agent-server:fixture",
+        deployment_ref="deployment-a",
+    )
+
+    assert claims.run_id not in {None, "corr-governance-run"}
+    assert claims.run_id != "upstream-generated"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_reused_caller_correlation_gets_distinct_signed_run_nonces():
+    captured: list[bytes] = []
+    signer = EnvHmacSigner(key_id="gateway", keys={"gateway": b"shared-key"})
+
+    async def upstream(request):
+        captured.append(await request.aread())
+        return httpx.Response(204)
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="agent-server:fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(signer, clock=lambda: 1000),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        clock=lambda: 1000,
+    )
+
+    for _ in range(2):
+        request = governed_request(
+            b'{"assistant_id":"assistant-2","input":{"question":"hello"}}',
+            path="/threads/thread-4/runs",
+        )
+        request.scope["headers"].append((b"x-correlation-id", b"caller-reused"))
+        response = await proxy.handle_http(request)
+        assert response.status_code == 204
+
+    claims = [
+        ReservedContextCodec(signer, clock=lambda: 1000).decode(
+            json.loads(body)["config"]["configurable"]["_zeroth"],
+            audience="agent-server:fixture",
+            deployment_ref="deployment-a",
+        )
+        for body in captured
+    ]
+    assert [claim.correlation_id for claim in claims] == ["caller-reused", "caller-reused"]
+    assert claims[0].run_id != claims[1].run_id
+    assert all(claim.run_id not in {None, "caller-reused"} for claim in claims)
     await transport.aclose()
 
 

@@ -707,20 +707,15 @@ def test_a_classifier_returning_the_bare_string_does_not_classify_the_tool() -> 
     assert client.calls == 0
 
 
-def test_a_classifier_that_raises_leaves_the_tool_unclassified_rather_than_failing_the_wrap() -> (
-    None
-):
+def test_a_classifier_that_raises_refuses_the_wrap() -> None:
     body = Body()
 
     def broken(_target: object) -> SideEffectClass:
         """Fail the way a classifier that lost its registry would."""
         raise RuntimeError("classifier down")
 
-    governed = govern_tools([sync_tool_with_schema(body)], context=THREADED, side_effect=broken)[0]
-
-    assert governed.zeroth_binding.side_effect is SideEffectClass.UNKNOWN
-    with pytest.raises(PolicyViolation):
-        governed.invoke({"table": "t", "row": 1})
+    with pytest.raises(ToolGovernanceError, match="metadata resolver failed"):
+        govern_tools([sync_tool_with_schema(body)], context=THREADED, side_effect=broken)
     assert body.calls == 0
 
 
@@ -951,9 +946,10 @@ def test_the_obsolete_call_id_carrier_name_is_an_ordinary_argument() -> None:
 
     # Direct execution has no private call-id carrier, so this name is no longer
     # reserved and reaches the body exactly as policy saw it.
-    assert governed.invoke(
-        {"table": "t", "__zeroth_tool_call_id__": "ordinary"}
-    ) == {"table": "t", "__zeroth_tool_call_id__": "ordinary"}
+    assert governed.invoke({"table": "t", "__zeroth_tool_call_id__": "ordinary"}) == {
+        "table": "t",
+        "__zeroth_tool_call_id__": "ordinary",
+    }
 
 
 def test_tags_and_metadata_a_caller_reads_off_the_tool_survive_the_wrapping() -> None:
@@ -1213,12 +1209,12 @@ def test_running_the_delegate_unvalidated_does_not_strip_the_delegates_own_valid
 
 
 # --------------------------------------------------------------------------- #
-# Authorization facts are resolved per call, exactly as the middleware resolves
-# them: a fact pinned before the tool changed is the one that permits.
+# Reviewed tool metadata is pinned for inventory and rechecked before live
+# decisions, so changed resolver answers fail closed.
 # --------------------------------------------------------------------------- #
 
 
-def test_the_classification_is_resolved_per_call_not_pinned_at_wrap_time() -> None:
+def test_the_classification_is_pinned_for_inventory_and_live_calls() -> None:
     body = Body()
     client = CountingClient()
     live = {"class": SideEffectClass.READ_ONLY}
@@ -1230,19 +1226,15 @@ def test_the_classification_is_resolved_per_call_not_pinned_at_wrap_time() -> No
     )[0]
 
     live["class"] = SideEffectClass.SIDE_EFFECTING
-    governed.invoke({"table": "invoices", "row": 3})
+    with pytest.raises(ToolGovernanceError, match="metadata changed"):
+        governed.invoke({"table": "invoices", "row": 3})
 
-    # Pinned at wrap time, the policy would be asked about a read-only tool that
-    # has since become side-effecting -- and a stale classification is always the
-    # one that permits.
-    [decided] = client.seen
-    assert decided.side_effect is SideEffectClass.SIDE_EFFECTING
-    # And the wrapping never read the classifier at all: the binding carries the
-    # unknown classification, because asking a live resolver *consumes* it.
-    assert governed.zeroth_binding.side_effect is SideEffectClass.UNKNOWN
+    assert governed.zeroth_binding.side_effect is SideEffectClass.READ_ONLY
+    assert client.seen == []
+    assert body.calls == 0
 
 
-def test_the_contract_binding_is_resolved_per_call_not_pinned_at_wrap_time() -> None:
+def test_the_contract_binding_is_pinned_for_inventory_and_live_calls() -> None:
     body = Body()
     client = CountingClient()
     live = {"ref": "contract:v1"}
@@ -1255,14 +1247,15 @@ def test_the_contract_binding_is_resolved_per_call_not_pinned_at_wrap_time() -> 
     )[0]
 
     live["ref"] = "contract:v2"
-    governed.invoke({"table": "invoices", "row": 3})
+    with pytest.raises(ToolGovernanceError, match="metadata changed"):
+        governed.invoke({"table": "invoices", "row": 3})
 
-    [decided] = client.seen
-    assert decided.contract_ref == "contract:v2"
-    assert governed.zeroth_binding.contract_ref is None
+    assert governed.zeroth_binding.contract_ref == "contract:v1"
+    assert client.seen == []
+    assert body.calls == 0
 
 
-def test_the_async_surface_resolves_the_same_facts_at_the_same_time() -> None:
+def test_the_async_surface_reuses_the_same_pinned_facts() -> None:
     body = Body()
     client = CountingClient()
     live = {"class": SideEffectClass.READ_ONLY, "ref": "contract:v1"}
@@ -1275,11 +1268,13 @@ def test_the_async_surface_resolves_the_same_facts_at_the_same_time() -> None:
     )[0]
 
     live["class"], live["ref"] = SideEffectClass.SIDE_EFFECTING, "contract:v2"
-    asyncio.run(governed.ainvoke({"table": "invoices", "row": 3}))
+    with pytest.raises(ToolGovernanceError, match="metadata changed"):
+        asyncio.run(governed.ainvoke({"table": "invoices", "row": 3}))
 
-    [decided] = client.seen
-    assert decided.side_effect is SideEffectClass.SIDE_EFFECTING
-    assert decided.contract_ref == "contract:v2"
+    assert governed.zeroth_binding.side_effect is SideEffectClass.READ_ONLY
+    assert governed.zeroth_binding.contract_ref == "contract:v1"
+    assert client.seen == []
+    assert body.calls == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -1333,7 +1328,7 @@ def test_govern_tools_declares_partial_coverage_for_every_wrapper_it_returns() -
         assert wrapper.zeroth_binding.coverage is InventoryCoverage.PARTIAL
 
 
-def test_every_wrapper_carries_the_identity_it_was_pinned_under_and_nothing_resolved() -> None:
+def test_every_wrapper_carries_its_pinned_identity_and_static_metadata() -> None:
     body = Body()
     governed = wrap(
         sync_tool_with_schema(body),
@@ -1344,11 +1339,8 @@ def test_every_wrapper_carries_the_identity_it_was_pinned_under_and_nothing_reso
     binding = governed.zeroth_binding
     assert binding.identity.name == "delete_row"
     assert len(binding.identity.fingerprint) == 64
-    # The identity is the only thing the wrapping derives. The classification and
-    # the contract are resolved live per call, and reading them here would consume
-    # an answer the first real call should have been decided under.
-    assert binding.contract_ref is None
-    assert binding.side_effect is SideEffectClass.UNKNOWN
+    assert binding.contract_ref == "contract:records"
+    assert binding.side_effect is SideEffectClass.READ_ONLY
 
 
 def test_two_wrappings_of_the_same_tool_pin_the_same_fingerprint() -> None:
@@ -1650,14 +1642,13 @@ def test_a_class_that_gains_an_override_after_the_wrapping_is_refused_before_it_
     used to be re-checked at execution time, inside the twin-building step that
     ran after the decision -- so a tool nothing could execute still spent a
     decision. It is now part of the per-call snapshot, which is taken before the
-    classifier, the contract resolver and the client, because the snapshot is
-    what identity is derived from and what finally runs.
+    decision client, because the snapshot is what identity is derived from and
+    what finally runs.
 
     That ordering is the one every other fail-closed refusal in this file
     already asserts (``client.calls == 0``), and it matters beyond tidiness: a
     decision client is a *live* seam, so asking it about a call that can never
-    execute consumes an answer the next real call should have had -- the same
-    reasoning ``_pin`` gives for consulting no resolver at wrap time.
+    execute consumes an answer the next real call should have had.
     """
     body = Body()
     client = CountingClient()
@@ -1738,7 +1729,7 @@ def test_the_per_call_executing_twin_is_not_observable_from_a_second_reference()
 
 
 # --------------------------------------------------------------------------- #
-# C2-4 -- recording what was wrapped consumes no live authorization resolver.
+# C2-4 -- recording and live actions reuse one static metadata resolution.
 # --------------------------------------------------------------------------- #
 
 
@@ -1756,13 +1747,7 @@ class SideEffectSensitiveClient:
         return DENY if action.side_effect is SideEffectClass.SIDE_EFFECTING else ALLOW
 
 
-def test_wrapping_consumes_no_answer_from_a_live_classifier_or_contract_resolver() -> None:
-    """A resolver asked at wrap time shifts every later call onto the next answer.
-
-    The reproduction is the whole point: with the wrap-time reading in place the
-    classifier's first answer -- the one that denies -- is spent on the
-    inventory, and the only real call is decided under the second.
-    """
+def test_wrapping_rechecks_static_metadata_and_refuses_a_changed_answer() -> None:
     body = Body()
     classifications: list[int] = []
     contracts: list[int] = []
@@ -1786,12 +1771,13 @@ def test_wrapping_consumes_no_answer_from_a_live_classifier_or_contract_resolver
         contract_ref=contract,
     )[0]
 
-    assert classifications == []
-    assert contracts == []
+    assert classifications == [1]
+    assert contracts == [1]
 
-    with pytest.raises(PolicyViolation):
+    with pytest.raises(ToolGovernanceError, match="metadata changed"):
         governed.invoke({"table": "invoices", "row": 3})
 
     assert body.calls == 0
-    assert client.seen[0].side_effect is SideEffectClass.SIDE_EFFECTING
-    assert client.seen[0].contract_ref == "contract:1"
+    assert client.seen == []
+    assert classifications == [1, 1]
+    assert contracts == [1, 1]

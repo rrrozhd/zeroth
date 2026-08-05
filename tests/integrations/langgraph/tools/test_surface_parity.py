@@ -272,6 +272,24 @@ class ContractSensitiveClient:
         return ALLOW if action.contract_ref == PERMITTED_CONTRACT else DENY
 
 
+@dataclasses.dataclass
+class CapabilitySensitiveClient:
+    """A policy that permits only the reviewed capability set."""
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Permit only the capability set this policy reviewed."""
+        return ALLOW if tuple(action.capability_refs) == ("capability:read",) else DENY
+
+
+@dataclasses.dataclass
+class ApprovalSensitiveClient:
+    """A policy that pauses only actions whose metadata requires approval."""
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Require approval exactly when the action says it is required."""
+        return APPROVE if action.requires_approval else ALLOW
+
+
 def drifting_classification(live: dict[str, Any]) -> dict[str, Any]:
     """Install a classifier that reads a cell, starting the tool out read-only.
 
@@ -312,6 +330,34 @@ def drifting_contract(live: dict[str, Any]) -> dict[str, Any]:
 def rebind_contract(live: dict[str, Any]) -> None:
     """Move the tool onto a contract the policy does not permit."""
     live["contract"] = REVOKED_CONTRACT
+
+
+def drifting_capabilities(live: dict[str, Any]) -> dict[str, Any]:
+    """Install a required-capability resolver backed by a mutable cell."""
+    live["capabilities"] = ("capability:read",)
+    return {
+        "side_effect": read_only,
+        "capability_refs": lambda _target: live["capabilities"],
+    }
+
+
+def require_more_capabilities(live: dict[str, Any]) -> None:
+    """Change the required capability after installation."""
+    live["capabilities"] = ("capability:write",)
+
+
+def drifting_approval(live: dict[str, Any]) -> dict[str, Any]:
+    """Install an approval resolver backed by a mutable cell."""
+    live["approval"] = False
+    return {
+        "side_effect": read_only,
+        "requires_approval": lambda _target: live["approval"],
+    }
+
+
+def require_approval(live: dict[str, Any]) -> None:
+    """Require approval after installation."""
+    live["approval"] = True
 
 
 def build_tool(body: Body) -> StructuredTool:
@@ -518,10 +564,10 @@ SCENARIOS = (
         context=THREADED,
         classify=None,
         unknown_side_effect=UnknownSideEffectPolicy.DENY,
-        error=PolicyViolation,
+        error=ToolGovernanceError,
         downstream_calls=0,
-        records=1,
-        decision="deny",
+        records=0,
+        decision=None,
         interrupts=0,
         resolvers=drifting_classification,
         mutate=reclassify,
@@ -532,13 +578,41 @@ SCENARIOS = (
         context=THREADED,
         classify=None,
         unknown_side_effect=UnknownSideEffectPolicy.DENY,
-        error=PolicyViolation,
+        error=ToolGovernanceError,
         downstream_calls=0,
-        records=1,
-        decision="deny",
+        records=0,
+        decision=None,
         interrupts=0,
         resolvers=drifting_contract,
         mutate=rebind_contract,
+    ),
+    Scenario(
+        label="capabilities-that-change-after-the-tool-is-installed",
+        client=CapabilitySensitiveClient,
+        context=THREADED,
+        classify=None,
+        unknown_side_effect=UnknownSideEffectPolicy.DENY,
+        error=ToolGovernanceError,
+        downstream_calls=0,
+        records=0,
+        decision=None,
+        interrupts=0,
+        resolvers=drifting_capabilities,
+        mutate=require_more_capabilities,
+    ),
+    Scenario(
+        label="approval-that-changes-after-the-tool-is-installed",
+        client=ApprovalSensitiveClient,
+        context=THREADED,
+        classify=None,
+        unknown_side_effect=UnknownSideEffectPolicy.DENY,
+        error=ToolGovernanceError,
+        downstream_calls=0,
+        records=0,
+        decision=None,
+        interrupts=0,
+        resolvers=drifting_approval,
+        mutate=require_approval,
     ),
 )
 """The one scenario table. Both drivers below consume exactly this structure."""
@@ -594,6 +668,17 @@ def _outcome(
     )
 
 
+def _without_call_identity(outcome: Outcome) -> Outcome:
+    """Compare shared semantics while preserving middleware-only call identity separately."""
+    return dataclasses.replace(
+        outcome,
+        interrupts=tuple(
+            {key: value for key, value in payload.items() if key != "tool_call_id"}
+            for payload in outcome.interrupts
+        ),
+    )
+
+
 def _seams(
     scenario: Scenario,
     audit: RecordingSubmitter,
@@ -646,7 +731,7 @@ def drive_middleware(scenario: Scenario, tool: Any, body: Body) -> Outcome:
     Counting the tool function is the same measurement ``drive_wrapper`` makes.
     """
     audit, interrupt, live = RecordingSubmitter(), RecordingInterrupt(), {}
-    guard = ZerothMiddleware(**_seams(scenario, audit, interrupt, live))
+    guard = ZerothMiddleware(**_seams(scenario, audit, interrupt, live), expected_tools=(tool,))
     _staged(scenario, live)
     request = build_request(tool)
     return _outcome(lambda: guard.wrap_tool_call(request, Handler()), body, audit, interrupt)
@@ -665,7 +750,7 @@ def drive_wrapper_async(scenario: Scenario, tool: Any, body: Body) -> Outcome:
 def drive_middleware_async(scenario: Scenario, tool: Any, body: Body) -> Outcome:
     """Drive *scenario* through ``ZerothMiddleware.awrap_tool_call``."""
     audit, interrupt, live = RecordingSubmitter(), RecordingInterrupt(), {}
-    guard = ZerothMiddleware(**_seams(scenario, audit, interrupt, live))
+    guard = ZerothMiddleware(**_seams(scenario, audit, interrupt, live), expected_tools=(tool,))
     _staged(scenario, live)
     request = build_request(tool)
     return _outcome(
@@ -707,7 +792,7 @@ def test_both_surfaces_decide_the_same_scenario_identically(scenario: Scenario) 
     wrapper = drive_wrapper(scenario, build_tool(wrapper_body), wrapper_body)
     middleware = drive_middleware(scenario, build_tool(middleware_body), middleware_body)
 
-    assert wrapper == middleware
+    assert _without_call_identity(wrapper) == _without_call_identity(middleware)
     _assert_declared(wrapper, scenario)
     _assert_declared(middleware, scenario)
 
@@ -728,7 +813,7 @@ def test_both_async_surfaces_decide_the_same_scenario_identically(scenario: Scen
         scenario, build_async_tool(middleware_body), middleware_body
     )
 
-    assert wrapper == middleware
+    assert _without_call_identity(wrapper) == _without_call_identity(middleware)
     _assert_declared(wrapper, scenario)
     _assert_declared(middleware, scenario)
 
@@ -771,6 +856,8 @@ def test_the_parity_table_covers_every_required_scenario() -> None:
         "a-client-that-raises",
         "a-classification-that-changes-after-the-tool-is-installed",
         "a-contract-binding-that-changes-after-the-tool-is-installed",
+        "capabilities-that-change-after-the-tool-is-installed",
+        "approval-that-changes-after-the-tool-is-installed",
     }
 
 
@@ -787,7 +874,11 @@ def test_an_approval_payload_is_the_same_schema_on_both_surfaces() -> None:
     [payload] = drive_wrapper(scenario, build_tool(wrapper_body), wrapper_body).interrupts
     [twin] = drive_middleware(scenario, build_tool(middleware_body), middleware_body).interrupts
 
-    assert payload == twin
+    assert {key: value for key, value in payload.items() if key != "tool_call_id"} == {
+        key: value for key, value in twin.items() if key != "tool_call_id"
+    }
+    assert payload["tool_call_id"] is None
+    assert twin["tool_call_id"] == "call-1"
     assert set(payload) == {
         "version",
         "kind",
@@ -799,6 +890,7 @@ def test_an_approval_payload_is_the_same_schema_on_both_surfaces() -> None:
         "correlation_id",
         "tool_name",
         "tool_fingerprint",
+        "tool_call_id",
         "argument_fingerprint",
         "contract_ref",
         "side_effect",

@@ -38,6 +38,9 @@ from typing import Any
 _CORRELATION_VAR: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "zeroth_langgraph_correlation", default=None
 )
+_RESERVED_TOKEN_VAR: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "zeroth_langgraph_reserved_token", default=None
+)
 """The wrapper-owned carrier for the current run's UNVERIFIED correlation id.
 
 Module-private and never reachable by callers: :class:`GovernedGraph` sets it
@@ -62,8 +65,8 @@ far below an abusive one.
 """
 
 
-def _correlation_from_token(token: str) -> str | None:
-    """Return the UNVERIFIED ``correlation_id`` from a reserved-context token.
+def _claim_from_token(token: str, name: str) -> str | None:
+    """Return one bounded, UNVERIFIED string claim from a reserved-context token.
 
     The token is a compact ``header.payload.signature`` (base64url, unpadded).
     Only the middle payload segment is decoded and JSON-parsed; the signature is
@@ -85,8 +88,27 @@ def _correlation_from_token(token: str) -> str | None:
         return None
     if not isinstance(payload, dict):
         return None
-    correlation_id = payload.get("correlation_id")
-    return correlation_id if isinstance(correlation_id, str) else None
+    value = payload.get(name)
+    return value if isinstance(value, str) and value else None
+
+
+def _correlation_from_token(token: str) -> str | None:
+    """Return the UNVERIFIED ``correlation_id`` from a reserved-context token."""
+    return _claim_from_token(token, "correlation_id")
+
+
+def governance_run_id_from_token(token: str) -> str | None:
+    """Return the UNVERIFIED run nonce carried by the token, or its correlation."""
+    return _claim_from_token(token, "run_id") or _claim_from_token(token, "correlation_id")
+
+
+def request_identity_from_token(token: str) -> tuple[str, str] | None:
+    """Return the UNVERIFIED principal and policy revision carried by the token."""
+    principal_id = _claim_from_token(token, "principal_id")
+    policy_version = _claim_from_token(token, "policy_version")
+    if principal_id is None or policy_version is None:
+        return None
+    return principal_id, policy_version
 
 
 def _correlation_from_config(config: Any) -> str | None:
@@ -110,6 +132,19 @@ def _correlation_from_config(config: Any) -> str | None:
     return _correlation_from_token(token)
 
 
+def _reserved_token_from_config(config: Any) -> str | None:
+    """Return the raw token only when its bounded payload carries a correlation id."""
+    if not isinstance(config, Mapping):
+        return None
+    configurable = config.get("configurable")
+    if not isinstance(configurable, Mapping):
+        return None
+    token = configurable.get("_zeroth")
+    if not isinstance(token, str) or _correlation_from_token(token) is None:
+        return None
+    return token
+
+
 def correlation_from_call(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str | None:
     """Return the UNVERIFIED correlation id carried by a run's config, or ``None``.
 
@@ -124,6 +159,15 @@ def correlation_from_call(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str 
         return _correlation_from_config(kwargs["config"])
     if len(args) >= 2:
         return _correlation_from_config(args[1])
+    return None
+
+
+def reserved_token_from_call(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str | None:
+    """Return the bounded raw reserved token carried by a run's config."""
+    if "config" in kwargs:
+        return _reserved_token_from_config(kwargs["config"])
+    if len(args) >= 2:
+        return _reserved_token_from_config(args[1])
     return None
 
 
@@ -143,6 +187,21 @@ def reset_correlation(token: contextvars.Token[str | None]) -> None:
     _CORRELATION_VAR.reset(token)
 
 
+def set_reserved_context_token(value: str | None) -> contextvars.Token[str | None]:
+    """Publish the raw token only for the active governed delegate call."""
+    return _RESERVED_TOKEN_VAR.set(value)
+
+
+def reset_reserved_context_token(token: contextvars.Token[str | None]) -> None:
+    """Restore the previous private reserved-token carrier value."""
+    _RESERVED_TOKEN_VAR.reset(token)
+
+
+def current_reserved_context_token() -> str | None:
+    """Return the raw token for the active governed run, or ``None``."""
+    return _RESERVED_TOKEN_VAR.get()
+
+
 def current_correlation() -> str | None:
     """Return the correlation id published for the current context, or ``None``.
 
@@ -154,8 +213,15 @@ def current_correlation() -> str | None:
 
 __all__ = [
     "correlation_from_call",
+    "current_reserved_context_token",
     "current_correlation",
+    "governance_run_id_from_token",
+    "request_identity_from_token",
+    "reserved_token_from_call",
     "reset_correlation",
+    "reset_reserved_context_token",
     "set_correlation",
+    "set_reserved_context_token",
     "_correlation_from_config",
+    "_reserved_token_from_config",
 ]

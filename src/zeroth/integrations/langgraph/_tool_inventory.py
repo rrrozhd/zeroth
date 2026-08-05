@@ -56,7 +56,7 @@ stops working precisely where it matters.
 possible.** :class:`~zeroth.core.langgraph_gateway.capabilities.CapabilityReporter`
 promotes a run to
 :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ENFORCED` only for
-signed, fresh, correlation-matched
+signed, fresh, governance-run-matched
 :class:`~zeroth.core.langgraph_gateway.models.RunCapabilityEvidence` that *also*
 carries ``tool_manifest_complete``; absent that it fails closed to
 :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ADMISSION`. Nothing
@@ -99,8 +99,10 @@ from zeroth.integrations.langgraph._tool_errors import (
 from zeroth.integrations.langgraph._tool_normalize import (
     argument_fingerprint,
     classify_side_effect,
+    normalize_capability_refs,
     normalize_contract_ref,
     normalize_identifier,
+    normalize_requires_approval,
 )
 from zeroth.integrations.langgraph._tool_types import (
     InventoryCoverage,
@@ -192,6 +194,8 @@ def _gated_entry(entry: object) -> ToolInventoryEntry:
         identity=_gated_identity(entry.identity),
         side_effect=classify_side_effect(entry.side_effect),
         contract_ref=normalize_contract_ref(entry.contract_ref),
+        capability_refs=normalize_capability_refs(entry.capability_refs),
+        requires_approval=normalize_requires_approval(entry.requires_approval),
     )
 
 
@@ -267,6 +271,8 @@ def _entry_from_binding(binding: object) -> ToolInventoryEntry:
         identity=_gated_identity(_peek(binding, "identity")),
         side_effect=classify_side_effect(_peek(binding, "side_effect")),
         contract_ref=normalize_contract_ref(_peek(binding, "contract_ref")),
+        capability_refs=normalize_capability_refs(_peek(binding, "capability_refs")),
+        requires_approval=_peek(binding, "requires_approval") is True,
     )
 
 

@@ -122,6 +122,7 @@ class ServiceBootstrap:
     langgraph_gateway_transport: object | None = None
     langgraph_gateway_compatibility: CompatibilityResult | None = None
     langgraph_gateway_capability_reporter: object | None = None
+    langgraph_enforcement_service: object | None = None
     langgraph_gateway_websocket_handler: object | None = None
     # The bounded audit-delivery stage the gateway event sink submits into.
     # Held here because two owners outside the sink need it: the lifespan,
@@ -169,6 +170,7 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             "langgraph_gateway_transport",
             "langgraph_gateway_compatibility",
             "langgraph_gateway_capability_reporter",
+            "langgraph_enforcement_service",
             "langgraph_gateway_websocket_handler",
             "audit_delivery_queue",
             # ZER-8 fields are hidden from the introspected signature for the

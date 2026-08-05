@@ -75,14 +75,67 @@ context = ToolGovernanceContext(
     correlation_id="corr-1",
 )
 
+tool_policy = dict(
+    side_effect=lambda tool: SideEffectClass.READ_ONLY,
+    contract_ref=lambda tool: "contract:lookup",
+    capability_refs=lambda tool: ("network_read",),
+    requires_approval=lambda tool: False,
+)
 governed = govern_tools(
     tools,
     context=context,
     client=my_decision_client,                       # None denies every call
-    side_effect=lambda tool: SideEffectClass.READ_ONLY,
     audit=audit_delivery_queue,
+    **tool_policy,
 )
 ```
+
+For the deployment-scoped gateway boundary, use the recorded inventory as the
+same client's policy surface and run-start evidence:
+
+```python
+from zeroth.integrations.langgraph import (
+    LangGraphGatewayClient,
+    attest_complete_inventory,
+    govern_graph,
+    record_tool_inventory,
+)
+
+recorded = record_tool_inventory(governed)
+# This must come from an independently reviewed deployment manifest. Deriving it
+# from `recorded` would only compare the observed inventory with itself.
+inventory = attest_complete_inventory(
+    recorded,
+    declared_tool_identities,
+)
+gateway = LangGraphGatewayClient(
+    zeroth_url,
+    api_key=zeroth_api_key,
+    tenant_id="tenant-a",
+    principal_id="principal-1",
+    deployment_ref="deployment-a",
+    policy_version="policy-v1",
+    graph_version="graph@1",
+    inventory=inventory,
+)
+
+governed = govern_tools(tools, context=context, client=gateway, **tool_policy)
+graph = govern_graph(compiled_graph, gateway_client=gateway)
+```
+
+The gateway-injected `config["configurable"]["_zeroth"]` token is kept on a
+private run-local carrier. `govern_graph` registers inventory and attests before
+delegation; tool calls reuse the same token for decisions. Missing or rejected
+context, transport errors, mismatched fingerprints, and unknown tools all fail
+closed. Attestations are persisted and looked up by the run identity in the signed
+gateway context; `correlation_id` remains trace metadata and may be shared. After
+the first successful run attestation, the client refreshes heartbeat evidence every
+30 seconds until `gateway.close()`; heartbeat freshness can describe the deployment
+but never upgrades a run.
+
+Server-side consumers use `CapabilityReporter.level_for_governance_run(run_id)`
+for exact evidence. The deprecated `level_for_run(correlation_id)` keeps its
+legacy correlation semantics and reports only a single, unambiguous match.
 
 The returned wrappers go wherever the originals went — a `ToolNode`, a
 `StateGraph`, a `bind_tools` call — and answer to the same interfaces.
@@ -97,6 +150,7 @@ than optional. The public surface is:
 | Group | Names |
 | --- | --- |
 | Install surfaces | `govern_graph`, `govern_tools`, `GovernedTool`, `ZerothMiddleware` |
+| Connect to Zeroth | `LangGraphGatewayClient`, `LangGraphGatewayError` |
 | Describe a call | `ToolGovernanceContext`, `ToolIdentity`, `ToolAction`, `SideEffectClass` |
 | Decide a call | `ToolDecisionClient`, `ToolDecision`, `ToolDecisionKind`, `FailClosedToolDecisionClient`, `UnknownSideEffectPolicy`, `ToolAuditSubmitter` |
 | Typed refusals | `ToolGovernanceError`, `PolicyViolation`, `GovernanceContextError`, `UnstableToolIdentityError`, `ApprovalRequiresThreadError` |
@@ -234,26 +288,15 @@ and `test_an_already_governed_tool_is_refused_by_govern_tools`.
 
 ## What this does not claim
 
-**Middleware-only integration cannot claim cumulative graph enforcement without a
-matching graph attestation.** Tool-level enforcement is not graph-level or
-cumulative enforcement, and installing `ZerothMiddleware` does not make it so.
+**Middleware-only integration still cannot claim cumulative graph enforcement.**
+Tool-level enforcement is not graph-level enforcement, and installing
+`ZerothMiddleware` alone does not make it so. A run reaches `ENFORCED` only when
+`govern_graph(..., gateway_client=gateway)` emits fresh server-verified evidence
+for a matching `COMPLETE` inventory. Partial or mismatched inventories are
+clamped below `ENFORCED`, and client claims cannot upgrade the server result.
 
-The mechanics:
-
-- A run reports `ENFORCED` only when its capability evidence has
-  `governance_level is ENFORCED` **and** `tool_manifest_complete` is true
-  (`src/zeroth/core/langgraph_gateway/capabilities.py:86-90`).
-- Nothing in `src/` mints evidence with `tool_manifest_complete=True`. The field
-  exists on `RunCapabilityEvidence` with a default of `False`
-  (`src/zeroth/core/langgraph_gateway/models.py:132`) and the only other
-  references are the capability check above and this package's own docstrings.
-- This integration documents in five places that it never promotes a run above
-  `admission` (FA5) — once per surface: `_wrapper.py:79` and `_wrapper.py:331`
-  (`govern_graph`), `__init__.py:15` (`govern_graph`), `__init__.py:35`
-  (`govern_tools`) and `__init__.py:47` (`ZerothMiddleware`).
-
-So a tool-only run reports `observed` with `partial` coverage, plus an explicit
-list of the tools actually governed —
+A tool-only run reports `observed` with `partial` coverage, plus an explicit list
+of the tools actually governed —
 `report_tool_enforcement(record_tool_inventory(governed))` returns a
 `ToolEnforcementReport` whose `level` is `observed` when at least one governed
 tool is present and `admission` when none is, whose `coverage` is `partial`, and
@@ -261,7 +304,9 @@ whose `enforced_tools` names exactly what was governed. `govern_tools` takes no
 coverage parameter on purpose: declaring a complete inventory requires an
 explicit expected tool list whose fingerprints match, which is
 `attest_complete_inventory`'s job, and even a complete inventory is not the
-signed run evidence `ENFORCED` needs.
+signed run evidence `ENFORCED` needs. Pass the complete result to
+`LangGraphGatewayClient` and install that client on `govern_graph` when the full
+run boundary is required.
 
 ### The same report from a middleware-only install
 
@@ -281,10 +326,10 @@ report.level_term      # "observed" — the plain str audit metadata must carry
 ```
 
 `expected_tools` is **not injected**: it is not added to `middleware.tools`, not
-handed to the agent, and not wrapped. It is pinned through the same
-`_describe_base_tool` a live call is described through, so an inventory entry
-carries the fingerprint the decision is actually made under; `guard.tool_inventory`
-exposes it for `match_tool_inventory` against a declared identity list.
+handed to the agent, and not wrapped. It is pinned through the same normalization
+as a live call, including authorization metadata. Each declared tool's live twin
+must match that reviewed entry before policy evaluation; `guard.tool_inventory`
+exposes the immutable review for `match_tool_inventory`.
 
 Two properties this report has by construction:
 
@@ -293,10 +338,10 @@ Two properties this report has by construction:
   (`test_the_middleware_report_can_never_be_enforced`). Coverage stays `partial`:
   a middleware never sees the agent's tool list, and a declaration is not a
   discovery.
-- **The inventory gates nothing.** A call naming an undeclared tool is decided
-  exactly as any other call is — the enforcement core is the only thing that
-  refuses a call
-  (`test_an_undeclared_tool_is_still_decided_and_the_inventory_gates_nothing`).
+- **The inventory is not an allowlist.** A call naming an undeclared tool is
+  still decided normally. A declared tool whose authorization metadata changed
+  after review is refused before policy evaluation
+  (`test_an_undeclared_tool_is_still_decided`).
 
 An unusable declaration fails at construction rather than at report time: a
 non-`BaseTool` entry, an unusable name, or two tools sharing one name all raise
@@ -338,7 +383,8 @@ policy actually sees:
 
 - Pass it as a tool *argument*. Arguments are canonicalized into the action and
   decided per call, so an endpoint or a file root arrives at your client.
-- Pin it in `contract_ref`, which is resolved per call and carried on the action.
+- Pin it in `contract_ref`, which is recorded in the reviewed inventory binding
+  and must resolve to the same value before every action.
 - Give each configuration its own tool with its own implementation, so the
   fingerprints genuinely differ.
 

@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langchain_core.runnables.config import merge_configs
 
 from zeroth.integrations.langgraph._callbacks import inject_governance_handler
 from zeroth.integrations.langgraph._correlation import (
     correlation_from_call,
+    reserved_token_from_call,
     reset_correlation,
+    reset_reserved_context_token,
     set_correlation,
+    set_reserved_context_token,
 )
 from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
+
+if TYPE_CHECKING:
+    from zeroth.integrations.langgraph._gateway_client import LangGraphGatewayClient
 
 _COMPOSE_ERROR = (
     "GovernedGraph does not support `|` composition; compose the graph before "
@@ -65,6 +72,19 @@ class RunStartContext:
 type OnRunStart = Callable[[RunStartContext], None]
 
 
+@contextmanager
+def _published_run_context(
+    correlation_id: str | None, reserved_token: str | None
+) -> Iterator[None]:
+    correlation_marker = set_correlation(correlation_id)
+    token_marker = set_reserved_context_token(reserved_token)
+    try:
+        yield
+    finally:
+        reset_reserved_context_token(token_marker)
+        reset_correlation(correlation_marker)
+
+
 class GovernedGraph:
     """Transparent, observed-mode governance wrapper around a compiled LangGraph.
 
@@ -73,21 +93,30 @@ class GovernedGraph:
     Zeroth governance callback handler into each run's ``RunnableConfig`` without
     replacing or duplicating any user-supplied callbacks.
 
-    It is deliberately behaviour-preserving: results, streamed chunks and
-    propagated exceptions are identical to calling the wrapped graph directly.
-    It mints no attestation and introduces no path that promotes a run's reported
-    governance level above ``admission`` (FA5 / ZER-2); promotion to ``observed``
-    is deferred. Unknown attributes delegate to the wrapped graph via
-    :meth:`__getattr__`.
+    Without a gateway client it is behaviour-preserving: results, streamed chunks
+    and propagated exceptions are identical to calling the wrapped graph directly.
+    With a gateway client it fails closed until inventory registration and a
+    server-authoritative run-start attestation succeed. Unknown attributes
+    delegate to the wrapped graph via :meth:`__getattr__`.
     """
 
-    _RESERVED = frozenset({"_graph", "_on_run_start", "_handler", "_delegate", "_bound_config"})
+    _RESERVED = frozenset(
+        {
+            "_graph",
+            "_on_run_start",
+            "_gateway_client",
+            "_handler",
+            "_delegate",
+            "_bound_config",
+        }
+    )
 
     def __init__(
         self,
         graph: Any,
         *,
         on_run_start: OnRunStart | None = None,
+        gateway_client: LangGraphGatewayClient | None = None,
         bound_config: Any = None,
     ) -> None:
         """Wrap ``graph``; optionally register a one-shot ``on_run_start`` hook.
@@ -97,6 +126,8 @@ class GovernedGraph:
                 ``invoke`` / ``ainvoke`` / ``stream`` / ``astream`` surface).
             on_run_start: Optional stability seam invoked exactly once per
                 run-start. Defaults to ``None`` (no-op).
+            gateway_client: Optional enforcement client that registers inventory
+                and attests before the graph or caller hook executes.
             bound_config: Config bound via :meth:`with_config`, merged under every
                 run's call-time config. Internal; callers use ``with_config``.
         """
@@ -108,6 +139,7 @@ class GovernedGraph:
 
         self._graph = graph
         self._on_run_start = on_run_start
+        self._gateway_client = gateway_client
         self._bound_config = bound_config
         self._handler = ZerothGovernanceCallbackHandler()
         # Reuse -- not reimplement -- the econ delegation shape.
@@ -123,8 +155,19 @@ class GovernedGraph:
         name = getattr(graph, "name", None)
         return str(name) if name else type(graph).__name__
 
-    def _run_start(self, entrypoint: str) -> None:
-        """Fire the ``on_run_start`` hook once, if one was registered."""
+    def _run_start(
+        self,
+        entrypoint: str,
+        correlation_id: str | None,
+        reserved_token: str | None,
+    ) -> None:
+        """Attest before any caller hook or wrapped graph code can execute."""
+        if self._gateway_client is not None:
+            if not correlation_id or not reserved_token:
+                from zeroth.integrations.langgraph._gateway_client import LangGraphGatewayError
+
+                raise LangGraphGatewayError()
+            self._gateway_client.start_run(reserved_token, correlation_id)
         if self._on_run_start is None:
             return
         self._on_run_start(
@@ -137,7 +180,7 @@ class GovernedGraph:
 
     def _prepare(
         self, args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> tuple[tuple[Any, ...], dict[str, Any], str | None]:
+    ) -> tuple[tuple[Any, ...], dict[str, Any], str | None, str | None]:
         """Bind config, extract the correlation id, then merge the governance handler.
 
         Correlation is extracted after any :meth:`with_config` bind (so a token in
@@ -150,28 +193,23 @@ class GovernedGraph:
         if self._bound_config:
             args, kwargs = _apply_bound_config(args, kwargs, self._bound_config)
         correlation = correlation_from_call(args, kwargs)
+        reserved_token = reserved_token_from_call(args, kwargs)
         args, kwargs = inject_governance_handler(args, kwargs, self._handler)
-        return args, kwargs, correlation
+        return args, kwargs, correlation, reserved_token
 
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         """Invoke the wrapped graph with the governance handler merged in."""
-        args, kwargs, correlation = self._prepare(args, kwargs)
-        self._run_start("invoke")
-        token = set_correlation(correlation)
-        try:
+        args, kwargs, correlation, reserved_token = self._prepare(args, kwargs)
+        self._run_start("invoke", correlation, reserved_token)
+        with _published_run_context(correlation, reserved_token):
             return self._delegate.invoke(*args, **kwargs)
-        finally:
-            reset_correlation(token)
 
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         """Async-invoke the wrapped graph with the governance handler merged in."""
-        args, kwargs, correlation = self._prepare(args, kwargs)
-        self._run_start("ainvoke")
-        token = set_correlation(correlation)
-        try:
+        args, kwargs, correlation, reserved_token = self._prepare(args, kwargs)
+        self._run_start("ainvoke", correlation, reserved_token)
+        with _published_run_context(correlation, reserved_token):
             return await self._delegate.ainvoke(*args, **kwargs)
-        finally:
-            reset_correlation(token)
 
     def stream(self, *args: Any, **kwargs: Any) -> Any:
         """Stream the wrapped graph with the governance handler merged in.
@@ -181,9 +219,9 @@ class GovernedGraph:
         generator -- set when iteration begins, reset when it ends -- not in the
         method body (which would reset it before the caller ever iterates).
         """
-        args, kwargs, correlation = self._prepare(args, kwargs)
-        self._run_start("stream")
-        return self._correlated_stream(args, kwargs, correlation)
+        args, kwargs, correlation, reserved_token = self._prepare(args, kwargs)
+        self._run_start("stream", correlation, reserved_token)
+        return self._correlated_stream(args, kwargs, correlation, reserved_token)
 
     def astream(self, *args: Any, **kwargs: Any) -> Any:
         """Async-stream the wrapped graph with the governance handler merged in.
@@ -194,12 +232,16 @@ class GovernedGraph:
         the method body. Stays a plain ``def`` returning an async iterator -- an
         ``async def`` here would return a coroutine callers cannot ``async for``.
         """
-        args, kwargs, correlation = self._prepare(args, kwargs)
-        self._run_start("astream")
-        return self._correlated_astream(args, kwargs, correlation)
+        args, kwargs, correlation, reserved_token = self._prepare(args, kwargs)
+        self._run_start("astream", correlation, reserved_token)
+        return self._correlated_astream(args, kwargs, correlation, reserved_token)
 
     def _correlated_stream(
-        self, args: tuple[Any, ...], kwargs: dict[str, Any], correlation: str | None
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        correlation: str | None,
+        reserved_token: str | None,
     ) -> Any:
         """Yield the delegate stream with the correlation published for its duration.
 
@@ -215,56 +257,40 @@ class GovernedGraph:
         iterator = iter(self._delegate.stream(*args, **kwargs))
         try:
             while True:
-                token = set_correlation(correlation)
                 try:
-                    chunk = next(iterator)
+                    with _published_run_context(correlation, reserved_token):
+                        chunk = next(iterator)
                 except StopIteration:
                     return
-                finally:
-                    reset_correlation(token)
                 yield chunk
         finally:
             close = getattr(iterator, "close", None)
             if close is not None:
-                token = set_correlation(correlation)
-                try:
+                with _published_run_context(correlation, reserved_token):
                     close()
-                finally:
-                    reset_correlation(token)
 
     async def _correlated_astream(
-        self, args: tuple[Any, ...], kwargs: dict[str, Any], correlation: str | None
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        correlation: str | None,
+        reserved_token: str | None,
     ) -> Any:
-        """Async-yield the delegate stream with the correlation published for its duration.
-
-        The async counterpart of :meth:`_correlated_stream`. The ``ContextVar`` is
-        set around each individual ``__anext__()`` and reset *before* the chunk is
-        yielded, so callbacks on the run's task and any child tasks read the
-        correlation without it leaking into the consumer's context -- and every
-        token stays confined to the context that created it, so closing the stream
-        from a different task cannot raise. ``finally`` also closes the *delegate*
-        iterator explicitly, so its own cleanup runs on early close/cancellation.
-        Chunk order, laziness and cancellation stay unchanged.
-        """
+        """Async-yield the delegate stream with private run context."""
         iterator = self._delegate.astream(*args, **kwargs).__aiter__()
         try:
             while True:
-                token = set_correlation(correlation)
-                try:
-                    chunk = await iterator.__anext__()
-                except StopAsyncIteration:
-                    return
-                finally:
-                    reset_correlation(token)
+                with _published_run_context(correlation, reserved_token):
+                    try:
+                        chunk = await iterator.__anext__()
+                    except StopAsyncIteration:
+                        return
                 yield chunk
         finally:
             aclose = getattr(iterator, "aclose", None)
             if aclose is not None:
-                token = set_correlation(correlation)
-                try:
+                with _published_run_context(correlation, reserved_token):
                     await aclose()
-                finally:
-                    reset_correlation(token)
 
     def with_config(self, config: Any = None, **kwargs: Any) -> GovernedGraph:
         """Return a still-governed graph that binds ``config`` into every run.
@@ -296,7 +322,12 @@ class GovernedGraph:
         # at invoke time (``_apply_bound_config``) -- exactly where a
         # ``RunnableBinding`` layers its bound config under the call-time config.
         new_bound = {**(self._bound_config or {}), **call_config}
-        return GovernedGraph(self._graph, on_run_start=self._on_run_start, bound_config=new_bound)
+        return GovernedGraph(
+            self._graph,
+            on_run_start=self._on_run_start,
+            gateway_client=self._gateway_client,
+            bound_config=new_bound,
+        )
 
     def __or__(self, _other: Any) -> Any:
         """Reject pipe composition; ZER-2 governs graphs, it does not compose them."""
@@ -314,7 +345,12 @@ class GovernedGraph:
         return getattr(self._delegate, item)
 
 
-def govern_graph(graph: Any, *, on_run_start: OnRunStart | None = None) -> GovernedGraph:
+def govern_graph(
+    graph: Any,
+    *,
+    on_run_start: OnRunStart | None = None,
+    gateway_client: LangGraphGatewayClient | None = None,
+) -> GovernedGraph:
     """Install one-line, observed-mode governance over a compiled LangGraph.
 
     The returned :class:`GovernedGraph` is a transparent wrapper: ``invoke``,
@@ -326,9 +362,9 @@ def govern_graph(graph: Any, *, on_run_start: OnRunStart | None = None) -> Gover
     run's ``config["callbacks"]`` without replacing or duplicating any callbacks
     the caller already registered.
 
-    ZER-2 is observed-mode groundwork only: the wrapper mints no attestation and
-    introduces no path that promotes a run's reported governance level above
-    ``admission`` (FA5). Promotion to ``observed`` is deferred.
+    Without ``gateway_client`` this remains transparent observed-mode groundwork.
+    With one, inventory registration and a server-authoritative run-start
+    attestation must succeed before the wrapped graph can execute.
 
     Args:
         graph: A compiled LangGraph (anything exposing ``invoke`` / ``ainvoke`` /
@@ -337,6 +373,9 @@ def govern_graph(graph: Any, *, on_run_start: OnRunStart | None = None) -> Gover
             (per ``invoke`` / ``ainvoke`` / ``stream`` / ``astream`` call) with a
             small, attestation-free :class:`RunStartContext`. Defaults to ``None``
             (no-op), in which case output is byte-identical to omitting it.
+        gateway_client: Optional enforcement client. When supplied, a valid
+            gateway reserved token is required and run-start evidence is emitted
+            before delegation.
 
     Returns:
         A :class:`GovernedGraph` wrapping ``graph``.
@@ -346,4 +385,8 @@ def govern_graph(graph: Any, *, on_run_start: OnRunStart | None = None) -> Gover
         >>> graph = govern_graph(compiled_graph)
         >>> graph.invoke({"messages": [...]})
     """
-    return GovernedGraph(graph, on_run_start=on_run_start)
+    return GovernedGraph(
+        graph,
+        on_run_start=on_run_start,
+        gateway_client=gateway_client,
+    )

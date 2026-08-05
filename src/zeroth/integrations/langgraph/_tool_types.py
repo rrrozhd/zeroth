@@ -136,6 +136,9 @@ class ToolAction:
         contract_ref: The contract the tool is bound to, when one is declared.
         principal_id: The principal the call is attributed to.
         side_effect: How the classifier rates invoking this tool.
+        capability_refs: Capabilities the tool requires.
+        requires_approval: Whether this tool explicitly requires approval.
+        tool_call_id: The framework's stable per-call identity, when available.
     """
 
     identity: ToolIdentity
@@ -143,10 +146,14 @@ class ToolAction:
     contract_ref: str | None = None
     principal_id: str | None = None
     side_effect: SideEffectClass = SideEffectClass.UNKNOWN
+    capability_refs: Sequence[str] = ()
+    requires_approval: bool = False
+    tool_call_id: str | None = None
 
     def __post_init__(self) -> None:
         """Snapshot the arguments so a later caller-side mutation cannot reach them."""
         object.__setattr__(self, "arguments", _snapshot_mapping(self.arguments))
+        object.__setattr__(self, "capability_refs", tuple(self.capability_refs))
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,11 +185,19 @@ class ToolInventoryEntry:
         identity: The tool's identity.
         side_effect: How the classifier rates the tool.
         contract_ref: The contract the tool is bound to, when one is declared.
+        capability_refs: Capabilities the tool requires.
+        requires_approval: Whether this tool explicitly requires approval.
     """
 
     identity: ToolIdentity
     side_effect: SideEffectClass = SideEffectClass.UNKNOWN
     contract_ref: str | None = None
+    capability_refs: Sequence[str] = ()
+    requires_approval: bool = False
+
+    def __post_init__(self) -> None:
+        """Snapshot capability references with the rest of the entry."""
+        object.__setattr__(self, "capability_refs", tuple(self.capability_refs))
 
 
 @dataclass(frozen=True, slots=True)
