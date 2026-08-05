@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.12] - 2026-08-05
+
+### Fixed
+
+- Match persisted LangGraph approval interrupts by exact schema and canonical
+  JSON types before checkpoint confirmation.
+- Rearm exact unconsumed terminal attempts that reuse an approval reference
+  while retaining transition history and permanently fencing consumed work.
+- Translate unavailable lifecycle storage into the typed durability failure.
+
 ## [0.16.0.11] - 2026-08-05
 
 ### Fixed

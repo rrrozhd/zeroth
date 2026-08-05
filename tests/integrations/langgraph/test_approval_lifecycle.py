@@ -540,6 +540,39 @@ def test_payload_round_trip_is_persisted_before_interrupt(tmp_path: Any) -> None
         ApprovalResolution.from_payload(invalid)
 
 
+def test_unavailable_lifecycle_storage_fails_with_the_typed_durability_error(
+    tmp_path: Any,
+) -> None:
+    with pytest.raises(ApprovalRequiresThreadError) as raised:
+        SQLiteApprovalRepository(tmp_path / "missing" / "approvals.sqlite3")
+
+    assert raised.value.code == "zeroth.approval_requires_thread"
+
+
+def test_lifecycle_storage_loss_fails_closed_before_tool_execution(tmp_path: Any) -> None:
+    directory = tmp_path / "store"
+    directory.mkdir()
+    repository = SQLiteApprovalRepository(directory / "approvals.sqlite3")
+    directory.rename(tmp_path / "lost-store")
+    executed: list[str] = []
+
+    with pytest.raises(ApprovalRequiresThreadError) as read_error:
+        repository.get("approval-7")
+    with pytest.raises(ApprovalRequiresThreadError) as guard_error:
+        guard_tool_call(
+            ACTION,
+            CONTEXT,
+            lambda: executed.append("ran"),
+            client=SequencedClient(),
+            interrupt=Pause(),
+            approval_lifecycle=repository,
+        )
+
+    assert read_error.value.code == "zeroth.approval_requires_thread"
+    assert guard_error.value.code == "zeroth.approval_requires_thread"
+    assert executed == []
+
+
 def test_existing_lifecycle_schema_is_migrated_without_replacement(tmp_path: Any) -> None:
     path = tmp_path / "approvals.sqlite3"
     with sqlite3.connect(path) as connection:
@@ -865,6 +898,211 @@ def test_checkpoint_must_match_before_an_approval_becomes_ready(tmp_path: Any) -
     assert repository.get("approval-7").state is ApprovalState.ORPHANED
 
 
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+def test_real_checkpoint_rejects_a_type_distinct_interrupt_payload(
+    tmp_path: Any, async_mode: bool
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    saver = (
+        AsyncOnlyPersistentSaver(tmp_path / "checkpoints.bin")
+        if async_mode
+        else PersistentSaver(tmp_path / "checkpoints.bin")
+    )
+    policy = SequencedClient()
+    executed: list[int] = []
+
+    if async_mode:
+
+        async def dangerous(version: int) -> None:
+            executed.append(version)
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=CONTEXT,
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        async def run(_state: ParallelState) -> ParallelState:
+            await governed(version=1)
+            return {"done": ["dangerous"]}
+
+    else:
+
+        def dangerous(version: int) -> None:
+            executed.append(version)
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=CONTEXT,
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        def run(_state: ParallelState) -> ParallelState:
+            governed(version=1)
+            return {"done": ["dangerous"]}
+
+    builder = StateGraph(ParallelState)
+    builder.add_node("dangerous", run)
+    builder.add_edge(START, "dangerous")
+    builder.add_edge("dangerous", END)
+    raw = builder.compile(checkpointer=saver)
+    graph = govern_graph(raw)
+    config = {"configurable": {"thread_id": "thread-1"}}
+    if async_mode:
+        asyncio.run(graph.ainvoke({"done": []}, config))
+    else:
+        graph.invoke({"done": []}, config)
+
+    class DriftedObservation:
+        checkpointer = saver
+
+        @staticmethod
+        def _drift(snapshot: Any) -> StateSnapshot:
+            [interrupt] = snapshot.interrupts
+            checkpoint = snapshot.config["configurable"]["checkpoint_id"]
+            return _snapshot({**interrupt.value, "version": True}, checkpoint_id=checkpoint)
+
+        def get_state(self, observed_config: RunnableConfig) -> StateSnapshot:
+            return self._drift(raw.get_state(observed_config))
+
+        async def aget_state(self, observed_config: RunnableConfig) -> StateSnapshot:
+            return self._drift(await raw.aget_state(observed_config))
+
+    observed = govern_graph(DriftedObservation())
+    coordinator = ApprovalCoordinator(repository)
+    with pytest.raises(ToolGovernanceError, match="interrupt"):
+        if async_mode:
+            asyncio.run(
+                coordinator.aconfirm_checkpoint(
+                    "approval-7", observed, config=config, durable_checkpointer=saver
+                )
+            )
+        else:
+            coordinator.confirm_checkpoint(
+                "approval-7", observed, config=config, durable_checkpointer=saver
+            )
+
+    assert executed == []
+    assert repository.get("approval-7").state is ApprovalState.ORPHANED
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize(
+    "terminal_state",
+    [ApprovalState.EXPIRED, ApprovalState.ORPHANED],
+    ids=("expired", "orphaned"),
+)
+def test_real_same_reference_rearms_an_unconsumed_terminal_attempt(
+    tmp_path: Any, async_mode: bool, terminal_state: ApprovalState
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    policy = SequencedClient()
+    executed: list[str] = []
+
+    if async_mode:
+
+        async def dangerous(record: str) -> None:
+            executed.append(record)
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=CONTEXT,
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        async def run(_state: ParallelState) -> ParallelState:
+            await governed(record="retry")
+            return {"done": ["dangerous"]}
+
+    else:
+
+        def dangerous(record: str) -> None:
+            executed.append(record)
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=CONTEXT,
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        def run(_state: ParallelState) -> ParallelState:
+            governed(record="retry")
+            return {"done": ["dangerous"]}
+
+    def compile_attempt(attempt: int) -> tuple[Any, BaseCheckpointSaver[str]]:
+        saver_path = tmp_path / f"checkpoints-{attempt}.bin"
+        saver: BaseCheckpointSaver[str] = (
+            AsyncOnlyPersistentSaver(saver_path) if async_mode else PersistentSaver(saver_path)
+        )
+        builder = StateGraph(ParallelState)
+        builder.add_node("dangerous", run)
+        builder.add_edge(START, "dangerous")
+        builder.add_edge("dangerous", END)
+        return govern_graph(builder.compile(checkpointer=saver)), saver
+
+    config = {"configurable": {"thread_id": "thread-1"}}
+    first, _first_saver = compile_attempt(1)
+    if async_mode:
+        asyncio.run(first.ainvoke({"done": []}, config))
+    else:
+        first.invoke({"done": []}, config)
+    repository.terminal("approval-7", terminal_state)
+    original_history = repository.events("approval-7")
+    policy.actions.clear()
+
+    retried, retry_saver = compile_attempt(2)
+    if async_mode:
+        asyncio.run(retried.ainvoke({"done": []}, config))
+    else:
+        retried.invoke({"done": []}, config)
+    coordinator = ApprovalCoordinator(repository)
+    if async_mode:
+        ready = asyncio.run(
+            coordinator.aconfirm_checkpoint(
+                "approval-7", retried, config=config, durable_checkpointer=retry_saver
+            )
+        )
+    else:
+        ready = coordinator.confirm_checkpoint(
+            "approval-7", retried, config=config, durable_checkpointer=retry_saver
+        )
+    assert ready.state is ApprovalState.READY
+    repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+    if async_mode:
+        completed = asyncio.run(
+            coordinator.aresume(
+                "approval-7",
+                retried,
+                owner="retry-worker",
+                config=config,
+                durable_checkpointer=retry_saver,
+            )
+        )
+    else:
+        completed = coordinator.resume(
+            "approval-7",
+            retried,
+            owner="retry-worker",
+            config=config,
+            durable_checkpointer=retry_saver,
+        )
+
+    history = repository.events("approval-7")
+    assert history[: len(original_history)] == original_history
+    assert history[len(original_history)].from_state is terminal_state
+    assert history[len(original_history)].to_state is ApprovalState.AWAITING_CHECKPOINT
+    assert completed.state is ApprovalState.RESOLVED
+    assert executed == ["retry"]
+
+
 def test_idempotent_begin_decision_and_claim_do_not_duplicate_work(tmp_path: Any) -> None:
     repository, coordinator, graph, _ = _ready(tmp_path)
     resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
@@ -886,6 +1124,39 @@ def test_idempotent_begin_decision_and_claim_do_not_duplicate_work(tmp_path: Any
     )
     assert repository.get("approval-7").state is ApprovalState.RESOLVED
     assert len(graph.calls) == 1
+
+
+def test_terminal_expiry_keeps_a_consumed_claim_permanently_fenced(tmp_path: Any) -> None:
+    repository, _coordinator, _graph, _policy = _ready(tmp_path)
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    repository.consume({**resolution.to_payload(), "claim_token": claimed.claim_token})
+    payload = dict(claimed.intent.payload)
+    identity = {
+        field: payload[field]
+        for field in (
+            "tenant_id",
+            "principal_id",
+            "run_id",
+            "thread_id",
+            "tool_fingerprint",
+            "tool_call_id",
+            "argument_fingerprint",
+        )
+    }
+
+    terminal = repository.terminal("approval-7", ApprovalState.EXPIRED)
+
+    assert terminal.state is ApprovalState.ORPHANED
+    assert terminal.claim_consumed
+    assert repository.replay_for(identity) == terminal
+    replay, created = repository.begin_once(
+        {**payload, "approval_ref": "approval-retry"}, claimed.intent.arguments
+    )
+    assert not created
+    assert replay.intent.payload["approval_ref"] == "approval-7"
 
 
 @pytest.mark.parametrize(

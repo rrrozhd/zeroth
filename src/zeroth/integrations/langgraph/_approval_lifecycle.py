@@ -7,7 +7,8 @@ import json
 import math
 import sqlite3
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
@@ -22,6 +23,7 @@ from zeroth.integrations.langgraph._tool_errors import (
 )
 
 _VERSION = 1
+_REQUEST_KIND = "tool_approval"
 _RESOLUTION_KIND = "tool_approval_resolution"
 _TERMINAL = ("resolved", "expired", "orphaned")
 _CHECKPOINT_POSITION_KEYS = ("checkpoint_id", "checkpoint_ns", "checkpoint_map")
@@ -35,6 +37,32 @@ _IDENTITY_FIELDS = (
     "tool_call_id",
     "argument_fingerprint",
 )
+_REQUEST_FIELDS = frozenset(
+    {
+        "version",
+        "kind",
+        "approval_ref",
+        *_IDENTITY_FIELDS,
+        "correlation_id",
+        "tool_name",
+        "contract_ref",
+        "side_effect",
+        "reason_code",
+    }
+)
+_REQUEST_IDENTIFIERS = (
+    "approval_ref",
+    "tenant_id",
+    "principal_id",
+    "run_id",
+    "thread_id",
+    "tool_fingerprint",
+    "argument_fingerprint",
+    "tool_name",
+    "reason_code",
+)
+_OPTIONAL_REQUEST_IDENTIFIERS = ("tool_call_id", "correlation_id", "contract_ref")
+_SIDE_EFFECTS = ("read_only", "side_effecting", "unknown")
 _IDENTITY_EXPRESSIONS = tuple(
     f"json_quote(json_extract(intent, '$.payload.{field}'))" for field in _IDENTITY_FIELDS
 )
@@ -88,6 +116,37 @@ def _identifier(value: object, label: str) -> str:
 
 def _dump(value: Mapping[str, Any]) -> str:
     return json.dumps(dict(value), sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _request_payload(value: object) -> Mapping[str, Any]:
+    payload = _mapping(value, "approval request payload")
+    if (
+        frozenset(payload) != _REQUEST_FIELDS
+        or type(payload.get("version")) is not int
+        or payload.get("version") != _VERSION
+        or type(payload.get("kind")) is not str
+        or payload.get("kind") != _REQUEST_KIND
+        or payload.get("side_effect") not in _SIDE_EFFECTS
+    ):
+        raise ToolGovernanceError("invalid approval request payload")
+    for field in _REQUEST_IDENTIFIERS:
+        if _identifier(payload.get(field), field.replace("_", " ")) != payload[field]:
+            raise ToolGovernanceError("invalid approval request payload")
+    for field in _OPTIONAL_REQUEST_IDENTIFIERS:
+        item = payload.get(field)
+        if item is not None and _identifier(item, field.replace("_", " ")) != item:
+            raise ToolGovernanceError("invalid approval request payload")
+    return payload
+
+
+@contextmanager
+def _translate_storage_errors() -> Iterator[None]:
+    try:
+        yield
+    except sqlite3.Error as error:
+        raise ApprovalRequiresThreadError(
+            "approval durable lifecycle storage is unavailable"
+        ) from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,17 +312,18 @@ class SQLiteApprovalRepository:
                 f"({', '.join(_IDENTITY_EXPRESSIONS)}) "
                 f"WHERE {_IDENTITY_FENCE}"
             )
-        with sqlite3.connect(self._resume_path) as connection:
+        with _translate_storage_errors(), sqlite3.connect(self._resume_path) as connection:
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS langgraph_approval_resume_lock "
                 "(singleton INTEGER PRIMARY KEY CHECK (singleton = 1))"
             )
             connection.execute("INSERT OR IGNORE INTO langgraph_approval_resume_lock VALUES (1)")
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self._path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        return connection
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        with _translate_storage_errors(), sqlite3.connect(self._path, timeout=30) as connection:
+            connection.row_factory = sqlite3.Row
+            yield connection
 
     def _now(self) -> float:
         try:
@@ -284,28 +344,33 @@ class SQLiteApprovalRepository:
         """Hold one cross-process SQLite writer fence for a graph resume."""
         # ponytail: one writer lock serializes all threads; shard by thread only
         # if measured approval throughput makes the safer global fence material.
-        connection = sqlite3.connect(
-            self._resume_path,
-            timeout=30,
-            isolation_level=None,
-            check_same_thread=False,
-        )
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                "UPDATE langgraph_approval_resume_lock SET singleton = 1 WHERE singleton = 1"
-            )
-        except sqlite3.Error as error:
-            connection.close()
-            raise ToolGovernanceError("approval resume coordination is unavailable") from error
+        connection = None
+        with _translate_storage_errors():
+            try:
+                connection = sqlite3.connect(
+                    self._resume_path,
+                    timeout=30,
+                    isolation_level=None,
+                    check_same_thread=False,
+                )
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "UPDATE langgraph_approval_resume_lock SET singleton = 1 WHERE singleton = 1"
+                )
+            except BaseException:
+                if connection is not None:
+                    connection.close()
+                raise
+        assert connection is not None
         return connection
 
     @staticmethod
     def _release_resume_lock(connection: sqlite3.Connection) -> None:
-        try:
-            connection.rollback()
-        finally:
-            connection.close()
+        with _translate_storage_errors():
+            try:
+                connection.rollback()
+            finally:
+                connection.close()
 
     @staticmethod
     def _persisted_deadline(value: object, label: str) -> float:
@@ -422,25 +487,19 @@ class SQLiteApprovalRepository:
         """Return the one live approval or permanent fence for this action."""
         identity = _mapping(identity, "approval action identity")
         values = self._identity_values(identity)
-        try:
-            with self._connect() as connection:
-                row = self._fenced_row(connection, values)
-        except sqlite3.Error as error:
-            raise ToolGovernanceError("approval replay lookup failed") from error
+        with self._connect() as connection:
+            row = self._fenced_row(connection, values)
         return None if row is None else self._record(row)
 
     def _claim_record(self, approval_ref: str, claim_token: str) -> ApprovalRecord:
         """Return only the coordinator's current persisted claim fence."""
         approval_ref = _identifier(approval_ref, "approval ref")
         claim_token = _identifier(claim_token, "approval claim token")
-        try:
-            with self._connect() as connection:
-                row = connection.execute(
-                    "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?",
-                    (approval_ref,),
-                ).fetchone()
-        except sqlite3.Error as error:
-            raise ToolGovernanceError("approval replay lookup failed") from error
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?",
+                (approval_ref,),
+            ).fetchone()
         if row is None:
             raise ToolGovernanceError("claimed approval lifecycle record does not exist")
         current = self._record(row)
@@ -502,11 +561,30 @@ class SQLiteApprovalRepository:
             (ref, None if source is None else source.value, target.value, accepted, self._now()),
         )
 
+    def _rearm_locked(
+        self,
+        connection: sqlite3.Connection,
+        ref: str,
+        current: ApprovalRecord,
+        intent: ApprovalIntent,
+        encoded: str,
+    ) -> ApprovalRecord:
+        connection.execute(
+            "UPDATE langgraph_approval_lifecycle SET state = ?, intent = ?, resolution = NULL, "
+            "checkpoint_id = NULL, interrupt_id = NULL, owner = NULL, lease_deadline = NULL, "
+            "claim_token = NULL, claim_consumed = 0, deadline = ? WHERE approval_ref = ?",
+            (ApprovalState.AWAITING_CHECKPOINT.value, encoded, intent.deadline, ref),
+        )
+        self._event(connection, ref, current.state, ApprovalState.AWAITING_CHECKPOINT, True)
+        return ApprovalRecord(
+            intent, ApprovalState.AWAITING_CHECKPOINT, None, None, None, None, None, None, False
+        )
+
     def begin_once(
         self, payload: Mapping[str, Any], arguments: Mapping[str, Any]
     ) -> tuple[ApprovalRecord, bool]:
         """Persist one intent and report whether this delivery created it."""
-        payload = _mapping(payload, "approval payload")
+        payload = _request_payload(payload)
         ref = _identifier(payload.get("approval_ref"), "approval ref")
         _identifier(payload.get("thread_id"), "thread id")
         _identifier(payload.get("run_id"), "run id")
@@ -536,13 +614,27 @@ class SQLiteApprovalRepository:
                 "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?", (ref,)
             ).fetchone()
             same_ref = row is not None
+            current = None if row is None else self._record(row)
+            rearmable = (
+                current is not None
+                and current.state
+                in (
+                    ApprovalState.EXPIRED,
+                    ApprovalState.ORPHANED,
+                )
+                and not current.claim_consumed
+            )
+            if rearmable:
+                fenced = self._fenced_row(connection, identity)
+                if fenced is not None:
+                    row, same_ref = fenced, False
             if row is None:
                 row = self._fenced_row(connection, identity)
             if row is None:
                 raise ToolGovernanceError("approval intent could not be persisted")
             current = self._record(row)
-            if (same_ref and current.intent.payload != intent.payload) or (
-                current.intent.arguments != intent.arguments
+            if (same_ref and _dump(current.intent.payload) != _dump(intent.payload)) or (
+                _dump(current.intent.arguments) != _dump(intent.arguments)
             ):
                 self._event(
                     connection,
@@ -553,6 +645,9 @@ class SQLiteApprovalRepository:
                 )
                 connection.commit()
                 raise ToolGovernanceError("approval intent conflicts with its durable record")
+            if rearmable and same_ref:
+                current = self._rearm_locked(connection, ref, current, intent, encoded)
+                created = True
         return current, created
 
     def begin(self, payload: Mapping[str, Any], arguments: Mapping[str, Any]) -> ApprovalRecord:
@@ -770,18 +865,19 @@ class SQLiteApprovalRepository:
             if row is None:
                 raise ToolGovernanceError("approval lifecycle record does not exist")
             current = self._record(row)
-            if current.state is state:
+            target = ApprovalState.ORPHANED if current.claim_consumed else state
+            if current.state is target:
                 return current
             if current.state.value in _TERMINAL:
-                self._event(connection, ref, current.state, state, False)
+                self._event(connection, ref, current.state, target, False)
                 connection.commit()
                 raise ToolGovernanceError("approval terminal state cannot be replaced")
             connection.execute(
                 "UPDATE langgraph_approval_lifecycle SET state = ?, lease_deadline = NULL "
                 "WHERE approval_ref = ?",
-                (state.value, ref),
+                (target.value, ref),
             )
-            self._event(connection, ref, current.state, state, True)
+            self._event(connection, ref, current.state, target, True)
         return self.get(ref)
 
     def pending(self, limit: int = 100) -> tuple[ApprovalRecord, ...]:
@@ -960,15 +1056,20 @@ class ApprovalCoordinator:
         checkpoint = configurable.get("checkpoint_id") if type(configurable) is dict else None
         valid = type(configurable) is dict and configurable.get("thread_id") == thread
         interrupts = getattr(snapshot, "interrupts", ())
-        matches = (
-            [
-                item
-                for item in interrupts
-                if getattr(item, "value", None) == dict(record.intent.payload)
-            ]
-            if type(interrupts) is tuple
-            else []
-        )
+        matches = []
+        if type(interrupts) is tuple:
+            try:
+                expected = _dump(_request_payload(record.intent.payload))
+            except ToolGovernanceError:
+                expected = None
+            if expected is not None:
+                for item in interrupts:
+                    try:
+                        candidate = _request_payload(getattr(item, "value", None))
+                    except ToolGovernanceError:
+                        continue
+                    if _dump(candidate) == expected:
+                        matches.append(item)
         interrupt_id = getattr(matches[0], "id", None) if len(matches) == 1 else None
         return (
             checkpoint if valid and type(checkpoint) is str else None,
