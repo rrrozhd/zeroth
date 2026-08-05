@@ -260,6 +260,21 @@ class SQLiteApprovalRepository:
         connection.row_factory = sqlite3.Row
         return connection
 
+    def _now(self) -> float:
+        try:
+            value = self._clock()
+        except Exception:
+            raise ToolGovernanceError("approval clock must return a finite number") from None
+        if type(value) not in (int, float):
+            raise ToolGovernanceError("approval clock must return a finite number")
+        try:
+            now = float(value)
+        except OverflowError:
+            raise ToolGovernanceError("approval clock must return a finite number") from None
+        if not math.isfinite(now):
+            raise ToolGovernanceError("approval clock must return a finite number")
+        return now
+
     def _acquire_resume_lock(self) -> sqlite3.Connection:
         """Hold one cross-process SQLite writer fence for a graph resume."""
         # ponytail: one writer lock serializes all threads; shard by thread only
@@ -438,7 +453,7 @@ class SQLiteApprovalRepository:
     ) -> None:
         connection.execute(
             "INSERT INTO langgraph_approval_events VALUES (NULL, ?, ?, ?, ?, ?)",
-            (ref, None if source is None else source.value, target.value, accepted, self._clock()),
+            (ref, None if source is None else source.value, target.value, accepted, self._now()),
         )
 
     def begin_once(
@@ -450,7 +465,7 @@ class SQLiteApprovalRepository:
         _identifier(payload.get("thread_id"), "thread id")
         _identifier(payload.get("run_id"), "run id")
         identity = self._identity_values(payload)
-        intent = ApprovalIntent(payload, arguments, self._clock() + self._ttl)
+        intent = ApprovalIntent(payload, arguments, self._now() + self._ttl)
         encoded = _dump(
             {
                 "version": intent.version,
@@ -543,7 +558,7 @@ class SQLiteApprovalRepository:
                 self._event(connection, ref, current.state, ApprovalState.READY, False)
                 connection.commit()
                 raise ToolGovernanceError("approval checkpoint confirmation conflicts")
-            if current.intent.deadline <= self._clock():
+            if current.intent.deadline <= self._now():
                 self._expire_locked(connection, ref, current)
                 connection.commit()
                 raise ToolGovernanceError("approval deadline expired")
@@ -568,7 +583,7 @@ class SQLiteApprovalRepository:
             if (
                 current.state.value not in _TERMINAL
                 and not current.claim_consumed
-                and current.intent.deadline <= self._clock()
+                and current.intent.deadline <= self._now()
             ):
                 self._expire_locked(connection, ref, current)
                 connection.commit()
@@ -596,7 +611,7 @@ class SQLiteApprovalRepository:
             ).fetchone()
             if row is None:
                 raise ToolGovernanceError("approval lifecycle record does not exist")
-            current, now = self._record(row), self._clock()
+            current, now = self._record(row), self._now()
             if current.state.value in _TERMINAL:
                 return current, False
             if current.state is ApprovalState.RESUMING and current.claim_consumed:
@@ -731,7 +746,7 @@ class SQLiteApprovalRepository:
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ToolGovernanceError("approval pending limit must be between 1 and 1000")
         marks = ",".join("?" for _ in _TERMINAL)
-        now = self._clock()
+        now = self._now()
         with self._connect() as connection:
             rows = connection.execute(
                 f"SELECT approval_ref FROM langgraph_approval_lifecycle "
@@ -760,7 +775,7 @@ class SQLiteApprovalRepository:
             if row is None:
                 return None
             current = self._record(row)
-            now = self._clock()
+            now = self._now()
             if current.state.value in _TERMINAL:
                 return None
             if current.claim_consumed:
@@ -784,7 +799,7 @@ class SQLiteApprovalRepository:
             if row is None:
                 raise ToolGovernanceError("approval lifecycle record does not exist")
             current = self._record(row)
-            if current.intent.deadline <= self._clock() and not current.claim_consumed:
+            if current.intent.deadline <= self._now() and not current.claim_consumed:
                 self._expire_locked(connection, ref, current)
                 connection.commit()
                 raise ToolGovernanceError("approval deadline expired")
