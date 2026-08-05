@@ -623,6 +623,55 @@ def test_restart_configuration_rejects_non_finite_deadlines(
         )
 
 
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=("nan", "positive-infinity", "negative-infinity"),
+)
+def test_non_finite_clock_cannot_persist_an_approval_across_restart(
+    tmp_path: Any, value: float
+) -> None:
+    path = tmp_path / "approvals.sqlite3"
+    repository = SQLiteApprovalRepository(path, clock=lambda: value)
+
+    with pytest.raises(ToolGovernanceError, match="clock.*finite"):
+        guard_tool_call(
+            ACTION,
+            CONTEXT,
+            lambda: pytest.fail("tool ran before approval"),
+            client=SequencedClient(),
+            interrupt=Pause(),
+            approval_lifecycle=repository,
+        )
+
+    reopened = SQLiteApprovalRepository(path)
+    assert reopened.pending() == ()
+    with pytest.raises(ToolGovernanceError, match="does not exist"):
+        reopened.get("approval-7")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=("nan", "positive-infinity", "negative-infinity"),
+)
+def test_restart_reconciliation_rejects_non_finite_clock_without_mutation(
+    tmp_path: Any, value: float
+) -> None:
+    path = tmp_path / "approvals.sqlite3"
+    repository = SQLiteApprovalRepository(path, ttl_seconds=5, clock=lambda: 10.0)
+    _request(repository, SequencedClient(), Pause())
+
+    reopened = SQLiteApprovalRepository(path, clock=lambda: value)
+    with pytest.raises(ToolGovernanceError, match="clock.*finite"):
+        reopened.expire_due()
+    assert reopened.get("approval-7").state is ApprovalState.AWAITING_CHECKPOINT
+
+    due = SQLiteApprovalRepository(path, clock=lambda: 16.0)
+    [expired] = due.expire_due()
+    assert expired.state is ApprovalState.EXPIRED
+
+
 def test_expire_due_selects_an_expired_consumed_lease_before_non_due_backlog(
     tmp_path: Any,
 ) -> None:
