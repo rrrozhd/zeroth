@@ -607,6 +607,22 @@ def test_lifecycle_rejects_invalid_transitions_and_expires_bounded_work(tmp_path
     assert repository.pending(limit=1) == ()
 
 
+@pytest.mark.parametrize("setting", ["ttl_seconds", "lease_seconds"])
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=("nan", "positive-infinity", "negative-infinity"),
+)
+def test_restart_configuration_rejects_non_finite_deadlines(
+    tmp_path: Any, setting: str, value: float
+) -> None:
+    with pytest.raises(ToolGovernanceError, match="finite and positive"):
+        SQLiteApprovalRepository(
+            tmp_path / "approvals.sqlite3",
+            **{setting: value},
+        )
+
+
 def test_expire_due_selects_an_expired_consumed_lease_before_non_due_backlog(
     tmp_path: Any,
 ) -> None:
@@ -1290,6 +1306,135 @@ def test_real_nested_resume_ignores_stale_observation_coordinates(
 
     assert executed == ["nested"]
     assert repository.get("approval-nested_tool").state is ApprovalState.RESOLVED
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize(
+    ("resolution", "drift"),
+    [
+        (ApprovalResolution("approval-7", ApprovalDecision.REJECT), "arguments"),
+        (
+            ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {"record": "approved"}),
+            "arguments",
+        ),
+        (
+            ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {"record": "approved"}),
+            "context",
+        ),
+    ],
+    ids=("stored-rejection", "approved-arguments", "approved-context"),
+)
+def test_real_claimed_resume_rejects_identity_drift_before_policy_or_execution(
+    tmp_path: Any,
+    async_mode: bool,
+    resolution: ApprovalResolution,
+    drift: str,
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    saver_path = tmp_path / "checkpoints.bin"
+    saver = AsyncOnlyPersistentSaver(saver_path) if async_mode else PersistentSaver(saver_path)
+    policy = SequencedClient()
+    executed: list[str] = []
+    live: dict[str, Any] = {"context": CONTEXT, "record": "original"}
+
+    if async_mode:
+
+        async def dangerous(record: str) -> None:
+            executed.append(record)
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=lambda: live["context"],
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        async def run(_state: ParallelState) -> ParallelState:
+            await governed(record=live["record"])
+            return {"done": ["dangerous"]}
+
+    else:
+
+        def dangerous(record: str) -> None:
+            executed.append(record)
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=lambda: live["context"],
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        def run(_state: ParallelState) -> ParallelState:
+            governed(record=live["record"])
+            return {"done": ["dangerous"]}
+
+    builder = StateGraph(ParallelState)
+    builder.add_node("dangerous", run)
+    builder.add_edge(START, "dangerous")
+    builder.add_edge("dangerous", END)
+    graph = govern_graph(builder.compile(checkpointer=saver))
+    config = {"configurable": {"thread_id": "thread-1"}}
+
+    if async_mode:
+        asyncio.run(graph.ainvoke({"done": []}, config))
+    else:
+        graph.invoke({"done": []}, config)
+    coordinator = ApprovalCoordinator(repository)
+    if async_mode:
+        asyncio.run(
+            coordinator.aconfirm_checkpoint(
+                "approval-7", graph, config=config, durable_checkpointer=saver
+            )
+        )
+    else:
+        coordinator.confirm_checkpoint(
+            "approval-7", graph, config=config, durable_checkpointer=saver
+        )
+    repository.decide(resolution)
+    if drift == "arguments":
+        live["record"] = "drifted"
+    else:
+        live["context"] = ToolGovernanceContext(
+            tenant_id="tenant-a",
+            principal_id="principal-1",
+            run_id="run-drifted",
+            thread_id="thread-1",
+        )
+
+    expected_error = (
+        PolicyViolation if resolution.decision is ApprovalDecision.REJECT else ToolGovernanceError
+    )
+    with pytest.raises(expected_error):
+        if async_mode:
+            asyncio.run(
+                coordinator.aresume(
+                    "approval-7",
+                    graph,
+                    owner="worker-1",
+                    config=config,
+                    durable_checkpointer=saver,
+                )
+            )
+        else:
+            coordinator.resume(
+                "approval-7",
+                graph,
+                owner="worker-1",
+                config=config,
+                durable_checkpointer=saver,
+            )
+
+    assert executed == []
+    assert policy.actions == [{"record": "original"}]
+    expected_state = (
+        ApprovalState.RESOLVED
+        if resolution.decision is ApprovalDecision.REJECT
+        else ApprovalState.ORPHANED
+    )
+    assert repository.get("approval-7").state is expected_state
 
 
 @pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))

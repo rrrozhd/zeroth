@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import sqlite3
 import time
 from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -36,6 +38,14 @@ _IDENTITY_FIELDS = (
 _IDENTITY_EXPRESSIONS = tuple(
     f"json_quote(json_extract(intent, '$.payload.{field}'))" for field in _IDENTITY_FIELDS
 )
+_RESUME_CLAIM: ContextVar[tuple[str, str] | None] = ContextVar(
+    "zeroth_langgraph_approval_resume_claim", default=None
+)
+
+
+def _current_resume_claim() -> tuple[str, str] | None:
+    """Return the coordinator-owned approval fence for this resumed run."""
+    return _RESUME_CLAIM.get()
 
 
 class ApprovalState(StrEnum):
@@ -193,12 +203,16 @@ class SQLiteApprovalRepository:
     ) -> None:
         if str(path) in ("", ":memory:"):
             raise ApprovalRequiresThreadError("approval needs a durable lifecycle store")
-        if ttl_seconds <= 0 or lease_seconds <= 0:
-            raise ToolGovernanceError("approval deadlines must be positive")
+        try:
+            ttl, lease = float(ttl_seconds), float(lease_seconds)
+        except (TypeError, ValueError, OverflowError):
+            raise ToolGovernanceError("approval deadlines must be finite and positive") from None
+        if not math.isfinite(ttl) or not math.isfinite(lease) or ttl <= 0 or lease <= 0:
+            raise ToolGovernanceError("approval deadlines must be finite and positive")
         self._path = str(Path(path))
         self._resume_path = f"{self._path}.resume.sqlite3"
-        self._ttl = float(ttl_seconds)
-        self._lease = float(lease_seconds)
+        self._ttl = ttl
+        self._lease = lease
         self._clock = clock
         with self._connect() as connection:
             connection.executescript(
@@ -353,6 +367,48 @@ class SQLiteApprovalRepository:
         except sqlite3.Error as error:
             raise ToolGovernanceError("approval replay lookup failed") from error
         return None if row is None else self._record(row)
+
+    def _claim_record(self, approval_ref: str, claim_token: str) -> ApprovalRecord:
+        """Return only the coordinator's current persisted claim fence."""
+        approval_ref = _identifier(approval_ref, "approval ref")
+        claim_token = _identifier(claim_token, "approval claim token")
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?",
+                    (approval_ref,),
+                ).fetchone()
+        except sqlite3.Error as error:
+            raise ToolGovernanceError("approval replay lookup failed") from error
+        if row is None:
+            raise ToolGovernanceError("claimed approval lifecycle record does not exist")
+        current = self._record(row)
+        if current.claim_token != claim_token:
+            raise ToolGovernanceError("approval resume does not match the current claim fence")
+        if current.state not in (ApprovalState.RESUMING, ApprovalState.RESOLVED):
+            raise ToolGovernanceError("approval resume does not match the current claim fence")
+        return current
+
+    def _claimed_replay(self, approval_ref: str, claim_token: str) -> ApprovalRecord | None:
+        """Return the coordinator's current unconsumed replay fence."""
+        current = self._claim_record(approval_ref, claim_token)
+        if current.claim_consumed:
+            return None
+        return current
+
+    def _replay_for_claim(
+        self,
+        approval_ref: str,
+        claim_token: str,
+        identity: Mapping[str, Any],
+    ) -> ApprovalRecord:
+        """Return only the exact action claimed by the coordinator."""
+        identity = _mapping(identity, "approval action identity")
+        values = self._identity_values(identity)
+        current = self._claim_record(approval_ref, claim_token)
+        if self._identity_values(current.intent.payload) != values:
+            raise ToolGovernanceError("approval resume action does not match the claimed approval")
+        return current
 
     def events(self, approval_ref: str) -> tuple[ApprovalTransition, ...]:
         """Return the durable transition history for one approval."""
@@ -1015,6 +1071,7 @@ class ApprovalCoordinator:
                 claimed, checkpoint, interrupt_id, config, graph
             )
             assert claimed.interrupt_id is not None and claimed.claim_token is not None
+            resume_claim = _RESUME_CLAIM.set((ref, claimed.claim_token))
             try:
                 graph.invoke(
                     _langgraph_command({claimed.interrupt_id: delivery.to_payload()}),
@@ -1023,6 +1080,8 @@ class ApprovalCoordinator:
             except BaseException:
                 self._repository.fail(ref, claimed.claim_token)
                 raise
+            finally:
+                _RESUME_CLAIM.reset(resume_claim)
             return self._completed(ref, claimed.claim_token)
         finally:
             self._repository._release_resume_lock(resume_lock)
@@ -1053,6 +1112,7 @@ class ApprovalCoordinator:
                 claimed, checkpoint, interrupt_id, config, graph
             )
             assert claimed.interrupt_id is not None and claimed.claim_token is not None
+            resume_claim = _RESUME_CLAIM.set((ref, claimed.claim_token))
             try:
                 await graph.ainvoke(
                     _langgraph_command({claimed.interrupt_id: delivery.to_payload()}),
@@ -1061,6 +1121,8 @@ class ApprovalCoordinator:
             except BaseException:
                 self._repository.fail(ref, claimed.claim_token)
                 raise
+            finally:
+                _RESUME_CLAIM.reset(resume_claim)
             return self._completed(ref, claimed.claim_token)
         finally:
             self._repository._release_resume_lock(resume_lock)
