@@ -34,6 +34,7 @@ import inspect
 import json
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 import pydantic
@@ -49,6 +50,7 @@ from tests.integrations.langgraph.tools._hostile import (
 )
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.identity import ActorIdentity, AuthMethod
+from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._tool_decisions import UnknownSideEffectPolicy
 from zeroth.integrations.langgraph._tool_errors import (
     GovernanceContextError,
@@ -261,9 +263,17 @@ def async_callable_without_schema(body: Body) -> Any:
 
 def wrap(target: Any, *, client: CountingClient, context: object = THREADED, **kwargs: Any) -> Any:
     """Govern one tool with a read-only classification, so an allow can be reached."""
+    directory = tempfile.TemporaryDirectory()
+    _LIFECYCLE_DIRS.append(directory)
+    kwargs.setdefault(
+        "approval_lifecycle", SQLiteApprovalRepository(f"{directory.name}/approvals.sqlite3")
+    )
     return govern_tools([target], context=context, client=client, side_effect=read_only, **kwargs)[
         0
     ]
+
+
+_LIFECYCLE_DIRS: list[tempfile.TemporaryDirectory[str]] = []
 
 
 # --------------------------------------------------------------------------- #

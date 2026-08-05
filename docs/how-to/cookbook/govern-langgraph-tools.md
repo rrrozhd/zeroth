@@ -137,6 +137,55 @@ Server-side consumers use `CapabilityReporter.level_for_governance_run(run_id)`
 for exact evidence. The deprecated `level_for_run(correlation_id)` keeps its
 legacy correlation semantics and reports only a single, unambiguous match.
 
+### Resume approvals durably
+
+Approval-gated tools require both a LangGraph checkpointer and a durable lifecycle
+store. Use a stable, writable SQLite path shared by the process that runs the graph
+and the process that resolves approvals:
+
+```python
+from zeroth.integrations.langgraph import (
+    ApprovalCoordinator,
+    ApprovalDecision,
+    ApprovalResolution,
+    SQLiteApprovalRepository,
+)
+
+lifecycle = SQLiteApprovalRepository("/var/lib/zeroth/langgraph-approvals.sqlite3")
+governed = govern_tools(
+    tools,
+    context=context,
+    client=gateway,
+    approval_lifecycle=lifecycle,
+    **tool_policy,
+)
+
+# After the graph has interrupted, confirm that the request reached a durable
+# checkpoint before exposing it to an approver.
+coordinator = ApprovalCoordinator(lifecycle)
+coordinator.confirm_checkpoint(approval_ref, compiled_graph)
+
+# An approval API or worker may run these calls in another process.
+lifecycle.decide(
+    ApprovalResolution(approval_ref, ApprovalDecision.APPROVE, edited_arguments)
+)
+coordinator.resume(approval_ref, compiled_graph, owner="approval-worker-1")
+```
+
+The lifecycle persists `awaiting_checkpoint → ready → decided → resuming →
+resolved`, plus `expired` and `orphaned` terminal states. Identical deliveries
+are idempotent; conflicting decisions and invalid transitions fail closed and
+remain visible in `lifecycle.events(approval_ref)`. A resume rechecks the stored
+interrupt on the original `thread_id`, passes a LangGraph `Command(resume=...)`
+to that checkpoint, and re-evaluates policy before any tool body runs. If an
+approver supplies edited arguments, only named arguments can be replayed safely.
+
+Call `lifecycle.expire_due(limit=...)` and inspect `lifecycle.pending(limit=...)`
+from the existing approval worker or scheduled reconciliation loop. Zeroth does
+not start a second worker or network service for this integration. Missing
+durable storage or thread identity raises `ApprovalRequiresThreadError` with
+code `zeroth.approval_requires_thread`; the tool executes zero times.
+
 The returned wrappers go wherever the originals went — a `ToolNode`, a
 `StateGraph`, a `bind_tools` call — and answer to the same interfaces.
 

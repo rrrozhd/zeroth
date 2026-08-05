@@ -27,6 +27,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from zeroth.governance.identity import ActorIdentity
+from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
     UnknownSideEffectPolicy,
@@ -54,7 +55,7 @@ from zeroth.integrations.langgraph._tool_fingerprint import (
 )
 from zeroth.integrations.langgraph._tool_guard import (
     ToolAuditSubmitter,
-    authorize_tool_call,
+    authorize_tool_action,
     guard_tool_call,
 )
 from zeroth.integrations.langgraph._tool_normalize import (
@@ -175,6 +176,7 @@ class _Seams:
     audit: ToolAuditSubmitter | None = None
     actor: ActorIdentity | None = None
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None
+    approval_lifecycle: SQLiteApprovalRepository | None = None
     side_effect: Callable[[Any], Any] | None = None
     contract_ref: Callable[[Any], Any] | None = None
     capability_refs: Callable[[Any], Any] | None = None
@@ -1860,7 +1862,16 @@ def _enforcement_seams(plan: _GovernedPlan | _CallablePlan) -> dict[str, Any]:
         "audit": seams.audit,
         "actor": seams.actor,
         "interrupt": seams.interrupt,
+        "approval_lifecycle": seams.approval_lifecycle,
     }
+
+
+def _edited_kwargs(arguments: Mapping[str, Any]) -> dict[str, Any]:
+    """Return an ordinary named edit, refusing positional replay ambiguity."""
+    edited = dict(arguments)
+    if any(key.startswith("__arg") for key in edited):
+        raise ToolGovernanceError("edited positional tool arguments cannot be reissued safely")
+    return edited
 
 
 class GovernedTool(BaseTool):
@@ -1955,6 +1966,9 @@ class GovernedTool(BaseTool):
             action,
             context,
             lambda: execute_snapshot(facts.snapshot, args, kwargs),
+            invoke_with_arguments=lambda edited: execute_snapshot(
+                facts.snapshot, (), _edited_kwargs(edited)
+            ),
             **_enforcement_seams(plan),
         )
 
@@ -1962,8 +1976,10 @@ class GovernedTool(BaseTool):
         """Govern this call, then execute its frozen async body directly."""
         plan = self._plan()
         action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
-        authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await aexecute_snapshot(facts.snapshot, args, kwargs)
+        approved = authorize_tool_action(action, context, **_enforcement_seams(plan))
+        if approved.arguments == action.arguments:
+            return await aexecute_snapshot(facts.snapshot, args, kwargs)
+        return await aexecute_snapshot(facts.snapshot, (), _edited_kwargs(approved.arguments))
 
 
 def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) -> GovernedTool:
@@ -2007,7 +2023,18 @@ def _sync_callable_call(token: object, args: tuple[Any, ...], kwargs: Mapping[st
         refuse_state_cell_escalation(facts.state_cells)
         return body(*call.args, **call.kwargs)
 
-    return guard_tool_call(action, context, execute, **_enforcement_seams(plan))
+    def execute_edited(arguments: Mapping[str, Any]) -> Any:
+        edited = _effective_call(plan.source, (), _edited_kwargs(arguments))
+        refuse_state_cell_escalation(facts.state_cells)
+        return body(*edited.args, **edited.kwargs)
+
+    return guard_tool_call(
+        action,
+        context,
+        execute,
+        invoke_with_arguments=execute_edited,
+        **_enforcement_seams(plan),
+    )
 
 
 async def _async_callable_call(
@@ -2017,7 +2044,9 @@ async def _async_callable_call(
     plan = _callable_plan(token)
     call = _effective_call(plan.source, args, kwargs)
     action, context, facts = _governed_action(plan, call.arguments)
-    authorize_tool_call(action, context, **_enforcement_seams(plan))
+    approved = authorize_tool_action(action, context, **_enforcement_seams(plan))
+    if approved.arguments != action.arguments:
+        call = _effective_call(plan.source, (), _edited_kwargs(approved.arguments))
     refuse_state_cell_escalation(facts.state_cells)
     return await facts.body(*call.args, **call.kwargs)
 
@@ -2173,6 +2202,7 @@ def govern_tools(
     audit: ToolAuditSubmitter | None = None,
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
+    approval_lifecycle: SQLiteApprovalRepository | None = None,
     side_effect: Callable[[Any], Any] | None = None,
     contract_ref: Callable[[Any], Any] | None = None,
     capability_refs: Callable[[Any], Any] | None = None,
@@ -2206,6 +2236,7 @@ def govern_tools(
             without recording.
         actor: The authenticated actor to attribute records to, when there is one.
         interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
+        approval_lifecycle: Durable approval storage used before an interrupt.
         side_effect: An optional per-tool classifier, reviewed when each wrapper
             is built and rechecked before every action. Only a
             real :class:`~zeroth.integrations.langgraph._tool_types.SideEffectClass`
@@ -2235,6 +2266,7 @@ def govern_tools(
         audit=audit,
         actor=actor,
         interrupt=interrupt,
+        approval_lifecycle=approval_lifecycle,
         side_effect=side_effect,
         contract_ref=contract_ref,
         capability_refs=capability_refs,

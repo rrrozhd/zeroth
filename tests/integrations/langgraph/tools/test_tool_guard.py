@@ -26,6 +26,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
+import tempfile
 from enum import StrEnum
 from typing import Any
 
@@ -35,6 +36,7 @@ from tests.integrations.langgraph.tools._hostile import HostileStr
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.integrations.langgraph import _tool_guard
+from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._tool_decisions import UnknownSideEffectPolicy
 from zeroth.integrations.langgraph._tool_errors import (
     ApprovalRequiresThreadError,
@@ -165,7 +167,11 @@ def guard(**overrides: Any) -> Any:
     """Run the entry point against the side-effecting action, with fields overridden."""
     kwargs: dict[str, Any] = {"action": ACTION, "context": THREADED}
     kwargs.update(overrides)
-    return guard_tool_call(**kwargs)
+    with tempfile.TemporaryDirectory() as directory:
+        kwargs.setdefault(
+            "approval_lifecycle", SQLiteApprovalRepository(f"{directory}/approvals.sqlite3")
+        )
+        return guard_tool_call(**kwargs)
 
 
 # --- R4: an allow invokes the downstream tool exactly once ---------------------

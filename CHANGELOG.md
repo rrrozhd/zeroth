@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16] - 2026-08-05
+
+### Added
+
+- Add a durable LangGraph approval lifecycle with checkpoint confirmation,
+  idempotent decisions and resume claims, expiry and orphan handling, and
+  restart-safe `Command(resume=...)` delivery to the original thread.
+
+### Changed
+
+- Require durable lifecycle storage for approval-gated tool calls, revalidate
+  policy and edited arguments after resume, and fail closed before execution
+  when thread or checkpoint semantics are unavailable.
+
 ## [0.15.1] - 2026-08-05
 
 ### Added
