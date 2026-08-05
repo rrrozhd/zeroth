@@ -22,6 +22,18 @@ from zeroth.integrations.langgraph._tool_errors import (
 _VERSION = 1
 _RESOLUTION_KIND = "tool_approval_resolution"
 _TERMINAL = ("resolved", "expired", "orphaned")
+_IDENTITY_FIELDS = (
+    "tenant_id",
+    "principal_id",
+    "run_id",
+    "thread_id",
+    "tool_fingerprint",
+    "tool_call_id",
+    "argument_fingerprint",
+)
+_IDENTITY_EXPRESSIONS = tuple(
+    f"json_quote(json_extract(intent, '$.payload.{field}'))" for field in _IDENTITY_FIELDS
+)
 
 
 class ApprovalState(StrEnum):
@@ -213,6 +225,13 @@ class SQLiteApprovalRepository:
                     connection.execute(
                         f"ALTER TABLE langgraph_approval_lifecycle ADD COLUMN {name} {declaration}"
                     )
+            self._deduplicate_active_identities(connection)
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS langgraph_approval_active_identity "
+                "ON langgraph_approval_lifecycle "
+                f"({', '.join(_IDENTITY_EXPRESSIONS)}) "
+                "WHERE state NOT IN ('resolved', 'expired', 'orphaned')"
+            )
         with sqlite3.connect(self._resume_path) as connection:
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS langgraph_approval_resume_lock "
@@ -270,6 +289,48 @@ class SQLiteApprovalRepository:
             bool(row["claim_consumed"]),
         )
 
+    def _deduplicate_active_identities(self, connection: sqlite3.Connection) -> None:
+        """Keep the oldest active intent when upgrading a pre-constraint database."""
+        selected = ", ".join(
+            f"{expression} AS identity_{index}"
+            for index, expression in enumerate(_IDENTITY_EXPRESSIONS)
+        )
+        rows = connection.execute(
+            "SELECT rowid, *, "
+            f"{selected} FROM langgraph_approval_lifecycle "
+            "WHERE state NOT IN (?, ?, ?) ORDER BY rowid",
+            _TERMINAL,
+        ).fetchall()
+        seen: set[tuple[Any, ...]] = set()
+        for row in rows:
+            identity = tuple(row[f"identity_{index}"] for index in range(len(_IDENTITY_FIELDS)))
+            if identity in seen:
+                self._orphan_locked(connection, row["approval_ref"], self._record(row))
+            else:
+                seen.add(identity)
+
+    @staticmethod
+    def _identity_values(identity: Mapping[str, Any]) -> tuple[Any, ...]:
+        if any(field not in identity for field in _IDENTITY_FIELDS):
+            raise ToolGovernanceError("approval action identity is incomplete")
+        return tuple(identity[field] for field in _IDENTITY_FIELDS)
+
+    def _active_row(
+        self, connection: sqlite3.Connection, identity: tuple[Any, ...]
+    ) -> sqlite3.Row | None:
+        clauses = " AND ".join(
+            f"json_extract(intent, '$.payload.{field}') IS ?" for field in _IDENTITY_FIELDS
+        )
+        rows = connection.execute(
+            "SELECT * FROM langgraph_approval_lifecycle "
+            "WHERE state NOT IN (?, ?, ?) "
+            f"AND {clauses} LIMIT 2",
+            (*_TERMINAL, *identity),
+        ).fetchall()
+        if len(rows) > 1:
+            raise ToolGovernanceError("approval replay identity is ambiguous")
+        return None if not rows else rows[0]
+
     def get(self, approval_ref: str) -> ApprovalRecord:
         with self._connect() as connection:
             row = connection.execute(
@@ -283,31 +344,13 @@ class SQLiteApprovalRepository:
     def replay_for(self, identity: Mapping[str, Any]) -> ApprovalRecord | None:
         """Return the one unresolved approval matching this replayed action."""
         identity = _mapping(identity, "approval action identity")
-        keys = (
-            "tenant_id",
-            "principal_id",
-            "run_id",
-            "thread_id",
-            "tool_fingerprint",
-            "tool_call_id",
-            "argument_fingerprint",
-        )
-        if any(key not in identity for key in keys):
-            raise ToolGovernanceError("approval action identity is incomplete")
-        clauses = " AND ".join(f"json_extract(intent, '$.payload.{key}') IS ?" for key in keys)
+        values = self._identity_values(identity)
         try:
             with self._connect() as connection:
-                rows = connection.execute(
-                    "SELECT * FROM langgraph_approval_lifecycle "
-                    "WHERE state NOT IN (?, ?, ?) "
-                    f"AND {clauses} LIMIT 2",
-                    (*_TERMINAL, *(identity[key] for key in keys)),
-                ).fetchall()
+                row = self._active_row(connection, values)
         except sqlite3.Error as error:
             raise ToolGovernanceError("approval replay lookup failed") from error
-        if len(rows) > 1:
-            raise ToolGovernanceError("approval replay identity is ambiguous")
-        return None if not rows else self._record(rows[0])
+        return None if row is None else self._record(row)
 
     def events(self, approval_ref: str) -> tuple[ApprovalTransition, ...]:
         """Return the durable transition history for one approval."""
@@ -348,6 +391,7 @@ class SQLiteApprovalRepository:
         ref = _identifier(payload.get("approval_ref"), "approval ref")
         _identifier(payload.get("thread_id"), "thread id")
         _identifier(payload.get("run_id"), "run id")
+        identity = self._identity_values(payload)
         intent = ApprovalIntent(payload, arguments, self._clock() + self._ttl)
         encoded = _dump(
             {
@@ -356,23 +400,37 @@ class SQLiteApprovalRepository:
                 "arguments": dict(intent.arguments),
             }
         )
-        created = False
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "INSERT OR IGNORE INTO langgraph_approval_lifecycle "
                 "(approval_ref, state, intent, deadline) VALUES (?, ?, ?, ?)",
                 (ref, ApprovalState.AWAITING_CHECKPOINT.value, encoded, intent.deadline),
             )
-            if cursor.rowcount:
-                created = True
+            created = bool(cursor.rowcount)
+            if created:
                 self._event(connection, ref, None, ApprovalState.AWAITING_CHECKPOINT, True)
-        current = self.get(ref)
-        if current.intent.payload != intent.payload or current.intent.arguments != intent.arguments:
-            with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?", (ref,)
+            ).fetchone()
+            same_ref = row is not None
+            if row is None:
+                row = self._active_row(connection, identity)
+            if row is None:
+                raise ToolGovernanceError("approval intent could not be persisted")
+            current = self._record(row)
+            if (same_ref and current.intent.payload != intent.payload) or (
+                current.intent.arguments != intent.arguments
+            ):
                 self._event(
-                    connection, ref, current.state, ApprovalState.AWAITING_CHECKPOINT, False
+                    connection,
+                    row["approval_ref"],
+                    current.state,
+                    ApprovalState.AWAITING_CHECKPOINT,
+                    False,
                 )
-            raise ToolGovernanceError("approval intent conflicts with its durable record")
+                connection.commit()
+                raise ToolGovernanceError("approval intent conflicts with its durable record")
         return current, created
 
     def begin(self, payload: Mapping[str, Any], arguments: Mapping[str, Any]) -> ApprovalRecord:
@@ -864,6 +922,7 @@ class ApprovalCoordinator:
         checkpoint: str | None,
         interrupt_id: str | None,
         config: Mapping[str, Any] | None,
+        graph: Any,
     ) -> dict[str, Any]:
         if checkpoint is None or interrupt_id != claimed.interrupt_id:
             assert claimed.claim_token is not None
@@ -873,7 +932,15 @@ class ApprovalCoordinator:
             )
             raise ToolGovernanceError("approval interrupt changed before resume")
         thread = _identifier(claimed.intent.payload.get("thread_id"), "thread id")
-        return self._config(config, thread)
+        positioned = self._config(config, thread)
+        from zeroth.integrations.langgraph._wrapper import (
+            _RESUME_LATEST_CHECKPOINT,
+            GovernedGraph,
+        )
+
+        if isinstance(graph, GovernedGraph):
+            positioned["configurable"][_RESUME_LATEST_CHECKPOINT] = True
+        return positioned
 
     def _completed(self, ref: str, claim_token: str) -> ApprovalRecord:
         current = self._repository.get(ref)
@@ -903,7 +970,9 @@ class ApprovalCoordinator:
             if delivery is None:
                 return claimed
             checkpoint, interrupt_id = self._observed(claimed, graph, config)
-            positioned = self._current_resume_config(claimed, checkpoint, interrupt_id, config)
+            positioned = self._current_resume_config(
+                claimed, checkpoint, interrupt_id, config, graph
+            )
             assert claimed.interrupt_id is not None and claimed.claim_token is not None
             try:
                 graph.invoke(
@@ -939,7 +1008,9 @@ class ApprovalCoordinator:
             if delivery is None:
                 return claimed
             checkpoint, interrupt_id = await self._aobserved(claimed, graph, config)
-            positioned = self._current_resume_config(claimed, checkpoint, interrupt_id, config)
+            positioned = self._current_resume_config(
+                claimed, checkpoint, interrupt_id, config, graph
+            )
             assert claimed.interrupt_id is not None and claimed.claim_token is not None
             try:
                 await graph.ainvoke(

@@ -154,6 +154,18 @@ class ApprovalReplayClient:
 
 
 @dataclasses.dataclass
+class DefaultDenyReplayClient:
+    """Require approval once, then deny the exact edited call revalidation."""
+
+    seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        del context
+        self.seen.append(action)
+        return APPROVE if len(self.seen) == 1 else DENY
+
+
+@dataclasses.dataclass
 class ApprovalReplayInterrupt:
     """Suspend once, then deliver the repository's current fenced resolution."""
 
@@ -1275,6 +1287,54 @@ def test_a_stateful_validator_cannot_slip_past_the_async_surface_either() -> Non
     assert dict(decided.arguments) == {"query": "safe"}
     assert ran == ["safe"]
     assert len(passes) == 1
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_approved_callable_edit_materializes_defaults_before_fresh_policy(
+    tmp_path: Any, async_call: bool
+) -> None:
+    effects: list[str] = []
+
+    if async_call:
+
+        async def remove(path: str = "/danger") -> None:
+            effects.append(path)
+
+    else:
+
+        def remove(path: str = "/danger") -> None:
+            effects.append(path)
+
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    client = DefaultDenyReplayClient()
+    interrupt = ApprovalReplayInterrupt()
+    [governed] = govern_tools(
+        [remove],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        interrupt=interrupt,
+        approval_lifecycle=repository,
+    )
+
+    def invoke() -> Any:
+        return asyncio.run(governed()) if async_call else governed()
+
+    with pytest.raises(Suspended):
+        invoke()
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {})
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    interrupt.delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
+
+    with pytest.raises(PolicyViolation):
+        invoke()
+
+    assert dict(client.seen[-1].arguments) == {"path": "/danger"}
+    assert effects == []
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
 
 
 def test_approved_base_tool_edit_uses_native_schema_coercion(tmp_path: Any) -> None:

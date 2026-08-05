@@ -2126,6 +2126,9 @@ def _sync_callable_call(token: object, args: tuple[Any, ...], kwargs: Mapping[st
         context,
         execute,
         invoke_with_arguments=execute_edited,
+        prepare_edited_arguments=lambda edited: _effective_call(
+            plan.source, (), _edited_kwargs(edited)
+        ).arguments,
         **_enforcement_seams(plan),
     )
 
@@ -2152,6 +2155,9 @@ async def _async_callable_call(
         context,
         execute,
         invoke_with_arguments=execute_edited,
+        prepare_edited_arguments=lambda edited: _effective_call(
+            plan.source, (), _edited_kwargs(edited)
+        ).arguments,
         **_enforcement_seams(plan),
     )
 

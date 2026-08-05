@@ -522,13 +522,42 @@ def test_existing_lifecycle_schema_is_migrated_without_replacement(tmp_path: Any
             id INTEGER PRIMARY KEY, approval_ref TEXT NOT NULL, from_state TEXT,
             to_state TEXT NOT NULL, accepted INTEGER NOT NULL, occurred_at REAL NOT NULL);"""
         )
-    SQLiteApprovalRepository(path)
+        for ref in ("approval-old-1", "approval-old-2"):
+            intent = json.dumps(
+                {
+                    "version": 1,
+                    "payload": {
+                        "approval_ref": ref,
+                        "tenant_id": "tenant-a",
+                        "principal_id": "principal-1",
+                        "run_id": "run-1",
+                        "thread_id": "thread-1",
+                        "tool_fingerprint": "tool-1",
+                        "tool_call_id": None,
+                        "argument_fingerprint": "arguments-1",
+                    },
+                    "arguments": {},
+                }
+            )
+            connection.execute(
+                "INSERT INTO langgraph_approval_lifecycle "
+                "(approval_ref, state, intent, deadline) VALUES (?, ?, ?, ?)",
+                (ref, ApprovalState.AWAITING_CHECKPOINT.value, intent, 100.0),
+            )
+    repository = SQLiteApprovalRepository(path)
 
     with sqlite3.connect(path) as connection:
         columns = {
             row[1] for row in connection.execute("PRAGMA table_info(langgraph_approval_lifecycle)")
         }
+        indexes = connection.execute(
+            "PRAGMA index_list(langgraph_approval_lifecycle)"
+        ).fetchall()
     assert {"interrupt_id", "claim_token", "claim_consumed"} <= columns
+    assert any(row[1] == "langgraph_approval_active_identity" and row[2] for row in indexes)
+    assert repository.get("approval-old-1").state is ApprovalState.AWAITING_CHECKPOINT
+    assert repository.get("approval-old-2").state is ApprovalState.ORPHANED
+    assert len(repository.pending()) == 1
 
 
 def test_lifecycle_rejects_invalid_transitions_and_expires_bounded_work(tmp_path: Any) -> None:
@@ -586,6 +615,77 @@ def test_idempotent_begin_decision_and_claim_do_not_duplicate_work(tmp_path: Any
     )
     assert repository.get("approval-7").state is ApprovalState.RESOLVED
     assert len(graph.calls) == 1
+
+
+def test_concurrent_first_delivery_returns_one_canonical_active_approval(tmp_path: Any) -> None:
+    path = tmp_path / "approvals.sqlite3"
+    repositories = (SQLiteApprovalRepository(path), SQLiteApprovalRepository(path))
+    barrier = threading.Barrier(2)
+    action = normalize_tool_action(
+        name="delete_record",
+        arguments={"table": "invoices", "id": 41},
+        context=CONTEXT,
+        side_effect=SideEffectClass.SIDE_EFFECTING,
+    )
+
+    @dataclass
+    class RacingClient:
+        approval_ref: str
+
+        def decide(
+            self, requested: ToolAction, context: ToolGovernanceContext
+        ) -> ToolDecision:
+            del requested, context
+            barrier.wait(timeout=2)
+            return ToolDecision(
+                ToolDecisionKind.REQUIRE_APPROVAL,
+                "policy_violation",
+                approval_ref=self.approval_ref,
+            )
+
+    def deliver(attempt: tuple[SQLiteApprovalRepository, str]) -> dict[str, Any]:
+        repository, approval_ref = attempt
+        pause = Pause()
+        with pytest.raises(SuspendedError):
+            guard_tool_call(
+                action,
+                CONTEXT,
+                lambda: pytest.fail("tool ran before approval"),
+                client=RacingClient(approval_ref),
+                interrupt=pause,
+                approval_lifecycle=repository,
+            )
+        assert pause.payload is not None
+        return pause.payload
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        payloads = list(
+            pool.map(
+                deliver,
+                zip(repositories, ("approval-race-1", "approval-race-2"), strict=True),
+            )
+        )
+
+    assert payloads[0] == payloads[1]
+    [active] = repositories[0].pending()
+    identity_fields = (
+        "tenant_id",
+        "principal_id",
+        "run_id",
+        "thread_id",
+        "tool_fingerprint",
+        "tool_call_id",
+        "argument_fingerprint",
+    )
+    identity = {key: active.intent.payload[key] for key in identity_fields}
+    assert repositories[0].replay_for(identity) == active
+    assert repositories[1].replay_for(identity) == active
+
+    canonical_ref = str(active.intent.payload["approval_ref"])
+    repositories[0].terminal(canonical_ref, ApprovalState.ORPHANED)
+    later_payload = {**payloads[0], "approval_ref": "approval-later"}
+    later, created = repositories[1].begin_once(later_payload, action.arguments)
+    assert created and later.intent.payload["approval_ref"] == "approval-later"
 
 
 @pytest.mark.parametrize(
@@ -806,10 +906,13 @@ def test_tool_failure_propagates_and_cannot_be_replayed(tmp_path: Any) -> None:
     assert len(graph.calls) == 1
 
 
-def test_real_parallel_interrupt_resume_targets_only_the_approved_action(tmp_path: Any) -> None:
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+def test_real_parallel_interrupt_resume_ignores_a_bound_stale_checkpoint(
+    tmp_path: Any, async_mode: bool
+) -> None:
     repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
     saver_path = tmp_path / "checkpoints.bin"
-    saver = PersistentSaver(saver_path)
+    saver = AsyncOnlyPersistentSaver(saver_path) if async_mode else PersistentSaver(saver_path)
     policy = PerToolApprovalClient()
     executed: list[str] = []
 
@@ -818,48 +921,89 @@ def test_real_parallel_interrupt_resume_targets_only_the_approved_action(tmp_pat
     )
     config = {"configurable": {"thread_id": "thread-1"}}
 
-    graph.invoke({"done": []}, config)
+    if async_mode:
+        asyncio.run(graph.ainvoke({"done": []}, config))
+        initial = asyncio.run(graph.aget_state(config))
+    else:
+        graph.invoke({"done": []}, config)
+        initial = graph.get_state(config)
     reopened = PersistentSaver(saver_path)
     assert reopened.get_tuple(config) is not None
+    assert initial.config["configurable"].get("checkpoint_id")
+    resumed_graph = graph.with_config(initial.config)
 
     coordinator = ApprovalCoordinator(repository)
-    first = coordinator.confirm_checkpoint(
-        "approval-tool_a", graph, config=config, durable_checkpointer=saver
-    )
-    second = coordinator.confirm_checkpoint(
-        "approval-tool_b", graph, config=config, durable_checkpointer=saver
-    )
+    if async_mode:
+        first = asyncio.run(
+            coordinator.aconfirm_checkpoint(
+                "approval-tool_a", resumed_graph, config=config, durable_checkpointer=saver
+            )
+        )
+        second = asyncio.run(
+            coordinator.aconfirm_checkpoint(
+                "approval-tool_b", resumed_graph, config=config, durable_checkpointer=saver
+            )
+        )
+    else:
+        first = coordinator.confirm_checkpoint(
+            "approval-tool_a", resumed_graph, config=config, durable_checkpointer=saver
+        )
+        second = coordinator.confirm_checkpoint(
+            "approval-tool_b", resumed_graph, config=config, durable_checkpointer=saver
+        )
     assert first.interrupt_id and second.interrupt_id
     assert first.interrupt_id != second.interrupt_id
 
     repository.decide(ApprovalResolution("approval-tool_a", ApprovalDecision.APPROVE))
-    coordinator.resume(
-        "approval-tool_a",
-        graph,
-        owner="worker-a",
-        config=config,
-        durable_checkpointer=saver,
-    )
+    if async_mode:
+        asyncio.run(
+            coordinator.aresume(
+                "approval-tool_a",
+                resumed_graph,
+                owner="worker-a",
+                config=config,
+                durable_checkpointer=saver,
+            )
+        )
+    else:
+        coordinator.resume(
+            "approval-tool_a",
+            resumed_graph,
+            owner="worker-a",
+            config=config,
+            durable_checkpointer=saver,
+        )
 
     assert executed == ["tool_a"]
     assert repository.get("approval-tool_a").state is ApprovalState.RESOLVED
     assert repository.get("approval-tool_b").state is ApprovalState.READY
-    remaining = graph.get_state(config)
+    remaining = asyncio.run(graph.aget_state(config)) if async_mode else graph.get_state(config)
     assert remaining.next == ("tool_b",)
     assert "approval-tool_b" in {item.value["approval_ref"] for item in remaining.interrupts}
 
     repository.decide(ApprovalResolution("approval-tool_b", ApprovalDecision.APPROVE))
-    coordinator.resume(
-        "approval-tool_b",
-        graph,
-        owner="worker-b",
-        config=config,
-        durable_checkpointer=saver,
-    )
+    if async_mode:
+        asyncio.run(
+            coordinator.aresume(
+                "approval-tool_b",
+                resumed_graph,
+                owner="worker-b",
+                config=config,
+                durable_checkpointer=saver,
+            )
+        )
+    else:
+        coordinator.resume(
+            "approval-tool_b",
+            resumed_graph,
+            owner="worker-b",
+            config=config,
+            durable_checkpointer=saver,
+        )
 
     assert executed == ["tool_a", "tool_b"]
     assert repository.get("approval-tool_b").state is ApprovalState.RESOLVED
-    completed = graph.get_state(config)
+    completed = asyncio.run(graph.aget_state(config)) if async_mode else graph.get_state(config)
     assert completed.next == ()
     assert completed.values["done"] == ["tool_a", "tool_b"]
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -27,6 +27,7 @@ _COMPOSE_ERROR = (
     "GovernedGraph does not support `|` composition; compose the graph before "
     "governing it (e.g. govern_graph(a | b)), then invoke the governed wrapper."
 )
+_RESUME_LATEST_CHECKPOINT = "_zeroth_resume_latest_checkpoint"
 
 
 def _apply_bound_config(
@@ -45,6 +46,32 @@ def _apply_bound_config(
     if len(args) >= 2:
         return (args[0], merge_configs(bound, args[1]), *args[2:]), kwargs
     return args, {**kwargs, "config": merge_configs(bound, None)}
+
+
+def _consume_latest_checkpoint_marker(
+    args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    """Discard a bound replay checkpoint for an approval resume."""
+
+    def cleaned(config: Any) -> Any:
+        if not isinstance(config, Mapping):
+            return config
+        configurable = config.get("configurable")
+        if (
+            not isinstance(configurable, Mapping)
+            or configurable.get(_RESUME_LATEST_CHECKPOINT) is not True
+        ):
+            return config
+        current = dict(configurable)
+        current.pop(_RESUME_LATEST_CHECKPOINT)
+        current.pop("checkpoint_id", None)
+        return {**config, "configurable": current}
+
+    if "config" in kwargs:
+        return args, {**kwargs, "config": cleaned(kwargs["config"])}
+    if len(args) >= 2:
+        return (args[0], cleaned(args[1]), *args[2:]), kwargs
+    return args, kwargs
 
 
 @dataclass(frozen=True)
@@ -192,6 +219,7 @@ class GovernedGraph:
         """
         if self._bound_config:
             args, kwargs = _apply_bound_config(args, kwargs, self._bound_config)
+        args, kwargs = _consume_latest_checkpoint_marker(args, kwargs)
         correlation = correlation_from_call(args, kwargs)
         reserved_token = reserved_token_from_call(args, kwargs)
         args, kwargs = inject_governance_handler(args, kwargs, self._handler)
