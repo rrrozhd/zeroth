@@ -1337,6 +1337,62 @@ def test_approved_callable_edit_materializes_defaults_before_fresh_policy(
     assert repository.get("approval-7").state is ApprovalState.RESOLVED
 
 
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_approved_callable_kwargs_edit_is_bound_once_for_policy_and_execution(
+    tmp_path: Any, async_call: bool
+) -> None:
+    unsafe = "/danger"
+    persisted = {"path": "/safe"}
+    body_arguments: list[dict[str, Any]] = []
+    effects: list[str] = []
+
+    if async_call:
+
+        async def remove(**kwargs: Any) -> None:
+            body_arguments.append(dict(kwargs))
+            effects.append(kwargs.get("path", unsafe))
+
+    else:
+
+        def remove(**kwargs: Any) -> None:
+            body_arguments.append(dict(kwargs))
+            effects.append(kwargs.get("path", unsafe))
+
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    client = ApprovalReplayClient()
+    interrupt = ApprovalReplayInterrupt()
+    [governed] = govern_tools(
+        [remove],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        interrupt=interrupt,
+        approval_lifecycle=repository,
+    )
+
+    def invoke() -> Any:
+        return asyncio.run(governed()) if async_call else governed()
+
+    with pytest.raises(Suspended):
+        invoke()
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, persisted)
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    interrupt.delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
+
+    invoke()
+
+    stored = repository.get("approval-7")
+    assert stored.resolution is not None and stored.resolution.arguments == persisted
+    assert dict(client.seen[-1].arguments) == {"kwargs": persisted}
+    assert client.seen[-1].arguments["kwargs"] == body_arguments[0] == persisted
+    assert effects == ["/safe"]
+    assert unsafe not in effects
+    assert stored.state is ApprovalState.RESOLVED
+
+
 def test_approved_base_tool_edit_uses_native_schema_coercion(tmp_path: Any) -> None:
     received: list[tuple[str, int]] = []
 

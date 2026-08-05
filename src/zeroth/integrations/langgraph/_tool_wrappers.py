@@ -2111,24 +2111,29 @@ def _sync_callable_call(token: object, args: tuple[Any, ...], kwargs: Mapping[st
     call = _effective_call(plan.source, args, kwargs)
     action, context, facts = _governed_action(plan, call.arguments)
     body = facts.body
+    edited_call: _EffectiveCall | None = None
 
     def execute() -> Any:
         refuse_state_cell_escalation(facts.state_cells)
         return body(*call.args, **call.kwargs)
 
-    def execute_edited(arguments: Mapping[str, Any]) -> Any:
-        edited = _effective_call(plan.source, (), _edited_kwargs(arguments))
+    def prepare_edited(arguments: Mapping[str, Any]) -> Mapping[str, Any]:
+        nonlocal edited_call
+        edited_call = _effective_call(plan.source, (), _edited_kwargs(arguments))
+        return edited_call.arguments
+
+    def execute_edited(_arguments: Mapping[str, Any]) -> Any:
+        if edited_call is None:
+            raise ToolGovernanceError("edited callable arguments were not prepared")
         refuse_state_cell_escalation(facts.state_cells)
-        return body(*edited.args, **edited.kwargs)
+        return body(*edited_call.args, **edited_call.kwargs)
 
     return guard_tool_call(
         action,
         context,
         execute,
         invoke_with_arguments=execute_edited,
-        prepare_edited_arguments=lambda edited: _effective_call(
-            plan.source, (), _edited_kwargs(edited)
-        ).arguments,
+        prepare_edited_arguments=prepare_edited,
         **_enforcement_seams(plan),
     )
 
@@ -2140,24 +2145,29 @@ async def _async_callable_call(
     plan = _callable_plan(token)
     call = _effective_call(plan.source, args, kwargs)
     action, context, facts = _governed_action(plan, call.arguments)
+    edited_call: _EffectiveCall | None = None
 
     async def execute() -> Any:
         refuse_state_cell_escalation(facts.state_cells)
         return await facts.body(*call.args, **call.kwargs)
 
-    async def execute_edited(arguments: Mapping[str, Any]) -> Any:
-        edited = _effective_call(plan.source, (), _edited_kwargs(arguments))
+    def prepare_edited(arguments: Mapping[str, Any]) -> Mapping[str, Any]:
+        nonlocal edited_call
+        edited_call = _effective_call(plan.source, (), _edited_kwargs(arguments))
+        return edited_call.arguments
+
+    async def execute_edited(_arguments: Mapping[str, Any]) -> Any:
+        if edited_call is None:
+            raise ToolGovernanceError("edited callable arguments were not prepared")
         refuse_state_cell_escalation(facts.state_cells)
-        return await facts.body(*edited.args, **edited.kwargs)
+        return await facts.body(*edited_call.args, **edited_call.kwargs)
 
     return await aguard_tool_call(
         action,
         context,
         execute,
         invoke_with_arguments=execute_edited,
-        prepare_edited_arguments=lambda edited: _effective_call(
-            plan.source, (), _edited_kwargs(edited)
-        ).arguments,
+        prepare_edited_arguments=prepare_edited,
         **_enforcement_seams(plan),
     )
 

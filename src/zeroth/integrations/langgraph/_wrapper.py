@@ -28,6 +28,7 @@ _COMPOSE_ERROR = (
     "governing it (e.g. govern_graph(a | b)), then invoke the governed wrapper."
 )
 _RESUME_LATEST_CHECKPOINT = "_zeroth_resume_latest_checkpoint"
+_RESUME_LATEST_CHECKPOINT_CAPABILITY = object()
 
 
 def _apply_bound_config(
@@ -59,7 +60,8 @@ def _consume_latest_checkpoint_marker(
         configurable = config.get("configurable")
         if (
             not isinstance(configurable, Mapping)
-            or configurable.get(_RESUME_LATEST_CHECKPOINT) is not True
+            or configurable.get(_RESUME_LATEST_CHECKPOINT)
+            is not _RESUME_LATEST_CHECKPOINT_CAPABILITY
         ):
             return config
         current = dict(configurable)

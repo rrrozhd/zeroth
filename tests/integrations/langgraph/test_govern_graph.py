@@ -128,6 +128,18 @@ class _ConfigSpy:
         self.configs.append(kwargs.get("config", args[1] if len(args) >= 2 else None))
         return self._inner.invoke(*args, **kwargs)
 
+    async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
+        self.configs.append(kwargs.get("config", args[1] if len(args) >= 2 else None))
+        return await self._inner.ainvoke(*args, **kwargs)
+
+    def stream(self, *args: Any, **kwargs: Any) -> Any:
+        self.configs.append(kwargs.get("config", args[1] if len(args) >= 2 else None))
+        return self._inner.stream(*args, **kwargs)
+
+    def astream(self, *args: Any, **kwargs: Any) -> Any:
+        self.configs.append(kwargs.get("config", args[1] if len(args) >= 2 else None))
+        return self._inner.astream(*args, **kwargs)
+
 
 def test_r2_invoke_result_is_byte_for_byte_equivalent() -> None:
     graph = build_graph()
@@ -194,6 +206,34 @@ def test_r4_wrapper_delivers_both_handlers_into_the_graph_config() -> None:
     assert user in delivered
     assert governed._handler in delivered
     assert delivered.count(governed._handler) == 1
+
+
+@pytest.mark.parametrize("marker", [True, "caller-value"], ids=("boolean", "string"))
+@pytest.mark.parametrize("entrypoint", ["invoke", "ainvoke", "stream", "astream"])
+def test_public_config_cannot_request_latest_checkpoint(marker: object, entrypoint: str) -> None:
+    spy = _ConfigSpy(build_graph())
+    governed = govern_graph(spy)
+    config = {
+        "configurable": {
+            "thread_id": "thread-1",
+            "checkpoint_id": "caller-checkpoint",
+            "_zeroth_resume_latest_checkpoint": marker,
+        }
+    }
+    payload = {"mode": "echo", "text": "checkpoint"}
+
+    if entrypoint == "invoke":
+        governed.invoke(payload, config)
+    elif entrypoint == "ainvoke":
+        asyncio.run(governed.ainvoke(payload, config))
+    elif entrypoint == "stream":
+        list(governed.stream(payload, config))
+    else:
+        asyncio.run(_drain_async(governed.astream(payload, config)))
+
+    delivered = spy.configs[-1]["configurable"]
+    assert delivered["checkpoint_id"] == "caller-checkpoint"
+    assert delivered["_zeroth_resume_latest_checkpoint"] is marker
 
 
 def test_r5_error_propagates_identically_on_all_entrypoints() -> None:

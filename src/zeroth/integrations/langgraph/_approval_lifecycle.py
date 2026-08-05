@@ -935,11 +935,14 @@ class ApprovalCoordinator:
         positioned = self._config(config, thread)
         from zeroth.integrations.langgraph._wrapper import (
             _RESUME_LATEST_CHECKPOINT,
+            _RESUME_LATEST_CHECKPOINT_CAPABILITY,
             GovernedGraph,
         )
 
         if isinstance(graph, GovernedGraph):
-            positioned["configurable"][_RESUME_LATEST_CHECKPOINT] = True
+            positioned["configurable"][_RESUME_LATEST_CHECKPOINT] = (
+                _RESUME_LATEST_CHECKPOINT_CAPABILITY
+            )
         return positioned
 
     def _completed(self, ref: str, claim_token: str) -> ApprovalRecord:

@@ -411,6 +411,9 @@ class Graph:
         assert config["configurable"]["thread_id"] == "thread-1"
         return self.state
 
+    async def aget_state(self, config: dict[str, Any]) -> StateSnapshot:
+        return self.get_state(config)
+
     def invoke(self, command: Any, config: dict[str, Any]) -> Any:
         self.calls.append((command, config))
         resume = command.resume
@@ -419,6 +422,9 @@ class Graph:
         result = None if self.callback is None else self.callback(resume)
         self.state = _snapshot(None, checkpoint_id="checkpoint-2")
         return result
+
+    async def ainvoke(self, command: Any, config: dict[str, Any]) -> Any:
+        return self.invoke(command, config)
 
 
 def _request(
@@ -882,6 +888,64 @@ def test_resume_targets_the_persisted_interrupt_id_and_preserves_fresh_config(
     assert config["configurable"]["_zeroth"] == "fresh-token"
     assert config["configurable"]["thread_id"] == "thread-1"
     assert "checkpoint_id" not in config["configurable"]
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+def test_coordinator_resume_discards_only_the_bound_checkpoint(
+    tmp_path: Any, async_mode: bool
+) -> None:
+    repository, coordinator, graph, _ = _ready(tmp_path)
+    repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+    hook = object()
+    resumed_graph = graph.with_config(
+        {
+            "configurable": {
+                "thread_id": "thread-1",
+                "checkpoint_id": "bound-stale",
+                "bound": "preserved",
+            }
+        }
+    )
+    fresh = {
+        "configurable": {
+            "thread_id": "attacker-thread",
+            "_zeroth": "fresh-token",
+            "fresh": "preserved",
+        },
+        "callbacks": [hook],
+        "tags": ["resumed"],
+    }
+
+    if async_mode:
+        asyncio.run(
+            coordinator.aresume(
+                "approval-7",
+                resumed_graph,
+                owner="worker-1",
+                config=fresh,
+                durable_checkpointer=graph.checkpointer,
+            )
+        )
+    else:
+        coordinator.resume(
+            "approval-7",
+            resumed_graph,
+            owner="worker-1",
+            config=fresh,
+            durable_checkpointer=graph.checkpointer,
+        )
+
+    [(_command, delivered)] = graph._graph.calls
+    configurable = delivered["configurable"]
+    assert configurable == {
+        "thread_id": "thread-1",
+        "bound": "preserved",
+        "_zeroth": "fresh-token",
+        "fresh": "preserved",
+    }
+    assert hook in delivered["callbacks"]
+    assert delivered["tags"] == ["resumed"]
+    assert json.loads(json.dumps(configurable)) == configurable
 
 
 def test_tool_failure_propagates_and_cannot_be_replayed(tmp_path: Any) -> None:
