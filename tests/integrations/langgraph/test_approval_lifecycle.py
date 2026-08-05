@@ -672,6 +672,86 @@ def test_large_finite_request_deadline_overflow_cannot_persist_across_restart(
         reopened.get("approval-7")
 
 
+@pytest.mark.parametrize("operation", ["restart", "reconcile"])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("deadline", float("inf")),
+        ("deadline", "corrupt"),
+        ("lease_deadline", float("nan")),
+        ("lease_deadline", float("inf")),
+        ("lease_deadline", "corrupt"),
+    ],
+    ids=(
+        "infinite-deadline",
+        "corrupt-deadline",
+        "nan-lease",
+        "infinite-lease",
+        "corrupt-lease",
+    ),
+)
+def test_legacy_invalid_deadlines_are_rejected_on_restart_and_reconciliation(
+    tmp_path: Any, operation: str, field: str, value: float | str
+) -> None:
+    path = tmp_path / "approvals.sqlite3"
+    repository = SQLiteApprovalRepository(path, clock=lambda: 0.0)
+    _request(repository, SequencedClient(), Pause())
+    if field == "lease_deadline":
+        repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+        repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+        repository.claim("approval-7", owner="legacy-worker")
+    before = repository.get("approval-7").state.value
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            f"UPDATE langgraph_approval_lifecycle SET {field} = ? WHERE approval_ref = ?",
+            (value, "approval-7"),
+        )
+
+    with pytest.raises(ToolGovernanceError, match="persisted approval.*deadline.*finite"):
+        if operation == "restart":
+            SQLiteApprovalRepository(path, clock=lambda: 0.0)
+        else:
+            repository.expire_due()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT state FROM langgraph_approval_lifecycle WHERE approval_ref = ?",
+            ("approval-7",),
+        ).fetchone() == (before,)
+
+
+def test_legacy_nan_request_deadline_is_rejected_on_restart(tmp_path: Any) -> None:
+    source = tmp_path / "source.sqlite3"
+    _request(SQLiteApprovalRepository(source), SequencedClient(), Pause())
+    with sqlite3.connect(source) as connection:
+        [intent] = connection.execute(
+            "SELECT intent FROM langgraph_approval_lifecycle WHERE approval_ref = ?",
+            ("approval-7",),
+        ).fetchone()
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """CREATE TABLE langgraph_approval_lifecycle (
+            approval_ref TEXT PRIMARY KEY, state TEXT NOT NULL, intent TEXT NOT NULL,
+            resolution TEXT, checkpoint_id TEXT, owner TEXT, lease_deadline REAL,
+            deadline REAL);
+            CREATE TABLE langgraph_approval_events (
+            id INTEGER PRIMARY KEY, approval_ref TEXT NOT NULL, from_state TEXT,
+            to_state TEXT NOT NULL, accepted INTEGER NOT NULL, occurred_at REAL NOT NULL);"""
+        )
+        connection.execute(
+            "INSERT INTO langgraph_approval_lifecycle "
+            "(approval_ref, state, intent, deadline) VALUES (?, ?, ?, ?)",
+            ("approval-7", ApprovalState.AWAITING_CHECKPOINT.value, intent, float("nan")),
+        )
+        assert connection.execute(
+            "SELECT deadline FROM langgraph_approval_lifecycle"
+        ).fetchone() == (None,)
+
+    with pytest.raises(ToolGovernanceError, match="persisted approval.*deadline.*finite"):
+        SQLiteApprovalRepository(path)
+
+
 @pytest.mark.parametrize(
     "value",
     [float("nan"), float("inf"), float("-inf")],
@@ -1664,6 +1744,143 @@ def test_real_claimed_resume_rejects_identity_drift_before_policy_or_execution(
         else ApprovalState.ORPHANED
     )
     assert repository.get("approval-7").state is expected_state
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize(
+    "outcome",
+    ["rejection", "resolved-delivery", "consumed-orphan"],
+)
+def test_real_graph_retry_keeps_terminal_approval_identity_fenced(
+    tmp_path: Any, async_mode: bool, outcome: str
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    saver_path = tmp_path / "checkpoints.bin"
+    saver = AsyncOnlyPersistentSaver(saver_path) if async_mode else PersistentSaver(saver_path)
+    policy = SequencedClient()
+    executed: list[str] = []
+
+    if async_mode:
+
+        async def dangerous(record: str) -> None:
+            executed.append(record)
+            if outcome == "consumed-orphan":
+                raise RuntimeError("downstream delivery failed")
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=CONTEXT,
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        async def run(_state: ParallelState) -> ParallelState:
+            await governed(record="original")
+            if outcome == "resolved-delivery":
+                raise RuntimeError("checkpoint delivery failed")
+            return {"done": ["dangerous"]}
+
+    else:
+
+        def dangerous(record: str) -> None:
+            executed.append(record)
+            if outcome == "consumed-orphan":
+                raise RuntimeError("downstream delivery failed")
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=CONTEXT,
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        def run(_state: ParallelState) -> ParallelState:
+            governed(record="original")
+            if outcome == "resolved-delivery":
+                raise RuntimeError("checkpoint delivery failed")
+            return {"done": ["dangerous"]}
+
+    builder = StateGraph(ParallelState)
+    builder.add_node("dangerous", run)
+    builder.add_edge(START, "dangerous")
+    builder.add_edge("dangerous", END)
+    graph = govern_graph(builder.compile(checkpointer=saver))
+    config = {"configurable": {"thread_id": "thread-1"}}
+
+    if async_mode:
+        asyncio.run(graph.ainvoke({"done": []}, config))
+    else:
+        graph.invoke({"done": []}, config)
+    coordinator = ApprovalCoordinator(repository)
+    if async_mode:
+        asyncio.run(
+            coordinator.aconfirm_checkpoint(
+                "approval-7", graph, config=config, durable_checkpointer=saver
+            )
+        )
+    else:
+        coordinator.confirm_checkpoint(
+            "approval-7", graph, config=config, durable_checkpointer=saver
+        )
+    decision = ApprovalDecision.REJECT if outcome == "rejection" else ApprovalDecision.APPROVE
+    repository.decide(ApprovalResolution("approval-7", decision))
+
+    expected = PolicyViolation if outcome == "rejection" else RuntimeError
+    with pytest.raises(expected):
+        if async_mode:
+            asyncio.run(
+                coordinator.aresume(
+                    "approval-7",
+                    graph,
+                    owner="worker-1",
+                    config=config,
+                    durable_checkpointer=saver,
+                )
+            )
+        else:
+            coordinator.resume(
+                "approval-7",
+                graph,
+                owner="worker-1",
+                config=config,
+                durable_checkpointer=saver,
+            )
+
+    terminal = repository.get("approval-7")
+    expected_state = (
+        ApprovalState.ORPHANED if outcome == "consumed-orphan" else ApprovalState.RESOLVED
+    )
+    assert terminal.state is expected_state
+    assert terminal.claim_consumed
+    policy_calls = len(policy.actions)
+    first_execution = list(executed)
+
+    with pytest.raises(ToolGovernanceError, match="terminal delivery"):
+        if async_mode:
+            asyncio.run(graph.ainvoke(None, config))
+        else:
+            graph.invoke(None, config)
+
+    assert policy.actions[policy_calls:] == []
+    assert executed == first_execution
+    assert repository.pending() == ()
+    policy.fresh = ToolDecision(
+        ToolDecisionKind.REQUIRE_APPROVAL,
+        "policy_violation",
+        approval_ref="approval-retry",
+    )
+
+    with pytest.raises(ToolGovernanceError, match="terminal delivery"):
+        if async_mode:
+            asyncio.run(graph.ainvoke(None, config))
+        else:
+            graph.invoke(None, config)
+
+    assert policy.actions[policy_calls:] == []
+    with pytest.raises(ToolGovernanceError, match="does not exist"):
+        repository.get("approval-retry")
 
 
 @pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
