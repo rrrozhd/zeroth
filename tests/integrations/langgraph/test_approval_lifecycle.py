@@ -609,6 +609,56 @@ def test_lifecycle_rejects_invalid_transitions_and_expires_bounded_work(tmp_path
     assert repository.pending(limit=1) == ()
 
 
+def test_expire_due_selects_an_expired_consumed_lease_before_non_due_backlog(
+    tmp_path: Any,
+) -> None:
+    now = [0.0]
+    path = tmp_path / "approvals.sqlite3"
+    consumed_repository = SQLiteApprovalRepository(
+        path,
+        ttl_seconds=100,
+        lease_seconds=1,
+        clock=lambda: now[0],
+    )
+    pause = Pause()
+    _request(consumed_repository, SequencedClient(), pause)
+    consumed_repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
+    consumed_repository.decide(resolution)
+    claimed = consumed_repository.claim("approval-7", owner="crashed-worker")
+    assert claimed.claim_token is not None
+    consumed_repository.consume({**resolution.to_payload(), "claim_token": claimed.claim_token})
+
+    backlog_repository = SQLiteApprovalRepository(
+        path,
+        ttl_seconds=10,
+        lease_seconds=1,
+        clock=lambda: now[0],
+    )
+    payload = dict(consumed_repository.get("approval-7").intent.payload)
+    for index in range(3):
+        backlog_repository.begin(
+            {
+                **payload,
+                "approval_ref": f"approval-backlog-{index}",
+                "tool_call_id": f"call-backlog-{index}",
+                "argument_fingerprint": f"arguments-backlog-{index}",
+            },
+            {},
+        )
+
+    now[0] = 2.0
+    [expired] = backlog_repository.expire_due(limit=2)
+
+    assert expired.intent.payload["approval_ref"] == "approval-7"
+    assert expired.state is ApprovalState.ORPHANED
+    assert all(
+        backlog_repository.get(f"approval-backlog-{index}").state
+        is ApprovalState.AWAITING_CHECKPOINT
+        for index in range(3)
+    )
+
+
 def test_checkpoint_must_match_before_an_approval_becomes_ready(tmp_path: Any) -> None:
     repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
     pause = Pause()
@@ -926,6 +976,8 @@ def test_coordinator_resume_discards_only_the_bound_checkpoint(
             "configurable": {
                 "thread_id": "thread-1",
                 "checkpoint_id": "bound-stale",
+                "checkpoint_ns": "bound|stale",
+                "checkpoint_map": {"bound|stale": "bound-stale"},
                 "bound": "preserved",
             }
         }
@@ -933,6 +985,8 @@ def test_coordinator_resume_discards_only_the_bound_checkpoint(
     fresh = {
         "configurable": {
             "thread_id": "attacker-thread",
+            "checkpoint_ns": "caller|stale",
+            "checkpoint_map": {"caller|stale": "caller-stale"},
             "_zeroth": "fresh-token",
             "fresh": "preserved",
         },
@@ -1018,7 +1072,16 @@ def test_real_parallel_interrupt_resume_ignores_a_bound_stale_checkpoint(
     reopened = PersistentSaver(saver_path)
     assert reopened.get_tuple(config) is not None
     assert initial.config["configurable"].get("checkpoint_id")
-    resumed_graph = graph.with_config(initial.config)
+    resumed_graph = graph.with_config(
+        {
+            **initial.config,
+            "configurable": {
+                **initial.config["configurable"],
+                "checkpoint_ns": "stale|subgraph",
+                "checkpoint_map": {"stale|subgraph": "stale-checkpoint"},
+            },
+        }
+    )
 
     coordinator = ApprovalCoordinator(repository)
     if async_mode:

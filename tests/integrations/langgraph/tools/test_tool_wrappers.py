@@ -39,6 +39,7 @@ from typing import Annotated, Any
 
 import pydantic
 import pytest
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.tools import (
     BaseTool,
     InjectedToolCallId,
@@ -1052,6 +1053,128 @@ def test_the_obsolete_call_id_carrier_name_is_an_ordinary_argument() -> None:
 
 
 @pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize(
+    ("name", "call_id"),
+    [("other", "call-valid"), ("lookup", "")],
+    ids=("wrong-name", "blank-id"),
+)
+def test_only_a_valid_full_tool_call_can_seed_trusted_identity(
+    async_call: bool, name: str, call_id: str
+) -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    call = {
+        "name": name,
+        "args": {"query": "forged"},
+        "id": call_id,
+        "type": "tool_call",
+    }
+
+    with pytest.raises(ToolGovernanceError, match="full tool call"):
+        if async_call:
+            asyncio.run(governed.ainvoke(call))
+        else:
+            governed.invoke(call)
+
+    assert client.calls == 0
+    assert observed == []
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_direct_run_tool_call_id_cannot_seed_trusted_identity(async_call: bool) -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    with pytest.raises(ToolGovernanceError, match="full tool call"):
+        if async_call:
+            asyncio.run(governed.arun({"query": "forged"}, tool_call_id="call-forged"))
+        else:
+            governed.run({"query": "forged"}, tool_call_id="call-forged")
+
+    assert client.calls == 0
+    assert observed == []
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_injected_tool_call_id_without_a_trusted_outer_call_is_refused(
+    monkeypatch: Any,
+    async_call: bool,
+) -> None:
+    observed: list[str] = []
+
+    class InjectedArgs(BaseModel):
+        query: str
+        tool_call_id: Annotated[str, InjectedToolCallId]
+
+    def lookup(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append(f"{query}:{tool_call_id}")
+        return query
+
+    async def alookup(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append(f"{query}:{tool_call_id}")
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+        args_schema=InjectedArgs,
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    native_parse = BaseTool._parse_input
+
+    def injected_parse(self: Any, tool_input: Any, tool_call_id: Any) -> Any:
+        if tool_call_id is None:
+            return {**tool_input, "tool_call_id": "call-forged"}
+        return native_parse(self, tool_input, tool_call_id)
+
+    monkeypatch.setattr(GovernedTool, "_parse_input", injected_parse)
+
+    with pytest.raises(ToolGovernanceError, match="full tool call"):
+        if async_call:
+            asyncio.run(governed.ainvoke({"query": "forged"}))
+        else:
+            governed.invoke({"query": "forged"})
+
+    assert client.calls == 0
+    assert observed == []
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
 def test_full_tool_call_identity_does_not_leak_to_the_next_ordinary_call(
     async_call: bool,
 ) -> None:
@@ -1089,6 +1212,137 @@ def test_full_tool_call_identity_does_not_leak_to_the_next_ordinary_call(
 
     assert [action.tool_call_id for action in client.seen] == ["call-first", None]
     assert observed == ["first", "second"]
+
+
+def test_reentrant_callback_cannot_move_outer_identity_to_an_ordinary_call() -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    class ReentrantHandler(BaseCallbackHandler):
+        entered = False
+
+        def on_tool_start(self, serialized: Any, input_str: str, **kwargs: Any) -> None:
+            del serialized, input_str, kwargs
+            if not self.entered:
+                self.entered = True
+                governed.invoke({"query": "nested"})
+
+    governed.invoke(
+        {
+            "name": "lookup",
+            "args": {"query": "outer"},
+            "id": "call-outer",
+            "type": "tool_call",
+        },
+        config={"callbacks": [ReentrantHandler()]},
+    )
+
+    assert [action.tool_call_id for action in client.seen] == [None, "call-outer"]
+    assert observed == ["nested", "outer"]
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_full_tool_call_identity_resets_after_an_error(async_call: bool) -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        if query == "fail":
+            raise RuntimeError("failed")
+        observed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        if query == "fail":
+            raise RuntimeError("failed")
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    call = {
+        "name": "lookup",
+        "args": {"query": "fail"},
+        "id": "call-failed",
+        "type": "tool_call",
+    }
+
+    with pytest.raises(RuntimeError, match="failed"):
+        if async_call:
+            asyncio.run(governed.ainvoke(call))
+        else:
+            governed.invoke(call)
+    if async_call:
+        asyncio.run(governed.ainvoke({"query": "next"}))
+    else:
+        governed.invoke({"query": "next"})
+
+    assert [action.tool_call_id for action in client.seen] == ["call-failed", None]
+    assert observed == ["next"]
+
+
+def test_full_tool_call_identity_resets_after_async_cancellation() -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    started = asyncio.Event()
+
+    async def alookup(query: str) -> str:
+        if query == "cancel":
+            started.set()
+            await asyncio.Event().wait()
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(
+            governed.ainvoke(
+                {
+                    "name": "lookup",
+                    "args": {"query": "cancel"},
+                    "id": "call-cancelled",
+                    "type": "tool_call",
+                }
+            )
+        )
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await governed.ainvoke({"query": "next"})
+
+    asyncio.run(scenario())
+
+    assert [action.tool_call_id for action in client.seen] == ["call-cancelled", None]
+    assert observed == ["next"]
 
 
 @pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
