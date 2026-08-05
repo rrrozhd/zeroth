@@ -326,6 +326,13 @@ class LangGraphGatewaySettings(BaseModel):
     max_governed_body_bytes: int = Field(default=1_048_576, gt=0)
     unknown_endpoint_mode: Literal["deny", "pass_ungoverned"] = "deny"
     policy_bindings: tuple[str, ...] = ()
+    expected_tool_inventory_fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "Server-owned canonical tool-inventory digest required for ENFORCED evidence; "
+            "missing or mismatched values remain OBSERVED"
+        ),
+    )
     supported_langgraph_versions: tuple[str, ...] = ("1.2.9",)
     supported_agent_server_versions: tuple[str, ...] = ("0.11.1",)
     heartbeat_interval_seconds: int = Field(default=30, gt=0)
@@ -374,6 +381,14 @@ class LangGraphGatewaySettings(BaseModel):
     def normalize_required_identity(cls, value: str | None) -> str | None:
         """Treat whitespace-only upstream identity values as missing."""
         return value.strip() if value is not None else None
+
+    @field_validator("expected_tool_inventory_fingerprint")
+    @classmethod
+    def validate_expected_tool_inventory_fingerprint(cls, value: str | None) -> str | None:
+        """Require the canonical SHA-256 form emitted by inventory registration."""
+        if value is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+            raise ValueError("expected_tool_inventory_fingerprint must be a SHA-256 digest")
+        return value
 
     @model_validator(mode="after")
     def validate_enabled_configuration(self) -> LangGraphGatewaySettings:

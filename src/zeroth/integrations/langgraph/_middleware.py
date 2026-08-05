@@ -150,7 +150,8 @@ from zeroth.integrations.langgraph._tool_wrappers import (
 
 _TOOL_CALL_NAME = "name"
 _TOOL_CALL_ARGUMENTS = "args"
-"""The two ``ToolCall`` keys a decision is made from.
+_TOOL_CALL_ID = "id"
+"""The ``ToolCall`` keys a decision and its stable per-call identity are read from.
 
 Read by iterating the mapping once rather than by keying into it, so an object
 that answers one thing to iteration and another to a lookup cannot present a
@@ -158,14 +159,15 @@ benign call to the gate and a different one to the tool.
 """
 
 
-def _requested_call(request: object) -> tuple[object, object]:
+def _requested_call(request: object) -> tuple[object, object, str | None]:
     """Read the model's requested tool name and arguments off a middleware request.
 
     Args:
         request: The middleware request, which is not trusted to be one.
 
     Returns:
-        The requested name and arguments, both still ungated.
+        The requested name and arguments, both still ungated, plus the validated
+        stable tool-call identifier when the framework supplied one.
 
     Raises:
         UnstableToolIdentityError: If the request carries no plain ``dict`` tool
@@ -177,6 +179,7 @@ def _requested_call(request: object) -> tuple[object, object]:
         raise UnstableToolIdentityError("a governed tool call needs a plain tool-call mapping")
     name: object = None
     arguments: object = None
+    call_id: object = None
     for key, value in call.items():
         # The *key* passes the same exact-type gate every identifier in this
         # package does. A ``str`` subclass whose ``__eq__`` answers ``True`` to
@@ -189,7 +192,12 @@ def _requested_call(request: object) -> tuple[object, object]:
             name = value
         elif key == _TOOL_CALL_ARGUMENTS:
             arguments = value
-    return name, arguments
+        elif key == _TOOL_CALL_ID:
+            call_id = value
+    normalized_call_id = None if call_id is None else normalize_identifier(call_id)
+    if call_id is not None and (normalized_call_id is None or normalized_call_id != call_id):
+        raise UnstableToolIdentityError("a governed middleware call needs a stable tool-call id")
+    return name, arguments, normalized_call_id
 
 
 def _requested_tool(request: object) -> BaseTool:
@@ -211,7 +219,7 @@ def _requested_tool(request: object) -> BaseTool:
     return tool
 
 
-def _declared_binding(tool: object) -> GovernedToolBinding:
+def _declared_binding(tool: object, seams: _Seams) -> GovernedToolBinding:
     """Pin one declared tool the way a call through it will be described.
 
     Through ``_pin`` and ``_describe_base_tool``, which is what makes the
@@ -219,18 +227,12 @@ def _declared_binding(tool: object) -> GovernedToolBinding:
     inventory derived any other way could name a tool the guard would refuse to
     recognize, and the report would be about tools nothing actually governs.
 
-    **No authorization resolver is invoked.** Recording the declared inventory
-    used to ask the caller's classifier and contract resolver about each tool,
-    and a resolver is allowed to be live: asking it *consumes* an answer, so the
-    first real call was decided under the second answer and every call after it
-    was shifted by one. Declaring an inventory could therefore flip a denial into
-    an allow -- the same installation, differing only in ``expected_tools``. The
-    identity is recorded and nothing else is; the classification and the contract
-    are resolved live, per call, inside the twin :meth:`ZerothMiddleware._governed`
-    installs -- see :func:`~zeroth.integrations.langgraph._tool_wrappers._governed_action`.
+    Authorization metadata is resolved into the same immutable binding the
+    inventory records. A per-call twin must still match it before execution.
 
     Args:
         tool: The declared tool, which is not trusted to be one.
+        seams: The metadata resolvers whose normalized answers are reviewed.
 
     Returns:
         What was pinned about the tool, for the inventory only.
@@ -242,7 +244,7 @@ def _declared_binding(tool: object) -> GovernedToolBinding:
     """
     if not isinstance(tool, BaseTool):
         raise UnstableToolIdentityError("a declared tool must be a resolved BaseTool")
-    return _pin(_describe_base_tool(tool))
+    return _pin(_describe_base_tool(tool), tool, seams)
 
 
 def _matched_name(requested: object, resolved: object) -> str:
@@ -348,6 +350,8 @@ class ZerothMiddleware(AgentMiddleware):
         interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
         side_effect: Callable[[Any], Any] | None = None,
         contract_ref: Callable[[Any], Any] | None = None,
+        capability_refs: Callable[[Any], Any] | None = None,
+        requires_approval: Callable[[Any], Any] | None = None,
         expected_tools: Iterable[object] = (),
     ) -> None:
         """Pin the seams every call through this middleware is decided through.
@@ -368,6 +372,8 @@ class ZerothMiddleware(AgentMiddleware):
                 member classifies a tool; anything else leaves it unknown, and
                 unknown is denied unless *unknown_side_effect* says otherwise.
             contract_ref: An optional per-tool contract resolver.
+            capability_refs: An optional per-tool required-capability resolver.
+            requires_approval: An optional per-tool explicit-approval resolver.
             expected_tools: The tools this installation is declared to govern,
                 recorded into :attr:`tool_inventory` and reported by
                 :meth:`enforcement_report`. **Not injected**: they are not added
@@ -390,13 +396,18 @@ class ZerothMiddleware(AgentMiddleware):
         self._interrupt = interrupt
         self._side_effect = side_effect
         self._contract_ref = contract_ref
+        self._capability_refs = capability_refs
+        self._requires_approval = requires_approval
         # Materialized before anything is pinned, so a ``TypeError`` raised
         # *inside* the pinning cannot be reported as "the list was not iterable".
         try:
             declared = list(expected_tools)
         except TypeError as error:
             raise ToolGovernanceError("an expected tool list must be iterable") from error
-        self._inventory = record_binding_inventory([_declared_binding(tool) for tool in declared])
+        seams = self._seams()
+        self._inventory = record_binding_inventory(
+            [_declared_binding(tool, seams) for tool in declared]
+        )
 
     @property
     def tool_inventory(self) -> ToolInventory:
@@ -431,17 +442,17 @@ class ZerothMiddleware(AgentMiddleware):
         :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ADMISSION`
         when none were.
 
-        **The inventory is a description, never a gate.** A call naming a tool
-        nobody declared is decided exactly as any other call is: the enforcement
-        core is the only thing that refuses a call, and adding a second refusal
-        here would be the second implementation this package exists without.
+        **The inventory is not an allowlist.** A call naming a tool nobody
+        declared is still decided normally. For a declared tool, its reviewed
+        metadata is an integrity binding: a later mismatch refuses the call
+        before policy evaluation.
 
         Returns:
             What this installation enforces, and the level that supports.
         """
         return report_tool_enforcement(self._inventory)
 
-    def _seams(self) -> _Seams:
+    def _seams(self, *, tool_call_id: str | None = None) -> _Seams:
         """Render the pinned seams as the wrapping surface's own seam record.
 
         Every field is handed straight through, so a tool governed by this
@@ -459,6 +470,9 @@ class ZerothMiddleware(AgentMiddleware):
             interrupt=self._interrupt,
             side_effect=self._side_effect,
             contract_ref=self._contract_ref,
+            capability_refs=self._capability_refs,
+            requires_approval=self._requires_approval,
+            tool_call_id=tool_call_id,
         )
 
     def _governed(self, request: object) -> Any:
@@ -476,11 +490,9 @@ class ZerothMiddleware(AgentMiddleware):
         request against anything else would leave a gap between the name that was
         checked and the name that was decided.
 
-        **No authorization resolver is consumed here.** Building the twin runs
-        :func:`~zeroth.integrations.langgraph._tool_wrappers._pin`, which
-        consults neither the classifier nor the contract resolver; both are
-        resolved live, once, inside the twin's own decision. A twin built per
-        call therefore costs exactly the resolver answers one decision costs.
+        Building the twin pins each tool-only metadata seam, then the wrapper
+        rechecks it before the action. When the tool was declared in
+        ``expected_tools``, the twin must also match that reviewed inventory entry.
 
         Args:
             request: The middleware request, which is not trusted to be one.
@@ -497,9 +509,21 @@ class ZerothMiddleware(AgentMiddleware):
                 governed twin.
         """
         tool = _requested_tool(request)
-        requested_name, _arguments = _requested_call(request)
-        twin = _govern_one(tool, self._seams())
+        requested_name, _arguments, tool_call_id = _requested_call(request)
+        twin = _govern_one(tool, self._seams(tool_call_id=tool_call_id))
         _matched_name(requested_name, _peek(twin, "name"))
+        binding = _peek(twin, "zeroth_binding")
+        [current] = record_binding_inventory([binding]).entries
+        reviewed = next(
+            (
+                entry
+                for entry in self._inventory.entries
+                if entry.identity.name == current.identity.name
+            ),
+            None,
+        )
+        if reviewed is not None and current != reviewed:
+            raise ToolGovernanceError("the tool metadata changed after it was reviewed")
         return _carrying(request, twin)
 
     def wrap_tool_call(

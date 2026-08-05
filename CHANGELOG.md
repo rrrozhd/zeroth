@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.15.1] - 2026-08-05
+
+### Added
+
+- Add the signed-context LangGraph decision boundary alongside the general
+  governance enforcement API, including server-owned inventory matching,
+  per-run attestations, approval identity, heartbeat evidence, and exact
+  wrapper/middleware metadata parity.
+
+### Fixed
+
+- Bind decisions and attestations to the signed governance run identity,
+  isolate concurrent idempotent writes, fail closed on metadata drift and
+  resolver outages, and sanitize backend failures with exact-once metrics.
+
 ## [0.15.0.0.1] - 2026-08-04
 
 ### Fixed

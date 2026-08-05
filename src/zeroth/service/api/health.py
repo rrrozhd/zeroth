@@ -231,7 +231,9 @@ def langgraph_gateway_health(bootstrap: object) -> LangGraphGatewayHealth | None
     reporter = getattr(bootstrap, "langgraph_gateway_capability_reporter", None)
     level = GovernanceLevel.ADMISSION
     if reporter is not None:
+        enforcement = getattr(bootstrap, "langgraph_enforcement_service", None)
         reported = reporter.report_deployment(
+            getattr(enforcement, "deployment_evidence", None),
             graph_version=getattr(getattr(bootstrap, "deployment", None), "graph_version_ref", None)
         )
         if isinstance(reported, GovernanceLevel):

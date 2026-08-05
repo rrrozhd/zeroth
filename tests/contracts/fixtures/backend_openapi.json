@@ -1,6 +1,66 @@
 {
   "components": {
     "schemas": {
+      "ActionDescriptorV1": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "capability_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fingerprint": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "requires_approval": {
+            "default": false,
+            "type": "boolean"
+          },
+          "side_effect": {
+            "$ref": "#/components/schemas/SideEffectClass",
+            "default": "unknown"
+          },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^\\S(?:.*\\S)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
       "ActorIdentity": {
         "additionalProperties": false,
         "properties": {
@@ -932,6 +992,68 @@
         ],
         "type": "string"
       },
+      "DecisionRequestV1": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ActionDescriptorV1"
+          },
+          "context_token": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "correlation_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotency_key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "policy_version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "principal_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "context_token",
+          "tenant_id",
+          "principal_id",
+          "deployment_ref",
+          "correlation_id",
+          "run_id",
+          "policy_version",
+          "inventory_fingerprint",
+          "action"
+        ],
+        "type": "object"
+      },
       "DecisionResponse": {
         "additionalProperties": false,
         "properties": {
@@ -977,6 +1099,49 @@
           "policy_version",
           "tenant_id",
           "issued_at"
+        ],
+        "type": "object"
+      },
+      "DecisionResponseV1": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ToolDecisionKind"
+          },
+          "decision_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decision_id",
+          "idempotency_key",
+          "decision",
+          "reason_code",
+          "policy_version"
         ],
         "type": "object"
       },
@@ -1901,6 +2066,54 @@
         ],
         "type": "object"
       },
+      "HeartbeatV1": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "default": "1",
+            "minLength": 1,
+            "type": "string"
+          },
+          "context_token": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "graph_version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "principal_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "context_token",
+          "tenant_id",
+          "principal_id",
+          "deployment_ref",
+          "graph_version",
+          "inventory_fingerprint"
+        ],
+        "type": "object"
+      },
       "HumanInteractionType": {
         "enum": [
           "approval",
@@ -1928,6 +2141,115 @@
           "registration_id",
           "deployment_ref",
           "registered_at"
+        ],
+        "type": "object"
+      },
+      "InventoryCoverage": {
+        "enum": [
+          "partial",
+          "complete"
+        ],
+        "type": "string"
+      },
+      "InventoryEntryV1": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fingerprint": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "requires_approval": {
+            "default": false,
+            "type": "boolean"
+          },
+          "side_effect": {
+            "$ref": "#/components/schemas/SideEffectClass",
+            "default": "unknown"
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
+      "InventoryRegistrationV1": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "default": "1",
+            "minLength": 1,
+            "type": "string"
+          },
+          "context_token": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/InventoryCoverage"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/InventoryEntryV1"
+            },
+            "type": "array"
+          },
+          "graph_version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "principal_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "context_token",
+          "tenant_id",
+          "principal_id",
+          "deployment_ref",
+          "graph_version",
+          "coverage",
+          "entries",
+          "inventory_fingerprint"
         ],
         "type": "object"
       },
@@ -3056,6 +3378,131 @@
         ],
         "type": "object"
       },
+      "RunAttestationV1": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "default": "1",
+            "minLength": 1,
+            "type": "string"
+          },
+          "claimed_level": {
+            "$ref": "#/components/schemas/GovernanceLevel",
+            "default": "observed"
+          },
+          "context_token": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "correlation_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "deployment_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "graph_version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "inventory_fingerprint": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "principal_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "context_token",
+          "tenant_id",
+          "principal_id",
+          "deployment_ref",
+          "correlation_id",
+          "graph_version",
+          "inventory_fingerprint"
+        ],
+        "type": "object"
+      },
+      "RunCapabilityEvidence": {
+        "properties": {
+          "adapter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "correlation_id": {
+            "type": "string"
+          },
+          "governance_level": {
+            "$ref": "#/components/schemas/GovernanceLevel"
+          },
+          "graph_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inventory_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signature_valid": {
+            "default": false,
+            "type": "boolean"
+          },
+          "tool_manifest_complete": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "correlation_id",
+          "governance_level",
+          "observed_at"
+        ],
+        "type": "object"
+      },
       "RunEnforcementStatus": {
         "additionalProperties": false,
         "properties": {
@@ -3473,6 +3920,14 @@
         ],
         "type": "string"
       },
+      "SideEffectClass": {
+        "enum": [
+          "read_only",
+          "side_effecting",
+          "unknown"
+        ],
+        "type": "string"
+      },
       "SpendReport": {
         "additionalProperties": false,
         "properties": {
@@ -3806,6 +4261,14 @@
           "alias"
         ],
         "type": "object"
+      },
+      "ToolDecisionKind": {
+        "enum": [
+          "allow",
+          "deny",
+          "require_approval"
+        ],
+        "type": "string"
       },
       "UnitEconomicsReport": {
         "additionalProperties": false,
@@ -7040,6 +7503,178 @@
               }
             }
           },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/langgraph/deployments/{deployment_ref}/attestations": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunAttestationV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCapabilityEvidence"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/langgraph/deployments/{deployment_ref}/decisions": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequestV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionResponseV1"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/langgraph/deployments/{deployment_ref}/heartbeat": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/langgraph/deployments/{deployment_ref}/inventories": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryRegistrationV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
           "422": {
             "content": {
               "application/json": {

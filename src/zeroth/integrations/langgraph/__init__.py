@@ -131,6 +131,8 @@ from zeroth.integrations.langgraph._wrapper import (
 
 _LAZY_EXPORTS = {
     "emit_genai_spans": "zeroth.integrations.langgraph._genai_emit",
+    "LangGraphGatewayClient": "zeroth.integrations.langgraph._gateway_client",
+    "LangGraphGatewayError": "zeroth.integrations.langgraph._gateway_client",
     "govern_tools": "zeroth.integrations.langgraph._tool_wrappers",
     "GovernedTool": "zeroth.integrations.langgraph._tool_wrappers",
     "ZerothMiddleware": "zeroth.integrations.langgraph._middleware",
@@ -194,6 +196,8 @@ __all__ = [
     "SideEffectClass",
     "ToolDecisionClient",
     "FailClosedToolDecisionClient",
+    "LangGraphGatewayClient",
+    "LangGraphGatewayError",
     "HttpToolDecisionClient",
     "DEFAULT_DECISION_TIMEOUT_SECONDS",
     "UnknownSideEffectPolicy",

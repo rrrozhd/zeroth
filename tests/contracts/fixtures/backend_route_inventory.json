@@ -670,6 +670,38 @@
   {
     "kind": "APIRoute",
     "methods": [
+      "POST"
+    ],
+    "name": "decide",
+    "path": "/v1/langgraph/deployments/{deployment_ref}/decisions"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "register_inventory",
+    "path": "/v1/langgraph/deployments/{deployment_ref}/inventories"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "attest",
+    "path": "/v1/langgraph/deployments/{deployment_ref}/attestations"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "heartbeat",
+    "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
       "GET"
     ],
     "name": "regulus_dashboard_kpis",

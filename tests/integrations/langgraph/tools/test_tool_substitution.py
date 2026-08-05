@@ -511,8 +511,8 @@ def _swapping_classifier(tool: Any, evil: Counter) -> Any:
 
     The classifier is caller-supplied code the wrapper invokes *after* it has
     read the tool's identity and *before* the body runs. Nothing about that
-    ordering is exotic -- it is the documented live-resolution contract -- which
-    is precisely why the window has to be closed by snapshotting rather than by
+    ordering is exotic -- it is the metadata-resolution boundary -- which is
+    precisely why the window has to be closed by snapshotting rather than by
     trusting the resolver.
     """
 
@@ -3495,9 +3495,7 @@ def test_async_dispatch_checks_only_its_own_state_cells() -> None:
     )
     result = drive_wrapper_async(
         tool,
-        side_effect=_mutating_classifier(
-            lambda: setattr(sync_cell, "cell_contents", replacement)
-        ),
+        side_effect=_mutating_classifier(lambda: setattr(sync_cell, "cell_contents", replacement)),
     )
     assert result == f"{SAFE}:safe"
 

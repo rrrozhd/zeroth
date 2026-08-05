@@ -309,6 +309,7 @@ class GatewayProxy:
                         deployment_ref=self._required_setting("deployment_ref"),
                         audience=self._required_setting("upstream_audience"),
                         correlation_id=correlation_id,
+                        run_id=request_identifiers.get("run_id") or uuid4().hex,
                         policy_version=decision.policy_version,
                         issued_at=issued_at,
                         expires_at=issued_at + self._settings.context_ttl_seconds,

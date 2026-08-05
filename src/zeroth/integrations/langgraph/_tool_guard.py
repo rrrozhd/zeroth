@@ -199,6 +199,11 @@ def _require_stable_identity(action: object) -> ToolAction:
         raise UnstableToolIdentityError("tool name is not a usable identifier")
     if normalize_identifier(identity.fingerprint) is None:
         raise UnstableToolIdentityError("tool fingerprint is not a usable identifier")
+    if (
+        action.tool_call_id is not None
+        and normalize_identifier(action.tool_call_id) != action.tool_call_id
+    ):
+        raise UnstableToolIdentityError("tool-call id is not a stable identifier")
     return action
 
 
@@ -349,6 +354,7 @@ def _approval_payload(
         "correlation_id": governance.correlation_id,
         "tool_name": action.identity.name,
         "tool_fingerprint": action.identity.fingerprint,
+        "tool_call_id": action.tool_call_id,
         "argument_fingerprint": argument_fingerprint(action.arguments),
         "contract_ref": normalize_identifier(action.contract_ref),
         "side_effect": _side_effect_term(action.side_effect),

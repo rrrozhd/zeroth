@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
@@ -14,7 +15,13 @@ class CapabilityEvidenceProvider(Protocol):
     """Read attested evidence without prescribing its eventual storage."""
 
     async def evidence_for_run(self, correlation_id: str) -> RunCapabilityEvidence | None:
-        """Return evidence for this exact run, or ``None``."""
+        """Return evidence for a legacy correlation ID, if unambiguous."""
+        ...
+
+    async def evidence_for_governance_run(
+        self, governance_run_id: str
+    ) -> RunCapabilityEvidence | None:
+        """Return evidence for this exact signed governance run ID."""
         ...
 
 
@@ -22,6 +29,11 @@ class NoCapabilityEvidenceProvider:
     """Foundation provider: gateway-only deployments have no adapter evidence."""
 
     async def evidence_for_run(self, correlation_id: str) -> None:
+        """Accept a legacy correlation ID without reporting evidence."""
+        return None
+
+    async def evidence_for_governance_run(self, governance_run_id: str) -> None:
+        """Accept a governance run ID without reporting evidence."""
         return None
 
 
@@ -36,8 +48,10 @@ class CapabilityReporter:
         self,
         evidence_provider: CapabilityEvidenceProvider | None = None,
         *,
+        governance_evidence_provider: CapabilityEvidenceProvider | None = None,
         stale_after_seconds: float = 90.0,
         expected_graph_version: str | None = None,
+        expected_adapter_version: str | None = None,
         now: Callable[[], datetime] = _utc_now,
     ) -> None:
         if not math.isfinite(stale_after_seconds) or stale_after_seconds <= 0:
@@ -45,19 +59,28 @@ class CapabilityReporter:
         self._evidence_provider = (
             NoCapabilityEvidenceProvider() if evidence_provider is None else evidence_provider
         )
+        self._governance_evidence_provider = (
+            self._evidence_provider
+            if governance_evidence_provider is None
+            else governance_evidence_provider
+        )
         self._stale_after_seconds = stale_after_seconds
         self._expected_graph_version = expected_graph_version
+        self._expected_adapter_version = expected_adapter_version
         self._now = now
 
     def _validated_level(
         self,
         evidence: RunCapabilityEvidence | None,
         *,
+        governance_run_id: str | None = None,
         correlation_id: str | None = None,
         graph_version: str | None = None,
     ) -> GovernanceLevel:
         try:
             if evidence is None or not evidence.signature_valid:
+                return GovernanceLevel.ADMISSION
+            if governance_run_id is not None and evidence.run_id != governance_run_id:
                 return GovernanceLevel.ADMISSION
             if correlation_id is not None and evidence.correlation_id != correlation_id:
                 return GovernanceLevel.ADMISSION
@@ -68,6 +91,11 @@ class CapabilityReporter:
             if (
                 expected_graph_version is not None
                 and evidence.graph_version != expected_graph_version
+            ):
+                return GovernanceLevel.ADMISSION
+            if (
+                self._expected_adapter_version is not None
+                and evidence.adapter_version != self._expected_adapter_version
             ):
                 return GovernanceLevel.ADMISSION
 
@@ -99,7 +127,12 @@ class CapabilityReporter:
         graph_version: str | None = None,
         deployment_evidence: RunCapabilityEvidence | None = None,
     ) -> GovernanceLevel:
-        """Report a run from its own attestation; heartbeat evidence cannot upgrade it."""
+        """Report legacy correlation evidence, if unambiguous. Deprecated."""
+        warnings.warn(
+            "level_for_run() is deprecated; use level_for_governance_run()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         del deployment_evidence
         try:
             evidence = await self._evidence_provider.evidence_for_run(correlation_id)
@@ -108,6 +141,25 @@ class CapabilityReporter:
         return self._validated_level(
             evidence,
             correlation_id=correlation_id,
+            graph_version=graph_version,
+        )
+
+    async def level_for_governance_run(
+        self,
+        governance_run_id: str,
+        *,
+        graph_version: str | None = None,
+    ) -> GovernanceLevel:
+        """Report capability for an exact signed governance run ID."""
+        try:
+            evidence = await self._governance_evidence_provider.evidence_for_governance_run(
+                governance_run_id
+            )
+        except Exception:
+            return GovernanceLevel.ADMISSION
+        return self._validated_level(
+            evidence,
+            governance_run_id=governance_run_id,
             graph_version=graph_version,
         )
 
@@ -126,8 +178,19 @@ class CapabilityReporter:
         *,
         graph_version: str | None = None,
     ) -> GovernanceLevel:
-        """Compatibility alias for consumers phrased in reporting terms."""
+        """Deprecated compatibility alias using legacy correlation semantics."""
         return await self.level_for_run(correlation_id, graph_version=graph_version)
+
+    async def report_governance_run(
+        self,
+        governance_run_id: str,
+        *,
+        graph_version: str | None = None,
+    ) -> GovernanceLevel:
+        """Reporting alias for an exact signed governance run ID."""
+        return await self.level_for_governance_run(
+            governance_run_id, graph_version=graph_version
+        )
 
     def report_deployment(
         self,

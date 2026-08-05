@@ -317,22 +317,32 @@ _ZEROTH_FAILURE_CODES: frozenset[str] = frozenset(
 # same edit that would add a branch.
 _DENIAL_REASON_CODES: frozenset[str] = frozenset(
     {
+        "budget_denied",
         "budget_exceeded",
         "capability_denied",
         "classifier_unavailable",
         "command_not_allowed",
         "no_trusted_digest_registered",
+        "enforcement_unavailable",
+        "policy_denied",
         "policy_unavailable",
         "policy_violation",
         "runtime_not_allowed",
         "trusted_digest",
         "trusted_digest_mismatch",
+        "unknown_action",
         "unknown_error",
     }
 )
+_DECISION_REASON_CODES: frozenset[str] = frozenset(
+    {"allowed", "approval_required", "policy_version_mismatch"}
+)
 
 REASON_CODES: frozenset[str] = (
-    _ZEROTH_FAILURE_CODES | _DENIAL_REASON_CODES | _builtin_failure_codes()
+    _ZEROTH_FAILURE_CODES
+    | _DENIAL_REASON_CODES
+    | _DECISION_REASON_CODES
+    | _builtin_failure_codes()
 )
 
 # Every key the projection retains as readable text, with the closed set of

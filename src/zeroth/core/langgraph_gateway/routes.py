@@ -192,13 +192,15 @@ class WebSocketGatewayHandler:
             raise WebSocketGatewayCloseError(4503, "zeroth.context_signing_unavailable")
 
         issued_at = int(self._clock())
+        correlation_id = self._correlation_id(websocket)
         claims = ReservedContextClaims(
             tenant_id=principal.tenant_id,
             principal_id=principal.subject,
             roles=tuple(str(role) for role in principal.roles),
             deployment_ref=self._required_setting("deployment_ref"),
             audience=self._required_setting("upstream_audience"),
-            correlation_id=self._correlation_id(websocket),
+            correlation_id=correlation_id,
+            run_id=_optional_identifier(params.get("run_id")) or uuid4().hex,
             policy_version=decision.policy_version,
             issued_at=issued_at,
             expires_at=issued_at + self._settings.context_ttl_seconds,

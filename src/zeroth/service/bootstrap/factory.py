@@ -13,6 +13,11 @@ from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.core.langgraph_gateway.compatibility import CompatibilityDetector
 from zeroth.core.langgraph_gateway.context import ReservedContextCodec
+from zeroth.core.langgraph_gateway.enforcement import (
+    LangGraphEnforcementRepository,
+    LangGraphEnforcementService,
+    StoredCapabilityEvidenceProvider,
+)
 from zeroth.core.langgraph_gateway.events import AuditGatewayEventSink
 from zeroth.core.langgraph_gateway.models import CompatibilityResult
 from zeroth.core.langgraph_gateway.proxy import GatewayProxy
@@ -23,9 +28,7 @@ from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.approvals.notifications import build_approval_notifier
 from zeroth.governance.attestations.heartbeat import HeartbeatRepository
-from zeroth.governance.attestations.provider import (
-    PersistedCapabilityEvidenceProvider,
-)
+from zeroth.governance.attestations.provider import PersistedCapabilityEvidenceProvider
 from zeroth.governance.attestations.store import (
     InventoryRegistrationRepository,
     RunAttestationRepository,
@@ -569,6 +572,7 @@ async def bootstrap_service(
     gateway_transport: HTTPGatewayTransport | None = None
     gateway_compatibility: CompatibilityResult | None = None
     gateway_capability_reporter: object | None = None
+    langgraph_enforcement_service: object | None = None
     gateway_websocket_handler: object | None = None
     audit_delivery_queue: AuditDeliveryQueue | None = None
     gateway_settings = settings.langgraph_gateway
@@ -604,6 +608,22 @@ async def bootstrap_service(
                 timeout_seconds=gateway_settings.connect_timeout_seconds,
             )
             gateway_compatibility = await detector.detect()
+            langgraph_enforcement_repository = LangGraphEnforcementRepository(database)
+            langgraph_enforcement_service = LangGraphEnforcementService(
+                langgraph_enforcement_repository,
+                codec=context_codec,
+                signer=signer,
+                policy_guard=policy_guard,
+                budget_checker=budget_enforcer,
+                metrics=metrics_collector,
+                deployment_ref=str(gateway_settings.deployment_ref),
+                audience=str(gateway_settings.upstream_audience),
+                expected_graph_version=deployment.graph_version_ref,
+                policy_bindings=gateway_settings.policy_bindings,
+                expected_inventory_fingerprint=(
+                    gateway_settings.expected_tool_inventory_fingerprint
+                ),
+            )
             # ZER-8 S8: the reporter is given the VERIFYING provider, never left
             # on its ``NoCapabilityEvidenceProvider`` default. That default
             # returns no evidence, and no evidence can be ENFORCED -- so an
@@ -622,6 +642,12 @@ async def bootstrap_service(
                     tenant_id=deployment.tenant_id,
                     deployment_ref=deployment.deployment_ref,
                     expected_graph_version=deployment.graph_version_ref,
+                ),
+                governance_evidence_provider=StoredCapabilityEvidenceProvider(
+                    langgraph_enforcement_repository,
+                    signer,
+                    tenant_id=deployment.tenant_id,
+                    deployment_ref=str(gateway_settings.deployment_ref),
                 ),
                 stale_after_seconds=gateway_settings.stale_threshold_seconds,
                 expected_graph_version=deployment.graph_version_ref,
@@ -710,6 +736,7 @@ async def bootstrap_service(
             langgraph_gateway_transport=gateway_transport,
             langgraph_gateway_compatibility=gateway_compatibility,
             langgraph_gateway_capability_reporter=gateway_capability_reporter,
+            langgraph_enforcement_service=langgraph_enforcement_service,
             langgraph_gateway_websocket_handler=gateway_websocket_handler,
             audit_delivery_queue=audit_delivery_queue,
             retention_policy_repository=retention_policy_repository,

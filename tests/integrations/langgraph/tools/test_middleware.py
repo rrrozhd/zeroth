@@ -382,6 +382,44 @@ def test_an_approval_suspends_before_the_tool_body_is_reached() -> None:
     assert body.calls == 0
     assert len(pause.payloads) == 1
     assert pause.payloads[0]["approval_ref"] == "approval-7"
+    assert pause.payloads[0]["tool_call_id"] == "call-1"
+
+
+def test_middleware_preserves_the_stable_tool_call_id() -> None:
+    client = CountingClient(verdict=ALLOW)
+    guard = middleware(client=client)
+
+    guard.wrap_tool_call(
+        build_request(build_tool(), call_id="call-stable-7"),
+        Handler(),
+    )
+
+    assert client.seen[0].tool_call_id == "call-stable-7"
+
+
+def test_middleware_allows_an_idless_non_approval_call() -> None:
+    body = Body()
+    client = CountingClient(verdict=ALLOW)
+    request = build_request(build_tool(body=body))
+    request.tool_call["id"] = None
+
+    assert middleware(client=client).wrap_tool_call(request, Handler()) == BODY_RESULT
+
+    assert body.calls == 1
+    assert client.calls == 1
+    assert client.seen[0].tool_call_id is None
+
+
+@pytest.mark.parametrize("call_id", ["", "  call-1  ", HostileStr("call-1")])
+def test_middleware_refuses_an_unstable_tool_call_id(call_id: object) -> None:
+    request = build_request(build_tool())
+    request.tool_call["id"] = call_id
+    handler = Handler()
+
+    with pytest.raises(UnstableToolIdentityError):
+        middleware().wrap_tool_call(request, handler)
+
+    assert handler.calls == 0
 
 
 def test_an_async_approval_suspends_before_the_tool_body_is_reached() -> None:
@@ -1066,8 +1104,8 @@ def test_the_declared_inventory_fingerprints_a_tool_as_the_decision_does() -> No
     assert entry.identity == action.identity
 
 
-def test_an_undeclared_tool_is_still_decided_and_the_inventory_gates_nothing() -> None:
-    """The report is a description of the surface, never a second refusal on it."""
+def test_an_undeclared_tool_is_still_decided() -> None:
+    """The reviewed inventory is not an allowlist for otherwise valid calls."""
     client = CountingClient()
     body = Body()
     guard = middleware(client=client, expected_tools=[build_tool("search")])
@@ -1144,8 +1182,7 @@ def _consuming_resolvers() -> tuple[Any, Any, list[int], list[int]]:
     return classifier, contract, classifications, contracts
 
 
-def test_recording_the_declared_inventory_consults_no_authorization_resolver() -> None:
-    """Construction resolves nothing: the counts are exactly zero, not merely small."""
+def test_recording_the_declared_inventory_resolves_reviewed_authorization_metadata() -> None:
     classifier, contract, classifications, contracts = _consuming_resolvers()
 
     ZerothMiddleware(
@@ -1156,8 +1193,8 @@ def test_recording_the_declared_inventory_consults_no_authorization_resolver() -
         expected_tools=[build_tool()],
     )
 
-    assert classifications == []
-    assert contracts == []
+    assert classifications == [1]
+    assert contracts == [1]
 
 
 def test_declaring_an_inventory_cannot_change_how_the_next_call_is_decided() -> None:
@@ -1181,7 +1218,7 @@ def test_declaring_an_inventory_cannot_change_how_the_next_call_is_decided() -> 
         )
         try:
             guard.wrap_tool_call(build_request(build_tool(body=body)), Handler())
-        except PolicyViolation:
+        except ToolGovernanceError:
             verdicts.append(("denied", body.calls))
         else:
             verdicts.append(("allowed", body.calls))
@@ -1523,7 +1560,7 @@ def test_an_already_governed_tool_is_refused_by_govern_tools() -> None:
     tool = build_tool()
     [governed] = govern_tools([tool], context=THREADED, client=CountingClient())
 
-    with pytest.raises(UnstableToolIdentityError, match="_to_args_and_kwargs"):
+    with pytest.raises(UnstableToolIdentityError, match="already governed"):
         govern_tools([governed], context=THREADED, client=CountingClient())
 
 
@@ -1542,7 +1579,7 @@ def test_an_already_governed_tool_is_refused_by_the_middleware_too() -> None:
     )
     guard = middleware()
 
-    with pytest.raises(UnstableToolIdentityError, match="_to_args_and_kwargs"):
+    with pytest.raises(UnstableToolIdentityError, match="already governed"):
         guard.wrap_tool_call(build_request(governed), handler)
 
     assert body.calls == 0
@@ -1568,17 +1605,7 @@ class CountingResolver:
         return self.answer
 
 
-def test_a_middleware_call_consumes_exactly_one_answer_from_each_resolver() -> None:
-    """The per-call resolver cost is unchanged from before the twin existed.
-
-    Measured against ``e556c04f``, one ``wrap_tool_call`` consumed exactly one
-    classification and one contract answer, and installing with a declared
-    ``expected_tools`` consumed none. A twin built per call goes through ``_pin``,
-    which consults neither resolver, so the numbers have to be identical -- if
-    they were not, a live resolver would be shifted by one answer per call and the
-    call would be decided under the wrong one. That is the C2-6 defect, one layer
-    up from where it was fixed.
-    """
+def test_a_middleware_call_rechecks_each_resolver_before_execution() -> None:
     for declared in ((), (build_tool(),)):
         side = CountingResolver(SideEffectClass.READ_ONLY)
         contract = CountingResolver("contract:v1")
@@ -1590,13 +1617,14 @@ def test_a_middleware_call_consumes_exactly_one_answer_from_each_resolver() -> N
             expected_tools=declared,
         )
 
-        assert (side.calls, contract.calls) == (0, 0)
+        installed = 1 if declared else 0
+        assert (side.calls, contract.calls) == (installed, installed)
 
         guard.wrap_tool_call(build_request(build_tool()), Handler())
-        assert (side.calls, contract.calls) == (1, 1)
+        assert (side.calls, contract.calls) == (installed + 2, installed + 2)
 
         asyncio.run(guard.awrap_tool_call(build_request(build_async_tool()), Handler().acall))
-        assert (side.calls, contract.calls) == (2, 2)
+        assert (side.calls, contract.calls) == (installed + 4, installed + 4)
 
 
 def test_a_tool_with_an_injected_state_argument_is_refused_rather_than_half_decided() -> None:

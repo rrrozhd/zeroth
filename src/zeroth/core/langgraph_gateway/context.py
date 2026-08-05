@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import inspect
 import json
 import math
 import re
@@ -49,6 +50,7 @@ class ReservedContextClaims(BaseModel):
     deployment_ref: StrictStr
     audience: StrictStr
     correlation_id: StrictStr
+    run_id: StrictStr | None = None
     policy_version: StrictStr
     issued_at: StrictInt
     expires_at: StrictInt
@@ -59,6 +61,15 @@ class ReservedContextClaims(BaseModel):
     def sort_roles(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         """Make role ordering deterministic before serialization and comparison."""
         return tuple(sorted(value))
+
+
+ReservedContextClaims.__signature__ = inspect.signature(ReservedContextClaims).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(ReservedContextClaims).parameters.items()
+        if name != "run_id"
+    ]
+)
 
 
 class ReservedContextCodec:

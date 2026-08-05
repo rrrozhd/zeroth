@@ -116,7 +116,12 @@ class ContextSubclass(ToolGovernanceContext):
 def test_normalization_populates_every_field_of_the_decision_input() -> None:
     # R3: what a policy is handed is fully built first -- not a name plus a bag
     # of whatever the caller passed, assembled as the decision is made.
-    normalized = action(identity_material={"schema": {"query": "string"}}, contract_ref="c:search")
+    normalized = action(
+        identity_material={"schema": {"query": "string"}},
+        contract_ref="c:search",
+        capability_refs=("network_read",),
+        requires_approval=True,
+    )
 
     assert normalized.identity.name == "search"
     assert len(normalized.identity.fingerprint) == 64
@@ -124,6 +129,8 @@ def test_normalization_populates_every_field_of_the_decision_input() -> None:
     assert normalized.contract_ref == "c:search"
     assert normalized.principal_id == "principal-1"
     assert normalized.side_effect is SideEffectClass.READ_ONLY
+    assert normalized.capability_refs == ("network_read",)
+    assert normalized.requires_approval is True
 
 
 def imported_modules(module: object) -> set[str]:

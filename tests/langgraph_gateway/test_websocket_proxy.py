@@ -553,6 +553,7 @@ async def test_governed_in_band_commands_admit_and_replace_spoofed_identity(meth
         "principal_id": "attacker",
         "params": {
             "assistant_id": "assistant-a",
+            "run_id": "run-ws",
             "input": {"message": "hello"},
             "metadata": {"_zeroth": "forged"},
             "config": {"configurable": {"_zeroth": "forged"}},
@@ -571,9 +572,42 @@ async def test_governed_in_band_commands_admit_and_replace_spoofed_identity(meth
     assert claims.principal_id == "real-user"
     assert claims.tenant_id == "tenant-a"
     assert claims.correlation_id == "corr-ws"
+    assert claims.run_id == "run-ws"
     assert claims.content_classification == "internal"
     assert policy.requests[0].principal_id == "real-user"
     assert policy.requests[0].thread_id == "thread-a"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_run_start_without_run_id_mints_distinct_signed_governance_run_nonces():
+    active, _, codec, transport = handler("http://127.0.0.1:9")
+    websocket = MemoryWebSocket()
+    websocket.state.principal = principal()
+    websocket.state.correlation_id = "caller-reused"
+    payload = json.dumps(
+        {
+            "id": 1,
+            "method": "run.start",
+            "params": {"assistant_id": "assistant-a", "input": {"message": "hello"}},
+        }
+    )
+
+    transformed = [
+        json.loads(await active.transform_client_message(websocket, payload)) for _ in range(2)
+    ]
+    claims = [
+        codec.decode(
+            item["params"]["config"]["configurable"]["_zeroth"],
+            audience="agent-server:fixture",
+            deployment_ref="deployment-a",
+        )
+        for item in transformed
+    ]
+
+    assert [claim.correlation_id for claim in claims] == ["caller-reused", "caller-reused"]
+    assert claims[0].run_id != claims[1].run_id
+    assert all(claim.run_id not in {None, "caller-reused"} for claim in claims)
     await transport.aclose()
 
 

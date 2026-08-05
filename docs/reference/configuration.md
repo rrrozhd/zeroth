@@ -272,6 +272,7 @@ Configuration for the optional Agent Server-compatible gateway.
 | `ZEROTH_LANGGRAPH_GATEWAY__MAX_GOVERNED_BODY_BYTES` | `int` | `1048576` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__UNKNOWN_ENDPOINT_MODE` | `Literal[deny, pass_ungoverned]` | `"deny"` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__POLICY_BINDINGS` | `tuple[str, Ellipsis]` | `()` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__EXPECTED_TOOL_INVENTORY_FINGERPRINT` | `str \| None` | `None` |  | Server-owned canonical tool-inventory digest required for ENFORCED evidence; missing or mismatched values remain OBSERVED |
 | `ZEROTH_LANGGRAPH_GATEWAY__SUPPORTED_LANGGRAPH_VERSIONS` | `tuple[str, Ellipsis]` | `('1.2.9',)` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__SUPPORTED_AGENT_SERVER_VERSIONS` | `tuple[str, Ellipsis]` | `('0.11.1',)` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__HEARTBEAT_INTERVAL_SECONDS` | `int` | `30` |  |  |

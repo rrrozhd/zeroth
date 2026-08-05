@@ -169,6 +169,14 @@ def test_unknown_routes_default_to_deny():
     assert settings.unknown_endpoint_mode == "deny"
 
 
+def test_expected_inventory_fingerprint_requires_canonical_sha256():
+    with pytest.raises(ValidationError):
+        LangGraphGatewaySettings(expected_tool_inventory_fingerprint="sha256:not-a-digest")
+    fingerprint = "sha256:" + "a" * 64
+    settings = LangGraphGatewaySettings(expected_tool_inventory_fingerprint=fingerprint)
+    assert settings.expected_tool_inventory_fingerprint == fingerprint
+
+
 def test_supported_versions_are_pinned_and_immutable():
     settings = LangGraphGatewaySettings()
 

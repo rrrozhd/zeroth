@@ -1687,6 +1687,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/langgraph/deployments/{deployment_ref}/attestations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Attest */
+        post: operations["attest_v1_langgraph_deployments__deployment_ref__attestations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/langgraph/deployments/{deployment_ref}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide */
+        post: operations["decide_v1_langgraph_deployments__deployment_ref__decisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/langgraph/deployments/{deployment_ref}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Heartbeat */
+        post: operations["heartbeat_v1_langgraph_deployments__deployment_ref__heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/langgraph/deployments/{deployment_ref}/inventories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register Inventory */
+        post: operations["register_inventory_v1_langgraph_deployments__deployment_ref__inventories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/manifests": {
         parameters: {
             query?: never;
@@ -2097,6 +2165,36 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActionDescriptorV1
+         * @description Canonical policy input for one tool call.
+         */
+        ActionDescriptorV1: {
+            /** Arguments */
+            arguments?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Capability Refs
+             * @default []
+             */
+            capability_refs: string[];
+            /** Contract Ref */
+            contract_ref?: string | null;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Name */
+            name: string;
+            /**
+             * Requires Approval
+             * @default false
+             */
+            requires_approval: boolean;
+            /** @default unknown */
+            side_effect: components["schemas"]["SideEffectClass"];
+            /** Tool Call Id */
+            tool_call_id?: string | null;
+        };
         /**
          * ActorIdentity
          * @description Stable actor identity recorded on runs, approvals, and audits.
@@ -2655,6 +2753,37 @@ export interface components {
          */
         DecisionKind: "allow" | "deny" | "require_approval";
         /**
+         * DecisionRequestV1
+         * @description Authenticated, versioned decision request.
+         */
+        DecisionRequestV1: {
+            action: components["schemas"]["ActionDescriptorV1"];
+            /** Context Token */
+            context_token: string;
+            /** Correlation Id */
+            correlation_id: string;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Inventory Fingerprint */
+            inventory_fingerprint: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Principal Id */
+            principal_id: string;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
          * DecisionResponse
          * @description One versioned verdict as it was recorded and is re-served.
          *
@@ -2693,6 +2822,29 @@ export interface components {
             schema_version: 1;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /**
+         * DecisionResponseV1
+         * @description Stable idempotent decision result.
+         */
+        DecisionResponseV1: {
+            /** Approval Ref */
+            approval_ref?: string | null;
+            decision: components["schemas"]["ToolDecisionKind"];
+            /** Decision Id */
+            decision_id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Reason Code */
+            reason_code: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
         };
         /**
          * DecisionSubmission
@@ -3247,6 +3399,35 @@ export interface components {
             reported_level: string;
         };
         /**
+         * HeartbeatV1
+         * @description Authenticated liveness signal for one registered adapter inventory.
+         */
+        HeartbeatV1: {
+            /**
+             * Adapter Version
+             * @default 1
+             */
+            adapter_version: string;
+            /** Context Token */
+            context_token: string;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Version */
+            graph_version: string;
+            /** Inventory Fingerprint */
+            inventory_fingerprint: string;
+            /** Principal Id */
+            principal_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
          * HumanInteractionType
          * @description The kind of interaction the system is requesting from a human.
          *
@@ -3269,6 +3450,72 @@ export interface components {
             registered_at: string;
             /** Registration Id */
             registration_id: string;
+        };
+        /**
+         * InventoryCoverage
+         * @description Whether a tool inventory saw every tool the run can reach.
+         *
+         *     An inventory built by walking a compiled graph can miss tools bound at call
+         *     time, so a consumer must be able to tell "no dangerous tool is present" from
+         *     "no dangerous tool was visible".
+         * @enum {string}
+         */
+        InventoryCoverage: "partial" | "complete";
+        /**
+         * InventoryEntryV1
+         * @description Server-registered identity and contract facts for one tool.
+         */
+        InventoryEntryV1: {
+            /**
+             * Capability Refs
+             * @default []
+             */
+            capability_refs: string[];
+            /** Contract Ref */
+            contract_ref?: string | null;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Name */
+            name: string;
+            /**
+             * Requires Approval
+             * @default false
+             */
+            requires_approval: boolean;
+            /** @default unknown */
+            side_effect: components["schemas"]["SideEffectClass"];
+        };
+        /**
+         * InventoryRegistrationV1
+         * @description Versioned tool-inventory registration.
+         */
+        InventoryRegistrationV1: {
+            /**
+             * Adapter Version
+             * @default 1
+             */
+            adapter_version: string;
+            /** Context Token */
+            context_token: string;
+            coverage: components["schemas"]["InventoryCoverage"];
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Entries */
+            entries: components["schemas"]["InventoryEntryV1"][];
+            /** Graph Version */
+            graph_version: string;
+            /** Inventory Fingerprint */
+            inventory_fingerprint: string;
+            /** Principal Id */
+            principal_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Tenant Id */
+            tenant_id: string;
         };
         /**
          * InventorySubmission
@@ -3904,6 +4151,71 @@ export interface components {
             target_graph_version: number;
         };
         /**
+         * RunAttestationV1
+         * @description Run-start claim authenticated by reserved context and signed by Zeroth.
+         */
+        RunAttestationV1: {
+            /**
+             * Adapter Version
+             * @default 1
+             */
+            adapter_version: string;
+            /** @default observed */
+            claimed_level: components["schemas"]["GovernanceLevel"];
+            /** Context Token */
+            context_token: string;
+            /** Correlation Id */
+            correlation_id: string;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Version */
+            graph_version: string;
+            /** Inventory Fingerprint */
+            inventory_fingerprint: string;
+            /** Principal Id */
+            principal_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
+         * RunCapabilityEvidence
+         * @description Attested evidence used to clamp a run's reported governance level.
+         */
+        RunCapabilityEvidence: {
+            /** Adapter Version */
+            adapter_version?: string | null;
+            /** Correlation Id */
+            correlation_id: string;
+            governance_level: components["schemas"]["GovernanceLevel"];
+            /** Graph Version */
+            graph_version?: string | null;
+            /** Inventory Fingerprint */
+            inventory_fingerprint?: string | null;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Run Id */
+            run_id?: string | null;
+            /**
+             * Signature Valid
+             * @default false
+             */
+            signature_valid: boolean;
+            /**
+             * Tool Manifest Complete
+             * @default false
+             */
+            tool_manifest_complete: boolean;
+        };
+        /**
          * RunEnforcementStatus
          * @description One run's governance level, recomputed from stored evidence.
          */
@@ -4068,6 +4380,17 @@ export interface components {
          * @enum {string}
          */
         ServiceRole: "operator" | "reviewer" | "admin" | "platform_admin";
+        /**
+         * SideEffectClass
+         * @description How consequential invoking a tool is, as far as the classifier can tell.
+         *
+         *     ``UNKNOWN`` is a real member, not a placeholder: an unclassified tool must
+         *     be distinguishable from one positively known to be read-only, because a
+         *     policy that waves through read-only calls must not wave through the ones
+         *     nobody classified.
+         * @enum {string}
+         */
+        SideEffectClass: "read_only" | "side_effecting" | "unknown";
         /**
          * SpendReport
          * @description Deployment-wide spend attribution, ranked by right-sizing opportunity.
@@ -4325,6 +4648,16 @@ export interface components {
             /** Tool Ref */
             tool_ref: string;
         };
+        /**
+         * ToolDecisionKind
+         * @description The verdicts tool governance can return for one attempted call.
+         *
+         *     Deliberately *not*
+         *     :class:`~zeroth.governance.policy.models.PolicyDecision`: see the module
+         *     docstring for why that enum stays two-valued.
+         * @enum {string}
+         */
+        ToolDecisionKind: "allow" | "deny" | "require_approval";
         /**
          * UnitEconomicsReport
          * @description Deployment-wide unit economics: what a successful outcome costs, and the failure tax.
@@ -7074,6 +7407,142 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InventoryAck"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attest_v1_langgraph_deployments__deployment_ref__attestations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunAttestationV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunCapabilityEvidence"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_v1_langgraph_deployments__deployment_ref__decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    heartbeat_v1_langgraph_deployments__deployment_ref__heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HeartbeatV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_inventory_v1_langgraph_deployments__deployment_ref__inventories_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryRegistrationV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
