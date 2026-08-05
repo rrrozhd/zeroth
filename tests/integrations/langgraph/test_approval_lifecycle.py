@@ -2,17 +2,40 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
+import operator
+import pickle
 import sqlite3
+import threading
+from collections import defaultdict
+from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
+from typing import Annotated, Any, TypedDict
 
+import httpx
 import pytest
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import (
+    BaseCheckpointSaver,
+    ChannelVersions,
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointTuple,
+)
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command
 
-from zeroth.integrations.langgraph import _approval_lifecycle as lifecycle_module
+from tests.integrations.langgraph.test_enforcement_attestations import _signer, _token
+from zeroth.core.langgraph_gateway.context import ReservedContextCodec
+from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.integrations.langgraph._approval_lifecycle import (
     ApprovalCoordinator,
     ApprovalDecision,
+    ApprovalRecord,
     ApprovalResolution,
     ApprovalState,
     SQLiteApprovalRepository,
@@ -30,6 +53,15 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecision,
     ToolDecisionKind,
     ToolGovernanceContext,
+)
+from zeroth.integrations.langgraph._wrapper import govern_graph
+from zeroth.integrations.langgraph import (
+    InventoryCoverage,
+    LangGraphGatewayClient,
+    ToolIdentity,
+    ToolInventory,
+    ToolInventoryEntry,
+    govern_tools,
 )
 
 CONTEXT = ToolGovernanceContext(
@@ -76,14 +108,78 @@ class StateSnapshot:
     interrupts: tuple[Interrupt, ...]
 
 
-@dataclass(frozen=True)
-class FakeCommand:
-    resume: Any
+class PersistentSaver(BaseCheckpointSaver[str]):
+    """Small file-backed saver used to prove cross-instance checkpoint persistence."""
 
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self.path = path
+        self._lock = threading.RLock()
+        self._memory = InMemorySaver(serde=self.serde)
+        if path.exists():
+            stored = pickle.loads(path.read_bytes())
+            self._memory.storage = defaultdict(lambda: defaultdict(dict))
+            for thread_id, namespaces in stored["storage"].items():
+                for namespace, checkpoints in namespaces.items():
+                    self._memory.storage[thread_id][namespace].update(checkpoints)
+            self._memory.writes = defaultdict(dict, stored["writes"])
+            self._memory.blobs = stored["blobs"]
 
-@pytest.fixture(autouse=True)
-def _command_seam(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(lifecycle_module, "_langgraph_command", FakeCommand)
+    def _save(self) -> None:
+        storage = {
+            thread_id: {
+                namespace: dict(checkpoints)
+                for namespace, checkpoints in namespaces.items()
+            }
+            for thread_id, namespaces in self._memory.storage.items()
+        }
+        self.path.write_bytes(
+            pickle.dumps(
+                {
+                    "storage": storage,
+                    "writes": dict(self._memory.writes),
+                    "blobs": self._memory.blobs,
+                }
+            )
+        )
+
+    def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        with self._lock:
+            return self._memory.get_tuple(config)
+
+    def list(
+        self,
+        config: RunnableConfig | None,
+        *,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
+    ) -> Iterator[CheckpointTuple]:
+        with self._lock:
+            return iter(tuple(self._memory.list(config, filter=filter, before=before, limit=limit)))
+
+    def put(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> RunnableConfig:
+        with self._lock:
+            saved = self._memory.put(config, checkpoint, metadata, new_versions)
+            self._save()
+            return saved
+
+    def put_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        with self._lock:
+            self._memory.put_writes(config, writes, task_id, task_path)
+            self._save()
 
 
 @dataclass
@@ -105,6 +201,37 @@ class SequencedClient:
         return self.fresh if len(self.actions) >= 3 else HOLD
 
 
+@dataclass
+class PerToolApprovalClient:
+    """Require one approval per tool replay, then allow its fenced delivery."""
+
+    calls: dict[str, int] = field(default_factory=dict)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        del context
+        name = action.identity.name
+        self.calls[name] = self.calls.get(name, 0) + 1
+        if self.calls[name] >= 3:
+            return ALLOW
+        return ToolDecision(
+            ToolDecisionKind.REQUIRE_APPROVAL,
+            "policy_violation",
+            approval_ref=f"approval-{name}",
+        )
+
+
+@dataclass
+class RecordingSubmitter:
+    records: list[NodeAuditRecord] = field(default_factory=list)
+
+    def submit(self, record: NodeAuditRecord) -> None:
+        self.records.append(record)
+
+
+class ParallelState(TypedDict):
+    done: Annotated[list[str], operator.add]
+
+
 def _snapshot(
     payload: dict[str, Any] | None, *, checkpoint_id: str = "checkpoint-1"
 ) -> StateSnapshot:
@@ -124,21 +251,31 @@ def _snapshot(
 @dataclass
 class Graph:
     state: StateSnapshot
+    checkpointer: BaseCheckpointSaver[Any]
     callback: Any = None
     calls: list[tuple[Any, dict[str, Any]]] = field(default_factory=list)
 
     def get_state(self, config: dict[str, Any]) -> StateSnapshot:
-        assert config == {"configurable": {"thread_id": "thread-1"}}
+        assert config["configurable"]["thread_id"] == "thread-1"
         return self.state
 
     def invoke(self, command: Any, config: dict[str, Any]) -> Any:
         self.calls.append((command, config))
-        result = None if self.callback is None else self.callback(command.resume)
+        resume = command.resume
+        if isinstance(resume, dict) and "interrupt-1" in resume:
+            resume = resume["interrupt-1"]
+        result = None if self.callback is None else self.callback(resume)
         self.state = _snapshot(None, checkpoint_id="checkpoint-2")
         return result
 
 
-def _request(repository: SQLiteApprovalRepository, client: Any, pause: Pause) -> None:
+def _request(
+    repository: SQLiteApprovalRepository,
+    client: Any,
+    pause: Pause,
+    *,
+    audit: RecordingSubmitter | None = None,
+) -> None:
     with pytest.raises(SuspendedError):
         guard_tool_call(
             ACTION,
@@ -147,21 +284,56 @@ def _request(repository: SQLiteApprovalRepository, client: Any, pause: Pause) ->
             client=client,
             interrupt=pause,
             approval_lifecycle=repository,
+            audit=audit,
         )
 
 
 def _ready(
-    tmp_path: Any, client: Any | None = None
-) -> tuple[SQLiteApprovalRepository, ApprovalCoordinator, Graph, SequencedClient]:
+    tmp_path: Any,
+    client: Any | None = None,
+    *,
+    audit: RecordingSubmitter | None = None,
+) -> tuple[SQLiteApprovalRepository, ApprovalCoordinator, Any, SequencedClient]:
     repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
     policy = client or SequencedClient()
     pause = Pause()
-    _request(repository, policy, pause)
+    _request(repository, policy, pause, audit=audit)
     assert pause.payload is not None
-    graph = Graph(_snapshot(pause.payload))
+    saver = PersistentSaver(tmp_path / "checkpoints.bin")
+
+    def resume(value: Any) -> None:
+        guard_tool_call(
+            ACTION,
+            CONTEXT,
+            lambda: None,
+            client=policy,
+            interrupt=lambda _payload: value,
+            approval_lifecycle=repository,
+            audit=audit,
+        )
+
+    graph = govern_graph(Graph(_snapshot(pause.payload), saver, callback=resume))
     coordinator = ApprovalCoordinator(repository)
-    coordinator.confirm_checkpoint("approval-7", graph)
+    coordinator.confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=saver
+    )
     return repository, coordinator, graph, policy
+
+
+def _resume(
+    coordinator: ApprovalCoordinator,
+    graph: Any,
+    *,
+    owner: str,
+    config: Mapping[str, Any] | None = None,
+) -> ApprovalRecord:
+    return coordinator.resume(
+        "approval-7",
+        graph,
+        owner=owner,
+        config={} if config is None else config,
+        durable_checkpointer=graph.checkpointer,
+    )
 
 
 def test_payload_round_trip_is_persisted_before_interrupt(tmp_path: Any) -> None:
@@ -186,6 +358,30 @@ def test_payload_round_trip_is_persisted_before_interrupt(tmp_path: Any) -> None
     invalid["version"] = True
     with pytest.raises(ToolGovernanceError):
         ApprovalResolution.from_payload(invalid)
+
+
+def test_existing_lifecycle_schema_is_migrated_without_replacement(tmp_path: Any) -> None:
+    path = tmp_path / "approvals.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """CREATE TABLE langgraph_approval_lifecycle (
+            approval_ref TEXT PRIMARY KEY, state TEXT NOT NULL, intent TEXT NOT NULL,
+            resolution TEXT, checkpoint_id TEXT, owner TEXT, lease_deadline REAL,
+            deadline REAL NOT NULL);
+            CREATE TABLE langgraph_approval_events (
+            id INTEGER PRIMARY KEY, approval_ref TEXT NOT NULL, from_state TEXT,
+            to_state TEXT NOT NULL, accepted INTEGER NOT NULL, occurred_at REAL NOT NULL);"""
+        )
+    SQLiteApprovalRepository(path)
+
+    with sqlite3.connect(path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(langgraph_approval_lifecycle)"
+            )
+        }
+    assert {"interrupt_id", "claim_token", "claim_consumed"} <= columns
 
 
 def test_lifecycle_rejects_invalid_transitions_and_expires_bounded_work(tmp_path: Any) -> None:
@@ -213,9 +409,13 @@ def test_checkpoint_must_match_before_an_approval_becomes_ready(tmp_path: Any) -
     _request(repository, SequencedClient(), pause)
     assert pause.payload is not None
     coordinator = ApprovalCoordinator(repository)
+    saver = PersistentSaver(tmp_path / "checkpoints.bin")
+    graph = govern_graph(Graph(_snapshot({"other": "interrupt"}), saver))
 
     with pytest.raises(ToolGovernanceError):
-        coordinator.confirm_checkpoint("approval-7", Graph(_snapshot({"other": "interrupt"})))
+        coordinator.confirm_checkpoint(
+            "approval-7", graph, config={}, durable_checkpointer=saver
+        )
 
     assert repository.get("approval-7").state is ApprovalState.ORPHANED
 
@@ -232,7 +432,7 @@ def test_idempotent_begin_decision_and_claim_do_not_duplicate_work(tmp_path: Any
     with ThreadPoolExecutor(max_workers=2) as pool:
         resumes = list(
             pool.map(
-                lambda _attempt: coordinator.resume("approval-7", graph, owner="worker-1"),
+                lambda _attempt: _resume(coordinator, graph, owner="worker-1"),
                 (1, 2),
             )
         )
@@ -278,9 +478,10 @@ def test_revalidation_uses_edited_arguments_and_fresh_deny_wins(
             invoke_with_arguments=lambda arguments: executed.append(dict(arguments)),
         )
 
-    graph.callback = resume
+    graph._graph.callback = resume
     repository.decide(resolution)
-    coordinator.resume("approval-7", graph, owner="worker-1")
+    with contextlib.suppress(PolicyViolation):
+        _resume(coordinator, graph, owner="worker-1")
 
     assert executed == expected
     assert repository.get("approval-7").state is ApprovalState.RESOLVED
@@ -293,16 +494,16 @@ def test_restart_after_resume_claim_inspects_checkpoint_before_retry(tmp_path: A
     repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
 
     def crash_after_resume(_value: Any) -> None:
-        graph.state = _snapshot(None, checkpoint_id="checkpoint-2")
+        graph._graph.state = _snapshot(None, checkpoint_id="checkpoint-2")
         raise KeyboardInterrupt
 
-    graph.callback = crash_after_resume
+    graph._graph.callback = crash_after_resume
     with pytest.raises(KeyboardInterrupt):
-        coordinator.resume("approval-7", graph, owner="worker-1")
+        _resume(coordinator, graph, owner="worker-1")
 
     reopened = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
-    ApprovalCoordinator(reopened).resume("approval-7", graph, owner="worker-2")
-    assert reopened.get("approval-7").state is ApprovalState.RESOLVED
+    _resume(ApprovalCoordinator(reopened), graph, owner="worker-2")
+    assert reopened.get("approval-7").state is ApprovalState.ORPHANED
     assert len(graph.calls) == 1
 
 
@@ -311,12 +512,16 @@ def test_original_thread_and_checkpoint_receive_a_langgraph_command(tmp_path: An
     resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
     repository.decide(resolution)
 
-    coordinator.resume("approval-7", graph, owner="worker-1")
+    _resume(coordinator, graph, owner="worker-1")
 
     [(command, config)] = graph.calls
-    assert isinstance(command, FakeCommand)
-    assert command.resume == resolution.to_payload()
-    assert config == {"configurable": {"thread_id": "thread-1", "checkpoint_id": "checkpoint-1"}}
+    assert isinstance(command, Command)
+    assert command.resume["interrupt-1"] | {"claim_token": None} == (
+        resolution.to_payload() | {"claim_token": None}
+    )
+    assert isinstance(command.resume["interrupt-1"]["claim_token"], str)
+    assert config["configurable"]["thread_id"] == "thread-1"
+    assert config["configurable"]["checkpoint_id"] == "checkpoint-1"
 
 
 def test_stateless_or_threadless_approval_fails_closed(tmp_path: Any) -> None:
@@ -345,3 +550,543 @@ def test_stateless_or_threadless_approval_fails_closed(tmp_path: Any) -> None:
             )
         assert raised.value.code == "zeroth.approval_requires_thread"
     assert calls == []
+
+
+def test_decide_expires_an_overdue_approval_without_reconciliation(tmp_path: Any) -> None:
+    now = [10.0]
+    repository = SQLiteApprovalRepository(
+        tmp_path / "approvals.sqlite3", ttl_seconds=5, clock=lambda: now[0]
+    )
+    pause = Pause()
+    _request(repository, SequencedClient(), pause)
+    assert pause.payload is not None
+    saver = PersistentSaver(tmp_path / "checkpoints.bin")
+    graph = govern_graph(Graph(_snapshot(pause.payload), saver))
+    ApprovalCoordinator(repository).confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=saver
+    )
+
+    now[0] = 16.0
+    with pytest.raises(ToolGovernanceError):
+        repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+
+    assert repository.get("approval-7").state is ApprovalState.EXPIRED
+
+
+def test_checkpoint_confirmation_is_idempotent_after_a_decision(tmp_path: Any) -> None:
+    repository, coordinator, graph, _ = _ready(tmp_path)
+    repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+
+    confirmed = coordinator.confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=graph.checkpointer
+    )
+
+    assert confirmed.state is ApprovalState.DECIDED
+
+
+def test_resume_targets_the_persisted_interrupt_id_and_preserves_fresh_config(
+    tmp_path: Any,
+) -> None:
+    repository, coordinator, graph, _ = _ready(tmp_path)
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
+    repository.decide(resolution)
+
+    fresh = {"configurable": {"_zeroth": "fresh-token", "thread_id": "attacker-thread"}}
+    _resume(coordinator, graph, owner="worker-1", config=fresh)
+
+    [(command, config)] = graph.calls
+    assert command.resume["interrupt-1"] | {"claim_token": None} == (
+        resolution.to_payload() | {"claim_token": None}
+    )
+    assert config["configurable"]["_zeroth"] == "fresh-token"
+    assert config["configurable"]["thread_id"] == "thread-1"
+    assert config["configurable"]["checkpoint_id"] == "checkpoint-1"
+
+
+def test_tool_failure_propagates_and_cannot_be_replayed(tmp_path: Any) -> None:
+    repository, coordinator, graph, policy = _ready(tmp_path)
+    repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+
+    def fail(value: Any) -> None:
+        guard_tool_call(
+            ACTION,
+            CONTEXT,
+            lambda: (_ for _ in ()).throw(RuntimeError("tool-failed")),
+            client=policy,
+            interrupt=lambda _payload: value,
+            approval_lifecycle=repository,
+        )
+
+    graph._graph.callback = fail
+    with pytest.raises(RuntimeError, match="tool-failed"):
+        _resume(coordinator, graph, owner="worker-1")
+
+    _resume(coordinator, graph, owner="worker-2")
+    assert len(graph.calls) == 1
+
+
+def test_real_parallel_interrupt_resume_targets_only_the_approved_action(tmp_path: Any) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    saver_path = tmp_path / "checkpoints.bin"
+    saver = PersistentSaver(saver_path)
+    policy = PerToolApprovalClient()
+    executed: list[str] = []
+
+    def node(name: str) -> Any:
+        action = normalize_tool_action(
+            name=name,
+            arguments={"record": name},
+            context=CONTEXT,
+            side_effect=SideEffectClass.SIDE_EFFECTING,
+            tool_call_id=f"call-{name}",
+        )
+
+        def run(_state: ParallelState) -> ParallelState:
+            guard_tool_call(
+                action,
+                CONTEXT,
+                lambda: executed.append(name),
+                client=policy,
+                approval_lifecycle=repository,
+            )
+            return {"done": [name]}
+
+        return run
+
+    builder = StateGraph(ParallelState)
+    builder.add_node("tool_a", node("tool_a"))
+    builder.add_node("tool_b", node("tool_b"))
+    builder.add_edge(START, "tool_a")
+    builder.add_edge(START, "tool_b")
+    builder.add_edge("tool_a", END)
+    builder.add_edge("tool_b", END)
+    graph = govern_graph(builder.compile(checkpointer=saver))
+    config = {"configurable": {"thread_id": "thread-1"}}
+
+    graph.invoke({"done": []}, config)
+    reopened = PersistentSaver(saver_path)
+    assert reopened.get_tuple(config) is not None
+
+    coordinator = ApprovalCoordinator(repository)
+    first = coordinator.confirm_checkpoint(
+        "approval-tool_a", graph, config=config, durable_checkpointer=saver
+    )
+    second = coordinator.confirm_checkpoint(
+        "approval-tool_b", graph, config=config, durable_checkpointer=saver
+    )
+    assert first.interrupt_id and second.interrupt_id
+    assert first.interrupt_id != second.interrupt_id
+
+    repository.decide(
+        ApprovalResolution("approval-tool_a", ApprovalDecision.APPROVE)
+    )
+    coordinator.resume(
+        "approval-tool_a",
+        graph,
+        owner="worker-a",
+        config=config,
+        durable_checkpointer=saver,
+    )
+
+    assert executed == ["tool_a"]
+    assert repository.get("approval-tool_a").state is ApprovalState.RESOLVED
+    assert repository.get("approval-tool_b").state is ApprovalState.READY
+    remaining = graph.get_state(config)
+    assert remaining.next == ("tool_b",)
+    assert "approval-tool_b" in {
+        item.value["approval_ref"] for item in remaining.interrupts
+    }
+
+
+def test_real_governed_gateway_resume_uses_fresh_reserved_context(tmp_path: Any) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    saver_path = tmp_path / "checkpoints.bin"
+    saver = PersistentSaver(saver_path)
+    executed: list[int] = []
+    events: list[tuple[str, dict[str, Any]]] = []
+    codec = ReservedContextCodec(_signer(), clock=lambda: 150)
+    initial_token = _token(codec, "initial", principal_id="principal-1")
+    fresh_token = _token(codec, "fresh", principal_id="principal-1")
+    gateway_context = ToolGovernanceContext(
+        tenant_id="tenant-a",
+        principal_id="principal-1",
+        run_id="run-1",
+        thread_id="thread-1",
+        correlation_id="approval-flow",
+    )
+    action = normalize_tool_action(
+        name="delete_record",
+        arguments={"table": "invoices", "id": 41},
+        context=gateway_context,
+        side_effect=SideEffectClass.SIDE_EFFECTING,
+        tool_call_id="call-1",
+    )
+    inventory = ToolInventory(
+        entries=(
+            ToolInventoryEntry(
+                identity=action.identity,
+                side_effect=SideEffectClass.SIDE_EFFECTING,
+                requires_approval=True,
+            ),
+        ),
+        coverage=InventoryCoverage.COMPLETE,
+    )
+    decision_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal decision_count
+        payload = json.loads(request.content)
+        endpoint = request.url.path.rsplit("/", 1)[-1]
+        events.append((endpoint, payload))
+        if endpoint in {"inventories", "heartbeat"}:
+            return httpx.Response(204)
+        if endpoint == "attestations":
+            return httpx.Response(
+                200,
+                json={
+                    "correlation_id": payload["correlation_id"],
+                    "governance_level": payload["claimed_level"],
+                    "observed_at": "2026-08-05T00:00:00Z",
+                    "graph_version": payload["graph_version"],
+                    "adapter_version": payload["adapter_version"],
+                    "inventory_fingerprint": payload["inventory_fingerprint"],
+                    "signature_valid": True,
+                    "tool_manifest_complete": True,
+                },
+            )
+        decision_count += 1
+        decision = "require_approval" if decision_count <= 2 else "allow"
+        return httpx.Response(
+            200,
+            json={
+                "schema_version": 1,
+                "decision_id": f"decision-{decision_count}",
+                "idempotency_key": payload["idempotency_key"],
+                "decision": decision,
+                "reason_code": "approval_required" if decision_count <= 2 else "allowed",
+                "policy_version": "policy-v1",
+                "approval_ref": "approval-7" if decision_count <= 2 else None,
+            },
+        )
+
+    gateway = LangGraphGatewayClient(
+        "https://zeroth.test",
+        api_key="secret",
+        tenant_id="tenant-a",
+        principal_id="principal-1",
+        deployment_ref="deployment-a",
+        policy_version="policy-v1",
+        graph_version="graph-v1",
+        inventory=inventory,
+        heartbeat_interval_seconds=None,
+        transport=httpx.MockTransport(handler),
+    )
+
+    def run(_state: ParallelState) -> ParallelState:
+        guard_tool_call(
+            action,
+            gateway_context,
+            lambda: executed.append(41),
+            client=gateway,
+            approval_lifecycle=repository,
+        )
+        return {"done": ["lookup"]}
+
+    builder = StateGraph(ParallelState)
+    builder.add_node("lookup", run)
+    builder.add_edge(START, "lookup")
+    builder.add_edge("lookup", END)
+    graph = govern_graph(builder.compile(checkpointer=saver), gateway_client=gateway)
+    initial_config = {
+        "configurable": {"thread_id": "thread-1", "_zeroth": initial_token}
+    }
+    fresh_config = {
+        "configurable": {"thread_id": "untrusted", "_zeroth": fresh_token},
+        "tags": ["resumed"],
+    }
+    try:
+        graph.invoke({"done": []}, initial_config)
+        coordinator = ApprovalCoordinator(repository)
+        coordinator.confirm_checkpoint(
+            "approval-7", graph, config=initial_config, durable_checkpointer=saver
+        )
+        repository.decide(
+            ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
+        )
+        coordinator.resume(
+            "approval-7",
+            graph,
+            owner="approval-worker",
+            config=fresh_config,
+            durable_checkpointer=saver,
+        )
+    finally:
+        gateway.close()
+
+    assert executed == [41]
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+    decisions = [payload for endpoint, payload in events if endpoint == "decisions"]
+    assert [payload["context_token"] for payload in decisions] == [
+        initial_token,
+        fresh_token,
+        fresh_token,
+    ]
+    assert [endpoint for endpoint, _payload in events].count("inventories") == 2
+    assert [endpoint for endpoint, _payload in events].count("attestations") == 2
+    assert PersistentSaver(saver_path).get_tuple(
+        {"configurable": {"thread_id": "thread-1"}}
+    ) is not None
+
+
+def test_expired_unconsumed_lease_is_reclaimed_with_a_new_execution_fence(
+    tmp_path: Any,
+) -> None:
+    now = [0.0]
+    repository = SQLiteApprovalRepository(
+        tmp_path / "approvals.sqlite3",
+        ttl_seconds=100,
+        lease_seconds=1,
+        clock=lambda: now[0],
+    )
+    pause = Pause()
+    _request(repository, SequencedClient(), pause)
+    assert pause.payload is not None
+    saver = PersistentSaver(tmp_path / "checkpoints.bin")
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+    tokens: list[str] = []
+
+    class BlockingGraph(Graph):
+        def invoke(self, command: Any, config: dict[str, Any]) -> None:
+            del config
+            delivery = command.resume["interrupt-1"]
+            tokens.append(delivery["claim_token"])
+            if len(tokens) == 1:
+                started.set()
+                assert release.wait(5)
+            consumed = repository.consume(delivery)
+            calls.append(consumed.claim_token)
+            repository.finish("approval-7", consumed.claim_token)
+            self.state = _snapshot(None, checkpoint_id="checkpoint-2")
+
+    graph = govern_graph(BlockingGraph(_snapshot(pause.payload), saver))
+    coordinator = ApprovalCoordinator(repository)
+    coordinator.confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=saver
+    )
+    repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(_resume, coordinator, graph, owner="slow-worker")
+        assert started.wait(5)
+        now[0] = 2.0
+        _resume(coordinator, graph, owner="replacement-worker")
+        release.set()
+        with pytest.raises(ToolGovernanceError):
+            first.result()
+
+    assert len(tokens) == 2 and tokens[0] != tokens[1]
+    assert calls == [tokens[1]]
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+def test_claim_and_consume_atomically_refuse_overdue_approvals(tmp_path: Any) -> None:
+    now = [10.0]
+    repository = SQLiteApprovalRepository(
+        tmp_path / "approvals.sqlite3", ttl_seconds=5, clock=lambda: now[0]
+    )
+    pause = Pause()
+    _request(repository, SequencedClient(), pause)
+    assert pause.payload is not None
+    saver = PersistentSaver(tmp_path / "checkpoints.bin")
+    graph = govern_graph(Graph(_snapshot(pause.payload), saver))
+    coordinator = ApprovalCoordinator(repository)
+    coordinator.confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=saver
+    )
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
+    repository.decide(resolution)
+
+    now[0] = 16.0
+    with pytest.raises(ToolGovernanceError, match="deadline"):
+        _resume(coordinator, graph, owner="late-worker")
+    assert repository.get("approval-7").state is ApprovalState.EXPIRED
+    assert graph._graph.calls == []
+
+    consume_repository = SQLiteApprovalRepository(
+        tmp_path / "consume.sqlite3", ttl_seconds=5, clock=lambda: now[0]
+    )
+    now[0] = 20.0
+    consume_pause = Pause()
+    _request(consume_repository, SequencedClient(), consume_pause)
+    assert consume_pause.payload is not None
+    consume_repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    consume_repository.decide(resolution)
+    claimed = consume_repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    now[0] = 26.0
+    with pytest.raises(ToolGovernanceError, match="deadline"):
+        consume_repository.consume(
+            {**resolution.to_payload(), "claim_token": claimed.claim_token}
+        )
+    assert consume_repository.get("approval-7").state is ApprovalState.EXPIRED
+
+
+def test_consumed_claim_can_finish_after_the_request_deadline(tmp_path: Any) -> None:
+    now = [10.0]
+    repository = SQLiteApprovalRepository(
+        tmp_path / "approvals.sqlite3", ttl_seconds=5, clock=lambda: now[0]
+    )
+    pause = Pause()
+    _request(repository, SequencedClient(), pause)
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    [stale_pending] = repository.pending()
+    repository.consume({**resolution.to_payload(), "claim_token": claimed.claim_token})
+
+    now[0] = 16.0
+    repository.pending = lambda limit=100: (stale_pending,)  # type: ignore[method-assign]
+    assert repository.expire_due() == ()
+    assert repository.decide(resolution).state is ApprovalState.RESUMING
+    assert repository.finish(
+        "approval-7", claimed.claim_token
+    ).state is ApprovalState.RESOLVED
+
+
+def test_checkpoint_confirmation_requires_the_attested_durable_saver(
+    tmp_path: Any,
+) -> None:
+    class BrokenGraph(Graph):
+        def get_state(self, config: dict[str, Any]) -> StateSnapshot:
+            del config
+            raise RuntimeError("checkpoint backend unavailable")
+
+    for case in ("missing", "memory", "mismatch", "broken"):
+        directory = tmp_path / case
+        directory.mkdir()
+        repository = SQLiteApprovalRepository(directory / "approvals.sqlite3")
+        pause = Pause()
+        _request(repository, SequencedClient(), pause)
+        assert pause.payload is not None
+        persistent = PersistentSaver(directory / "checkpoints.bin")
+        if case == "missing":
+            raw: Any = Graph(_snapshot(pause.payload), None)  # type: ignore[arg-type]
+            attested: Any = None
+        elif case == "memory":
+            memory = InMemorySaver()
+            raw = Graph(_snapshot(pause.payload), memory)
+            attested = memory
+        elif case == "mismatch":
+            raw = Graph(_snapshot(pause.payload), persistent)
+            attested = PersistentSaver(directory / "other-checkpoints.bin")
+        else:
+            raw = BrokenGraph(_snapshot(pause.payload), persistent)
+            attested = persistent
+        graph = govern_graph(raw)
+
+        with pytest.raises(ApprovalRequiresThreadError) as raised:
+            ApprovalCoordinator(repository).confirm_checkpoint(
+                "approval-7", graph, config={}, durable_checkpointer=attested
+            )
+
+        assert raised.value.code == "zeroth.approval_requires_thread"
+        assert repository.get("approval-7").state is ApprovalState.AWAITING_CHECKPOINT
+
+
+def test_checkpoint_confirmation_is_idempotent_through_all_progressed_states(
+    tmp_path: Any,
+) -> None:
+    repository, coordinator, graph, _policy = _ready(tmp_path)
+    assert coordinator.confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=graph.checkpointer
+    ).state is ApprovalState.READY
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE)
+    repository.decide(resolution)
+    assert coordinator.confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=graph.checkpointer
+    ).state is ApprovalState.DECIDED
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    assert coordinator.confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=graph.checkpointer
+    ).state is ApprovalState.RESUMING
+    repository.consume({**resolution.to_payload(), "claim_token": claimed.claim_token})
+    repository.finish("approval-7", claimed.claim_token)
+    graph._graph.state = _snapshot(None, checkpoint_id="checkpoint-2")
+    assert coordinator.confirm_checkpoint(
+        "approval-7", graph, config={}, durable_checkpointer=graph.checkpointer
+    ).state is ApprovalState.RESOLVED
+
+
+@pytest.mark.parametrize(
+    ("resolution", "fresh", "decision_term", "approval_action", "actual_arguments"),
+    [
+        (
+            ApprovalResolution(
+                "approval-7", ApprovalDecision.APPROVE, {"table": "invoices", "id": 42}
+            ),
+            ALLOW,
+            "approve",
+            "approve",
+            {"table": "invoices", "id": 42},
+        ),
+        (
+            ApprovalResolution("approval-7", ApprovalDecision.REJECT),
+            ALLOW,
+            "reject",
+            "reject",
+            {"table": "invoices", "id": 41},
+        ),
+        (
+            ApprovalResolution(
+                "approval-7", ApprovalDecision.APPROVE, {"table": "invoices", "id": 43}
+            ),
+            DENY,
+            "deny",
+            "approve",
+            {"table": "invoices", "id": 43},
+        ),
+    ],
+)
+def test_approval_audit_is_deduplicated_and_records_the_final_actual_call(
+    tmp_path: Any,
+    resolution: ApprovalResolution,
+    fresh: ToolDecision,
+    decision_term: str,
+    approval_action: str,
+    actual_arguments: dict[str, Any],
+) -> None:
+    audit = RecordingSubmitter()
+    policy = SequencedClient(fresh=fresh)
+    repository, coordinator, graph, _policy = _ready(
+        tmp_path, policy, audit=audit
+    )
+
+    def resume(value: Any) -> None:
+        guard_tool_call(
+            ACTION,
+            CONTEXT,
+            lambda: None,
+            client=policy,
+            interrupt=lambda _payload: value,
+            approval_lifecycle=repository,
+            invoke_with_arguments=lambda _arguments: None,
+            audit=audit,
+        )
+
+    graph._graph.callback = resume
+    repository.decide(resolution)
+    with contextlib.suppress(PolicyViolation):
+        _resume(coordinator, graph, owner="worker")
+
+    assert len(audit.records) == 2
+    requested, final = audit.records
+    assert requested.execution_metadata["decision"] == "require_approval"
+    assert requested.approval_actions[0].action == "requested"
+    assert final.execution_metadata["decision"] == decision_term
+    assert final.approval_actions[0].action == approval_action
+    assert final.tool_calls[0].arguments == actual_arguments

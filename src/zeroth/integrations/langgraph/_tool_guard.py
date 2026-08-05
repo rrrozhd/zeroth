@@ -10,11 +10,10 @@ run.
 
 **The core is in the call path, not beside it.** :func:`guard_tool_call` receives
 the downstream invocation as a callable and invokes it exactly once on an allow.
-It wraps that call in no ``try`` and no loop: an exception the tool raises
-propagates unchanged, and a tool that failed is never retried. Governance decides
-whether a call happens; it does not decide what the call means.
-:func:`authorize_tool_call` is the same enforcement without the invocation, for a
-surface whose downstream is awaited rather than called.
+It wraps that call only to persist fenced success or failure, never in a loop: an
+exception the tool raises propagates unchanged, and a tool that failed is never
+retried. Governance decides whether a call happens; it does not decide what the
+call means. :func:`aguard_tool_call` owns the same boundary for awaited work.
 
 **The pause seam is injected, exactly like the decision seam.** LangGraph's
 ``interrupt`` arrives as a parameter defaulting to :func:`_langgraph_interrupt`,
@@ -24,11 +23,11 @@ would be untestable without the dependency installed -- and a test that appears
 to patch nothing asserts nothing. Injection keeps every test here free of
 ``langgraph``.
 
-**Scope: this module requests an approval, it does not resolve one.** Resume-time
-revalidation -- what happens when a human answers and the run continues -- is
-ZER-10's. Here, an ``interrupt`` that *returns* rather than suspending is a
-malfunction of the pause seam and raises, because the alternative is falling
-through to the invocation with the approval unanswered.
+**Approval completion follows execution.** The initial pass persists the request
+before interrupting. A resumed pass consumes only the current fenced resolution,
+validates any edit, rechecks policy, and marks the lifecycle resolved only after
+the downstream tool returns successfully. A tool failure or stale delivery can
+therefore never become a replayable success.
 
 **Audit travels the typed ``tool_calls`` field, never a new metadata key.**
 ``execution_metadata`` is an allowlist that drops unrecognized keys silently
@@ -66,8 +65,9 @@ digest.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
-from dataclasses import replace
+from collections.abc import Awaitable, Callable, Mapping
+from contextlib import suppress
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -138,6 +138,9 @@ _APPROVAL_PAYLOAD_KIND = "tool_approval"
 
 _APPROVAL_REQUESTED = "requested"
 """The ``ApprovalActionRecord.action`` term for an approval this stage asked for."""
+
+_APPROVAL_APPROVE = "approve"
+_APPROVAL_REJECT = "reject"
 
 _STATUS_ALLOWED = "completed"
 _STATUS_DENIED = "rejected"
@@ -368,7 +371,9 @@ def _approval_payload(
     }
 
 
-def _decision_metadata(decision: ToolDecision) -> dict[str, str]:
+def _decision_metadata(
+    decision: ToolDecision, decision_term: str | None = None
+) -> dict[str, str]:
     """Render one verdict as allowlisted, content-free metadata.
 
     ``reason_code`` is written only for a denial. It names a failure or a denial
@@ -377,7 +382,7 @@ def _decision_metadata(decision: ToolDecision) -> dict[str, str]:
     An approval request's reason belongs to the approval the ``approval_ref``
     points at, not to a failure vocabulary.
     """
-    metadata = {"decision": decision.kind.value}
+    metadata = {"decision": decision.kind.value if decision_term is None else decision_term}
     if decision.kind is ToolDecisionKind.DENY:
         metadata["reason_code"] = _reason_term(decision)
     return metadata
@@ -399,12 +404,14 @@ def _tool_call_record(action: ToolAction, decision: ToolDecision) -> ToolCallRec
 
 
 def _approval_records(
-    approval_ref: str | None, actor: ActorIdentity | None
+    approval_ref: str | None,
+    actor: ActorIdentity | None,
+    action: str = _APPROVAL_REQUESTED,
 ) -> list[ApprovalActionRecord]:
     """Project the requested approval onto the typed field that carries its id."""
     if approval_ref is None:
         return []
-    return [ApprovalActionRecord(approval_id=approval_ref, action=_APPROVAL_REQUESTED, actor=actor)]
+    return [ApprovalActionRecord(approval_id=approval_ref, action=action, actor=actor)]
 
 
 def _project(
@@ -415,6 +422,8 @@ def _project(
     audit_id: str,
     actor: ActorIdentity | None,
     approval_ref: str | None,
+    decision_term: str | None = None,
+    approval_action: str = _APPROVAL_REQUESTED,
 ) -> NodeAuditRecord:
     """Build the record for one decided tool call.
 
@@ -441,9 +450,9 @@ def _project(
         tenant_id=governance.tenant_id,
         status=_decision_status(decision.kind),
         actor=actor,
-        execution_metadata=_decision_metadata(decision),
+        execution_metadata=_decision_metadata(decision, decision_term),
         tool_calls=[_tool_call_record(action, decision)],
-        approval_actions=_approval_records(approval_ref, actor),
+        approval_actions=_approval_records(approval_ref, actor, approval_action),
     )
 
 
@@ -455,6 +464,8 @@ def _emit_decision_audit(
     *,
     actor: ActorIdentity | None,
     approval_ref: str | None,
+    decision_term: str | None = None,
+    approval_action: str = _APPROVAL_REQUESTED,
 ) -> None:
     """Hand one decided tool call off for durable audit, without ever raising.
 
@@ -479,6 +490,8 @@ def _emit_decision_audit(
             audit_id=audit_id,
             actor=actor,
             approval_ref=approval_ref,
+            decision_term=decision_term,
+            approval_action=approval_action,
         )
     except Exception as error:
         logger.error(
@@ -497,6 +510,16 @@ def _emit_decision_audit(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _Authorization:
+    decision: ToolDecision
+    action: ToolAction
+    governance: ToolGovernanceContext
+    approval_ref: str | None = None
+    claim_token: str | None = None
+    edited: bool = False
+
+
 def _suspend_for_approval(
     action: ToolAction,
     governance: ToolGovernanceContext,
@@ -506,48 +529,74 @@ def _suspend_for_approval(
     lifecycle: SQLiteApprovalRepository,
     client: ToolDecisionClient | None,
     unknown_side_effect: UnknownSideEffectPolicy,
-) -> ToolAction:
-    """Pause the run on an approval request, and never return having done so.
-
-    ``interrupt`` suspends by raising, so the statement after the call is
-    normally unreachable. It is there for the case where it is not: a seam that
-    returns a value has resumed the run without anything having revalidated the
-    decision, and falling through from here would invoke the tool with the
-    approval unanswered. Resume-time revalidation is ZER-10's; until it exists,
-    a returning ``interrupt`` is a malfunction of the pause seam and is refused.
-
-    Raises:
-        ToolGovernanceError: If the interrupt returned instead of suspending.
-    """
+    audit: ToolAuditSubmitter | None,
+    actor: ActorIdentity | None,
+    prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None,
+) -> tuple[ToolAction, str]:
+    """Suspend, consume the current fence, and revalidate the exact resumed call."""
     payload = _approval_payload(action, governance, decision, approval_ref)
-    lifecycle.begin(payload, action.arguments)
-    suspend = _langgraph_interrupt if interrupt is None else interrupt
-    resolution = lifecycle.consume(suspend(payload))
-    if resolution.decision is ApprovalDecision.REJECT:
-        lifecycle.finish(approval_ref)
-        raise PolicyViolation("approval rejected this tool call")
-    arguments = (
-        action.arguments
-        if resolution.arguments is None
-        else canonical_arguments(resolution.arguments)
-    )
-    approved = replace(action, arguments=arguments)
-    fresh = _recognized_decision(
-        resolve_tool_decision(
-            approved,
+    _record, created = lifecycle.begin_once(payload, action.arguments)
+    if created:
+        _emit_decision_audit(
+            audit,
+            action,
             governance,
-            client,
-            unknown_side_effect=unknown_side_effect,
+            decision,
+            actor=actor,
+            approval_ref=approval_ref,
         )
-    )
+    suspend = _langgraph_interrupt if interrupt is None else interrupt
+    delivery = lifecycle.consume(suspend(payload))
+    resolution, claim_token = delivery.resolution, delivery.claim_token
+    if resolution.decision is ApprovalDecision.REJECT:
+        lifecycle.finish(approval_ref, claim_token)
+        _emit_decision_audit(
+            audit,
+            action,
+            governance,
+            ToolDecision(ToolDecisionKind.DENY, "policy_violation"),
+            actor=actor,
+            approval_ref=approval_ref,
+            decision_term=_APPROVAL_REJECT,
+            approval_action=_APPROVAL_REJECT,
+        )
+        raise PolicyViolation("approval rejected this tool call")
+    try:
+        arguments = action.arguments
+        if resolution.arguments is not None:
+            arguments = (
+                canonical_arguments(resolution.arguments)
+                if prepare_edited_arguments is None
+                else canonical_arguments(prepare_edited_arguments(resolution.arguments))
+            )
+        approved = replace(action, arguments=arguments)
+        fresh = _recognized_decision(
+            resolve_tool_decision(
+                approved,
+                governance,
+                client,
+                unknown_side_effect=unknown_side_effect,
+            )
+        )
+    except BaseException:
+        lifecycle.fail(approval_ref, claim_token)
+        raise
     if fresh.kind is ToolDecisionKind.DENY or (
         fresh.kind is ToolDecisionKind.REQUIRE_APPROVAL
         and normalize_identifier(fresh.approval_ref) != approval_ref
     ):
-        lifecycle.finish(approval_ref)
+        lifecycle.finish(approval_ref, claim_token)
+        _emit_decision_audit(
+            audit,
+            approved,
+            governance,
+            fresh,
+            actor=actor,
+            approval_ref=approval_ref,
+            approval_action=_APPROVAL_APPROVE,
+        )
         raise PolicyViolation("fresh policy refused the approved tool call")
-    lifecycle.finish(approval_ref)
-    return approved
+    return approved, claim_token
 
 
 def _enforce(
@@ -580,7 +629,8 @@ def _authorize_tool_action(
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
     approval_lifecycle: SQLiteApprovalRepository | None = None,
-) -> tuple[ToolDecision, ToolAction]:
+    prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+) -> _Authorization:
     """Return the verdict and exact action authorized for execution."""
     governance = require_governance_context(context)
     normalized = _require_stable_identity(action)
@@ -596,12 +646,9 @@ def _authorize_tool_action(
         and type(approval_lifecycle) is not SQLiteApprovalRepository
     ):
         raise ApprovalRequiresThreadError("approval needs a durable lifecycle store")
-    _emit_decision_audit(
-        audit, normalized, governance, decision, actor=actor, approval_ref=approval_ref
-    )
     if decision.kind is ToolDecisionKind.REQUIRE_APPROVAL and approval_ref is not None:
         assert approval_lifecycle is not None
-        approved = _suspend_for_approval(
+        approved, claim_token = _suspend_for_approval(
             normalized,
             governance,
             decision,
@@ -610,10 +657,61 @@ def _authorize_tool_action(
             approval_lifecycle,
             client,
             unknown_side_effect,
+            audit,
+            actor,
+            prepare_edited_arguments,
         )
-        return decision, approved
+        return _Authorization(
+            decision,
+            approved,
+            governance,
+            approval_ref,
+            claim_token,
+            approved.arguments != normalized.arguments,
+        )
+    _emit_decision_audit(
+        audit, normalized, governance, decision, actor=actor, approval_ref=approval_ref
+    )
     _enforce(normalized, governance, decision, approval_ref, interrupt)
-    return decision, normalized
+    return _Authorization(decision, normalized, governance)
+
+
+def _fail_authorization(
+    authorization: _Authorization, lifecycle: SQLiteApprovalRepository | None
+) -> None:
+    if (
+        lifecycle is None
+        or authorization.approval_ref is None
+        or authorization.claim_token is None
+    ):
+        return
+    with suppress(Exception):
+        lifecycle.fail(authorization.approval_ref, authorization.claim_token)
+
+
+def _complete_authorization(
+    authorization: _Authorization,
+    lifecycle: SQLiteApprovalRepository | None,
+    audit: ToolAuditSubmitter | None,
+    actor: ActorIdentity | None,
+) -> None:
+    if (
+        lifecycle is None
+        or authorization.approval_ref is None
+        or authorization.claim_token is None
+    ):
+        return
+    lifecycle.finish(authorization.approval_ref, authorization.claim_token)
+    _emit_decision_audit(
+        audit,
+        authorization.action,
+        authorization.governance,
+        ToolDecision(ToolDecisionKind.ALLOW, "unknown_error"),
+        actor=actor,
+        approval_ref=authorization.approval_ref,
+        decision_term=_APPROVAL_APPROVE,
+        approval_action=_APPROVAL_APPROVE,
+    )
 
 
 def authorize_tool_call(
@@ -627,11 +725,11 @@ def authorize_tool_call(
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
     approval_lifecycle: SQLiteApprovalRepository | None = None,
 ) -> ToolDecision:
-    """Decide and enforce one tool call, returning only when it may proceed.
+    """Decide and enforce one tool call when no invocation boundary is needed.
 
-    The enforcement half of :func:`guard_tool_call`, without the invocation, for
-    a surface whose downstream call is awaited rather than called. Both paths run
-    exactly this function, so the fail-closed rules cannot differ between them.
+    Approval resume is refused here because completion cannot be proven without
+    owning the downstream call. Sync and async invoking surfaces use
+    :func:`guard_tool_call` and :func:`aguard_tool_call` instead.
 
     Args:
         action: The normalized action, as built by
@@ -660,7 +758,7 @@ def authorize_tool_call(
         ToolGovernanceError: If an approval verdict carries no usable reference,
             or the pause seam returned instead of suspending.
     """
-    decision, _ = _authorize_tool_action(
+    authorization = _authorize_tool_action(
         action,
         context,
         client=client,
@@ -670,13 +768,19 @@ def authorize_tool_call(
         interrupt=interrupt,
         approval_lifecycle=approval_lifecycle,
     )
-    return decision
+    if authorization.claim_token is not None:
+        _fail_authorization(authorization, approval_lifecycle)
+        raise ToolGovernanceError("approved execution requires a guarded invocation")
+    return authorization.decision
 
 
 def authorize_tool_action(action: object, context: object, **seams: Any) -> ToolAction:
     """Authorize and return the immutable original or approved edited action."""
-    _, approved = _authorize_tool_action(action, context, **seams)
-    return approved
+    authorization = _authorize_tool_action(action, context, **seams)
+    if authorization.claim_token is not None:
+        _fail_authorization(authorization, seams.get("approval_lifecycle"))
+        raise ToolGovernanceError("approved execution requires a guarded invocation")
+    return authorization.action
 
 
 def guard_tool_call(
@@ -691,15 +795,16 @@ def guard_tool_call(
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
     approval_lifecycle: SQLiteApprovalRepository | None = None,
     invoke_with_arguments: Callable[[Mapping[str, Any]], Any] | None = None,
+    prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> Any:
     """Govern one tool call and, if it is allowed, make it exactly once.
 
     **The entry point.** Every tool-governance surface calls this rather than
     composing the pieces itself.
 
-    ``invoke`` is called once, outside any ``try`` and any loop: an exception it
-    raises propagates unchanged and a failed call is never repeated. On any other
-    verdict it is not called at all, because the raise happens before it.
+    ``invoke`` is called once and never in a retry loop. An exception it raises
+    propagates unchanged after the current delivery is fenced as failed. On any
+    other verdict it is not called at all, because the raise happens before it.
 
     Args:
         action: The normalized action, as built by
@@ -715,6 +820,7 @@ def guard_tool_call(
         interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
         approval_lifecycle: Durable approval storage used before an interrupt.
         invoke_with_arguments: Invocation seam for approved edited arguments.
+        prepare_edited_arguments: Native validation seam for edited arguments.
 
     Returns:
         Whatever the downstream invocation returned.
@@ -723,7 +829,7 @@ def guard_tool_call(
         ToolGovernanceError: Whenever the call did not proceed. See
             :func:`authorize_tool_call` for which subclass names which condition.
     """
-    _, approved = _authorize_tool_action(
+    authorization = _authorize_tool_action(
         action,
         context,
         client=client,
@@ -732,17 +838,70 @@ def guard_tool_call(
         actor=actor,
         interrupt=interrupt,
         approval_lifecycle=approval_lifecycle,
+        prepare_edited_arguments=prepare_edited_arguments,
     )
-    if approved.arguments != action.arguments:
-        if invoke_with_arguments is None:
-            raise ToolGovernanceError("edited tool arguments cannot be reissued on this surface")
-        return invoke_with_arguments(approved.arguments)
-    return invoke()
+    try:
+        if authorization.edited:
+            if invoke_with_arguments is None:
+                raise ToolGovernanceError(
+                    "edited tool arguments cannot be reissued on this surface"
+                )
+            result = invoke_with_arguments(authorization.action.arguments)
+        else:
+            result = invoke()
+    except BaseException:
+        _fail_authorization(authorization, approval_lifecycle)
+        raise
+    _complete_authorization(authorization, approval_lifecycle, audit, actor)
+    return result
+
+
+async def aguard_tool_call(
+    action: object,
+    context: object,
+    invoke: Callable[[], Awaitable[Any]],
+    *,
+    client: ToolDecisionClient | None = None,
+    unknown_side_effect: UnknownSideEffectPolicy = UnknownSideEffectPolicy.DENY,
+    audit: ToolAuditSubmitter | None = None,
+    actor: ActorIdentity | None = None,
+    interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
+    approval_lifecycle: SQLiteApprovalRepository | None = None,
+    invoke_with_arguments: Callable[[Mapping[str, Any]], Awaitable[Any]] | None = None,
+    prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+) -> Any:
+    """Async twin of :func:`guard_tool_call` with the same completion fence."""
+    authorization = _authorize_tool_action(
+        action,
+        context,
+        client=client,
+        unknown_side_effect=unknown_side_effect,
+        audit=audit,
+        actor=actor,
+        interrupt=interrupt,
+        approval_lifecycle=approval_lifecycle,
+        prepare_edited_arguments=prepare_edited_arguments,
+    )
+    try:
+        if authorization.edited:
+            if invoke_with_arguments is None:
+                raise ToolGovernanceError(
+                    "edited tool arguments cannot be reissued on this surface"
+                )
+            result = await invoke_with_arguments(authorization.action.arguments)
+        else:
+            result = await invoke()
+    except BaseException:
+        _fail_authorization(authorization, approval_lifecycle)
+        raise
+    _complete_authorization(authorization, approval_lifecycle, audit, actor)
+    return result
 
 
 __all__ = [
     "TOOL_GUARD_NODE_ID",
     "ToolAuditSubmitter",
+    "aguard_tool_call",
     "authorize_tool_action",
     "authorize_tool_call",
     "guard_tool_call",

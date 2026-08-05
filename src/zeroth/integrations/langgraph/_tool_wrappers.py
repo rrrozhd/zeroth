@@ -55,7 +55,7 @@ from zeroth.integrations.langgraph._tool_fingerprint import (
 )
 from zeroth.integrations.langgraph._tool_guard import (
     ToolAuditSubmitter,
-    authorize_tool_action,
+    aguard_tool_call,
     guard_tool_call,
 )
 from zeroth.integrations.langgraph._tool_normalize import (
@@ -1874,6 +1874,42 @@ def _edited_kwargs(arguments: Mapping[str, Any]) -> dict[str, Any]:
     return edited
 
 
+@dataclass(frozen=True, slots=True)
+class _PinnedToolInput:
+    """The frozen schema surface native LangChain validation needs."""
+
+    args_schema: Any
+
+    @property
+    def _injected_args_keys(self) -> frozenset[str]:
+        return frozenset()
+
+    def _parse_input(self, tool_input: Any, tool_call_id: str | None) -> Any:
+        return BaseTool._parse_input(self, tool_input, tool_call_id)  # type: ignore[arg-type]
+
+
+def _validated_base_tool_edit(
+    plan: _GovernedPlan,
+    action: ToolAction,
+    arguments: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Validate one edit through LangChain while preserving injected arguments."""
+    target = _PinnedToolInput(plan.facts.args_schema)
+    edited = dict(arguments)
+    public_edit = BaseTool._filter_injected_args(target, edited)  # type: ignore[arg-type]
+    if public_edit.keys() != edited.keys():
+        raise ToolGovernanceError("approval cannot edit injected tool arguments")
+    original = dict(action.arguments)
+    original_public = BaseTool._filter_injected_args(target, original)  # type: ignore[arg-type]
+    injected = {key: value for key, value in original.items() if key not in original_public}
+    args, kwargs = BaseTool._to_args_and_kwargs(  # type: ignore[arg-type]
+        target,
+        {**edited, **injected},
+        action.tool_call_id,
+    )
+    return _call_arguments(args, kwargs)
+
+
 class GovernedTool(BaseTool):
     """A ``BaseTool`` that decides before directly running a frozen body.
 
@@ -1969,6 +2005,9 @@ class GovernedTool(BaseTool):
             invoke_with_arguments=lambda edited: execute_snapshot(
                 facts.snapshot, (), _edited_kwargs(edited)
             ),
+            prepare_edited_arguments=lambda edited: _validated_base_tool_edit(
+                plan, action, edited
+            ),
             **_enforcement_seams(plan),
         )
 
@@ -1976,10 +2015,23 @@ class GovernedTool(BaseTool):
         """Govern this call, then execute its frozen async body directly."""
         plan = self._plan()
         action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
-        approved = authorize_tool_action(action, context, **_enforcement_seams(plan))
-        if approved.arguments == action.arguments:
+
+        async def execute() -> Any:
             return await aexecute_snapshot(facts.snapshot, args, kwargs)
-        return await aexecute_snapshot(facts.snapshot, (), _edited_kwargs(approved.arguments))
+
+        async def execute_edited(arguments: Mapping[str, Any]) -> Any:
+            return await aexecute_snapshot(facts.snapshot, (), _edited_kwargs(arguments))
+
+        return await aguard_tool_call(
+            action,
+            context,
+            execute,
+            invoke_with_arguments=execute_edited,
+            prepare_edited_arguments=lambda edited: _validated_base_tool_edit(
+                plan, action, edited
+            ),
+            **_enforcement_seams(plan),
+        )
 
 
 def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) -> GovernedTool:
@@ -2044,11 +2096,23 @@ async def _async_callable_call(
     plan = _callable_plan(token)
     call = _effective_call(plan.source, args, kwargs)
     action, context, facts = _governed_action(plan, call.arguments)
-    approved = authorize_tool_action(action, context, **_enforcement_seams(plan))
-    if approved.arguments != action.arguments:
-        call = _effective_call(plan.source, (), _edited_kwargs(approved.arguments))
-    refuse_state_cell_escalation(facts.state_cells)
-    return await facts.body(*call.args, **call.kwargs)
+
+    async def execute() -> Any:
+        refuse_state_cell_escalation(facts.state_cells)
+        return await facts.body(*call.args, **call.kwargs)
+
+    async def execute_edited(arguments: Mapping[str, Any]) -> Any:
+        edited = _effective_call(plan.source, (), _edited_kwargs(arguments))
+        refuse_state_cell_escalation(facts.state_cells)
+        return await facts.body(*edited.args, **edited.kwargs)
+
+    return await aguard_tool_call(
+        action,
+        context,
+        execute,
+        invoke_with_arguments=execute_edited,
+        **_enforcement_seams(plan),
+    )
 
 
 def _sync_callable_wrapper(token: object) -> Any:

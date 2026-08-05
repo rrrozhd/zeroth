@@ -11,6 +11,7 @@ from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+from uuid import uuid4
 
 from zeroth.integrations.langgraph._tool_errors import (
     ApprovalRequiresThreadError,
@@ -120,6 +121,26 @@ class ApprovalResolution:
 
 
 @dataclass(frozen=True, slots=True)
+class _ApprovalDelivery:
+    """One fenced delivery of a persisted approval resolution."""
+
+    resolution: ApprovalResolution
+    claim_token: str
+
+    def to_payload(self) -> dict[str, Any]:
+        return {**self.resolution.to_payload(), "claim_token": self.claim_token}
+
+    @classmethod
+    def from_payload(cls, value: object) -> _ApprovalDelivery:
+        if type(value) is not dict:
+            raise ToolGovernanceError("invalid approval delivery payload")
+        return cls(
+            ApprovalResolution.from_payload(value),
+            _identifier(value.get("claim_token"), "approval claim token"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ApprovalRecord:
     """One durable approval row."""
 
@@ -127,8 +148,11 @@ class ApprovalRecord:
     state: ApprovalState
     resolution: ApprovalResolution | None
     checkpoint_id: str | None
+    interrupt_id: str | None
     owner: str | None
     lease_deadline: float | None
+    claim_token: str | None
+    claim_consumed: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,12 +188,30 @@ class SQLiteApprovalRepository:
             connection.executescript(
                 """CREATE TABLE IF NOT EXISTS langgraph_approval_lifecycle (
                 approval_ref TEXT PRIMARY KEY, state TEXT NOT NULL, intent TEXT NOT NULL,
-                resolution TEXT, checkpoint_id TEXT, owner TEXT, lease_deadline REAL,
+                resolution TEXT, checkpoint_id TEXT, interrupt_id TEXT, owner TEXT,
+                lease_deadline REAL, claim_token TEXT, claim_consumed INTEGER NOT NULL DEFAULT 0,
                 deadline REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS langgraph_approval_events (
                 id INTEGER PRIMARY KEY, approval_ref TEXT NOT NULL, from_state TEXT,
                 to_state TEXT NOT NULL, accepted INTEGER NOT NULL, occurred_at REAL NOT NULL);"""
             )
+            connection.execute("BEGIN IMMEDIATE")
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(langgraph_approval_lifecycle)"
+                ).fetchall()
+            }
+            for name, declaration in (
+                ("interrupt_id", "TEXT"),
+                ("claim_token", "TEXT"),
+                ("claim_consumed", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE langgraph_approval_lifecycle "
+                        f"ADD COLUMN {name} {declaration}"
+                    )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._path, timeout=30)
@@ -187,8 +229,11 @@ class SQLiteApprovalRepository:
             ApprovalState(row["state"]),
             None if resolution is None else ApprovalResolution.from_payload(json.loads(resolution)),
             row["checkpoint_id"],
+            row["interrupt_id"],
             row["owner"],
             row["lease_deadline"],
+            row["claim_token"],
+            bool(row["claim_consumed"]),
         )
 
     def get(self, approval_ref: str) -> ApprovalRecord:
@@ -232,7 +277,10 @@ class SQLiteApprovalRepository:
             (ref, None if source is None else source.value, target.value, accepted, self._clock()),
         )
 
-    def begin(self, payload: Mapping[str, Any], arguments: Mapping[str, Any]) -> ApprovalRecord:
+    def begin_once(
+        self, payload: Mapping[str, Any], arguments: Mapping[str, Any]
+    ) -> tuple[ApprovalRecord, bool]:
+        """Persist one intent and report whether this delivery created it."""
         payload = _mapping(payload, "approval payload")
         ref = _identifier(payload.get("approval_ref"), "approval ref")
         _identifier(payload.get("thread_id"), "thread id")
@@ -245,13 +293,15 @@ class SQLiteApprovalRepository:
                 "arguments": dict(intent.arguments),
             }
         )
+        created = False
         with self._connect() as connection:
             cursor = connection.execute(
                 "INSERT OR IGNORE INTO langgraph_approval_lifecycle "
-                "VALUES (?, ?, ?, NULL, NULL, NULL, NULL, ?)",
+                "(approval_ref, state, intent, deadline) VALUES (?, ?, ?, ?)",
                 (ref, ApprovalState.AWAITING_CHECKPOINT.value, encoded, intent.deadline),
             )
             if cursor.rowcount:
+                created = True
                 self._event(connection, ref, None, ApprovalState.AWAITING_CHECKPOINT, True)
         current = self.get(ref)
         if current.intent.payload != intent.payload or current.intent.arguments != intent.arguments:
@@ -260,19 +310,26 @@ class SQLiteApprovalRepository:
                     connection, ref, current.state, ApprovalState.AWAITING_CHECKPOINT, False
                 )
             raise ToolGovernanceError("approval intent conflicts with its durable record")
-        return current
+        return current, created
 
-    def _transition(
-        self,
-        ref: str,
-        expected: tuple[ApprovalState, ...],
-        target: ApprovalState,
-        *,
-        checkpoint_id: str | None = None,
-        resolution: ApprovalResolution | None = None,
-        owner: str | None = None,
-        lease_deadline: float | None = None,
-    ) -> ApprovalRecord:
+    def begin(self, payload: Mapping[str, Any], arguments: Mapping[str, Any]) -> ApprovalRecord:
+        """Persist one intent idempotently."""
+        return self.begin_once(payload, arguments)[0]
+
+    def _expire_locked(
+        self, connection: sqlite3.Connection, ref: str, current: ApprovalRecord
+    ) -> None:
+        connection.execute(
+            "UPDATE langgraph_approval_lifecycle SET state = ?, owner = NULL, "
+            "lease_deadline = NULL, claim_token = NULL, claim_consumed = 0 "
+            "WHERE approval_ref = ?",
+            (ApprovalState.EXPIRED.value, ref),
+        )
+        self._event(connection, ref, current.state, ApprovalState.EXPIRED, True)
+
+    def ready(self, ref: str, checkpoint_id: str, interrupt_id: str) -> ApprovalRecord:
+        checkpoint_id = _identifier(checkpoint_id, "checkpoint id")
+        interrupt_id = _identifier(interrupt_id, "interrupt id")
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -281,43 +338,33 @@ class SQLiteApprovalRepository:
             if row is None:
                 raise ToolGovernanceError("approval lifecycle record does not exist")
             current = self._record(row)
-            if current.state is target and (
-                target is not ApprovalState.READY or current.checkpoint_id == checkpoint_id
+            if (
+                current.checkpoint_id == checkpoint_id
+                and current.interrupt_id == interrupt_id
+                and current.state
+                in (
+                    ApprovalState.READY,
+                    ApprovalState.DECIDED,
+                    ApprovalState.RESUMING,
+                    ApprovalState.RESOLVED,
+                )
             ):
                 return current
-            if current.state not in expected:
-                self._event(connection, ref, current.state, target, False)
+            if current.state is not ApprovalState.AWAITING_CHECKPOINT:
+                self._event(connection, ref, current.state, ApprovalState.READY, False)
                 connection.commit()
-                raise ToolGovernanceError(
-                    f"approval cannot transition from {current.state.value} to {target.value}"
-                )
+                raise ToolGovernanceError("approval checkpoint confirmation conflicts")
+            if current.intent.deadline <= self._clock():
+                self._expire_locked(connection, ref, current)
+                connection.commit()
+                raise ToolGovernanceError("approval deadline expired")
             connection.execute(
-                """UPDATE langgraph_approval_lifecycle
-                SET state = ?, resolution = COALESCE(?, resolution),
-                checkpoint_id = COALESCE(?, checkpoint_id), owner = ?, lease_deadline = ?
-                WHERE approval_ref = ?""",
-                (
-                    target.value,
-                    None if resolution is None else _dump(resolution.to_payload()),
-                    checkpoint_id,
-                    owner,
-                    lease_deadline,
-                    ref,
-                ),
+                "UPDATE langgraph_approval_lifecycle "
+                "SET state = ?, checkpoint_id = ?, interrupt_id = ? WHERE approval_ref = ?",
+                (ApprovalState.READY.value, checkpoint_id, interrupt_id, ref),
             )
-            self._event(connection, ref, current.state, target, True)
+            self._event(connection, ref, current.state, ApprovalState.READY, True)
         return self.get(ref)
-
-    def ready(self, ref: str, checkpoint_id: str) -> ApprovalRecord:
-        current = self.get(ref)
-        if current.state is ApprovalState.READY and current.checkpoint_id == checkpoint_id:
-            return current
-        return self._transition(
-            ref,
-            (ApprovalState.AWAITING_CHECKPOINT,),
-            ApprovalState.READY,
-            checkpoint_id=_identifier(checkpoint_id, "checkpoint id"),
-        )
 
     def decide(self, resolution: ApprovalResolution) -> ApprovalRecord:
         ref = resolution.approval_ref
@@ -329,6 +376,14 @@ class SQLiteApprovalRepository:
             if row is None:
                 raise ToolGovernanceError("approval lifecycle record does not exist")
             current = self._record(row)
+            if (
+                current.state.value not in _TERMINAL
+                and not current.claim_consumed
+                and current.intent.deadline <= self._clock()
+            ):
+                self._expire_locked(connection, ref, current)
+                connection.commit()
+                raise ToolGovernanceError("approval deadline expired")
             if current.resolution == resolution:
                 return current
             if current.resolution is not None or current.state is not ApprovalState.READY:
@@ -357,18 +412,29 @@ class SQLiteApprovalRepository:
                 return current, False
             if (
                 current.state is ApprovalState.RESUMING
-                and current.lease_deadline is not None
-                and current.lease_deadline > now
+                and (
+                    current.claim_consumed
+                    or (
+                        current.lease_deadline is not None
+                        and current.lease_deadline > now
+                    )
+                )
             ):
                 return current, False
+            if current.intent.deadline <= now:
+                self._expire_locked(connection, ref, current)
+                connection.commit()
+                raise ToolGovernanceError("approval deadline expired")
             if current.state not in (ApprovalState.DECIDED, ApprovalState.RESUMING):
                 self._event(connection, ref, current.state, ApprovalState.RESUMING, False)
                 connection.commit()
                 raise ToolGovernanceError("approval is not claimable")
+            claim_token = uuid4().hex
             connection.execute(
                 "UPDATE langgraph_approval_lifecycle "
-                "SET state = ?, owner = ?, lease_deadline = ? WHERE approval_ref = ?",
-                (ApprovalState.RESUMING.value, owner, now + self._lease, ref),
+                "SET state = ?, owner = ?, lease_deadline = ?, claim_token = ?, "
+                "claim_consumed = 0 WHERE approval_ref = ?",
+                (ApprovalState.RESUMING.value, owner, now + self._lease, claim_token, ref),
             )
             self._event(connection, ref, current.state, ApprovalState.RESUMING, True)
         return self.get(ref), True
@@ -377,22 +443,83 @@ class SQLiteApprovalRepository:
         """Claim resumable work, returning the current owner on duplicate delivery."""
         return self._claim(ref, owner=owner)[0]
 
-    def finish(self, ref: str) -> ApprovalRecord:
-        current = self.get(ref)
-        return (
-            current
-            if current.state is ApprovalState.RESOLVED
-            else self._transition(ref, (ApprovalState.RESUMING,), ApprovalState.RESOLVED)
-        )
+    def finish(self, ref: str, claim_token: str) -> ApprovalRecord:
+        """Resolve only the currently consumed delivery fence."""
+        claim_token = _identifier(claim_token, "approval claim token")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?", (ref,)
+            ).fetchone()
+            if row is None:
+                raise ToolGovernanceError("approval lifecycle record does not exist")
+            current = self._record(row)
+            if current.state is ApprovalState.RESOLVED and current.claim_token == claim_token:
+                return current
+            if (
+                current.state is not ApprovalState.RESUMING
+                or current.claim_token != claim_token
+                or not current.claim_consumed
+            ):
+                self._event(connection, ref, current.state, ApprovalState.RESOLVED, False)
+                connection.commit()
+                raise ToolGovernanceError("approval completion fence is no longer current")
+            connection.execute(
+                "UPDATE langgraph_approval_lifecycle SET state = ?, lease_deadline = NULL "
+                "WHERE approval_ref = ?",
+                (ApprovalState.RESOLVED.value, ref),
+            )
+            self._event(connection, ref, current.state, ApprovalState.RESOLVED, True)
+        return self.get(ref)
+
+    def fail(self, ref: str, claim_token: str) -> ApprovalRecord:
+        """Orphan the current failed delivery without replacing its exception."""
+        claim_token = _identifier(claim_token, "approval claim token")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?", (ref,)
+            ).fetchone()
+            if row is None:
+                raise ToolGovernanceError("approval lifecycle record does not exist")
+            current = self._record(row)
+            if current.state.value in _TERMINAL:
+                return current
+            if current.state is not ApprovalState.RESUMING or current.claim_token != claim_token:
+                self._event(connection, ref, current.state, ApprovalState.ORPHANED, False)
+                return current
+            connection.execute(
+                "UPDATE langgraph_approval_lifecycle SET state = ?, lease_deadline = NULL "
+                "WHERE approval_ref = ?",
+                (ApprovalState.ORPHANED.value, ref),
+            )
+            self._event(connection, ref, current.state, ApprovalState.ORPHANED, True)
+        return self.get(ref)
 
     def terminal(self, ref: str, state: ApprovalState) -> ApprovalRecord:
         if state not in (ApprovalState.EXPIRED, ApprovalState.ORPHANED):
             raise ToolGovernanceError("invalid terminal approval state")
-        current = self.get(ref)
-        if current.state is state:
-            return current
-        active = tuple(item for item in ApprovalState if item.value not in _TERMINAL)
-        return self._transition(ref, active, state)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?", (ref,)
+            ).fetchone()
+            if row is None:
+                raise ToolGovernanceError("approval lifecycle record does not exist")
+            current = self._record(row)
+            if current.state is state:
+                return current
+            if current.state.value in _TERMINAL:
+                self._event(connection, ref, current.state, state, False)
+                connection.commit()
+                raise ToolGovernanceError("approval terminal state cannot be replaced")
+            connection.execute(
+                "UPDATE langgraph_approval_lifecycle SET state = ?, lease_deadline = NULL "
+                "WHERE approval_ref = ?",
+                (state.value, ref),
+            )
+            self._event(connection, ref, current.state, state, True)
+        return self.get(ref)
 
     def pending(self, limit: int = 100) -> tuple[ApprovalRecord, ...]:
         if type(limit) is not int or not 1 <= limit <= 1000:
@@ -407,19 +534,61 @@ class SQLiteApprovalRepository:
         return tuple(self._record(row) for row in rows)
 
     def expire_due(self, limit: int = 100) -> tuple[ApprovalRecord, ...]:
-        due = [record for record in self.pending(limit) if record.intent.deadline <= self._clock()]
-        return tuple(
-            self._transition(ref, (record.state,), ApprovalState.EXPIRED)
-            for record in due
-            if (ref := _identifier(record.intent.payload.get("approval_ref"), "approval ref"))
-        )
+        expired: list[ApprovalRecord] = []
+        for record in self.pending(limit):
+            ref = _identifier(record.intent.payload.get("approval_ref"), "approval ref")
+            current = self._expire_due(ref)
+            if current is not None:
+                expired.append(current)
+        return tuple(expired)
 
-    def consume(self, value: object) -> ApprovalResolution:
-        resolution = ApprovalResolution.from_payload(value)
-        record = self.get(resolution.approval_ref)
-        if record.state is not ApprovalState.RESUMING or record.resolution != resolution:
-            raise ToolGovernanceError("approval resume does not match the claimed decision")
-        return resolution
+    def _expire_due(self, ref: str) -> ApprovalRecord | None:
+        """Expire one still-unconsumed overdue row under the same write lock."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?", (ref,)
+            ).fetchone()
+            if row is None:
+                return None
+            current = self._record(row)
+            if (
+                current.state.value in _TERMINAL
+                or current.claim_consumed
+                or current.intent.deadline > self._clock()
+            ):
+                return None
+            self._expire_locked(connection, ref, current)
+        return self.get(ref)
+
+    def consume(self, value: object) -> _ApprovalDelivery:
+        delivery = _ApprovalDelivery.from_payload(value)
+        ref = delivery.resolution.approval_ref
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?", (ref,)
+            ).fetchone()
+            if row is None:
+                raise ToolGovernanceError("approval lifecycle record does not exist")
+            current = self._record(row)
+            if current.intent.deadline <= self._clock() and not current.claim_consumed:
+                self._expire_locked(connection, ref, current)
+                connection.commit()
+                raise ToolGovernanceError("approval deadline expired")
+            if (
+                current.state is not ApprovalState.RESUMING
+                or current.resolution != delivery.resolution
+                or current.claim_token != delivery.claim_token
+                or current.claim_consumed
+            ):
+                raise ToolGovernanceError("approval resume does not match the current claim fence")
+            connection.execute(
+                "UPDATE langgraph_approval_lifecycle SET claim_consumed = 1 "
+                "WHERE approval_ref = ?",
+                (ref,),
+            )
+        return delivery
 
 
 def _langgraph_command(resume: Mapping[str, Any]) -> Any:
@@ -434,54 +603,160 @@ class ApprovalCoordinator:
     def __init__(self, repository: SQLiteApprovalRepository) -> None:
         self._repository = repository
 
-    def _observed(self, record: ApprovalRecord, graph: Any) -> tuple[str | None, bool]:
+    @staticmethod
+    def _config(
+        config: Mapping[str, Any] | None,
+        thread_id: str,
+        checkpoint_id: str | None = None,
+    ) -> dict[str, Any]:
+        if config is not None and not isinstance(config, Mapping):
+            raise ApprovalRequiresThreadError("approval resume config must be a mapping")
+        copied = dict(config or {})
+        configurable = copied.get("configurable", {})
+        if not isinstance(configurable, Mapping):
+            raise ApprovalRequiresThreadError("approval resume configurable must be a mapping")
+        positioned = {**configurable, "thread_id": thread_id}
+        if checkpoint_id is not None:
+            positioned["checkpoint_id"] = checkpoint_id
+        else:
+            positioned.pop("checkpoint_id", None)
+        copied["configurable"] = positioned
+        return copied
+
+    @staticmethod
+    def _require_durable_graph(graph: Any, durable_checkpointer: Any) -> None:
+        try:
+            from langgraph.checkpoint.base import BaseCheckpointSaver
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            from zeroth.integrations.langgraph._wrapper import GovernedGraph
+
+            actual = graph.checkpointer
+        except Exception:
+            raise ApprovalRequiresThreadError(
+                "approval needs an inspectable durable LangGraph checkpointer"
+            ) from None
+        if (
+            not isinstance(graph, GovernedGraph)
+            or not isinstance(durable_checkpointer, BaseCheckpointSaver)
+            or isinstance(durable_checkpointer, InMemorySaver)
+            or actual is not durable_checkpointer
+        ):
+            raise ApprovalRequiresThreadError(
+                "approval needs the governed graph's explicitly attested durable checkpointer"
+            )
+
+    def _observed(
+        self,
+        record: ApprovalRecord,
+        graph: Any,
+        config: Mapping[str, Any] | None,
+    ) -> tuple[str | None, str | None]:
         thread = _identifier(record.intent.payload.get("thread_id"), "thread id")
-        snapshot = graph.get_state({"configurable": {"thread_id": thread}})
+        positioned = self._config(config, thread, record.checkpoint_id)
+        try:
+            snapshot = graph.get_state(positioned)
+        except Exception:
+            raise ApprovalRequiresThreadError(
+                "approval checkpoint state is unavailable"
+            ) from None
         config = getattr(snapshot, "config", None)
         configurable = config.get("configurable") if type(config) is dict else None
         checkpoint = configurable.get("checkpoint_id") if type(configurable) is dict else None
         valid = type(configurable) is dict and configurable.get("thread_id") == thread
         interrupts = getattr(snapshot, "interrupts", ())
-        matches = type(interrupts) is tuple and any(
-            getattr(item, "value", None) == record.intent.payload for item in interrupts
+        matches = (
+            [
+                item
+                for item in interrupts
+                if getattr(item, "value", None) == dict(record.intent.payload)
+            ]
+            if type(interrupts) is tuple
+            else []
         )
-        return checkpoint if valid and type(checkpoint) is str else None, matches
+        interrupt_id = getattr(matches[0], "id", None) if len(matches) == 1 else None
+        return (
+            checkpoint if valid and type(checkpoint) is str else None,
+            interrupt_id if type(interrupt_id) is str and interrupt_id else None,
+        )
 
-    def confirm_checkpoint(self, ref: str, graph: Any) -> ApprovalRecord:
+    def confirm_checkpoint(
+        self,
+        ref: str,
+        graph: Any,
+        *,
+        config: Mapping[str, Any] | None,
+        durable_checkpointer: Any,
+    ) -> ApprovalRecord:
+        self._require_durable_graph(graph, durable_checkpointer)
         record = self._repository.get(ref)
-        checkpoint, matches = self._observed(record, graph)
-        if checkpoint is None or not matches:
+        if (
+            record.checkpoint_id is not None
+            and record.interrupt_id is not None
+            and record.state
+            in (
+                ApprovalState.READY,
+                ApprovalState.DECIDED,
+                ApprovalState.RESUMING,
+                ApprovalState.RESOLVED,
+            )
+        ):
+            return record
+        checkpoint, interrupt_id = self._observed(record, graph, config)
+        if checkpoint is None or interrupt_id is None:
             self._repository.terminal(ref, ApprovalState.ORPHANED)
             raise ToolGovernanceError("approval interrupt is not present in the original thread")
-        return self._repository.ready(ref, checkpoint)
+        try:
+            return self._repository.ready(ref, checkpoint, interrupt_id)
+        except ToolGovernanceError:
+            current = self._repository.get(ref)
+            if current.state.value not in _TERMINAL:
+                self._repository.terminal(ref, ApprovalState.ORPHANED)
+            raise
 
-    def resume(self, ref: str, graph: Any, *, owner: str) -> ApprovalRecord:
+    def resume(
+        self,
+        ref: str,
+        graph: Any,
+        *,
+        owner: str,
+        config: Mapping[str, Any] | None,
+        durable_checkpointer: Any,
+    ) -> ApprovalRecord:
         record = self._repository.get(ref)
         if record.state.value in _TERMINAL:
             return record
-        checkpoint, matches = self._observed(record, graph)
-        if record.state is ApprovalState.RESUMING and (
-            not matches or checkpoint != record.checkpoint_id
-        ):
-            return self._repository.finish(ref)
+        self._require_durable_graph(graph, durable_checkpointer)
         if record.state not in (ApprovalState.DECIDED, ApprovalState.RESUMING):
             raise ToolGovernanceError("approval is not ready to resume")
-        if not matches or checkpoint != record.checkpoint_id:
-            self._repository.terminal(ref, ApprovalState.ORPHANED)
-            raise ToolGovernanceError("approval checkpoint changed before resume")
         claimed, acquired = self._repository._claim(ref, owner=owner)
         if not acquired:
             return claimed
-        resolution = claimed.resolution
-        if resolution is None:
+        if (
+            claimed.resolution is None
+            or claimed.claim_token is None
+            or claimed.interrupt_id is None
+            or claimed.checkpoint_id is None
+        ):
+            if claimed.claim_token is not None:
+                self._repository.fail(ref, claimed.claim_token)
             raise ToolGovernanceError("claimed approval has no decision")
+        checkpoint, interrupt_id = self._observed(claimed, graph, config)
+        if checkpoint != claimed.checkpoint_id or interrupt_id != claimed.interrupt_id:
+            self._repository.fail(ref, claimed.claim_token)
+            raise ToolGovernanceError("approval checkpoint changed before resume")
         thread = _identifier(claimed.intent.payload.get("thread_id"), "thread id")
-        config = {"configurable": {"thread_id": thread, "checkpoint_id": claimed.checkpoint_id}}
+        positioned = self._config(config, thread, claimed.checkpoint_id)
+        delivery = _ApprovalDelivery(claimed.resolution, claimed.claim_token)
         try:
-            graph.invoke(_langgraph_command(resolution.to_payload()), config)
-        except Exception:
-            current = self._repository.get(ref)
-            if current.state is ApprovalState.RESOLVED:
-                return current
+            graph.invoke(
+                _langgraph_command({claimed.interrupt_id: delivery.to_payload()}), positioned
+            )
+        except BaseException:
+            self._repository.fail(ref, claimed.claim_token)
             raise
-        return self._repository.finish(ref)
+        current = self._repository.get(ref)
+        if current.state is not ApprovalState.RESOLVED:
+            self._repository.fail(ref, claimed.claim_token)
+            raise ToolGovernanceError("approval resume completed without tool resolution")
+        return current
