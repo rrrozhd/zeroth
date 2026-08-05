@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import tempfile
 from collections.abc import Callable
 from typing import Annotated, Any, TypedDict
 
@@ -75,6 +76,7 @@ from pydantic import BaseModel, field_validator
 
 from tests.integrations.langgraph.tools._agents import TOOL_CALL_ID, scripted_model
 from zeroth.governance.audit import NodeAuditRecord
+from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._middleware import ZerothMiddleware
 from zeroth.integrations.langgraph._tool_decisions import UnknownSideEffectPolicy
 from zeroth.integrations.langgraph._tool_errors import (
@@ -694,17 +696,23 @@ def _seams(
     *live* is this driver's own cell, so a resolver one surface reads can never
     be the one the other surface mutated.
     """
+    directory = tempfile.TemporaryDirectory()
+    _LIFECYCLE_DIRS.append(directory)
     seams = {
         "context": scenario.context,
         "client": scenario.client(),
         "unknown_side_effect": scenario.unknown_side_effect,
         "audit": audit,
         "interrupt": interrupt,
+        "approval_lifecycle": SQLiteApprovalRepository(f"{directory.name}/approvals.sqlite3"),
         "side_effect": scenario.classify,
     }
     if scenario.resolvers is not None:
         seams.update(scenario.resolvers(live))
     return seams
+
+
+_LIFECYCLE_DIRS: list[tempfile.TemporaryDirectory[str]] = []
 
 
 def _staged(scenario: Scenario, live: dict[str, Any]) -> None:
