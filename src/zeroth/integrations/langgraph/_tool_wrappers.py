@@ -18,6 +18,7 @@ import types
 import typing
 import weakref
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any, get_args, get_origin
 
@@ -222,6 +223,21 @@ class _CallablePlan:
 
 _CALLABLE_PLANS: dict[object, _CallablePlan] = {}
 """Callable plans keyed by fresh, non-callable tokens closed over by wrappers."""
+
+
+@dataclass(slots=True)
+class _BaseToolCall:
+    """One native ``BaseTool.run`` / ``arun`` identity awaiting its body."""
+
+    owner: object
+    tool_call_id: str | None
+    claimed: bool = False
+
+
+_BASE_TOOL_CALL: ContextVar[_BaseToolCall | None] = ContextVar(
+    "zeroth_base_tool_call", default=None
+)
+"""Trusted call-local identity carried from native ``BaseTool`` entry points."""
 
 _SAFE_ANNOTATION_ATOMS = (
     str,
@@ -1892,15 +1908,29 @@ class _PinnedToolInput:
         return BaseTool._parse_input(self, tool_input, tool_call_id)  # type: ignore[arg-type]
 
 
-def _injected_tool_call_id(plan: _GovernedPlan, arguments: Mapping[str, Any]) -> str | None:
-    """Recover the call ID that native BaseTool parsing injected into this call."""
+def _injected_tool_call_id(
+    plan: _GovernedPlan,
+    arguments: Mapping[str, Any],
+    outer_tool_call_id: str | None,
+) -> str | None:
+    """Reconcile native outer and schema-injected call identities."""
+    planned_tool_call_id = plan.seams.tool_call_id
+    if (
+        outer_tool_call_id is not None
+        and planned_tool_call_id is not None
+        and outer_tool_call_id != planned_tool_call_id
+    ):
+        raise ToolGovernanceError("trusted tool-call identities are inconsistent")
+    trusted_tool_call_id = (
+        planned_tool_call_id if outer_tool_call_id is None else outer_tool_call_id
+    )
     schema = plan.facts.args_schema
     if not isinstance(schema, type):
-        return plan.seams.tool_call_id
+        return trusted_tool_call_id
     namespace = type.__dict__["__dict__"].__get__(schema)
     fields = namespace.get("__pydantic_fields__")
     if type(fields) is not dict:
-        return plan.seams.tool_call_id
+        return trusted_tool_call_id
     names = []
     for name, field in fields.items():
         metadata = object.__getattribute__(field, "metadata")
@@ -1911,7 +1941,7 @@ def _injected_tool_call_id(plan: _GovernedPlan, arguments: Mapping[str, Any]) ->
         ):
             names.append(name)
     if not names:
-        return plan.seams.tool_call_id
+        return trusted_tool_call_id
     values = [arguments.get(name) for name in names]
     if any(type(value) is not str for value in values):
         raise ToolGovernanceError("injected tool-call identity is unavailable")
@@ -1920,6 +1950,8 @@ def _injected_tool_call_id(plan: _GovernedPlan, arguments: Mapping[str, Any]) ->
     value = values[0]
     if normalize_identifier(value) != value:
         raise ToolGovernanceError("injected tool-call identity is unavailable")
+    if trusted_tool_call_id is not None and value != trusted_tool_call_id:
+        raise ToolGovernanceError("injected tool-call identity does not match the outer identity")
     return value
 
 
@@ -2029,14 +2061,41 @@ class GovernedTool(BaseTool):
         """Report the governed tool's own input schema, not this wrapper's signature."""
         return self._plan().target.get_input_schema(config)
 
+    @functools.wraps(BaseTool.run)
+    def run(self, *args: Any, tool_call_id: str | None = None, **kwargs: Any) -> Any:
+        """Carry native ``BaseTool`` call identity into this invocation only."""
+        token = _BASE_TOOL_CALL.set(_BaseToolCall(self, tool_call_id))
+        try:
+            return super().run(*args, tool_call_id=tool_call_id, **kwargs)
+        finally:
+            _BASE_TOOL_CALL.reset(token)
+
+    @functools.wraps(BaseTool.arun)
+    async def arun(self, *args: Any, tool_call_id: str | None = None, **kwargs: Any) -> Any:
+        """Carry native async ``BaseTool`` call identity into this invocation only."""
+        token = _BASE_TOOL_CALL.set(_BaseToolCall(self, tool_call_id))
+        try:
+            return await super().arun(*args, tool_call_id=tool_call_id, **kwargs)
+        finally:
+            _BASE_TOOL_CALL.reset(token)
+
+    def _claim_outer_tool_call_id(self) -> str | None:
+        """Claim this invocation's native identity once, never across nested calls."""
+        call = _BASE_TOOL_CALL.get()
+        if call is None or call.owner is not self or call.claimed:
+            return None
+        call.claimed = True
+        return call.tool_call_id
+
     def _run(self, *args: Any, **kwargs: Any) -> Any:
         """Govern this call, then execute its frozen sync body directly."""
+        outer_tool_call_id = self._claim_outer_tool_call_id()
         plan = self._plan()
         arguments = _call_arguments(args, kwargs)
         action, context, facts = _governed_action(
             plan,
             arguments,
-            tool_call_id=_injected_tool_call_id(plan, arguments),
+            tool_call_id=_injected_tool_call_id(plan, arguments, outer_tool_call_id),
         )
         return guard_tool_call(
             action,
@@ -2051,12 +2110,13 @@ class GovernedTool(BaseTool):
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """Govern this call, then execute its frozen async body directly."""
+        outer_tool_call_id = self._claim_outer_tool_call_id()
         plan = self._plan()
         arguments = _call_arguments(args, kwargs)
         action, context, facts = _governed_action(
             plan,
             arguments,
-            tool_call_id=_injected_tool_call_id(plan, arguments),
+            tool_call_id=_injected_tool_call_id(plan, arguments, outer_tool_call_id),
         )
 
         async def execute() -> Any:

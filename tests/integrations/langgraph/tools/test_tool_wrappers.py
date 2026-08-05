@@ -1051,6 +1051,97 @@ def test_the_obsolete_call_id_carrier_name_is_an_ordinary_argument() -> None:
     }
 
 
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_full_tool_call_identity_does_not_leak_to_the_next_ordinary_call(
+    async_call: bool,
+) -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    call = {
+        "name": "lookup",
+        "args": {"query": "first"},
+        "id": "call-first",
+        "type": "tool_call",
+    }
+
+    if async_call:
+        asyncio.run(governed.ainvoke(call))
+        asyncio.run(governed.ainvoke({"query": "second"}))
+    else:
+        governed.invoke(call)
+        governed.invoke({"query": "second"})
+
+    assert [action.tool_call_id for action in client.seen] == ["call-first", None]
+    assert observed == ["first", "second"]
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_injected_tool_call_id_must_match_the_trusted_outer_id(
+    monkeypatch: Any, async_call: bool
+) -> None:
+    observed: list[str] = []
+
+    class InjectedArgs(BaseModel):
+        query: str
+        tool_call_id: Annotated[str, InjectedToolCallId]
+
+    def lookup(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append(f"{query}:{tool_call_id}")
+        return query
+
+    async def alookup(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append(f"{query}:{tool_call_id}")
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+        args_schema=InjectedArgs,
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    native_parse = BaseTool._parse_input
+
+    def conflicting_parse(self: Any, tool_input: Any, tool_call_id: Any) -> Any:
+        parsed = native_parse(self, tool_input, tool_call_id)
+        return {**parsed, "tool_call_id": "call-forged"}
+
+    monkeypatch.setattr(GovernedTool, "_parse_input", conflicting_parse)
+    call = {
+        "name": "lookup",
+        "args": {"query": "first"},
+        "id": "call-outer",
+        "type": "tool_call",
+    }
+
+    with pytest.raises(ToolGovernanceError, match="tool-call identity"):
+        if async_call:
+            asyncio.run(governed.ainvoke(call))
+        else:
+            governed.invoke(call)
+
+    assert client.calls == 0
+    assert observed == []
+
+
 def test_tags_and_metadata_a_caller_reads_off_the_tool_survive_the_wrapping() -> None:
     body = Body()
 
