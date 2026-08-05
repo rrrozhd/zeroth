@@ -19,7 +19,9 @@ from typing import Annotated, Any, TypedDict
 
 import httpx
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
     ChannelVersions,
@@ -28,8 +30,9 @@ from langgraph.checkpoint.base import (
     CheckpointTuple,
 )
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode
+from langgraph.types import Command, Send
 
 from tests.integrations.langgraph.test_enforcement_attestations import _signer, _token
 from zeroth.core.langgraph_gateway.context import ReservedContextCodec
@@ -298,6 +301,27 @@ class PerToolApprovalClient:
             "policy_violation",
             approval_ref=f"approval-{name}",
         )
+
+
+@dataclass
+class IdenticalCallApprovalClient:
+    """Issue distinct approvals while the initial parallel calls are held."""
+
+    hold: bool = True
+    issued: int = 0
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        del action, context
+        with self.lock:
+            if not self.hold:
+                return ALLOW
+            self.issued += 1
+            return ToolDecision(
+                ToolDecisionKind.REQUIRE_APPROVAL,
+                "policy_violation",
+                approval_ref=f"approval-identical-{self.issued}",
+            )
 
 
 @dataclass
@@ -1070,6 +1094,121 @@ def test_real_parallel_interrupt_resume_ignores_a_bound_stale_checkpoint(
     completed = asyncio.run(graph.aget_state(config)) if async_mode else graph.get_state(config)
     assert completed.next == ()
     assert completed.values["done"] == ["tool_a", "tool_b"]
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+def test_real_tool_node_keeps_identical_calls_separate_by_outer_id(
+    tmp_path: Any, async_mode: bool
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    saver_path = tmp_path / "checkpoints.bin"
+    saver = AsyncOnlyPersistentSaver(saver_path) if async_mode else PersistentSaver(saver_path)
+    policy = IdenticalCallApprovalClient()
+    executed: list[str] = []
+
+    def lookup(query: str) -> str:
+        executed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        executed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Look up a record.",
+    )
+    assert set(original.args_schema.model_fields) == {"query"}
+    [governed] = govern_tools(
+        [original],
+        context=CONTEXT,
+        client=policy,
+        side_effect=lambda _tool: SideEffectClass.READ_ONLY,
+        approval_lifecycle=repository,
+    )
+    builder = StateGraph(MessagesState)
+    builder.add_node("tools", ToolNode([governed]))
+    builder.add_conditional_edges(
+        START,
+        lambda state: [
+            Send("tools", [tool_call]) for tool_call in state["messages"][-1].tool_calls
+        ],
+    )
+    builder.add_edge("tools", END)
+    graph = govern_graph(builder.compile(checkpointer=saver))
+    config = {"configurable": {"thread_id": "thread-1"}}
+    calls = [
+        {"name": "lookup", "args": {"query": "same"}, "id": call_id}
+        for call_id in ("call-a", "call-b")
+    ]
+
+    if async_mode:
+        asyncio.run(graph.ainvoke({"messages": [AIMessage(content="", tool_calls=calls)]}, config))
+        initial = asyncio.run(graph.aget_state(config))
+    else:
+        graph.invoke({"messages": [AIMessage(content="", tool_calls=calls)]}, config)
+        initial = graph.get_state(config)
+
+    assert executed == []
+    assert len(initial.interrupts) == 2
+    assert {item.value["tool_call_id"] for item in initial.interrupts} == {
+        "call-a",
+        "call-b",
+    }
+    pending = repository.pending()
+    assert len(pending) == 2
+    assert {item.intent.payload["tool_call_id"] for item in pending} == {
+        "call-a",
+        "call-b",
+    }
+
+    policy.hold = False
+    resumed_graph = graph.with_config(initial.config)
+    coordinator = ApprovalCoordinator(repository)
+    refs = [str(item.intent.payload["approval_ref"]) for item in pending]
+    for ref in refs:
+        if async_mode:
+            asyncio.run(
+                coordinator.aconfirm_checkpoint(
+                    ref, resumed_graph, config=config, durable_checkpointer=saver
+                )
+            )
+        else:
+            coordinator.confirm_checkpoint(
+                ref, resumed_graph, config=config, durable_checkpointer=saver
+            )
+        repository.decide(ApprovalResolution(ref, ApprovalDecision.APPROVE))
+
+    for index, ref in enumerate(refs, start=1):
+        if async_mode:
+            asyncio.run(
+                coordinator.aresume(
+                    ref,
+                    resumed_graph,
+                    owner=f"worker-{index}",
+                    config=config,
+                    durable_checkpointer=saver,
+                )
+            )
+        else:
+            coordinator.resume(
+                ref,
+                resumed_graph,
+                owner=f"worker-{index}",
+                config=config,
+                durable_checkpointer=saver,
+            )
+        assert len(executed) == index
+        assert repository.get(ref).state is ApprovalState.RESOLVED
+
+    completed = asyncio.run(graph.aget_state(config)) if async_mode else graph.get_state(config)
+    outputs = [
+        message for message in completed.values["messages"] if isinstance(message, ToolMessage)
+    ]
+    assert {message.tool_call_id for message in outputs} == {"call-a", "call-b"}
+    assert executed == ["same", "same"]
 
 
 def test_parallel_resumes_are_serialized_across_repository_instances(tmp_path: Any) -> None:
