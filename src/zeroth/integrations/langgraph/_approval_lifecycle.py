@@ -465,7 +465,10 @@ class SQLiteApprovalRepository:
         _identifier(payload.get("thread_id"), "thread id")
         _identifier(payload.get("run_id"), "run id")
         identity = self._identity_values(payload)
-        intent = ApprovalIntent(payload, arguments, self._now() + self._ttl)
+        deadline = self._now() + self._ttl
+        if not math.isfinite(deadline):
+            raise ToolGovernanceError("approval deadline must be finite")
+        intent = ApprovalIntent(payload, arguments, deadline)
         encoded = _dump(
             {
                 "version": intent.version,
@@ -588,7 +591,9 @@ class SQLiteApprovalRepository:
                 self._expire_locked(connection, ref, current)
                 connection.commit()
                 raise ToolGovernanceError("approval deadline expired")
-            if current.resolution == resolution:
+            if current.resolution is not None and _dump(current.resolution.to_payload()) == _dump(
+                resolution.to_payload()
+            ):
                 return current
             if current.resolution is not None or current.state is not ApprovalState.READY:
                 self._event(connection, ref, current.state, ApprovalState.DECIDED, False)
@@ -638,12 +643,15 @@ class SQLiteApprovalRepository:
                 self._event(connection, ref, current.state, ApprovalState.RESUMING, False)
                 connection.commit()
                 raise ToolGovernanceError("approval is not claimable")
+            lease_deadline = now + self._lease
+            if not math.isfinite(lease_deadline):
+                raise ToolGovernanceError("approval lease deadline must be finite")
             claim_token = uuid4().hex
             connection.execute(
                 "UPDATE langgraph_approval_lifecycle "
                 "SET state = ?, owner = ?, lease_deadline = ?, claim_token = ?, "
                 "claim_consumed = 0 WHERE approval_ref = ?",
-                (ApprovalState.RESUMING.value, owner, now + self._lease, claim_token, ref),
+                (ApprovalState.RESUMING.value, owner, lease_deadline, claim_token, ref),
             )
             self._event(connection, ref, current.state, ApprovalState.RESUMING, True)
         return self.get(ref), True
@@ -805,7 +813,8 @@ class SQLiteApprovalRepository:
                 raise ToolGovernanceError("approval deadline expired")
             if (
                 current.state is not ApprovalState.RESUMING
-                or current.resolution != delivery.resolution
+                or current.resolution is None
+                or _dump(current.resolution.to_payload()) != _dump(delivery.resolution.to_payload())
                 or current.claim_token != delivery.claim_token
                 or current.claim_consumed
             ):

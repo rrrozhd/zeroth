@@ -712,7 +712,7 @@ def _authorize_tool_action(
             governance,
             approval_ref,
             claim_token,
-            approved.arguments != normalized.arguments,
+            argument_fingerprint(approved.arguments) != argument_fingerprint(normalized.arguments),
         )
     decision = _recognized_decision(
         resolve_tool_decision(
@@ -746,7 +746,7 @@ def _authorize_tool_action(
             governance,
             approval_ref,
             claim_token,
-            approved.arguments != normalized.arguments,
+            argument_fingerprint(approved.arguments) != argument_fingerprint(normalized.arguments),
         )
     _emit_decision_audit(
         audit, normalized, governance, decision, actor=actor, approval_ref=approval_ref
