@@ -79,6 +79,7 @@ from zeroth.governance.audit.models import (
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.langgraph._approval_lifecycle import (
     ApprovalDecision,
+    ApprovalRecord,
     SQLiteApprovalRepository,
 )
 from zeroth.integrations.langgraph._tool_decisions import (
@@ -356,24 +357,31 @@ def _approval_payload(
         "version": _APPROVAL_PAYLOAD_VERSION,
         "kind": _APPROVAL_PAYLOAD_KIND,
         "approval_ref": approval_ref,
-        "tenant_id": governance.tenant_id,
-        "principal_id": governance.principal_id,
-        "run_id": governance.run_id,
-        "thread_id": governance.thread_id,
+        **_approval_action_identity(action, governance),
         "correlation_id": governance.correlation_id,
         "tool_name": action.identity.name,
-        "tool_fingerprint": action.identity.fingerprint,
-        "tool_call_id": action.tool_call_id,
-        "argument_fingerprint": argument_fingerprint(action.arguments),
         "contract_ref": normalize_identifier(action.contract_ref),
         "side_effect": _side_effect_term(action.side_effect),
         "reason_code": _reason_term(decision),
     }
 
 
-def _decision_metadata(
-    decision: ToolDecision, decision_term: str | None = None
-) -> dict[str, str]:
+def _approval_action_identity(
+    action: ToolAction, governance: ToolGovernanceContext
+) -> dict[str, Any]:
+    """Return the persisted fields that identify one replayed tool action."""
+    return {
+        "tenant_id": governance.tenant_id,
+        "principal_id": governance.principal_id,
+        "run_id": governance.run_id,
+        "thread_id": governance.thread_id,
+        "tool_fingerprint": action.identity.fingerprint,
+        "tool_call_id": action.tool_call_id,
+        "argument_fingerprint": argument_fingerprint(action.arguments),
+    }
+
+
+def _decision_metadata(decision: ToolDecision, decision_term: str | None = None) -> dict[str, str]:
     """Render one verdict as allowlisted, content-free metadata.
 
     ``reason_code`` is written only for a denial. It names a failure or a denial
@@ -532,10 +540,16 @@ def _suspend_for_approval(
     audit: ToolAuditSubmitter | None,
     actor: ActorIdentity | None,
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None,
+    replay: ApprovalRecord | None = None,
 ) -> tuple[ToolAction, str]:
     """Suspend, consume the current fence, and revalidate the exact resumed call."""
-    payload = _approval_payload(action, governance, decision, approval_ref)
-    _record, created = lifecycle.begin_once(payload, action.arguments)
+    if replay is None:
+        payload = _approval_payload(action, governance, decision, approval_ref)
+        _record, created = lifecycle.begin_once(payload, action.arguments)
+    else:
+        if replay.intent.arguments != action.arguments:
+            raise ToolGovernanceError("approval replay arguments changed before delivery")
+        payload, created = dict(replay.intent.payload), False
     if created:
         _emit_decision_audit(
             audit,
@@ -635,6 +649,42 @@ def _authorize_tool_action(
     governance = require_governance_context(context)
     normalized = _require_stable_identity(action)
     _require_matching_principal(normalized, governance)
+    replay = (
+        approval_lifecycle.replay_for(_approval_action_identity(normalized, governance))
+        if type(approval_lifecycle) is SQLiteApprovalRepository
+        else None
+    )
+    if replay is not None:
+        approval_ref = normalize_identifier(replay.intent.payload.get("approval_ref"))
+        if approval_ref is None:
+            raise ToolGovernanceError("persisted approval has no resumable reference")
+        decision = ToolDecision(
+            ToolDecisionKind.REQUIRE_APPROVAL,
+            normalize_identifier(replay.intent.payload.get("reason_code")) or "policy_violation",
+            approval_ref,
+        )
+        approved, claim_token = _suspend_for_approval(
+            normalized,
+            governance,
+            decision,
+            approval_ref,
+            interrupt,
+            approval_lifecycle,
+            client,
+            unknown_side_effect,
+            audit,
+            actor,
+            prepare_edited_arguments,
+            replay,
+        )
+        return _Authorization(
+            decision,
+            approved,
+            governance,
+            approval_ref,
+            claim_token,
+            approved.arguments != normalized.arguments,
+        )
     decision = _recognized_decision(
         resolve_tool_decision(
             normalized, governance, client, unknown_side_effect=unknown_side_effect
@@ -679,11 +729,7 @@ def _authorize_tool_action(
 def _fail_authorization(
     authorization: _Authorization, lifecycle: SQLiteApprovalRepository | None
 ) -> None:
-    if (
-        lifecycle is None
-        or authorization.approval_ref is None
-        or authorization.claim_token is None
-    ):
+    if lifecycle is None or authorization.approval_ref is None or authorization.claim_token is None:
         return
     with suppress(Exception):
         lifecycle.fail(authorization.approval_ref, authorization.claim_token)
@@ -695,11 +741,7 @@ def _complete_authorization(
     audit: ToolAuditSubmitter | None,
     actor: ActorIdentity | None,
 ) -> None:
-    if (
-        lifecycle is None
-        or authorization.approval_ref is None
-        or authorization.claim_token is None
-    ):
+    if lifecycle is None or authorization.approval_ref is None or authorization.claim_token is None:
         return
     lifecycle.finish(authorization.approval_ref, authorization.claim_token)
     _emit_decision_audit(

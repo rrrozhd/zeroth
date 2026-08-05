@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import time
@@ -181,6 +182,7 @@ class SQLiteApprovalRepository:
         if ttl_seconds <= 0 or lease_seconds <= 0:
             raise ToolGovernanceError("approval deadlines must be positive")
         self._path = str(Path(path))
+        self._resume_path = f"{self._path}.resume.sqlite3"
         self._ttl = float(ttl_seconds)
         self._lease = float(lease_seconds)
         self._clock = clock
@@ -209,14 +211,46 @@ class SQLiteApprovalRepository:
             ):
                 if name not in columns:
                     connection.execute(
-                        f"ALTER TABLE langgraph_approval_lifecycle "
-                        f"ADD COLUMN {name} {declaration}"
+                        f"ALTER TABLE langgraph_approval_lifecycle ADD COLUMN {name} {declaration}"
                     )
+        with sqlite3.connect(self._resume_path) as connection:
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS langgraph_approval_resume_lock "
+                "(singleton INTEGER PRIMARY KEY CHECK (singleton = 1))"
+            )
+            connection.execute("INSERT OR IGNORE INTO langgraph_approval_resume_lock VALUES (1)")
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._path, timeout=30)
         connection.row_factory = sqlite3.Row
         return connection
+
+    def _acquire_resume_lock(self) -> sqlite3.Connection:
+        """Hold one cross-process SQLite writer fence for a graph resume."""
+        # ponytail: one writer lock serializes all threads; shard by thread only
+        # if measured approval throughput makes the safer global fence material.
+        connection = sqlite3.connect(
+            self._resume_path,
+            timeout=30,
+            isolation_level=None,
+            check_same_thread=False,
+        )
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "UPDATE langgraph_approval_resume_lock SET singleton = 1 WHERE singleton = 1"
+            )
+        except sqlite3.Error as error:
+            connection.close()
+            raise ToolGovernanceError("approval resume coordination is unavailable") from error
+        return connection
+
+    @staticmethod
+    def _release_resume_lock(connection: sqlite3.Connection) -> None:
+        try:
+            connection.rollback()
+        finally:
+            connection.close()
 
     def _intent(self, data: str, deadline: float) -> ApprovalIntent:
         value = json.loads(data)
@@ -245,6 +279,35 @@ class SQLiteApprovalRepository:
         if row is None:
             raise ToolGovernanceError("approval lifecycle record does not exist")
         return self._record(row)
+
+    def replay_for(self, identity: Mapping[str, Any]) -> ApprovalRecord | None:
+        """Return the one unresolved approval matching this replayed action."""
+        identity = _mapping(identity, "approval action identity")
+        keys = (
+            "tenant_id",
+            "principal_id",
+            "run_id",
+            "thread_id",
+            "tool_fingerprint",
+            "tool_call_id",
+            "argument_fingerprint",
+        )
+        if any(key not in identity for key in keys):
+            raise ToolGovernanceError("approval action identity is incomplete")
+        clauses = " AND ".join(f"json_extract(intent, '$.payload.{key}') IS ?" for key in keys)
+        try:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT * FROM langgraph_approval_lifecycle "
+                    "WHERE state NOT IN (?, ?, ?) "
+                    f"AND {clauses} LIMIT 2",
+                    (*_TERMINAL, *(identity[key] for key in keys)),
+                ).fetchall()
+        except sqlite3.Error as error:
+            raise ToolGovernanceError("approval replay lookup failed") from error
+        if len(rows) > 1:
+            raise ToolGovernanceError("approval replay identity is ambiguous")
+        return None if not rows else self._record(rows[0])
 
     def events(self, approval_ref: str) -> tuple[ApprovalTransition, ...]:
         """Return the durable transition history for one approval."""
@@ -326,6 +389,16 @@ class SQLiteApprovalRepository:
             (ApprovalState.EXPIRED.value, ref),
         )
         self._event(connection, ref, current.state, ApprovalState.EXPIRED, True)
+
+    def _orphan_locked(
+        self, connection: sqlite3.Connection, ref: str, current: ApprovalRecord
+    ) -> None:
+        connection.execute(
+            "UPDATE langgraph_approval_lifecycle SET state = ?, lease_deadline = NULL "
+            "WHERE approval_ref = ?",
+            (ApprovalState.ORPHANED.value, ref),
+        )
+        self._event(connection, ref, current.state, ApprovalState.ORPHANED, True)
 
     def ready(self, ref: str, checkpoint_id: str, interrupt_id: str) -> ApprovalRecord:
         checkpoint_id = _identifier(checkpoint_id, "checkpoint id")
@@ -410,15 +483,20 @@ class SQLiteApprovalRepository:
             current, now = self._record(row), self._clock()
             if current.state.value in _TERMINAL:
                 return current, False
+            if current.state is ApprovalState.RESUMING and current.claim_consumed:
+                if current.lease_deadline is not None and current.lease_deadline > now:
+                    return current, False
+                self._orphan_locked(connection, ref, current)
+                row = connection.execute(
+                    "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?",
+                    (ref,),
+                ).fetchone()
+                assert row is not None
+                return self._record(row), False
             if (
                 current.state is ApprovalState.RESUMING
-                and (
-                    current.claim_consumed
-                    or (
-                        current.lease_deadline is not None
-                        and current.lease_deadline > now
-                    )
-                )
+                and current.lease_deadline is not None
+                and current.lease_deadline > now
             ):
                 return current, False
             if current.intent.deadline <= now:
@@ -543,7 +621,7 @@ class SQLiteApprovalRepository:
         return tuple(expired)
 
     def _expire_due(self, ref: str) -> ApprovalRecord | None:
-        """Expire one still-unconsumed overdue row under the same write lock."""
+        """Terminalize one overdue request or uncertain consumed delivery."""
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -552,13 +630,17 @@ class SQLiteApprovalRepository:
             if row is None:
                 return None
             current = self._record(row)
-            if (
-                current.state.value in _TERMINAL
-                or current.claim_consumed
-                or current.intent.deadline > self._clock()
-            ):
+            now = self._clock()
+            if current.state.value in _TERMINAL:
                 return None
-            self._expire_locked(connection, ref, current)
+            if current.claim_consumed:
+                if current.lease_deadline is not None and current.lease_deadline > now:
+                    return None
+                self._orphan_locked(connection, ref, current)
+            elif current.intent.deadline <= now:
+                self._expire_locked(connection, ref, current)
+            else:
+                return None
         return self.get(ref)
 
     def consume(self, value: object) -> _ApprovalDelivery:
@@ -584,8 +666,7 @@ class SQLiteApprovalRepository:
             ):
                 raise ToolGovernanceError("approval resume does not match the current claim fence")
             connection.execute(
-                "UPDATE langgraph_approval_lifecycle SET claim_consumed = 1 "
-                "WHERE approval_ref = ?",
+                "UPDATE langgraph_approval_lifecycle SET claim_consumed = 1 WHERE approval_ref = ?",
                 (ref,),
             )
         return delivery
@@ -646,20 +727,11 @@ class ApprovalCoordinator:
                 "approval needs the governed graph's explicitly attested durable checkpointer"
             )
 
-    def _observed(
-        self,
-        record: ApprovalRecord,
-        graph: Any,
-        config: Mapping[str, Any] | None,
+    @staticmethod
+    def _snapshot_observation(
+        record: ApprovalRecord, snapshot: Any
     ) -> tuple[str | None, str | None]:
         thread = _identifier(record.intent.payload.get("thread_id"), "thread id")
-        positioned = self._config(config, thread, record.checkpoint_id)
-        try:
-            snapshot = graph.get_state(positioned)
-        except Exception:
-            raise ApprovalRequiresThreadError(
-                "approval checkpoint state is unavailable"
-            ) from None
         config = getattr(snapshot, "config", None)
         configurable = config.get("configurable") if type(config) is dict else None
         checkpoint = configurable.get("checkpoint_id") if type(configurable) is dict else None
@@ -679,6 +751,46 @@ class ApprovalCoordinator:
             checkpoint if valid and type(checkpoint) is str else None,
             interrupt_id if type(interrupt_id) is str and interrupt_id else None,
         )
+
+    def _observed(
+        self,
+        record: ApprovalRecord,
+        graph: Any,
+        config: Mapping[str, Any] | None,
+    ) -> tuple[str | None, str | None]:
+        thread = _identifier(record.intent.payload.get("thread_id"), "thread id")
+        try:
+            snapshot = graph.get_state(self._config(config, thread))
+        except Exception:
+            raise ApprovalRequiresThreadError("approval checkpoint state is unavailable") from None
+        return self._snapshot_observation(record, snapshot)
+
+    async def _aobserved(
+        self,
+        record: ApprovalRecord,
+        graph: Any,
+        config: Mapping[str, Any] | None,
+    ) -> tuple[str | None, str | None]:
+        thread = _identifier(record.intent.payload.get("thread_id"), "thread id")
+        try:
+            snapshot = await graph.aget_state(self._config(config, thread))
+        except Exception:
+            raise ApprovalRequiresThreadError("approval checkpoint state is unavailable") from None
+        return self._snapshot_observation(record, snapshot)
+
+    def _confirmed(
+        self, ref: str, checkpoint: str | None, interrupt_id: str | None
+    ) -> ApprovalRecord:
+        if checkpoint is None or interrupt_id is None:
+            self._repository.terminal(ref, ApprovalState.ORPHANED)
+            raise ToolGovernanceError("approval interrupt is not present in the original thread")
+        try:
+            return self._repository.ready(ref, checkpoint, interrupt_id)
+        except ToolGovernanceError:
+            current = self._repository.get(ref)
+            if current.state.value not in _TERMINAL:
+                self._repository.terminal(ref, ApprovalState.ORPHANED)
+            raise
 
     def confirm_checkpoint(
         self,
@@ -703,16 +815,72 @@ class ApprovalCoordinator:
         ):
             return record
         checkpoint, interrupt_id = self._observed(record, graph, config)
-        if checkpoint is None or interrupt_id is None:
-            self._repository.terminal(ref, ApprovalState.ORPHANED)
-            raise ToolGovernanceError("approval interrupt is not present in the original thread")
-        try:
-            return self._repository.ready(ref, checkpoint, interrupt_id)
-        except ToolGovernanceError:
-            current = self._repository.get(ref)
-            if current.state.value not in _TERMINAL:
-                self._repository.terminal(ref, ApprovalState.ORPHANED)
-            raise
+        return self._confirmed(ref, checkpoint, interrupt_id)
+
+    async def aconfirm_checkpoint(
+        self,
+        ref: str,
+        graph: Any,
+        *,
+        config: Mapping[str, Any] | None,
+        durable_checkpointer: Any,
+    ) -> ApprovalRecord:
+        """Async checkpoint confirmation for async-only durable savers."""
+        self._require_durable_graph(graph, durable_checkpointer)
+        record = self._repository.get(ref)
+        if (
+            record.checkpoint_id is not None
+            and record.interrupt_id is not None
+            and record.state
+            in (
+                ApprovalState.READY,
+                ApprovalState.DECIDED,
+                ApprovalState.RESUMING,
+                ApprovalState.RESOLVED,
+            )
+        ):
+            return record
+        checkpoint, interrupt_id = await self._aobserved(record, graph, config)
+        return self._confirmed(ref, checkpoint, interrupt_id)
+
+    def _claimed(self, ref: str, owner: str) -> tuple[ApprovalRecord, _ApprovalDelivery | None]:
+        claimed, acquired = self._repository._claim(ref, owner=owner)
+        if not acquired:
+            return claimed, None
+        if (
+            claimed.resolution is None
+            or claimed.claim_token is None
+            or claimed.interrupt_id is None
+            or claimed.checkpoint_id is None
+        ):
+            if claimed.claim_token is not None:
+                self._repository.fail(ref, claimed.claim_token)
+            raise ToolGovernanceError("claimed approval has no decision")
+        return claimed, _ApprovalDelivery(claimed.resolution, claimed.claim_token)
+
+    def _current_resume_config(
+        self,
+        claimed: ApprovalRecord,
+        checkpoint: str | None,
+        interrupt_id: str | None,
+        config: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        if checkpoint is None or interrupt_id != claimed.interrupt_id:
+            assert claimed.claim_token is not None
+            self._repository.fail(
+                _identifier(claimed.intent.payload.get("approval_ref"), "approval ref"),
+                claimed.claim_token,
+            )
+            raise ToolGovernanceError("approval interrupt changed before resume")
+        thread = _identifier(claimed.intent.payload.get("thread_id"), "thread id")
+        return self._config(config, thread)
+
+    def _completed(self, ref: str, claim_token: str) -> ApprovalRecord:
+        current = self._repository.get(ref)
+        if current.state is not ApprovalState.RESOLVED:
+            self._repository.fail(ref, claim_token)
+            raise ToolGovernanceError("approval resume completed without tool resolution")
+        return current
 
     def resume(
         self,
@@ -729,34 +897,58 @@ class ApprovalCoordinator:
         self._require_durable_graph(graph, durable_checkpointer)
         if record.state not in (ApprovalState.DECIDED, ApprovalState.RESUMING):
             raise ToolGovernanceError("approval is not ready to resume")
-        claimed, acquired = self._repository._claim(ref, owner=owner)
-        if not acquired:
-            return claimed
-        if (
-            claimed.resolution is None
-            or claimed.claim_token is None
-            or claimed.interrupt_id is None
-            or claimed.checkpoint_id is None
-        ):
-            if claimed.claim_token is not None:
-                self._repository.fail(ref, claimed.claim_token)
-            raise ToolGovernanceError("claimed approval has no decision")
-        checkpoint, interrupt_id = self._observed(claimed, graph, config)
-        if checkpoint != claimed.checkpoint_id or interrupt_id != claimed.interrupt_id:
-            self._repository.fail(ref, claimed.claim_token)
-            raise ToolGovernanceError("approval checkpoint changed before resume")
-        thread = _identifier(claimed.intent.payload.get("thread_id"), "thread id")
-        positioned = self._config(config, thread, claimed.checkpoint_id)
-        delivery = _ApprovalDelivery(claimed.resolution, claimed.claim_token)
+        resume_lock = self._repository._acquire_resume_lock()
         try:
-            graph.invoke(
-                _langgraph_command({claimed.interrupt_id: delivery.to_payload()}), positioned
-            )
-        except BaseException:
-            self._repository.fail(ref, claimed.claim_token)
-            raise
-        current = self._repository.get(ref)
-        if current.state is not ApprovalState.RESOLVED:
-            self._repository.fail(ref, claimed.claim_token)
-            raise ToolGovernanceError("approval resume completed without tool resolution")
-        return current
+            claimed, delivery = self._claimed(ref, owner)
+            if delivery is None:
+                return claimed
+            checkpoint, interrupt_id = self._observed(claimed, graph, config)
+            positioned = self._current_resume_config(claimed, checkpoint, interrupt_id, config)
+            assert claimed.interrupt_id is not None and claimed.claim_token is not None
+            try:
+                graph.invoke(
+                    _langgraph_command({claimed.interrupt_id: delivery.to_payload()}),
+                    positioned,
+                )
+            except BaseException:
+                self._repository.fail(ref, claimed.claim_token)
+                raise
+            return self._completed(ref, claimed.claim_token)
+        finally:
+            self._repository._release_resume_lock(resume_lock)
+
+    async def aresume(
+        self,
+        ref: str,
+        graph: Any,
+        *,
+        owner: str,
+        config: Mapping[str, Any] | None,
+        durable_checkpointer: Any,
+    ) -> ApprovalRecord:
+        """Async resume with the same durable fencing as :meth:`resume`."""
+        record = self._repository.get(ref)
+        if record.state.value in _TERMINAL:
+            return record
+        self._require_durable_graph(graph, durable_checkpointer)
+        if record.state not in (ApprovalState.DECIDED, ApprovalState.RESUMING):
+            raise ToolGovernanceError("approval is not ready to resume")
+        resume_lock = await asyncio.to_thread(self._repository._acquire_resume_lock)
+        try:
+            claimed, delivery = self._claimed(ref, owner)
+            if delivery is None:
+                return claimed
+            checkpoint, interrupt_id = await self._aobserved(claimed, graph, config)
+            positioned = self._current_resume_config(claimed, checkpoint, interrupt_id, config)
+            assert claimed.interrupt_id is not None and claimed.claim_token is not None
+            try:
+                await graph.ainvoke(
+                    _langgraph_command({claimed.interrupt_id: delivery.to_payload()}),
+                    positioned,
+                )
+            except BaseException:
+                self._repository.fail(ref, claimed.claim_token)
+                raise
+            return self._completed(ref, claimed.claim_token)
+        finally:
+            self._repository._release_resume_lock(resume_lock)

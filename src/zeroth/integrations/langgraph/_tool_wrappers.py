@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, get_args, get_origin
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, InjectedToolCallId
 from pydantic import BaseModel, Field, PrivateAttr, create_model
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
@@ -1801,7 +1801,10 @@ def _callable_facts(plan: _CallablePlan) -> _ToolFacts:
 
 
 def _governed_action(
-    plan: _GovernedPlan | _CallablePlan, arguments: Mapping[str, Any]
+    plan: _GovernedPlan | _CallablePlan,
+    arguments: Mapping[str, Any],
+    *,
+    tool_call_id: str | None = None,
 ) -> tuple[ToolAction, object, _ToolFacts]:
     """Snapshot the tool, decide about the snapshot, and hand it back to be executed.
 
@@ -1818,6 +1821,7 @@ def _governed_action(
     Args:
         plan: The wrapper's pinned identity and live seams.
         arguments: The named call arguments.
+        tool_call_id: The stable framework-injected call identity, when present.
 
     Returns:
         The normalized action, the governance context it was attributed to, and
@@ -1846,7 +1850,7 @@ def _governed_action(
         side_effect=plan.binding.side_effect,
         capability_refs=plan.binding.capability_refs,
         requires_approval=plan.binding.requires_approval,
-        tool_call_id=plan.seams.tool_call_id,
+        tool_call_id=plan.seams.tool_call_id if tool_call_id is None else tool_call_id,
     )
     if action.identity != plan.binding.identity:
         raise UnstableToolIdentityError("the governed tool binding is inconsistent")
@@ -1886,6 +1890,37 @@ class _PinnedToolInput:
 
     def _parse_input(self, tool_input: Any, tool_call_id: str | None) -> Any:
         return BaseTool._parse_input(self, tool_input, tool_call_id)  # type: ignore[arg-type]
+
+
+def _injected_tool_call_id(plan: _GovernedPlan, arguments: Mapping[str, Any]) -> str | None:
+    """Recover the call ID that native BaseTool parsing injected into this call."""
+    schema = plan.facts.args_schema
+    if not isinstance(schema, type):
+        return plan.seams.tool_call_id
+    namespace = type.__dict__["__dict__"].__get__(schema)
+    fields = namespace.get("__pydantic_fields__")
+    if type(fields) is not dict:
+        return plan.seams.tool_call_id
+    names = []
+    for name, field in fields.items():
+        metadata = object.__getattribute__(field, "metadata")
+        if (
+            type(name) is str
+            and type(metadata) is list
+            and any(item is InjectedToolCallId for item in metadata)
+        ):
+            names.append(name)
+    if not names:
+        return plan.seams.tool_call_id
+    values = [arguments.get(name) for name in names]
+    if any(type(value) is not str for value in values):
+        raise ToolGovernanceError("injected tool-call identity is unavailable")
+    if any(value != values[0] for value in values[1:]):
+        raise ToolGovernanceError("injected tool-call identity is inconsistent")
+    value = values[0]
+    if normalize_identifier(value) != value:
+        raise ToolGovernanceError("injected tool-call identity is unavailable")
+    return value
 
 
 def _validated_base_tool_edit(
@@ -1997,7 +2032,12 @@ class GovernedTool(BaseTool):
     def _run(self, *args: Any, **kwargs: Any) -> Any:
         """Govern this call, then execute its frozen sync body directly."""
         plan = self._plan()
-        action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
+        arguments = _call_arguments(args, kwargs)
+        action, context, facts = _governed_action(
+            plan,
+            arguments,
+            tool_call_id=_injected_tool_call_id(plan, arguments),
+        )
         return guard_tool_call(
             action,
             context,
@@ -2005,16 +2045,19 @@ class GovernedTool(BaseTool):
             invoke_with_arguments=lambda edited: execute_snapshot(
                 facts.snapshot, (), _edited_kwargs(edited)
             ),
-            prepare_edited_arguments=lambda edited: _validated_base_tool_edit(
-                plan, action, edited
-            ),
+            prepare_edited_arguments=lambda edited: _validated_base_tool_edit(plan, action, edited),
             **_enforcement_seams(plan),
         )
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """Govern this call, then execute its frozen async body directly."""
         plan = self._plan()
-        action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
+        arguments = _call_arguments(args, kwargs)
+        action, context, facts = _governed_action(
+            plan,
+            arguments,
+            tool_call_id=_injected_tool_call_id(plan, arguments),
+        )
 
         async def execute() -> Any:
             return await aexecute_snapshot(facts.snapshot, args, kwargs)
@@ -2027,9 +2070,7 @@ class GovernedTool(BaseTool):
             context,
             execute,
             invoke_with_arguments=execute_edited,
-            prepare_edited_arguments=lambda edited: _validated_base_tool_edit(
-                plan, action, edited
-            ),
+            prepare_edited_arguments=lambda edited: _validated_base_tool_edit(plan, action, edited),
             **_enforcement_seams(plan),
         )
 
