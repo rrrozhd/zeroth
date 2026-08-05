@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.10] - 2026-08-05
+
+### Fixed
+
+- Preserve exact JSON scalar types across edited LangGraph approval execution
+  and conflicting decision fences.
+- Reject finite-number overflow before persisting approval or lease deadlines.
+
 ## [0.16.0.9] - 2026-08-05
 
 ### Fixed

@@ -650,6 +650,28 @@ def test_non_finite_clock_cannot_persist_an_approval_across_restart(
         reopened.get("approval-7")
 
 
+def test_large_finite_request_deadline_overflow_cannot_persist_across_restart(
+    tmp_path: Any,
+) -> None:
+    path = tmp_path / "approvals.sqlite3"
+    repository = SQLiteApprovalRepository(path, ttl_seconds=1e308, clock=lambda: 1e308)
+
+    with pytest.raises(ToolGovernanceError, match="deadline.*finite"):
+        guard_tool_call(
+            ACTION,
+            CONTEXT,
+            lambda: pytest.fail("tool ran before approval"),
+            client=SequencedClient(),
+            interrupt=Pause(),
+            approval_lifecycle=repository,
+        )
+
+    reopened = SQLiteApprovalRepository(path)
+    assert reopened.pending() == ()
+    with pytest.raises(ToolGovernanceError, match="does not exist"):
+        reopened.get("approval-7")
+
+
 @pytest.mark.parametrize(
     "value",
     [float("nan"), float("inf"), float("-inf")],
@@ -670,6 +692,32 @@ def test_restart_reconciliation_rejects_non_finite_clock_without_mutation(
     due = SQLiteApprovalRepository(path, clock=lambda: 16.0)
     [expired] = due.expire_due()
     assert expired.state is ApprovalState.EXPIRED
+
+
+def test_large_finite_lease_overflow_is_rejected_before_restart_reconciliation(
+    tmp_path: Any,
+) -> None:
+    path = tmp_path / "approvals.sqlite3"
+    repository = SQLiteApprovalRepository(
+        path, ttl_seconds=1.7e308, lease_seconds=1, clock=lambda: 0.0
+    )
+    _request(repository, SequencedClient(), Pause())
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+
+    overflowing = SQLiteApprovalRepository(path, lease_seconds=1e308, clock=lambda: 1e308)
+    with pytest.raises(ToolGovernanceError, match="lease deadline.*finite"):
+        overflowing.claim("approval-7", owner="worker")
+
+    recovered = SQLiteApprovalRepository(path, lease_seconds=1, clock=lambda: 1.0)
+    assert recovered.expire_due() == ()
+    unchanged = recovered.get("approval-7")
+    assert unchanged.state is ApprovalState.DECIDED
+    assert unchanged.owner is None
+    assert unchanged.lease_deadline is None
+    claimed = recovered.claim("approval-7", owner="replacement-worker")
+    assert claimed.state is ApprovalState.RESUMING
+    assert claimed.lease_deadline == 2.0
 
 
 def test_expire_due_selects_an_expired_consumed_lease_before_non_due_backlog(
@@ -758,6 +806,67 @@ def test_idempotent_begin_decision_and_claim_do_not_duplicate_work(tmp_path: Any
     )
     assert repository.get("approval-7").state is ApprovalState.RESOLVED
     assert len(graph.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("accepted", "conflicting"),
+    [(True, 1), (1, 1.0), (1.0, True)],
+    ids=("bool-vs-int", "int-vs-float", "float-vs-bool"),
+)
+def test_type_distinct_conflicting_decisions_are_refused_and_audited(
+    tmp_path: Any,
+    accepted: bool | int | float,
+    conflicting: bool | int | float,
+) -> None:
+    repository, _coordinator, _graph, _policy = _ready(tmp_path)
+    repository.decide(
+        ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {"value": accepted})
+    )
+    event_count = len(repository.events("approval-7"))
+
+    with pytest.raises(ToolGovernanceError, match="cannot accept"):
+        repository.decide(
+            ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {"value": conflicting})
+        )
+
+    current = repository.get("approval-7")
+    assert current.resolution is not None and current.resolution.arguments is not None
+    assert type(current.resolution.arguments["value"]) is type(accepted)
+    assert len(repository.events("approval-7")) == event_count + 1
+    refused = repository.events("approval-7")[-1]
+    assert not refused.accepted and refused.to_state is ApprovalState.DECIDED
+
+
+@pytest.mark.parametrize(
+    ("accepted", "conflicting"),
+    [(True, 1), (1, 1.0), (1.0, True)],
+    ids=("bool-vs-int", "int-vs-float", "float-vs-bool"),
+)
+def test_consume_refuses_a_type_distinct_conflicting_resolution(
+    tmp_path: Any,
+    accepted: bool | int | float,
+    conflicting: bool | int | float,
+) -> None:
+    repository, _coordinator, _graph, _policy = _ready(tmp_path)
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {"value": accepted})
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+
+    with pytest.raises(ToolGovernanceError, match="claim fence"):
+        repository.consume(
+            {
+                **ApprovalResolution(
+                    "approval-7", ApprovalDecision.APPROVE, {"value": conflicting}
+                ).to_payload(),
+                "claim_token": claimed.claim_token,
+            }
+        )
+
+    current = repository.get("approval-7")
+    assert current.state is ApprovalState.RESUMING
+    assert not current.claim_consumed
+    assert current.resolution is not None and current.resolution.arguments is not None
+    assert type(current.resolution.arguments["value"]) is type(accepted)
 
 
 def test_concurrent_first_delivery_returns_one_canonical_active_approval(tmp_path: Any) -> None:
@@ -873,6 +982,77 @@ def test_revalidation_uses_edited_arguments_and_fresh_deny_wins(
     assert repository.get("approval-7").state is ApprovalState.RESOLVED
     if resolution.arguments is not None:
         assert policy.actions[-1] == dict(resolution.arguments)
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize(
+    ("original", "edited"),
+    [(True, 1), (1, 1.0), (1.0, True)],
+    ids=("bool-to-int", "int-to-float", "float-to-bool"),
+)
+def test_revalidation_executes_type_distinct_equal_edited_arguments(
+    tmp_path: Any, async_mode: bool, original: bool | int | float, edited: bool | int | float
+) -> None:
+    action = normalize_tool_action(
+        name="typed_edit",
+        arguments={"value": original},
+        context=CONTEXT,
+        side_effect=SideEffectClass.SIDE_EFFECTING,
+        tool_call_id="call-typed-edit",
+    )
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    policy = SequencedClient()
+    pause = Pause()
+    with pytest.raises(SuspendedError):
+        guard_tool_call(
+            action,
+            CONTEXT,
+            lambda: pytest.fail("tool ran before approval"),
+            client=policy,
+            interrupt=pause,
+            approval_lifecycle=repository,
+        )
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {"value": edited})
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
+    executed: list[tuple[str, bool | int | float]] = []
+
+    if async_mode:
+
+        async def execute_original() -> None:
+            executed.append(("original", original))
+
+        async def execute_edited(arguments: Mapping[str, Any]) -> None:
+            executed.append(("edited", arguments["value"]))
+
+        asyncio.run(
+            aguard_tool_call(
+                action,
+                CONTEXT,
+                execute_original,
+                client=policy,
+                interrupt=lambda _payload: delivery,
+                approval_lifecycle=repository,
+                invoke_with_arguments=execute_edited,
+            )
+        )
+    else:
+        guard_tool_call(
+            action,
+            CONTEXT,
+            lambda: executed.append(("original", original)),
+            client=policy,
+            interrupt=lambda _payload: delivery,
+            approval_lifecycle=repository,
+            invoke_with_arguments=lambda arguments: executed.append(("edited", arguments["value"])),
+        )
+
+    assert executed == [("edited", edited)]
+    assert type(executed[0][1]) is type(edited)
+    assert type(policy.actions[-1]["value"]) is type(edited)
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
 
 
 def test_restart_after_resume_claim_inspects_checkpoint_before_retry(tmp_path: Any) -> None:
