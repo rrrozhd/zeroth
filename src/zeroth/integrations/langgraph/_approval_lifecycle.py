@@ -22,6 +22,8 @@ from zeroth.integrations.langgraph._tool_errors import (
 _VERSION = 1
 _RESOLUTION_KIND = "tool_approval_resolution"
 _TERMINAL = ("resolved", "expired", "orphaned")
+_CHECKPOINT_POSITION_KEYS = ("checkpoint_id", "checkpoint_ns", "checkpoint_map")
+_EFFECTIVE_CHECKPOINTER = "__pregel_checkpointer"
 _IDENTITY_FIELDS = (
     "tenant_id",
     "principal_id",
@@ -769,15 +771,24 @@ class ApprovalCoordinator:
         if not isinstance(configurable, Mapping):
             raise ApprovalRequiresThreadError("approval resume configurable must be a mapping")
         positioned = {**configurable, "thread_id": thread_id}
+        for key in (*_CHECKPOINT_POSITION_KEYS, _EFFECTIVE_CHECKPOINTER):
+            positioned.pop(key, None)
         if checkpoint_id is not None:
             positioned["checkpoint_id"] = checkpoint_id
-        else:
-            positioned.pop("checkpoint_id", None)
         copied["configurable"] = positioned
         return copied
 
     @staticmethod
-    def _require_durable_graph(graph: Any, durable_checkpointer: Any) -> None:
+    def _require_durable_graph(
+        graph: Any,
+        durable_checkpointer: Any,
+        config: Mapping[str, Any] | None,
+    ) -> Any:
+        if config is not None and not isinstance(config, Mapping):
+            raise ApprovalRequiresThreadError("approval resume config must be a mapping")
+        configurable = (config or {}).get("configurable", {})
+        if not isinstance(configurable, Mapping):
+            raise ApprovalRequiresThreadError("approval resume configurable must be a mapping")
         try:
             from langgraph.checkpoint.base import BaseCheckpointSaver
             from langgraph.checkpoint.memory import InMemorySaver
@@ -785,19 +796,32 @@ class ApprovalCoordinator:
             from zeroth.integrations.langgraph._wrapper import GovernedGraph
 
             actual = graph.checkpointer
+            bound = graph._bound_config or {}
+            bound_configurable = bound.get("configurable", {})
         except Exception:
             raise ApprovalRequiresThreadError(
                 "approval needs an inspectable durable LangGraph checkpointer"
             ) from None
+        if not isinstance(bound, Mapping) or not isinstance(bound_configurable, Mapping):
+            raise ApprovalRequiresThreadError("approval resume configurable must be a mapping")
+        effective = bound_configurable.get(_EFFECTIVE_CHECKPOINTER, actual)
+        if _EFFECTIVE_CHECKPOINTER in configurable:
+            effective = configurable[_EFFECTIVE_CHECKPOINTER]
         if (
             not isinstance(graph, GovernedGraph)
             or not isinstance(durable_checkpointer, BaseCheckpointSaver)
             or isinstance(durable_checkpointer, InMemorySaver)
             or actual is not durable_checkpointer
+            or effective is not actual
         ):
             raise ApprovalRequiresThreadError(
                 "approval needs the governed graph's explicitly attested durable checkpointer"
             )
+        if _EFFECTIVE_CHECKPOINTER in bound_configurable:
+            cleaned = dict(bound_configurable)
+            cleaned.pop(_EFFECTIVE_CHECKPOINTER)
+            graph = graph.with_config({"configurable": cleaned})
+        return graph
 
     @staticmethod
     def _snapshot_observation(
@@ -872,7 +896,7 @@ class ApprovalCoordinator:
         config: Mapping[str, Any] | None,
         durable_checkpointer: Any,
     ) -> ApprovalRecord:
-        self._require_durable_graph(graph, durable_checkpointer)
+        graph = self._require_durable_graph(graph, durable_checkpointer, config)
         record = self._repository.get(ref)
         if (
             record.checkpoint_id is not None
@@ -898,7 +922,7 @@ class ApprovalCoordinator:
         durable_checkpointer: Any,
     ) -> ApprovalRecord:
         """Async checkpoint confirmation for async-only durable savers."""
-        self._require_durable_graph(graph, durable_checkpointer)
+        graph = self._require_durable_graph(graph, durable_checkpointer, config)
         record = self._repository.get(ref)
         if (
             record.checkpoint_id is not None
@@ -978,7 +1002,7 @@ class ApprovalCoordinator:
         record = self._repository.get(ref)
         if record.state.value in _TERMINAL:
             return record
-        self._require_durable_graph(graph, durable_checkpointer)
+        graph = self._require_durable_graph(graph, durable_checkpointer, config)
         if record.state not in (ApprovalState.DECIDED, ApprovalState.RESUMING):
             raise ToolGovernanceError("approval is not ready to resume")
         resume_lock = self._repository._acquire_resume_lock()
@@ -1016,7 +1040,7 @@ class ApprovalCoordinator:
         record = self._repository.get(ref)
         if record.state.value in _TERMINAL:
             return record
-        self._require_durable_graph(graph, durable_checkpointer)
+        graph = self._require_durable_graph(graph, durable_checkpointer, config)
         if record.state not in (ApprovalState.DECIDED, ApprovalState.RESUMING):
             raise ToolGovernanceError("approval is not ready to resume")
         resume_lock = await asyncio.to_thread(self._repository._acquire_resume_lock)

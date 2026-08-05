@@ -580,9 +580,7 @@ def test_existing_lifecycle_schema_is_migrated_without_replacement(tmp_path: Any
         columns = {
             row[1] for row in connection.execute("PRAGMA table_info(langgraph_approval_lifecycle)")
         }
-        indexes = connection.execute(
-            "PRAGMA index_list(langgraph_approval_lifecycle)"
-        ).fetchall()
+        indexes = connection.execute("PRAGMA index_list(langgraph_approval_lifecycle)").fetchall()
     assert {"interrupt_id", "claim_token", "claim_consumed"} <= columns
     assert any(row[1] == "langgraph_approval_active_identity" and row[2] for row in indexes)
     assert repository.get("approval-old-1").state is ApprovalState.AWAITING_CHECKPOINT
@@ -712,9 +710,7 @@ def test_concurrent_first_delivery_returns_one_canonical_active_approval(tmp_pat
     class RacingClient:
         approval_ref: str
 
-        def decide(
-            self, requested: ToolAction, context: ToolGovernanceContext
-        ) -> ToolDecision:
+        def decide(self, requested: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
             del requested, context
             barrier.wait(timeout=2)
             return ToolDecision(
@@ -975,6 +971,7 @@ def test_coordinator_resume_discards_only_the_bound_checkpoint(
         {
             "configurable": {
                 "thread_id": "thread-1",
+                "__pregel_checkpointer": graph.checkpointer,
                 "checkpoint_id": "bound-stale",
                 "checkpoint_ns": "bound|stale",
                 "checkpoint_map": {"bound|stale": "bound-stale"},
@@ -985,6 +982,7 @@ def test_coordinator_resume_discards_only_the_bound_checkpoint(
     fresh = {
         "configurable": {
             "thread_id": "attacker-thread",
+            "__pregel_checkpointer": graph.checkpointer,
             "checkpoint_ns": "caller|stale",
             "checkpoint_map": {"caller|stale": "caller-stale"},
             "_zeroth": "fresh-token",
@@ -1157,6 +1155,141 @@ def test_real_parallel_interrupt_resume_ignores_a_bound_stale_checkpoint(
     completed = asyncio.run(graph.aget_state(config)) if async_mode else graph.get_state(config)
     assert completed.next == ()
     assert completed.values["done"] == ["tool_a", "tool_b"]
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+def test_real_effective_checkpointer_override_fails_closed_before_execution(
+    tmp_path: Any, async_mode: bool
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    durable = PersistentSaver(tmp_path / "durable-checkpoints.bin")
+    override = InMemorySaver()
+    executed: list[str] = []
+    graph = govern_graph(
+        _parallel_builder(repository, PerToolApprovalClient(), executed).compile(
+            checkpointer=durable
+        )
+    )
+    config = {
+        "configurable": {
+            "thread_id": "thread-1",
+            "__pregel_checkpointer": override,
+        }
+    }
+
+    if async_mode:
+        asyncio.run(graph.ainvoke({"done": []}, config))
+    else:
+        graph.invoke({"done": []}, config)
+
+    coordinator = ApprovalCoordinator(repository)
+    with pytest.raises(ApprovalRequiresThreadError):
+        if async_mode:
+            asyncio.run(
+                coordinator.aconfirm_checkpoint(
+                    "approval-tool_a",
+                    graph,
+                    config=config,
+                    durable_checkpointer=durable,
+                )
+            )
+        else:
+            coordinator.confirm_checkpoint(
+                "approval-tool_a",
+                graph,
+                config=config,
+                durable_checkpointer=durable,
+            )
+
+    assert executed == []
+    assert repository.get("approval-tool_a").state is ApprovalState.AWAITING_CHECKPOINT
+    assert durable.get_tuple({"configurable": {"thread_id": "thread-1"}}) is None
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+def test_real_nested_resume_ignores_stale_observation_coordinates(
+    tmp_path: Any, async_mode: bool
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    saver_path = tmp_path / "checkpoints.bin"
+    saver = AsyncOnlyPersistentSaver(saver_path) if async_mode else PersistentSaver(saver_path)
+    policy = PerToolApprovalClient()
+    executed: list[str] = []
+    action = normalize_tool_action(
+        name="nested_tool",
+        arguments={"record": "nested"},
+        context=CONTEXT,
+        side_effect=SideEffectClass.SIDE_EFFECTING,
+        tool_call_id="call-nested",
+    )
+
+    def run(_state: ParallelState) -> ParallelState:
+        guard_tool_call(
+            action,
+            CONTEXT,
+            lambda: executed.append("nested"),
+            client=policy,
+            approval_lifecycle=repository,
+        )
+        return {"done": ["nested"]}
+
+    child = StateGraph(ParallelState)
+    child.add_node("nested_tool", run)
+    child.add_edge(START, "nested_tool")
+    child.add_edge("nested_tool", END)
+    parent = StateGraph(ParallelState)
+    parent.add_node("child", child.compile())
+    parent.add_edge(START, "child")
+    parent.add_edge("child", END)
+    graph = govern_graph(parent.compile(checkpointer=saver))
+    config = {"configurable": {"thread_id": "thread-1"}}
+
+    if async_mode:
+        asyncio.run(graph.ainvoke({"done": []}, config))
+    else:
+        graph.invoke({"done": []}, config)
+
+    stale = {
+        "configurable": {
+            "thread_id": "attacker-thread",
+            "checkpoint_id": "stale-checkpoint",
+            "checkpoint_ns": "child",
+            "checkpoint_map": {"child": "stale-checkpoint"},
+        }
+    }
+    coordinator = ApprovalCoordinator(repository)
+    if async_mode:
+        asyncio.run(
+            coordinator.aconfirm_checkpoint(
+                "approval-nested_tool", graph, config=stale, durable_checkpointer=saver
+            )
+        )
+    else:
+        coordinator.confirm_checkpoint(
+            "approval-nested_tool", graph, config=stale, durable_checkpointer=saver
+        )
+    repository.decide(ApprovalResolution("approval-nested_tool", ApprovalDecision.APPROVE))
+    if async_mode:
+        asyncio.run(
+            coordinator.aresume(
+                "approval-nested_tool",
+                graph,
+                owner="worker-1",
+                config=stale,
+                durable_checkpointer=saver,
+            )
+        )
+    else:
+        coordinator.resume(
+            "approval-nested_tool",
+            graph,
+            owner="worker-1",
+            config=stale,
+            durable_checkpointer=saver,
+        )
+
+    assert executed == ["nested"]
+    assert repository.get("approval-nested_tool").state is ApprovalState.RESOLVED
 
 
 @pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
