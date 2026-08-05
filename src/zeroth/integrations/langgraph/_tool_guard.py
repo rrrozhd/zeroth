@@ -556,7 +556,9 @@ def _suspend_for_approval(
     else:
         replay_ref = normalize_identifier(replay.intent.payload.get("approval_ref"))
         resume_ref = None if resume_claim is None else resume_claim[0]
-        if replay_ref != resume_ref and replay.intent.arguments != action.arguments:
+        if replay_ref != resume_ref and argument_fingerprint(
+            replay.intent.arguments
+        ) != argument_fingerprint(action.arguments):
             raise ToolGovernanceError("approval replay arguments changed before delivery")
         payload, created = dict(replay.intent.payload), False
     if created:
