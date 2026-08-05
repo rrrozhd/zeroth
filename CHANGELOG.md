@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.15.0.0.1] - 2026-08-04
+
+### Fixed
+
+- Regenerate the console API contracts (`frontend/openapi.json`,
+  `frontend/app/lib/api-types.ts`) that had gone stale when the six
+  `/v1/enforcement/*` routes landed; the docs workflow's drift gate caught the
+  mismatch.
+
+### Documentation
+
+- Remove internal specification references from the changelog and the backend
+  import-migration guide.
+
 ## [0.15] - 2026-07-31
 
 ### Added
